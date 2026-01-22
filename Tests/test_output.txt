@@ -1,0 +1,841 @@
+====================================================
+Javascript4D - Test Suite (Win64)
+====================================================
+
+[1/3] Cleaning up old artifacts...
+
+[2/3] Building tests...
+
+Embarcadero Delphi for Win64 compiler version 37.0
+Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+C:\dev\Javascript4D\Source\Core\JS4D.Types.pas(847) Hint: H2443 Inline function 'TTimeZone.GetUtcOffset' has not been expanded because unit 'System.TimeSpan' is not specified in USES list
+C:\dev\Javascript4D\Source\Parser\JS4D.Parser.pas(22) Hint: H2219 Private symbol 'PeekToken' declared but never used
+C:\dev\Javascript4D\Source\Runtime\JS4D.Interpreter.pas(614) Hint: H2077 Value assigned to 'TJSInterpreter.VisitTryStatement' never used
+36028 lines, 0.80 seconds, 4221104 bytes code, 482064 bytes data.
+Test build successful
+
+[3/3] Running tests...
+
+**********************************************************************
+*        DUnitX - (c) 2015-2026 Vincent Parrett & Contributors       *
+*                                                                    *
+*        License - http://www.apache.org/licenses/LICENSE-2.0        *
+**********************************************************************
+
+DUnitX - [JS4D.Tests.exe] - Starting Tests.
+
+.[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: arr (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: [ (type 11)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Date (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: d (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Date (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Date (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: d (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: e (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: try (type 75)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: try (type 75)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: ( (type 7)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: ( (type 7)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: parseInt (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: parseInt (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: parseFloat (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: isNaN (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: isNaN (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: isFinite (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: isFinite (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Array (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: Array (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: JSON (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: JSON (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: JSON (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: parsed (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: parsed (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: Object (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: Object (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: Object (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: Object (type 1)
+[PARSER] Finished parsing 2 statements
+[PARSER] Parsing statement 1, current token: target (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: / (type 20)
+[RESCAN] Called, FCurrentIndex=0, FTokens.Count=9
+[RESCAN] CurrentTok: Type=20, Value="/", SourcePosition=1
+[RESCAN] Set FPosition=1, scanning regex from source position
+[RESCAN] ScanRegExp returned: Type=6, Value="hello/"
+[RESCAN] Success, FCurrentIndex now=1, FTokens.Count=6
+[RESCAN] Token list after rescan:
+[RESCAN]   [0] Type=6 Value="hello/"
+[RESCAN]   [1] Type=16 Value="."
+[RESCAN]   [2] Type=1 Value="test"
+[RESCAN]   [3] Type=7 Value="("
+[RESCAN]   [4] Type=3 Value="hello world"
+[RESCAN]   [5] Type=8 Value=")"
+[PARSER] Parsing statement 2, current token: ) (type 8)
+E.[PARSER] Parsing statement 1, current token: / (type 20)
+[RESCAN] Called, FCurrentIndex=0, FTokens.Count=9
+[RESCAN] CurrentTok: Type=20, Value="/", SourcePosition=1
+[RESCAN] Set FPosition=1, scanning regex from source position
+[RESCAN] ScanRegExp returned: Type=6, Value="xyz/"
+[RESCAN] Success, FCurrentIndex now=1, FTokens.Count=6
+[RESCAN] Token list after rescan:
+[RESCAN]   [0] Type=6 Value="xyz/"
+[RESCAN]   [1] Type=16 Value="."
+[RESCAN]   [2] Type=1 Value="test"
+[RESCAN]   [3] Type=7 Value="("
+[RESCAN]   [4] Type=3 Value="hello world"
+[RESCAN]   [5] Type=8 Value=")"
+[PARSER] Parsing statement 2, current token: ) (type 8)
+E.E.[PARSER] Parsing statement 1, current token: / (type 20)
+[RESCAN] Called, FCurrentIndex=0, FTokens.Count=9
+[RESCAN] CurrentTok: Type=20, Value="/", SourcePosition=1
+[RESCAN] Set FPosition=1, scanning regex from source position
+[RESCAN] ScanRegExp returned: Type=6, Value="xyz/"
+[RESCAN] Success, FCurrentIndex now=1, FTokens.Count=6
+[RESCAN] Token list after rescan:
+[RESCAN]   [0] Type=6 Value="xyz/"
+[RESCAN]   [1] Type=16 Value="."
+[RESCAN]   [2] Type=1 Value="exec"
+[RESCAN]   [3] Type=7 Value="("
+[RESCAN]   [4] Type=3 Value="hello"
+[RESCAN]   [5] Type=8 Value=")"
+[PARSER] Parsing statement 2, current token: ) (type 8)
+E.[PARSER] Parsing statement 1, current token: / (type 20)
+[RESCAN] Called, FCurrentIndex=0, FTokens.Count=10
+[RESCAN] CurrentTok: Type=20, Value="/", SourcePosition=1
+[RESCAN] Set FPosition=1, scanning regex from source position
+[RESCAN] ScanRegExp returned: Type=6, Value="HELLO/i"
+[RESCAN] Success, FCurrentIndex now=1, FTokens.Count=6
+[RESCAN] Token list after rescan:
+[RESCAN]   [0] Type=6 Value="HELLO/i"
+[RESCAN]   [1] Type=16 Value="."
+[RESCAN]   [2] Type=1 Value="test"
+[RESCAN]   [3] Type=7 Value="("
+[RESCAN]   [4] Type=3 Value="hello"
+[RESCAN]   [5] Type=8 Value=")"
+[PARSER] Parsing statement 2, current token: ) (type 8)
+E.[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[RESCAN] Called, FCurrentIndex=8, FTokens.Count=19
+[RESCAN] CurrentTok: Type=22, Value="=", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.E.[PARSER] Parsing statement 1, current token: hello (type 3)
+[RESCAN] Called, FCurrentIndex=4, FTokens.Count=9
+[RESCAN] CurrentTok: Type=7, Value="(", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: hello world (type 3)
+[RESCAN] Called, FCurrentIndex=4, FTokens.Count=11
+[RESCAN] CurrentTok: Type=7, Value="(", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: cat bat rat (type 3)
+[RESCAN] Called, FCurrentIndex=4, FTokens.Count=12
+[RESCAN] CurrentTok: Type=7, Value="(", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: hello world (type 3)
+[RESCAN] Called, FCurrentIndex=4, FTokens.Count=9
+[RESCAN] CurrentTok: Type=7, Value="(", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: hello (type 3)
+[RESCAN] Called, FCurrentIndex=4, FTokens.Count=9
+[RESCAN] CurrentTok: Type=7, Value="(", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.E.[PARSER] Parsing statement 1, current token: / (type 20)
+[RESCAN] Called, FCurrentIndex=0, FTokens.Count=6
+[RESCAN] CurrentTok: Type=20, Value="/", SourcePosition=1
+[RESCAN] Set FPosition=1, scanning regex from source position
+[RESCAN] ScanRegExp returned: Type=6, Value="hello/"
+[RESCAN] Success, FCurrentIndex now=1, FTokens.Count=3
+[RESCAN] Token list after rescan:
+[RESCAN]   [0] Type=6 Value="hello/"
+[RESCAN]   [1] Type=16 Value="."
+[RESCAN]   [2] Type=1 Value="source"
+[PARSER] Parsing statement 2, current token: source (type 1)
+[PARSER] Parsing statement 3, current token: source (type 1)
+[PARSER] Parsing statement 4, current token: source (type 1)
+[PARSER] Parsing statement 5, current token: source (type 1)
+[PARSER] Parsing statement 6, current token: source (type 1)
+[PARSER] Parsing statement 7, current token: source (type 1)
+[PARSER] Parsing statement 8, current token: source (type 1)
+[PARSER] Parsing statement 9, current token: source (type 1)
+[PARSER] Parsing statement 10, current token: source (type 1)
+[PARSER] Parsing statement 11, current token: source (type 1)
+[PARSER] Parsing statement 12, current token: source (type 1)
+[PARSER] Parsing statement 13, current token: source (type 1)
+[PARSER] Parsing statement 14, current token: source (type 1)
+[PARSER] Parsing statement 15, current token: source (type 1)
+[PARSER] Parsing statement 16, current token: source (type 1)
+[PARSER] Parsing statement 17, current token: source (type 1)
+[PARSER] Parsing statement 18, current token: source (type 1)
+[PARSER] Parsing statement 19, current token: source (type 1)
+[PARSER] Parsing statement 20, current token: source (type 1)
+[PARSER] Parsing statement 21, current token: source (type 1)
+[PARSER] Parsing statement 22, current token: source (type 1)
+[PARSER] Parsing statement 23, current token: source (type 1)
+[PARSER] Parsing statement 24, current token: source (type 1)
+[PARSER] Parsing statement 25, current token: source (type 1)
+[PARSER] Parsing statement 26, current token: source (type 1)
+[PARSER] Parsing statement 27, current token: source (type 1)
+[PARSER] Parsing statement 28, current token: source (type 1)
+[PARSER] Parsing statement 29, current token: source (type 1)
+[PARSER] Parsing statement 30, current token: source (type 1)
+[PARSER] Parsing statement 31, current token: source (type 1)
+[PARSER] Parsing statement 32, current token: source (type 1)
+[PARSER] Parsing statement 33, current token: source (type 1)
+[PARSER] Parsing statement 34, current token: source (type 1)
+[PARSER] Parsing statement 35, current token: source (type 1)
+[PARSER] Parsing statement 36, current token: source (type 1)
+[PARSER] Parsing statement 37, current token: source (type 1)
+[PARSER] Parsing statement 38, current token: source (type 1)
+[PARSER] Parsing statement 39, current token: source (type 1)
+[PARSER] Parsing statement 40, current token: source (type 1)
+[PARSER] Parsing statement 41, current token: source (type 1)
+[PARSER] Parsing statement 42, current token: source (type 1)
+[PARSER] Parsing statement 43, current token: source (type 1)
+[PARSER] Parsing statement 44, current token: source (type 1)
+[PARSER] Parsing statement 45, current token: source (type 1)
+[PARSER] Parsing statement 46, current token: source (type 1)
+[PARSER] Parsing statement 47, current token: source (type 1)
+[PARSER] Parsing statement 48, current token: source (type 1)
+[PARSER] Parsing statement 49, current token: source (type 1)
+[PARSER] Parsing statement 50, current token: source (type 1)
+[PARSER] Parsing statement 51, current token: source (type 1)
+[PARSER] Parsing statement 52, current token: source (type 1)
+[PARSER] Parsing statement 53, current token: source (type 1)
+[PARSER] Parsing statement 54, current token: source (type 1)
+[PARSER] Parsing statement 55, current token: source (type 1)
+[PARSER] Parsing statement 56, current token: source (type 1)
+[PARSER] Parsing statement 57, current token: source (type 1)
+[PARSER] Parsing statement 58, current token: source (type 1)
+[PARSER] Parsing statement 59, current token: source (type 1)
+[PARSER] Parsing statement 60, current token: source (type 1)
+[PARSER] Parsing statement 61, current token: source (type 1)
+[PARSER] Parsing statement 62, current token: source (type 1)
+[PARSER] Parsing statement 63, current token: source (type 1)
+[PARSER] Parsing statement 64, current token: source (type 1)
+[PARSER] Parsing statement 65, current token: source (type 1)
+[PARSER] Parsing statement 66, current token: source (type 1)
+[PARSER] Parsing statement 67, current token: source (type 1)
+[PARSER] Parsing statement 68, current token: source (type 1)
+[PARSER] Parsing statement 69, current token: source (type 1)
+[PARSER] Parsing statement 70, current token: source (type 1)
+[PARSER] Parsing statement 71, current token: source (type 1)
+[PARSER] Parsing statement 72, current token: source (type 1)
+[PARSER] Parsing statement 73, current token: source (type 1)
+[PARSER] Parsing statement 74, current token: source (type 1)
+[PARSER] Parsing statement 75, current token: source (type 1)
+[PARSER] Parsing statement 76, current token: source (type 1)
+[PARSER] Parsing statement 77, current token: source (type 1)
+[PARSER] Parsing statement 78, current token: source (type 1)
+[PARSER] Parsing statement 79, current token: source (type 1)
+[PARSER] Parsing statement 80, current token: source (type 1)
+[PARSER] Parsing statement 81, current token: source (type 1)
+[PARSER] Parsing statement 82, current token: source (type 1)
+[PARSER] Parsing statement 83, current token: source (type 1)
+[PARSER] Parsing statement 84, current token: source (type 1)
+[PARSER] Parsing statement 85, current token: source (type 1)
+[PARSER] Parsing statement 86, current token: source (type 1)
+[PARSER] Parsing statement 87, current token: source (type 1)
+[PARSER] Parsing statement 88, current token: source (type 1)
+[PARSER] Parsing statement 89, current token: source (type 1)
+[PARSER] Parsing statement 90, current token: source (type 1)
+[PARSER] Parsing statement 91, current token: source (type 1)
+[PARSER] Parsing statement 92, current token: source (type 1)
+[PARSER] Parsing statement 93, current token: source (type 1)
+[PARSER] Parsing statement 94, current token: source (type 1)
+[PARSER] Parsing statement 95, current token: source (type 1)
+[PARSER] Parsing statement 96, current token: source (type 1)
+[PARSER] Parsing statement 97, current token: source (type 1)
+[PARSER] Parsing statement 98, current token: source (type 1)
+[PARSER] Parsing statement 99, current token: source (type 1)
+[PARSER] Parsing statement 100, current token: source (type 1)
+[PARSER] Parsing statement 101, current token: source (type 1)
+[PARSER] ERROR: Exceeded 100 statements, likely infinite loop
+[PARSER] Finished parsing 101 statements
+E.[PARSER] Parsing statement 1, current token: var (type 55)
+[RESCAN] Called, FCurrentIndex=3, FTokens.Count=9
+[RESCAN] CurrentTok: Type=22, Value="=", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: var (type 55)
+[RESCAN] Called, FCurrentIndex=3, FTokens.Count=13
+[RESCAN] CurrentTok: Type=22, Value="=", SourcePosition=0
+[RESCAN] FAILED: Token is not Divide, returning original token
+E.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: x (type 1)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: delete (type 73)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: function (type 56)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Parsing statement 3, current token: with (type 79)
+..[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: eval (type 1)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: function (type 56)
+[PARSER] Parsing statement 3, current token: var (type 55)
+[PARSER] Finished parsing 3 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: function (type 56)
+[PARSER] Parsing statement 3, current token: function (type 56)
+[PARSER] Finished parsing 3 statements
+[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+F.[PARSER] Parsing statement 1, current token: y (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Parsing statement 3, current token: delete (type 73)
+[PARSER] Finished parsing 3 statements
+F.[PARSER] Parsing statement 1, current token: use strict (type 3)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Finished parsing 2 statements
+F.[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello world (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: a,b,c (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: HELLO (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:   hello   (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: ab (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: 5 (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: 5 (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: x (type 1)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: greet (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: add (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: if (type 58)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: var (type 55)
+[PARSER] Parsing statement 3, current token: while (type 60)
+[PARSER] Finished parsing 3 statements
+[WHILE] Starting while loop
+[WHILE] Iteration 1
+[WHILE] Iteration 2
+[WHILE] Iteration 3
+[WHILE] Iteration 4
+[WHILE] Iteration 5
+[WHILE] Loop ended after 5 iterations
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: for (type 61)
+[PARSER] Finished parsing 2 statements
+[FOR] Starting for loop
+[FOR] Loop ended after 6 iterations
+..[PARSER] Parsing statement 1, current token: Hello,  (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: true (type 4)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: true (type 4)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: true (type 4)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: false (type 4)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: ! (type 38)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Math (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Math (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Math (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: Math (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: true (type 4)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: false (type 4)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: x (type 1)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: x (type 1)
+[PARSER] Finished parsing 2 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: outer (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: factorial (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Parsing statement 2, current token: obj (type 1)
+[PARSER] Parsing statement 3, current token: obj (type 1)
+[PARSER] Finished parsing 3 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: arr (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+[PARSER] Parsing statement 1, current token: typeof (type 70)
+[PARSER] Finished parsing 1 statements
+..............................[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: Hello (type 3)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token:  (type 2)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: if (type 58)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: while (type 60)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: for (type 61)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: function (type 56)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: [ (type 11)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: var (type 55)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: add (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: obj (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: x (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: x (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: - (type 18)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: x (type 1)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: { (type 9)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: try (type 75)
+[PARSER] Finished parsing 1 statements
+..[PARSER] Parsing statement 1, current token: switch (type 65)
+[PARSER] Finished parsing 1 statements
+.
+
+Tests Found   : 183
+Tests Ignored : 0
+Tests Passed  : 159
+Tests Leaked  : 0
+Tests Failed  : 8
+Tests Errored : 16
+
+Failing Tests
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_UndeclaredVariable_ThrowsError
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_DeleteUndeletable_ThrowsError
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_DuplicateParams_ThrowsError
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_OctalLiteral_ThrowsError
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_EvalArguments_ReadOnly
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_FunctionScoped
+  Message: Condition is True when False expected.
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_DeleteVariable_ThrowsError
+  Message: Condition is False when True expected. []
+
+  JS4D.Tests.Builtins.TStrictModeTests.StrictMode_ReservedWords_ThrowsError
+  Message: Condition is False when True expected. []
+
+
+
+Tests With Errors
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Test_MatchesPattern
+  Message: SyntaxError: Unexpected token )
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Test_NoMatch
+  Message: SyntaxError: Unexpected token )
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Exec_ReturnsMatchArray
+  Message: SyntaxError: Unexpected token \
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Exec_NoMatch_ReturnsNull
+  Message: SyntaxError: Unexpected token )
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_CaseInsensitive_Flag
+  Message: SyntaxError: Unexpected token )
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Global_Flag
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Match_ReturnsMatches
+  Message: SyntaxError: Unexpected token \
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Match_NoMatch_ReturnsNull
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Replace_WithRegExp
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Replace_GlobalRegExp
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Search_ReturnsIndex
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Search_NoMatch_ReturnsMinusOne
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.String_Split_WithRegExp
+  Message: SyntaxError: Unexpected token \
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Source_Property
+  Message: ReferenceError: source is not defined
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Flags_Properties
+  Message: SyntaxError: Unexpected token /
+
+  JS4D.Tests.Builtins.TRegExpTests.RegExp_Literal_Syntax
+  Message: SyntaxError: Unexpected token /
+
+
+
+====================================================
+TESTS FAILED (Exit code: 1
+====================================================
