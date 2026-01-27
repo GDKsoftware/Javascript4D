@@ -163,7 +163,15 @@ begin
 end;
 
 procedure TJSScope.Clear;
+var
+  Pair: TPair<string, TJSValue>;
+  Func: IJSFunction;
 begin
+  for Pair in FVariables do
+    if Pair.Value.IsFunction then
+      if Supports(Pair.Value.ToObject, IJSFunction, Func) then
+        Func.ClosureScope := nil;
+
   FVariables.Clear;
   FParent := nil;
 end;
@@ -1576,6 +1584,7 @@ begin
         Result := TJSInterpreter(InterpPtr).CallFunction(OriginalFunc, AllArgs, CapturedThis);
       end);
 
+    BoundFunc.ClosureScope := nil;
     Result := TJSValue.CreateObject(BoundFunc);
     Exit;
   end;

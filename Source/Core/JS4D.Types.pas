@@ -151,10 +151,11 @@ type
     procedure SetIsStrict(const Value: Boolean);
     function GetClosureScope: IJSScope;
     procedure SetClosureScope(const Value: IJSScope);
+    procedure SetNativeFunction(const Value: TNativeFunction);
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
     property BodyNode: TObject read GetBodyNode write SetBodyNode;
-    property NativeFunction: TNativeFunction read GetNativeFunction;
+    property NativeFunction: TNativeFunction read GetNativeFunction write SetNativeFunction;
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
@@ -291,6 +292,7 @@ type
     function GetBodyNode: TObject;
     procedure SetBodyNode(const Value: TObject);
     function GetNativeFunction: TNativeFunction;
+    procedure SetNativeFunction(const Value: TNativeFunction);
     function GetIsNative: Boolean;
     function GetIsStrict: Boolean;
     procedure SetIsStrict(const Value: Boolean);
@@ -305,7 +307,7 @@ type
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
     property BodyNode: TObject read GetBodyNode write SetBodyNode;
-    property NativeFunction: TNativeFunction read GetNativeFunction;
+    property NativeFunction: TNativeFunction read GetNativeFunction write SetNativeFunction;
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
@@ -786,8 +788,17 @@ begin
 end;
 
 destructor TJSObjectImpl.Destroy;
+var
+  Pair: TPair<string, TJSPropertyDescriptor>;
+  Func: IJSFunction;
 begin
   FPrototype := nil;
+
+  for Pair in FProperties do
+    if Pair.Value.Value.IsFunction then
+      if Supports(Pair.Value.Value.ToObject, IJSFunction, Func) then
+        Func.ClosureScope := nil;
+
   FProperties.Clear;
   FProperties.Free;
   inherited;
@@ -1024,6 +1035,11 @@ begin
   Result := FNativeFunction;
 end;
 
+procedure TJSFunctionImpl.SetNativeFunction(const Value: TNativeFunction);
+begin
+  FNativeFunction := Value;
+end;
+
 function TJSFunctionImpl.GetIsNative: Boolean;
 begin
   Result := FIsNative;
@@ -1056,7 +1072,15 @@ begin
 end;
 
 destructor TJSArrayImpl.Destroy;
+var
+  Element: TJSValue;
+  Func: IJSFunction;
 begin
+  for Element in FElements do
+    if Element.IsFunction then
+      if Supports(Element.ToObject, IJSFunction, Func) then
+        Func.ClosureScope := nil;
+
   FElements.Clear;
   FElements.Free;
   inherited;
