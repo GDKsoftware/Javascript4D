@@ -274,12 +274,12 @@ begin
       CheckStrictModeReservedWord(IdName);
       Advance;
 
-      const Identifier = TJSIdentifier.Create(IdName);
       var InitExpr: TJSExpression := nil;
 
       if Match(TJSTokenType.Assign) then
         InitExpr := ParseAssignmentExpression;
 
+      const Identifier = TJSIdentifier.Create(IdName);
       const Declarator = TJSVariableDeclarator.Create(Identifier, InitExpr);
       Result.Declarations.Add(Declarator);
     until not Match(TJSTokenType.Comma);
