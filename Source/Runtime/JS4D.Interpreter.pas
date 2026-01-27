@@ -31,6 +31,7 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     function Resolve(const Name: string): IJSScope;
+    procedure Clear;
 
     property Parent: IJSScope read GetParent;
   end;
@@ -156,8 +157,15 @@ end;
 
 destructor TJSScope.Destroy;
 begin
+  Clear;
   FVariables.Free;
   inherited;
+end;
+
+procedure TJSScope.Clear;
+begin
+  FVariables.Clear;
+  FParent := nil;
 end;
 
 function TJSScope.HasVariable(const Name: string): Boolean;
@@ -238,8 +246,12 @@ end;
 
 destructor TJSInterpreter.Destroy;
 begin
+  if Assigned(FGlobalScope) then
+    FGlobalScope.Clear;
   FCurrentScope := nil;
   FGlobalScope := nil;
+  FGlobalObject := nil;
+  FThisValue := nil;
   inherited;
 end;
 
@@ -1541,15 +1553,13 @@ begin
     begin
       SetLength(BoundArgs, Length(Args) - 1);
       for var Index := 1 to Length(Args) - 1 do
-      begin
         BoundArgs[Index - 1] := Args[Index];
-      end;
     end;
 
     const OriginalFunc = Func;
     const CapturedThis = BoundThis;
     const CapturedArgs = BoundArgs;
-    const Interp = Self;
+    var InterpPtr: Pointer := Self;
 
     const BoundFunc: IJSFunction = TJSFunction.CreateNative('bound',
       function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
@@ -1558,16 +1568,12 @@ begin
         SetLength(AllArgs, Length(CapturedArgs) + Length(CallArgs));
 
         for var Index := 0 to Length(CapturedArgs) - 1 do
-        begin
           AllArgs[Index] := CapturedArgs[Index];
-        end;
 
         for var Index := 0 to Length(CallArgs) - 1 do
-        begin
           AllArgs[Length(CapturedArgs) + Index] := CallArgs[Index];
-        end;
 
-        Result := Interp.CallFunction(OriginalFunc, AllArgs, CapturedThis);
+        Result := TJSInterpreter(InterpPtr).CallFunction(OriginalFunc, AllArgs, CapturedThis);
       end);
 
     Result := TJSValue.CreateObject(BoundFunc);

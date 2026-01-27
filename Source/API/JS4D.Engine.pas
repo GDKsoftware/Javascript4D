@@ -296,10 +296,10 @@ end;
 
 destructor TJSEngine.Destroy;
 begin
+  FOnConsoleOutput := nil;
+
   for var Program_ in FPrograms do
-  begin
     Program_.Free;
-  end;
 
   FPrograms.Free;
   FInterpreter.Free;
@@ -1443,7 +1443,7 @@ begin
   const DateFunc = TJSFunction.CreateNative(DATE_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      var DateObj: TJSDate;
+      var DateObj: IJSDate;
 
       if Length(Args) = 0 then
         DateObj := TJSDate.Create
@@ -1489,139 +1489,235 @@ begin
       DateObj.SetProperty('getTime', TJSValue.CreateObject(TJSFunction.CreateNative('getTime',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetTime)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('getFullYear',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetFullYear);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetFullYear)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getMonth', TJSValue.CreateObject(TJSFunction.CreateNative('getMonth',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetMonth);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetMonth)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getDate', TJSValue.CreateObject(TJSFunction.CreateNative('getDate',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetDate);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetDate)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getDay', TJSValue.CreateObject(TJSFunction.CreateNative('getDay',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetDay);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetDay)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getHours', TJSValue.CreateObject(TJSFunction.CreateNative('getHours',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetHours);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetHours)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getMinutes', TJSValue.CreateObject(TJSFunction.CreateNative('getMinutes',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetMinutes);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetMinutes)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getSeconds', TJSValue.CreateObject(TJSFunction.CreateNative('getSeconds',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetSeconds);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetSeconds)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getMilliseconds', TJSValue.CreateObject(TJSFunction.CreateNative('getMilliseconds',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetMilliseconds);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetMilliseconds)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getUTCFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('getUTCFullYear',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetUTCFullYear);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetUTCFullYear)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('getTimezoneOffset', TJSValue.CreateObject(TJSFunction.CreateNative('getTimezoneOffset',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateNumber(DateObj.GetTimezoneOffset);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateNumber(D.GetTimezoneOffset)
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('setFullYear',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetFullYear(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetFullYear(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setMonth', TJSValue.CreateObject(TJSFunction.CreateNative('setMonth',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetMonth(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetMonth(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setDate', TJSValue.CreateObject(TJSFunction.CreateNative('setDate',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetDate(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetDate(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setHours', TJSValue.CreateObject(TJSFunction.CreateNative('setHours',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetHours(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetHours(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setMinutes', TJSValue.CreateObject(TJSFunction.CreateNative('setMinutes',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetMinutes(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetMinutes(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('setSeconds', TJSValue.CreateObject(TJSFunction.CreateNative('setSeconds',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          if Length(Args) > 0 then
-            DateObj.SetSeconds(Trunc(Args[0].ToNumber));
-          Result := TJSValue.CreateNumber(DateObj.GetTime);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+          begin
+            if Length(Args) > 0 then
+              D.SetSeconds(Trunc(Args[0].ToNumber));
+            Result := TJSValue.CreateNumber(D.GetTime);
+          end
+          else
+            Result := TJSValue.CreateNaN;
         end)));
 
       DateObj.SetProperty('toISOString', TJSValue.CreateObject(TJSFunction.CreateNative('toISOString',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateString(DateObj.ToISOString);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateString(D.ToISOString)
+          else
+            Result := TJSValue.CreateString('');
         end)));
 
       DateObj.SetProperty('toDateString', TJSValue.CreateObject(TJSFunction.CreateNative('toDateString',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateString(DateObj.ToDateString);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateString(D.ToDateString)
+          else
+            Result := TJSValue.CreateString('');
         end)));
 
       DateObj.SetProperty('toTimeString', TJSValue.CreateObject(TJSFunction.CreateNative('toTimeString',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateString(DateObj.ToTimeString);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateString(D.ToTimeString)
+          else
+            Result := TJSValue.CreateString('');
         end)));
 
       DateObj.SetProperty('toString', TJSValue.CreateObject(TJSFunction.CreateNative('toString',
         function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
         begin
-          Result := TJSValue.CreateString(DateObj.ToLocaleString);
+          var D: IJSDate;
+          if Supports(This, IJSDate, D) then
+            Result := TJSValue.CreateString(D.ToLocaleString)
+          else
+            Result := TJSValue.CreateString('');
         end)));
 
       Result := TJSValue.CreateObject(DateObj);
@@ -1695,18 +1791,24 @@ procedure TJSEngine.RegisterErrors;
         if Length(Args) > 0 then
           Msg := Args[0].ToString;
 
-        const ErrorObj = TJSError.Create(ErrorType, Msg);
+        const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
 
         ErrorObj.SetProperty(ERROR_TO_STRING, TJSValue.CreateObject(TJSFunction.CreateNative(ERROR_TO_STRING,
           function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
           begin
-            const Name = ErrorObj.GetErrorName;
-            const Msg = ErrorObj.Message;
+            var E: IJSError;
+            if Supports(This, IJSError, E) then
+            begin
+              const Name = E.GetErrorName;
+              const Msg = E.Message;
 
-            if Msg = '' then
-              Result := TJSValue.CreateString(Name)
+              if Msg = '' then
+                Result := TJSValue.CreateString(Name)
+              else
+                Result := TJSValue.CreateString(Name + ': ' + Msg);
+            end
             else
-              Result := TJSValue.CreateString(Name + ': ' + Msg);
+              Result := TJSValue.CreateString('Error');
           end)));
 
         Result := TJSValue.CreateObject(ErrorObj);

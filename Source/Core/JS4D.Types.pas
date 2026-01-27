@@ -88,6 +88,7 @@ type
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
+    procedure Clear;
     property Parent: IJSScope read GetParent;
   end;
 
@@ -299,6 +300,7 @@ type
   public
     constructor Create;
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
+    destructor Destroy; override;
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -785,6 +787,8 @@ end;
 
 destructor TJSObjectImpl.Destroy;
 begin
+  FPrototype := nil;
+  FProperties.Clear;
   FProperties.Free;
   inherited;
 end;
@@ -978,6 +982,13 @@ begin
   FIsNative := True;
 end;
 
+destructor TJSFunctionImpl.Destroy;
+begin
+  FClosureScope := nil;
+  FNativeFunction := nil;
+  inherited;
+end;
+
 function TJSFunctionImpl.GetName: string;
 begin
   Result := FName;
@@ -1046,6 +1057,7 @@ end;
 
 destructor TJSArrayImpl.Destroy;
 begin
+  FElements.Clear;
   FElements.Free;
   inherited;
 end;
