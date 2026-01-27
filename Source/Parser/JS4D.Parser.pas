@@ -963,9 +963,9 @@ end;
 function TJSParser.ParseCallExpression: TJSExpression;
 begin
   if Check(TJSTokenType.KeywordNew) then
-    Exit(ParseNewExpression);
-
-  Result := ParseMemberExpression;
+    Result := ParseNewExpression
+  else
+    Result := ParseMemberExpression;
 
   while True do
   begin

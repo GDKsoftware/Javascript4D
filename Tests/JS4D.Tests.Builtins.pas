@@ -54,6 +54,21 @@ type
     procedure Array_Reverse_ReversesInPlace;
 
     [Test]
+    procedure Array_Reverse_ChainedWithJoin;
+
+    [Test]
+    procedure Array_SortThenReverse_Statements;
+
+    [Test]
+    procedure Array_SortThenReverse_Chained;
+
+    [Test]
+    procedure Array_SortThenReverse_InStringConcat;
+
+    [Test]
+    procedure Array_SortThenReverse_ExactDemoCode;
+
+    [Test]
     procedure Array_Includes_ReturnsTrue;
 
     [Test]
@@ -106,6 +121,12 @@ type
 
     [Test]
     procedure Array_Flat_FlattensNestedArrays;
+
+    [Test]
+    procedure Array_Sort_TwoStepObjectKeys;
+
+    [Test]
+    procedure Array_Sort_TwoStepWithVariable;
   end;
 
   [TestFixture]
@@ -186,6 +207,12 @@ type
 
     [Test]
     procedure Object_Assign_CopiesProperties;
+
+    [Test]
+    procedure Object_HasOwnProperty_ReturnsTrue;
+
+    [Test]
+    procedure Object_HasOwnProperty_ReturnsFalse;
   end;
 
   [TestFixture]
@@ -660,6 +687,64 @@ begin
   Assert.AreEqual('3,2,1', Result.AsString);
 end;
 
+procedure TArrayMethodsTests.Array_Reverse_ChainedWithJoin;
+begin
+  const Result = FEngine.Evaluate('[3, 1, 2].reverse().join(",")');
+  Assert.AreEqual('2,1,3', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_SortThenReverse_Statements;
+begin
+  FEngine.Execute('var arr = [3, 1, 2]; arr.sort(); arr.reverse();');
+  const Result = FEngine.Evaluate('arr.join(",")');
+  Assert.AreEqual('3,2,1', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_SortThenReverse_Chained;
+begin
+  FEngine.Execute('var arr = [3, 1, 2]; arr.sort();');
+  const Result = FEngine.Evaluate('arr.reverse().join(",")');
+  Assert.AreEqual('3,2,1', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_SortThenReverse_InStringConcat;
+begin
+  // Exact scenario from demo: sort().join() in concat, then reverse().join() in concat
+  FEngine.Execute(
+    'var letters = ["c", "a", "b", "e", "d"];' +
+    'var sorted = "Sorted: " + letters.sort().join(",");' +
+    'var reversed = "Reversed: " + letters.reverse().join(",");'
+  );
+  Assert.AreEqual('Sorted: a,b,c,d,e', FEngine.GetVariable('sorted').ToString);
+  Assert.AreEqual('Reversed: e,d,c,b,a', FEngine.GetVariable('reversed').ToString);
+end;
+
+procedure TArrayMethodsTests.Array_SortThenReverse_ExactDemoCode;
+begin
+  // Test 1: Array LITERAL in console.log - should work
+  var Out1: TArray<string>;
+  FEngine.OnConsoleOutput := procedure(const S: string)
+  begin
+    SetLength(Out1, Length(Out1) + 1);
+    Out1[High(Out1)] := S;
+  end;
+  FEngine.Execute('console.log([3, 1, 2].reverse().join(","));');
+  Assert.AreEqual('2,1,3', Out1[0], 'Array literal reverse in console.log failed');
+
+  // Test 2: Array VARIABLE in console.log - this is failing
+  var Out2: TArray<string>;
+  FEngine.OnConsoleOutput := procedure(const S: string)
+  begin
+    SetLength(Out2, Length(Out2) + 1);
+    Out2[High(Out2)] := S;
+  end;
+  FEngine.Execute(
+    'var a = [3, 1, 2];' +
+    'console.log(a.reverse().join(","));'
+  );
+  Assert.AreEqual('2,1,3', Out2[0], 'Array variable reverse in console.log failed');
+end;
+
 procedure TArrayMethodsTests.Array_Includes_ReturnsTrue;
 begin
   const Result = FEngine.Evaluate('[1, 2, 3].includes(2)');
@@ -845,6 +930,31 @@ begin
   Assert.AreEqual('1,2,3,4', Result.AsString);
 end;
 
+procedure TArrayMethodsTests.Array_Sort_TwoStepObjectKeys;
+const
+  Script =
+    'var cats = { "Support": { hours: 10 }, "Bug Fixes": { hours: 25 } };' +
+    'var keys = Object.keys(cats);' +
+    'keys.sort(function(a, b) { return cats[b].hours - cats[a].hours; });';
+begin
+  FEngine.Execute(Script);
+
+  const Result = FEngine.Evaluate('keys.join(", ")');
+  Assert.AreEqual('Bug Fixes, Support', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_Sort_TwoStepWithVariable;
+const
+  Script =
+    'var arr = [3, 1, 2];' +
+    'arr.sort(function(a, b) { return a - b; });';
+begin
+  FEngine.Execute(Script);
+
+  const Result = FEngine.Evaluate('arr.join(",")');
+  Assert.AreEqual('1,2,3', Result.AsString);
+end;
+
 procedure TStringMethodsTests.Setup;
 begin
   FEngine := TJSEngine.Create;
@@ -975,6 +1085,20 @@ begin
   FEngine.Execute('var target = { a: 1 }; Object.assign(target, { b: 2 });');
   const Result = FEngine.Evaluate('target.a + target.b');
   Assert.AreEqual(Double(3), Result.AsNumber);
+end;
+
+procedure TObjectMethodsTests.Object_HasOwnProperty_ReturnsTrue;
+begin
+  FEngine.Execute('var obj = { name: "test", value: 42 };');
+  const Result = FEngine.Evaluate('obj.hasOwnProperty("name")');
+  Assert.IsTrue(Result.AsBoolean);
+end;
+
+procedure TObjectMethodsTests.Object_HasOwnProperty_ReturnsFalse;
+begin
+  FEngine.Execute('var obj = { name: "test" };');
+  const Result = FEngine.Evaluate('obj.hasOwnProperty("unknown")');
+  Assert.IsFalse(Result.AsBoolean);
 end;
 
 procedure TJSONTests.Setup;

@@ -87,6 +87,9 @@ type
     class function HasStringMethod(const MethodName: string): Boolean; static;
     class function HasNumberMethod(const MethodName: string): Boolean; static;
     class function HasFunctionMethod(const MethodName: string): Boolean; static;
+    class function HasObjectMethod(const MethodName: string): Boolean; static;
+
+    class function CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue; static;
 
     class function RequiresCallback(const MethodName: string): Boolean; static;
 
@@ -151,6 +154,7 @@ const
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
+  METHOD_HAS_OWN_PROPERTY = 'hasOwnProperty';
   DEFAULT_SEPARATOR: string = ',';
   EMPTY_STRING: string = '';
   SPACE_CHAR: string = ' ';
@@ -2101,6 +2105,24 @@ end;
 class function TJSBuiltins.IsNumberMethod(const MethodName: string): Boolean;
 begin
   Result := HasNumberMethod(MethodName);
+end;
+
+class function TJSBuiltins.HasObjectMethod(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_HAS_OWN_PROPERTY);
+end;
+
+class function TJSBuiltins.CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if MethodName = METHOD_HAS_OWN_PROPERTY then
+  begin
+    if Length(Args) = 0 then
+      Result := TJSValue.CreateBoolean(False)
+    else
+      Result := TJSValue.CreateBoolean(Obj.HasProperty(Args[0].ToString));
+  end
+  else
+    Result := TJSValue.CreateUndefined;
 end;
 
 end.

@@ -14,28 +14,35 @@ uses
   JS4D.Builtins;
 
 type
-  TJSScope = class
+  TJSScope = class(TInterfacedObject, IJSScope)
   private
     FVariables: TDictionary<string, TJSValue>;
-    FParent: TJSScope;
+    FParent: IJSScope;
+
+  protected
+    function GetParent: IJSScope;
 
   public
-    constructor Create(const Parent: TJSScope);
+    constructor Create(const Parent: IJSScope);
     destructor Destroy; override;
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
-    function Resolve(const Name: string): TJSScope;
+    function Resolve(const Name: string): IJSScope;
 
-    property Parent: TJSScope read FParent;
+    property Parent: IJSScope read GetParent;
   end;
 
-  TJSBreakSignal = class(Exception);
-  TJSContinueSignal = class(Exception);
+  // Control flow signals - not real errors, used internally
+  // Add these to Debugger Exception Ignore list if needed
+  EJSControlFlowSignal = class(EAbort);
 
-  TJSReturnSignal = class(Exception)
+  TJSBreakSignal = class(EJSControlFlowSignal);
+  TJSContinueSignal = class(EJSControlFlowSignal);
+
+  TJSReturnSignal = class(EJSControlFlowSignal)
   private
     FValue: TJSValue;
 
@@ -57,8 +64,8 @@ type
 
   TJSInterpreter = class
   private
-    FGlobalScope: TJSScope;
-    FCurrentScope: TJSScope;
+    FGlobalScope: IJSScope;
+    FCurrentScope: IJSScope;
     FThisValue: IJSObject;
     FStrictMode: Boolean;
     FGlobalObject: IJSObject;
@@ -107,6 +114,7 @@ type
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
     function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
 
   public
     constructor Create;
@@ -117,7 +125,7 @@ type
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
 
-    property GlobalScope: TJSScope read FGlobalScope;
+    property GlobalScope: IJSScope read FGlobalScope;
   end;
 
 implementation
@@ -134,11 +142,16 @@ const
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
 
-constructor TJSScope.Create(const Parent: TJSScope);
+constructor TJSScope.Create(const Parent: IJSScope);
 begin
   inherited Create;
   FVariables := TDictionary<string, TJSValue>.Create;
   FParent := Parent;
+end;
+
+function TJSScope.GetParent: IJSScope;
+begin
+  Result := FParent;
 end;
 
 destructor TJSScope.Destroy;
@@ -171,7 +184,7 @@ begin
   const ResolvedScope = Resolve(Name);
 
   if Assigned(ResolvedScope) then
-    ResolvedScope.FVariables.AddOrSetValue(Name, Value)
+    ResolvedScope.DeclareVariable(Name, Value)
   else
     FVariables.AddOrSetValue(Name, Value);
 end;
@@ -181,7 +194,7 @@ begin
   FVariables.AddOrSetValue(Name, Value);
 end;
 
-function TJSScope.Resolve(const Name: string): TJSScope;
+function TJSScope.Resolve(const Name: string): IJSScope;
 begin
   if FVariables.ContainsKey(Name) then
     Exit(Self);
@@ -225,7 +238,8 @@ end;
 
 destructor TJSInterpreter.Destroy;
 begin
-  FGlobalScope.Free;
+  FCurrentScope := nil;
+  FGlobalScope := nil;
   inherited;
 end;
 
@@ -236,9 +250,7 @@ end;
 
 procedure TJSInterpreter.PopScope;
 begin
-  const OldScope = FCurrentScope;
   FCurrentScope := FCurrentScope.Parent;
-  OldScope.Free;
 end;
 
 function TJSInterpreter.Execute(const Program_: TJSProgram): TJSValue;
@@ -377,6 +389,7 @@ begin
   Func.Name := Node.Id.Name;
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
+  Func.ClosureScope := FCurrentScope;
 
   var Params: TArray<string>;
   SetLength(Params, Node.Params.Count);
@@ -773,6 +786,7 @@ begin
 
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
+  Func.ClosureScope := FCurrentScope;
 
   var Params: TArray<string>;
   SetLength(Params, Node.Params.Count);
@@ -1234,6 +1248,8 @@ end;
 function TJSInterpreter.VisitCallExpression(const Node: TJSCallExpression): TJSValue;
 begin
   var ThisObj: IJSObject := nil;
+  var Args: TArray<TJSValue>;
+  var ArgsEvaluated := False;
 
   if Node.Callee is TJSMemberExpression then
   begin
@@ -1247,13 +1263,11 @@ begin
     else
       MethodName := TJSIdentifier(MemberExpr.Property_).Name;
 
-    var Args: TArray<TJSValue>;
+    // Evaluate arguments once and reuse
     SetLength(Args, Node.Arguments.Count);
-
     for var Index := 0 to Node.Arguments.Count - 1 do
-    begin
       Args[Index] := Visit(Node.Arguments[Index]);
-    end;
+    ArgsEvaluated := True;
 
     if ObjValue.IsArray and TJSBuiltins.HasArrayMethod(MethodName) then
     begin
@@ -1287,6 +1301,9 @@ begin
         Exit(ExecuteFunctionMethod(FuncIntf, MethodName, Args));
     end;
 
+    if ObjValue.IsObject and TJSBuiltins.HasObjectMethod(MethodName) then
+      Exit(TJSBuiltins.CallObjectMethod(ObjValue.ToObject, MethodName, Args));
+
     if ObjValue.IsObject then
       ThisObj := ObjValue.ToObject;
   end;
@@ -1294,18 +1311,18 @@ begin
   const CalleeValue = Visit(Node.Callee);
 
   if not CalleeValue.IsFunction then
-    raise TJSErrorFactory.NotAFunction('', Node.Line, Node.Column);
+    raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
   var Func: IJSFunction;
   if not Supports(CalleeValue.ToObject, IJSFunction, Func) then
-    raise TJSErrorFactory.NotAFunction('', Node.Line, Node.Column);
+    raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
-  var Args: TArray<TJSValue>;
-  SetLength(Args, Node.Arguments.Count);
-
-  for var Index := 0 to Node.Arguments.Count - 1 do
+  // Only evaluate arguments if not already done
+  if not ArgsEvaluated then
   begin
-    Args[Index] := Visit(Node.Arguments[Index]);
+    SetLength(Args, Node.Arguments.Count);
+    for var Index := 0 to Node.Arguments.Count - 1 do
+      Args[Index] := Visit(Node.Arguments[Index]);
   end;
 
   Result := CallFunction(Func, Args, ThisObj);
@@ -1379,11 +1396,11 @@ begin
   const CalleeValue = Visit(Node.Callee);
 
   if not CalleeValue.IsFunction then
-    raise TJSErrorFactory.NotAFunction('', Node.Line, Node.Column);
+    raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
   var Func: IJSFunction;
   if not Supports(CalleeValue.ToObject, IJSFunction, Func) then
-    raise TJSErrorFactory.NotAFunction('', Node.Line, Node.Column);
+    raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
   const NewObj: IJSObject = TJSObject.Create;
 
@@ -1430,10 +1447,18 @@ begin
 
   const OldThis = FThisValue;
   const OldStrictMode = FStrictMode;
+  const OldScope = FCurrentScope;
   FThisValue := ThisObj;
   FStrictMode := Func.IsStrict;
 
-  PushScope;
+  // Use the function's closure scope as parent for the new scope (enables closures)
+  var ParentScope: IJSScope;
+  if Assigned(Func.ClosureScope) then
+    ParentScope := Func.ClosureScope
+  else
+    ParentScope := FGlobalScope;
+
+  FCurrentScope := TJSScope.Create(ParentScope);
   try
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
@@ -1451,7 +1476,7 @@ begin
         Result := E.Value;
     end;
   finally
-    PopScope;
+    FCurrentScope := OldScope;
     FThisValue := OldThis;
     FStrictMode := OldStrictMode;
   end;
@@ -1633,6 +1658,23 @@ begin
     Exit(AbstractEquals(Left, TJSValue.CreateNumber(Right.ToNumber)));
 
   Result := False;
+end;
+
+function TJSInterpreter.GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
+begin
+  if Callee is TJSIdentifier then
+    Result := TJSIdentifier(Callee).Name
+  else if Callee is TJSMemberExpression then
+  begin
+    const MemberExpr = TJSMemberExpression(Callee);
+
+    if MemberExpr.Property_ is TJSIdentifier then
+      Result := TJSIdentifier(MemberExpr.Property_).Name
+    else
+      Result := CalleeValue.ToString;
+  end
+  else
+    Result := CalleeValue.ToString;
 end;
 
 procedure TJSInterpreter.RegisterNativeFunction(const Name: string; const Func: TNativeFunction);

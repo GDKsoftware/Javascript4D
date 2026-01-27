@@ -33,6 +33,7 @@ type
 
   IJSObject = interface;
   IJSArray = interface;
+  IJSScope = interface;
 
   TJSValue = record
   private
@@ -77,6 +78,17 @@ type
     property AsNumber: Double read FNumberValue;
     property AsString: string read FStringValue;
     property AsObject: IJSObject read FObjectRef;
+  end;
+
+  IJSScope = interface
+    ['{D5E6F7A8-B9C0-1234-5678-90ABCDEF0001}']
+    function HasVariable(const Name: string): Boolean;
+    function GetVariable(const Name: string): TJSValue;
+    procedure SetVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    function Resolve(const Name: string): IJSScope;
+    function GetParent: IJSScope;
+    property Parent: IJSScope read GetParent;
   end;
 
   TNativeFunction = reference to function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -136,12 +148,15 @@ type
     function GetIsNative: Boolean;
     function GetIsStrict: Boolean;
     procedure SetIsStrict(const Value: Boolean);
+    function GetClosureScope: IJSScope;
+    procedure SetClosureScope(const Value: IJSScope);
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
     property BodyNode: TObject read GetBodyNode write SetBodyNode;
     property NativeFunction: TNativeFunction read GetNativeFunction;
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
+    property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
   end;
 
   IJSError = interface(IJSObject)
@@ -265,6 +280,7 @@ type
     FNativeFunction: TNativeFunction;
     FIsNative: Boolean;
     FIsStrict: Boolean;
+    FClosureScope: IJSScope;
 
   protected
     function GetName: string;
@@ -277,6 +293,8 @@ type
     function GetIsNative: Boolean;
     function GetIsStrict: Boolean;
     procedure SetIsStrict(const Value: Boolean);
+    function GetClosureScope: IJSScope;
+    procedure SetClosureScope(const Value: IJSScope);
 
   public
     constructor Create;
@@ -288,6 +306,7 @@ type
     property NativeFunction: TNativeFunction read GetNativeFunction;
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
+    property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -1007,6 +1026,16 @@ end;
 procedure TJSFunctionImpl.SetIsStrict(const Value: Boolean);
 begin
   FIsStrict := Value;
+end;
+
+function TJSFunctionImpl.GetClosureScope: IJSScope;
+begin
+  Result := FClosureScope;
+end;
+
+procedure TJSFunctionImpl.SetClosureScope(const Value: IJSScope);
+begin
+  FClosureScope := Value;
 end;
 
 constructor TJSArrayImpl.Create;
