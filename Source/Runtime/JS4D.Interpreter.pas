@@ -36,8 +36,6 @@ type
     property Parent: IJSScope read GetParent;
   end;
 
-  // Control flow signals - not real errors, used internally
-  // Add these to Debugger Exception Ignore list if needed
   EJSControlFlowSignal = class(EAbort);
 
   TJSBreakSignal = class(EJSControlFlowSignal);
@@ -147,6 +145,20 @@ const
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
 
+  CONSTRUCTOR_ERROR = 'Error';
+  CONSTRUCTOR_TYPE_ERROR = 'TypeError';
+  CONSTRUCTOR_RANGE_ERROR = 'RangeError';
+  CONSTRUCTOR_REFERENCE_ERROR = 'ReferenceError';
+  CONSTRUCTOR_SYNTAX_ERROR = 'SyntaxError';
+  CONSTRUCTOR_URI_ERROR = 'URIError';
+  CONSTRUCTOR_EVAL_ERROR = 'EvalError';
+  CONSTRUCTOR_ARRAY = 'Array';
+  CONSTRUCTOR_FUNCTION = 'Function';
+  CONSTRUCTOR_REGEXP = 'RegExp';
+  CONSTRUCTOR_DATE = 'Date';
+
+{ TJSScope }
+
 constructor TJSScope.Create(const Parent: IJSScope);
 begin
   inherited Create;
@@ -167,14 +179,16 @@ begin
 end;
 
 procedure TJSScope.Clear;
-var
-  Pair: TPair<string, TJSValue>;
-  Func: IJSFunction;
 begin
-  for Pair in FVariables do
+  for var Pair in FVariables do
+  begin
     if Pair.Value.IsFunction then
+    begin
+      var Func: IJSFunction;
       if Supports(Pair.Value.ToObject, IJSFunction, Func) then
         Func.ClosureScope := nil;
+    end;
+  end;
 
   FVariables.Clear;
   FParent := nil;
@@ -225,11 +239,15 @@ begin
   Result := nil;
 end;
 
+{ TJSReturnSignal }
+
 constructor TJSReturnSignal.Create(const Value: TJSValue);
 begin
   inherited Create('');
   FValue := Value;
 end;
+
+{ TJSThrowSignal }
 
 constructor TJSThrowSignal.Create(const Value: TJSValue);
 begin
@@ -247,6 +265,8 @@ begin
   FValue := Value;
 end;
 
+{ TJSInterpreter }
+
 constructor TJSInterpreter.Create;
 begin
   inherited Create;
@@ -260,21 +280,18 @@ begin
 end;
 
 destructor TJSInterpreter.Destroy;
-var
-  Func: IJSFunction;
-  Scope: IJSScope;
 begin
-  for Func in FFunctionRegistry do
+  for var Func in FFunctionRegistry do
   begin
     Func.ClosureScope := nil;
     Func.NativeFunction := nil;
   end;
-  FFunctionRegistry.Clear;
   FFunctionRegistry.Free;
 
-  for Scope in FScopeRegistry do
+  for var Scope in FScopeRegistry do
+  begin
     Scope.Clear;
-  FScopeRegistry.Clear;
+  end;
   FScopeRegistry.Free;
 
   FCurrentScope := nil;
@@ -449,7 +466,9 @@ begin
   SetLength(Params, Node.Params.Count);
 
   for var Index := 0 to Node.Params.Count - 1 do
+  begin
     Params[Index] := Node.Params[Index].Name;
+  end;
 
   Func.Parameters := Params;
   RegisterFunction(Func);
@@ -851,7 +870,9 @@ begin
   SetLength(Params, Node.Params.Count);
 
   for var Index := 0 to Node.Params.Count - 1 do
+  begin
     Params[Index] := Node.Params[Index].Name;
+  end;
 
   Func.Parameters := Params;
   RegisterFunction(Func);
@@ -1037,68 +1058,68 @@ begin
         var ErrorIntf: IJSError;
         if Supports(LeftObj, IJSError, ErrorIntf) then
         begin
-          if RightName = 'Error' then
+          if RightName = CONSTRUCTOR_ERROR then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'TypeError') and (ErrorIntf.ErrorType = TJSErrorType.TypeError) then
+          if (RightName = CONSTRUCTOR_TYPE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.TypeError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'RangeError') and (ErrorIntf.ErrorType = TJSErrorType.RangeError) then
+          if (RightName = CONSTRUCTOR_RANGE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.RangeError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'ReferenceError') and (ErrorIntf.ErrorType = TJSErrorType.ReferenceError) then
+          if (RightName = CONSTRUCTOR_REFERENCE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.ReferenceError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'SyntaxError') and (ErrorIntf.ErrorType = TJSErrorType.SyntaxError) then
+          if (RightName = CONSTRUCTOR_SYNTAX_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.SyntaxError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'URIError') and (ErrorIntf.ErrorType = TJSErrorType.URIError) then
+          if (RightName = CONSTRUCTOR_URI_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.URIError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
 
-          if (RightName = 'EvalError') and (ErrorIntf.ErrorType = TJSErrorType.EvalError) then
+          if (RightName = CONSTRUCTOR_EVAL_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.EvalError) then
           begin
             Result := TJSValue.CreateBoolean(True);
             Exit;
           end;
         end;
 
-        if Supports(LeftObj, IJSArray) and (RightName = 'Array') then
+        if Supports(LeftObj, IJSArray) and (RightName = CONSTRUCTOR_ARRAY) then
         begin
           Result := TJSValue.CreateBoolean(True);
           Exit;
         end;
 
-        if Supports(LeftObj, IJSFunction) and (RightName = 'Function') then
+        if Supports(LeftObj, IJSFunction) and (RightName = CONSTRUCTOR_FUNCTION) then
         begin
           Result := TJSValue.CreateBoolean(True);
           Exit;
         end;
 
-        if Supports(LeftObj, IJSRegExp) and (RightName = 'RegExp') then
+        if Supports(LeftObj, IJSRegExp) and (RightName = CONSTRUCTOR_REGEXP) then
         begin
           Result := TJSValue.CreateBoolean(True);
           Exit;
         end;
 
-        if Supports(LeftObj, IJSDate) and (RightName = 'Date') then
+        if Supports(LeftObj, IJSDate) and (RightName = CONSTRUCTOR_DATE) then
         begin
           Result := TJSValue.CreateBoolean(True);
           Exit;
@@ -1321,7 +1342,6 @@ begin
     else
       MethodName := TJSIdentifier(MemberExpr.Property_).Name;
 
-    // Evaluate arguments once and reuse
     SetLength(Args, Node.Arguments.Count);
     for var Index := 0 to Node.Arguments.Count - 1 do
       Args[Index] := Visit(Node.Arguments[Index]);
@@ -1375,7 +1395,6 @@ begin
   if not Supports(CalleeValue.ToObject, IJSFunction, Func) then
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
-  // Only evaluate arguments if not already done
   if not ArgsEvaluated then
   begin
     SetLength(Args, Node.Arguments.Count);
@@ -1509,7 +1528,6 @@ begin
   FThisValue := ThisObj;
   FStrictMode := Func.IsStrict;
 
-  // Use the function's closure scope as parent for the new scope (enables closures)
   var ParentScope: IJSScope;
   if Assigned(Func.ClosureScope) then
     ParentScope := Func.ClosureScope

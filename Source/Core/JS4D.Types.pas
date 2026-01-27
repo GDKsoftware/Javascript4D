@@ -788,16 +788,18 @@ begin
 end;
 
 destructor TJSObjectImpl.Destroy;
-var
-  Pair: TPair<string, TJSPropertyDescriptor>;
-  Func: IJSFunction;
 begin
   FPrototype := nil;
 
-  for Pair in FProperties do
+  for var Pair in FProperties do
+  begin
     if Pair.Value.Value.IsFunction then
+    begin
+      var Func: IJSFunction;
       if Supports(Pair.Value.Value.ToObject, IJSFunction, Func) then
         Func.ClosureScope := nil;
+    end;
+  end;
 
   FProperties.Clear;
   FProperties.Free;
@@ -1072,14 +1074,16 @@ begin
 end;
 
 destructor TJSArrayImpl.Destroy;
-var
-  Element: TJSValue;
-  Func: IJSFunction;
 begin
-  for Element in FElements do
+  for var Element in FElements do
+  begin
     if Element.IsFunction then
+    begin
+      var Func: IJSFunction;
       if Supports(Element.ToObject, IJSFunction, Func) then
         Func.ClosureScope := nil;
+    end;
+  end;
 
   FElements.Clear;
   FElements.Free;
@@ -1179,8 +1183,6 @@ begin
       Result := 'URIError';
     TJSErrorType.EvalError:
       Result := 'EvalError';
-  else
-    Result := 'Error';
   end;
 end;
 
