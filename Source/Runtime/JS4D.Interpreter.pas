@@ -70,9 +70,13 @@ type
     FThisValue: IJSObject;
     FStrictMode: Boolean;
     FGlobalObject: IJSObject;
+    FFunctionRegistry: TList<IJSFunction>;
+    FScopeRegistry: TList<IJSScope>;
 
     procedure PushScope;
     procedure PopScope;
+    procedure RegisterFunction(const Func: IJSFunction);
+    procedure RegisterScope(const Scope: IJSScope);
 
     function Visit(const Node: TJSASTNode): TJSValue;
 
@@ -246,16 +250,33 @@ end;
 constructor TJSInterpreter.Create;
 begin
   inherited Create;
+  FFunctionRegistry := TList<IJSFunction>.Create;
+  FScopeRegistry := TList<IJSScope>.Create;
   FGlobalScope := TJSScope.Create(nil);
+  FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
   FThisValue := nil;
   FGlobalObject := TJSObject.Create;
 end;
 
 destructor TJSInterpreter.Destroy;
+var
+  Func: IJSFunction;
+  Scope: IJSScope;
 begin
-  if Assigned(FGlobalScope) then
-    FGlobalScope.Clear;
+  for Func in FFunctionRegistry do
+  begin
+    Func.ClosureScope := nil;
+    Func.NativeFunction := nil;
+  end;
+  FFunctionRegistry.Clear;
+  FFunctionRegistry.Free;
+
+  for Scope in FScopeRegistry do
+    Scope.Clear;
+  FScopeRegistry.Clear;
+  FScopeRegistry.Free;
+
   FCurrentScope := nil;
   FGlobalScope := nil;
   FGlobalObject := nil;
@@ -263,9 +284,22 @@ begin
   inherited;
 end;
 
+procedure TJSInterpreter.RegisterFunction(const Func: IJSFunction);
+begin
+  if not FFunctionRegistry.Contains(Func) then
+    FFunctionRegistry.Add(Func);
+end;
+
+procedure TJSInterpreter.RegisterScope(const Scope: IJSScope);
+begin
+  if not FScopeRegistry.Contains(Scope) then
+    FScopeRegistry.Add(Scope);
+end;
+
 procedure TJSInterpreter.PushScope;
 begin
   FCurrentScope := TJSScope.Create(FCurrentScope);
+  RegisterScope(FCurrentScope);
 end;
 
 procedure TJSInterpreter.PopScope;
@@ -415,11 +449,10 @@ begin
   SetLength(Params, Node.Params.Count);
 
   for var Index := 0 to Node.Params.Count - 1 do
-  begin
     Params[Index] := Node.Params[Index].Name;
-  end;
 
   Func.Parameters := Params;
+  RegisterFunction(Func);
 
   FCurrentScope.DeclareVariable(Node.Id.Name, TJSValue.CreateObject(Func));
 
@@ -719,7 +752,7 @@ begin
       begin
         const RegExpObj: IJSRegExp = TJSRegExp.Create(Node.RegExpPattern, Node.RegExpFlags);
 
-        RegExpObj.SetProperty('test', TJSValue.CreateObject(TJSFunction.CreateNative('test',
+        var TestFunc: IJSFunction := TJSFunction.CreateNative('test',
           function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
           begin
             var RE: IJSRegExp;
@@ -727,9 +760,11 @@ begin
               Result := TJSValue.CreateBoolean(RE.Test(Args[0].ToString))
             else
               Result := TJSValue.CreateBoolean(False);
-          end)));
+          end);
+        RegisterFunction(TestFunc);
+        RegExpObj.SetProperty('test', TJSValue.CreateObject(TestFunc));
 
-        RegExpObj.SetProperty('exec', TJSValue.CreateObject(TJSFunction.CreateNative('exec',
+        var ExecFunc: IJSFunction := TJSFunction.CreateNative('exec',
           function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
           begin
             var RE: IJSRegExp;
@@ -737,9 +772,11 @@ begin
               Result := RE.Exec(Args[0].ToString)
             else
               Result := TJSValue.CreateNull;
-          end)));
+          end);
+        RegisterFunction(ExecFunc);
+        RegExpObj.SetProperty('exec', TJSValue.CreateObject(ExecFunc));
 
-        RegExpObj.SetProperty('toString', TJSValue.CreateObject(TJSFunction.CreateNative('toString',
+        var ToStringFunc: IJSFunction := TJSFunction.CreateNative('toString',
           function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
           begin
             var RE: IJSRegExp;
@@ -747,7 +784,9 @@ begin
               Result := TJSValue.CreateString('/' + RE.Pattern + '/' + RE.Flags)
             else
               Result := TJSValue.CreateString('/(?:)/');
-          end)));
+          end);
+        RegisterFunction(ToStringFunc);
+        RegExpObj.SetProperty('toString', TJSValue.CreateObject(ToStringFunc));
 
         Result := TJSValue.CreateObject(RegExpObj);
       end;
@@ -812,11 +851,10 @@ begin
   SetLength(Params, Node.Params.Count);
 
   for var Index := 0 to Node.Params.Count - 1 do
-  begin
     Params[Index] := Node.Params[Index].Name;
-  end;
 
   Func.Parameters := Params;
+  RegisterFunction(Func);
 
   Result := TJSValue.CreateObject(Func);
 end;
@@ -1479,6 +1517,7 @@ begin
     ParentScope := FGlobalScope;
 
   FCurrentScope := TJSScope.Create(ParentScope);
+  RegisterScope(FCurrentScope);
   try
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
@@ -1567,7 +1606,7 @@ begin
     const OriginalFunc = Func;
     const CapturedThis = BoundThis;
     const CapturedArgs = BoundArgs;
-    var InterpPtr: Pointer := Self;
+    const Interp = Self;
 
     const BoundFunc: IJSFunction = TJSFunction.CreateNative('bound',
       function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
@@ -1581,10 +1620,11 @@ begin
         for var Index := 0 to Length(CallArgs) - 1 do
           AllArgs[Length(CapturedArgs) + Index] := CallArgs[Index];
 
-        Result := TJSInterpreter(InterpPtr).CallFunction(OriginalFunc, AllArgs, CapturedThis);
+        Result := Interp.CallFunction(OriginalFunc, AllArgs, CapturedThis);
       end);
 
     BoundFunc.ClosureScope := nil;
+    RegisterFunction(BoundFunc);
     Result := TJSValue.CreateObject(BoundFunc);
     Exit;
   end;
@@ -1695,6 +1735,7 @@ end;
 procedure TJSInterpreter.RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
 begin
   const JSFunc: IJSFunction = TJSFunction.CreateNative(Name, Func);
+  RegisterFunction(JSFunc);
   FGlobalScope.DeclareVariable(Name, TJSValue.CreateObject(JSFunc));
 end;
 
