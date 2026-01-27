@@ -11,8 +11,10 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Complete ES5.1 Support**: Full ECMAScript 5.1 specification compliance
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
-- **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date support
+- **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
 - **Higher-Order Functions**: map, filter, reduce, forEach, find, some, every
+- **Closures**: Full support for lexical scoping and closures
+- **Error Handling**: Try/catch/finally with TypeError, RangeError, SyntaxError, etc.
 - **Native Binding**: Easy integration between Delphi and JavaScript
 
 ## Quick Start
@@ -86,6 +88,7 @@ end;
 **Object Methods**
 - `Object.keys`, `Object.values`, `Object.entries`
 - `Object.assign`, `Object.create`
+- `hasOwnProperty`
 
 **JSON**
 - `JSON.parse`, `JSON.stringify`
@@ -125,34 +128,30 @@ JavaScript Source Code
 ```
 Javascript4D/
 ├── Source/
+│   ├── API/            # Public Engine API
 │   ├── Core/           # Types, Errors
 │   ├── Lexer/          # Tokenizer
 │   ├── Parser/         # AST Builder
-│   ├── Runtime/        # Interpreter, Built-ins
-│   └── API/            # Public Engine API
+│   └── Runtime/        # Interpreter, Built-ins
+├── Demo/               # VCL demo application
 ├── Tests/              # DUnitX unit tests
-└── Javascript4D.dpr    # Demo application
+└── CLAUDE.md           # Claude Code instructions
 ```
 
 ## Building
 
 Requires Delphi 12.3 (RAD Studio Athens) or later.
 
-```bash
-# Run build script
-build.bat
+Open the project in RAD Studio IDE or use MSBuild:
 
-# Or compile directly
-msbuild Javascript4D.dproj
+```bash
+msbuild Tests/JS4D.Tests.dproj /p:Configuration=Release /p:Platform=Win64
+msbuild Demo/JS4D.Demo.dproj /p:Configuration=Release /p:Platform=Win64
 ```
 
 ## Running Tests
 
-```bash
-cd Tests
-msbuild JS4D.Tests.dproj
-JS4D.Tests.exe
-```
+Run the compiled test executable `JS4D.Tests.exe` from your build output directory.
 
 ## License
 
@@ -161,11 +160,3 @@ MIT License
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests.
-
-## Roadmap
-
-- [ ] RegExp support
-- [ ] Date instance methods
-- [ ] Error constructors (TypeError, RangeError, etc.)
-- [ ] Strict mode
-- [ ] ES6+ features (let, const, arrow functions, classes)
