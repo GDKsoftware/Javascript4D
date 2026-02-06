@@ -21,8 +21,7 @@ uses
   JS4D.Tests.Engine in 'JS4D.Tests.Engine.pas',
   JS4D.Tests.Lexer in 'JS4D.Tests.Lexer.pas',
   JS4D.Tests.Parser in 'JS4D.Tests.Parser.pas',
-  JS4D.Tests.Builtins in 'JS4D.Tests.Builtins.pas',
-  JS4D.Tests.DemoScenarios in 'JS4D.Tests.DemoScenarios.pas';
+  JS4D.Tests.Builtins in 'JS4D.Tests.Builtins.pas';
 
 var
   Runner: ITestRunner;
