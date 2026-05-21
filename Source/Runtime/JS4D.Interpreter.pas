@@ -1012,14 +1012,27 @@ begin
       Result := TJSValue.CreateBoolean(StrictEquals(Left, Right));
     TJSBinaryOperator.StrictNotEqual:
       Result := TJSValue.CreateBoolean(not StrictEquals(Left, Right));
+    // ES Abstract Relational Comparison: both strings -> lex compare; else numeric.
     TJSBinaryOperator.LessThan:
-      Result := TJSValue.CreateBoolean(Left.ToNumber < Right.ToNumber);
+      if Left.IsString and Right.IsString then
+        Result := TJSValue.CreateBoolean(Left.AsString < Right.AsString)
+      else
+        Result := TJSValue.CreateBoolean(Left.ToNumber < Right.ToNumber);
     TJSBinaryOperator.LessThanOrEqual:
-      Result := TJSValue.CreateBoolean(Left.ToNumber <= Right.ToNumber);
+      if Left.IsString and Right.IsString then
+        Result := TJSValue.CreateBoolean(Left.AsString <= Right.AsString)
+      else
+        Result := TJSValue.CreateBoolean(Left.ToNumber <= Right.ToNumber);
     TJSBinaryOperator.GreaterThan:
-      Result := TJSValue.CreateBoolean(Left.ToNumber > Right.ToNumber);
+      if Left.IsString and Right.IsString then
+        Result := TJSValue.CreateBoolean(Left.AsString > Right.AsString)
+      else
+        Result := TJSValue.CreateBoolean(Left.ToNumber > Right.ToNumber);
     TJSBinaryOperator.GreaterThanOrEqual:
-      Result := TJSValue.CreateBoolean(Left.ToNumber >= Right.ToNumber);
+      if Left.IsString and Right.IsString then
+        Result := TJSValue.CreateBoolean(Left.AsString >= Right.AsString)
+      else
+        Result := TJSValue.CreateBoolean(Left.ToNumber >= Right.ToNumber);
     TJSBinaryOperator.BitwiseAnd:
       Result := TJSValue.CreateNumber(Trunc(Left.ToNumber) and Trunc(Right.ToNumber));
     TJSBinaryOperator.BitwiseOr:
