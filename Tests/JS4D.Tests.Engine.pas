@@ -117,6 +117,12 @@ type
 
     [Test]
     procedure Execute_StringRelationalComparison_UsesLexicographicOrder;
+
+    [Test]
+    procedure Execute_DatePlusDate_ProducesNumericSum;
+
+    [Test]
+    procedure Execute_DateTimesNumber_ProducesNumericProduct;
   end;
 
 implementation
@@ -378,6 +384,20 @@ begin
   Assert.IsFalse(FEngine.Evaluate('"banana" < "apple"').ToBoolean);
   // Mixed string/number uses numeric conversion per spec.
   Assert.IsTrue(FEngine.Evaluate('"10" >= 5').ToBoolean);
+end;
+
+procedure TEngineTests.Execute_DatePlusDate_ProducesNumericSum;
+begin
+  // Date + Date goes through the numeric Add branch because neither operand
+  // is a String_. Diverges from browser JS (which does string concat via
+  // Date's "default" ToPrimitive hint); JS4D's Add does a literal IsString
+  // check rather than ToPrimitive.
+  Assert.AreEqual(Double(3000), FEngine.Evaluate('new Date(1000) + new Date(2000)').ToNumber);
+end;
+
+procedure TEngineTests.Execute_DateTimesNumber_ProducesNumericProduct;
+begin
+  Assert.AreEqual(Double(2000), FEngine.Evaluate('new Date(1000) * 2').ToNumber);
 end;
 
 initialization
