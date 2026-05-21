@@ -667,6 +667,15 @@ begin
         else
           Result := System.Math.NaN;
       end;
+    TJSValueType.Object_:
+      begin
+        // Date objects coerce to their timestamp (ms since epoch) per ES spec.
+        var DateObj: IJSDate;
+        if Supports(FObjectRef, IJSDate, DateObj) then
+          Result := DateObj.GetTime
+        else
+          Result := System.Math.NaN;
+      end;
     else
       Result := System.Math.NaN;
   end;
