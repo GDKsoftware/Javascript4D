@@ -240,6 +240,7 @@ type
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
     FProperties: TDictionary<string, TJSPropertyDescriptor>;
+    FOrderedKeys: TList<string>;
     FPrototype: IJSObject;
     FFrozen: Boolean;
     FSealed: Boolean;
@@ -791,6 +792,7 @@ constructor TJSObjectImpl.Create;
 begin
   inherited Create;
   FProperties := TDictionary<string, TJSPropertyDescriptor>.Create;
+  FOrderedKeys := TList<string>.Create;
   FFrozen := False;
   FSealed := False;
   FExtensible := True;
@@ -812,6 +814,7 @@ begin
 
   FProperties.Clear;
   FProperties.Free;
+  FOrderedKeys.Free;
   inherited;
 end;
 
@@ -865,6 +868,7 @@ begin
 
     Descriptor := TJSPropertyDescriptor.Create(Value);
     FProperties.Add(Name, Descriptor);
+    FOrderedKeys.Add(Name);
   end;
 end;
 
@@ -883,12 +887,17 @@ begin
     Descriptor := TJSPropertyDescriptor.Create(Value);
     Descriptor.Configurable := False;
     FProperties.Add(Name, Descriptor);
+    FOrderedKeys.Add(Name);
   end;
 end;
 
 procedure TJSObjectImpl.DeleteProperty(const Name: string);
 begin
-  FProperties.Remove(Name);
+  if FProperties.ContainsKey(Name) then
+  begin
+    FProperties.Remove(Name);
+    FOrderedKeys.Remove(Name);
+  end;
 end;
 
 function TJSObjectImpl.IsPropertyConfigurable(const Name: string): Boolean;
@@ -905,7 +914,7 @@ end;
 
 function TJSObjectImpl.GetOwnPropertyNames: TArray<string>;
 begin
-  Result := FProperties.Keys.ToArray;
+  Result := FOrderedKeys.ToArray;
 end;
 
 function TJSObjectImpl.IsFrozen: Boolean;
@@ -987,6 +996,7 @@ begin
       Exit;
 
     FProperties.Add(Name, Descriptor);
+    FOrderedKeys.Add(Name);
   end;
 end;
 
