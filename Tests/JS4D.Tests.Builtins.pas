@@ -6,6 +6,7 @@ interface
 
 uses
   System.Math,
+  System.SysUtils,
   DUnitX.TestFramework,
   JS4D.Types,
   JS4D.Engine;
@@ -213,6 +214,18 @@ type
 
     [Test]
     procedure Object_HasOwnProperty_ReturnsFalse;
+
+    [Test]
+    procedure Object_Keys_PreservesInsertionOrder;
+
+    [Test]
+    procedure Object_Keys_PreservesInsertionOrderAfterReassign;
+
+    [Test]
+    procedure Object_Keys_PreservesInsertionOrderAfterDeleteAndReadd;
+
+    [Test]
+    procedure Object_Keys_IntegerLikeKeys_PreserveInsertionOrder;
   end;
 
   [TestFixture]
@@ -244,6 +257,15 @@ type
 
     [Test]
     procedure JSON_RoundTrip_PreservesData;
+
+    [Test]
+    procedure JSON_Stringify_PreservesInsertionOrderOfKeys;
+
+    [Test]
+    procedure JSON_Stringify_PreservesOrderAfterReassign;
+
+    [Test]
+    procedure JSON_Stringify_PreservesOrderForDynamicallyAddedKeys;
   end;
 
   [TestFixture]
@@ -1101,6 +1123,38 @@ begin
   Assert.IsFalse(Result.AsBoolean);
 end;
 
+procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrder;
+begin
+  FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
+  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
+  Assert.AreEqual('b,a,c', Result.AsString);
+end;
+
+procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrderAfterReassign;
+begin
+  FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
+  FEngine.Execute('obj.b = 99;');
+  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
+  Assert.AreEqual('b,a,c', Result.AsString);
+end;
+
+procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrderAfterDeleteAndReadd;
+begin
+  FEngine.Execute('var obj = { a: 1, b: 2, c: 3 };');
+  FEngine.Execute('delete obj.b;');
+  FEngine.Execute('obj.b = 20;');
+  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
+  Assert.AreEqual('a,c,b', Result.AsString);
+end;
+
+procedure TObjectMethodsTests.Object_Keys_IntegerLikeKeys_PreserveInsertionOrder;
+begin
+  FEngine.Execute('var obj = {};');
+  FEngine.Execute('obj["3"] = 3; obj["1"] = 1; obj["2"] = 2;');
+  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
+  Assert.AreEqual('3,1,2', Result.AsString);
+end;
+
 procedure TJSONTests.Setup;
 begin
   FEngine := TJSEngine.Create;
@@ -1156,6 +1210,59 @@ begin
   const YResult = FEngine.Evaluate('parsed.y');
   Assert.AreEqual(Double(42), XResult.AsNumber);
   Assert.AreEqual('test', YResult.AsString);
+end;
+
+procedure TJSONTests.JSON_Stringify_PreservesInsertionOrderOfKeys;
+begin
+  // Assert key positions (not numeric formatting — engine emits "1" or "1.0").
+  FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
+  const Result = FEngine.Evaluate('JSON.stringify(obj)');
+  const JsonStr = Result.AsString;
+  Assert.IsTrue(Pos('"b"', JsonStr) < Pos('"a"', JsonStr),
+    Format('"b" should precede "a" in: %s', [JsonStr]));
+  Assert.IsTrue(Pos('"a"', JsonStr) < Pos('"c"', JsonStr),
+    Format('"a" should precede "c" in: %s', [JsonStr]));
+end;
+
+procedure TJSONTests.JSON_Stringify_PreservesOrderAfterReassign;
+begin
+  FEngine.Execute('var obj = { first: 1, second: 2, third: 3 };');
+  FEngine.Execute('obj.first = 99;');
+  const Result = FEngine.Evaluate('JSON.stringify(obj)');
+  const JsonStr = Result.AsString;
+  Assert.IsTrue(Pos('"first"', JsonStr) < Pos('"second"', JsonStr),
+    Format('"first" should still precede "second" after reassign in: %s', [JsonStr]));
+  Assert.IsTrue(Pos('"second"', JsonStr) < Pos('"third"', JsonStr),
+    Format('"second" should still precede "third" after reassign in: %s', [JsonStr]));
+  // Value of reassigned key must be present.
+  Assert.IsTrue(Pos('99', JsonStr) > 0);
+end;
+
+procedure TJSONTests.JSON_Stringify_PreservesOrderForDynamicallyAddedKeys;
+begin
+  FEngine.Execute(
+    'var rij = { materiaal: "Autobanden" };' +
+    'var maanden = ["2025-01","2025-02","2025-03","2025-04","2025-05","2025-06",' +
+    '"2025-07","2025-08","2025-09","2025-10","2025-11","2025-12"];' +
+    'maanden.forEach(function(m, i) { rij[m] = i + 1; });' +
+    'rij.totaal = 99;'
+  );
+  const Result = FEngine.Evaluate('JSON.stringify(rij)');
+  const JsonStr = Result.AsString;
+
+  // materiaal must come first, totaal last, months in chronological order.
+  Assert.IsTrue(Pos('"materiaal"', JsonStr) < Pos('"2025-01"', JsonStr),
+    Format('"materiaal" must come before "2025-01" in: %s', [JsonStr]));
+  Assert.IsTrue(Pos('"2025-12"', JsonStr) < Pos('"totaal"', JsonStr),
+    Format('"totaal" must come after "2025-12" in: %s', [JsonStr]));
+  // Each month must precede the next.
+  for var I := 1 to 11 do
+  begin
+    var ThisKey: string := Format('"2025-%.2d"', [I]);
+    var NextKey: string := Format('"2025-%.2d"', [I + 1]);
+    Assert.IsTrue(Pos(ThisKey, JsonStr) < Pos(NextKey, JsonStr),
+      Format('%s must precede %s in: %s', [ThisKey, NextKey, JsonStr]));
+  end;
 end;
 
 procedure TGlobalFunctionsTests.Setup;
