@@ -1,0 +1,35 @@
+# DPM package spec file
+min dpm client version: 1.0.0
+metadata:
+  id: GDK.Javascript4D
+  version: 1.0.0
+  description: 'Native JavaScript (ECMAScript 5.1) parser and interpreter written in Delphi. Execute JavaScript directly from your Delphi applications.'
+  authors:
+    - GDK Software
+  projectUrl: https://github.com/GDKsoftware/Javascript4D
+  repositoryUrl: https://github.com/GDKsoftware/Javascript4D
+  repositoryCommit: '#HASH#'
+  license: MIT
+  copyright: GDK Software
+  tags:
+    - javascript
+    - ecmascript
+    - interpreter
+    - parser
+  readme: README.md
+variables:
+  packagesource: RAD Studio $compilerNoPrefix$
+targetPlatforms:
+  - compiler from: delphi10.3
+    compiler to: delphi13.0
+    platforms:
+      - win32
+      - win64
+templates:
+  - name: default
+    source:
+      - src: ./Source/**.pas
+      - src: ./packages/$packageSource$/*.dproj
+      - src: ./packages/$packageSource$/*.dpk
+    build:
+      - project: ./packages/$packageSource$/Javascript4D_R.dproj
