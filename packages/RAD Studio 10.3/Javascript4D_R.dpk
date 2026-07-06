@@ -1,0 +1,46 @@
+package Javascript4D_R;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO ON}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$LIBSUFFIX AUTO}
+{$RUNONLY}
+{$IMPLICITBUILD OFF}
+
+requires
+  rtl;
+
+contains
+  JS4D.Engine in '..\..\Source\API\JS4D.Engine.pas',
+  JS4D.Errors in '..\..\Source\Core\JS4D.Errors.pas',
+  JS4D.Types in '..\..\Source\Core\JS4D.Types.pas',
+  JS4D.Lexer in '..\..\Source\Lexer\JS4D.Lexer.pas',
+  JS4D.Tokens in '..\..\Source\Lexer\JS4D.Tokens.pas',
+  JS4D.AST in '..\..\Source\Parser\JS4D.AST.pas',
+  JS4D.Parser in '..\..\Source\Parser\JS4D.Parser.pas',
+  JS4D.Builtins in '..\..\Source\Runtime\JS4D.Builtins.pas',
+  JS4D.Interpreter in '..\..\Source\Runtime\JS4D.Interpreter.pas';
+
+end.
