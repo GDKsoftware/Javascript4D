@@ -46,6 +46,7 @@ type
 
     function Execute(const Source: string): TJSValue;
     function Evaluate(const Expression: string): TJSValue;
+    procedure CollectGarbage;
 
     procedure RegisterFunction(const Name: string; const Func: TNativeFunction);
     procedure SetVariable(const Name: string; const Value: TJSValue);
@@ -315,6 +316,29 @@ begin
     Result := FInterpreter.Execute(Program_);
   finally
     Parser.Free;
+  end;
+end;
+
+procedure TJSEngine.CollectGarbage;
+begin
+  FInterpreter.CollectGarbage;
+
+  const LiveSet = TDictionary<TObject, Byte>.Create;
+  try
+    for var LiveProgram in FInterpreter.LivePrograms do
+      LiveSet.AddOrSetValue(LiveProgram, 0);
+
+    for var Index := FPrograms.Count - 1 downto 0 do
+    begin
+      const Program_ = FPrograms[Index];
+      if not LiveSet.ContainsKey(Program_) then
+      begin
+        Program_.Free;
+        FPrograms.Delete(Index);
+      end;
+    end;
+  finally
+    LiveSet.Free;
   end;
 end;
 

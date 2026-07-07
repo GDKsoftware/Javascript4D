@@ -32,6 +32,8 @@ type
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     function Resolve(const Name: string): IJSScope;
     procedure Clear;
+    function GetOwnVariables: TArray<TJSValue>;
+    procedure ReleaseReferences;
 
     property Parent: IJSScope read GetParent;
   end;
@@ -70,11 +72,15 @@ type
     FGlobalObject: IJSObject;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
+    FFunctionPrograms: TDictionary<Pointer, TObject>;
+    FCurrentProgram: TObject;
 
     procedure PushScope;
     procedure PopScope;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterScope(const Scope: IJSScope);
+    procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+    procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
 
     function Visit(const Node: TJSASTNode): TJSValue;
 
@@ -127,6 +133,8 @@ type
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
+    procedure CollectGarbage;
+    function LivePrograms: TArray<TObject>;
 
     property GlobalScope: IJSScope read FGlobalScope;
   end;
@@ -190,6 +198,23 @@ begin
     end;
   end;
 
+  FVariables.Clear;
+  FParent := nil;
+end;
+
+function TJSScope.GetOwnVariables: TArray<TJSValue>;
+begin
+  SetLength(Result, FVariables.Count);
+  var Index := 0;
+  for var Pair in FVariables do
+  begin
+    Result[Index] := Pair.Value;
+    Inc(Index);
+  end;
+end;
+
+procedure TJSScope.ReleaseReferences;
+begin
   FVariables.Clear;
   FParent := nil;
 end;
@@ -272,6 +297,8 @@ begin
   inherited Create;
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
+  FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
+  FCurrentProgram := nil;
   FGlobalScope := TJSScope.Create(nil);
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
@@ -293,6 +320,7 @@ begin
     Scope.Clear;
   end;
   FScopeRegistry.Free;
+  FFunctionPrograms.Free;
 
   FCurrentScope := nil;
   FGlobalScope := nil;
@@ -305,6 +333,7 @@ procedure TJSInterpreter.RegisterFunction(const Func: IJSFunction);
 begin
   if not FFunctionRegistry.Contains(Func) then
     FFunctionRegistry.Add(Func);
+  FFunctionPrograms.AddOrSetValue(Pointer(Func as IInterface), FCurrentProgram);
 end;
 
 procedure TJSInterpreter.RegisterScope(const Scope: IJSScope);
@@ -326,6 +355,7 @@ end;
 
 function TJSInterpreter.Execute(const Program_: TJSProgram): TJSValue;
 begin
+  FCurrentProgram := Program_;
   Result := Visit(Program_);
 end;
 
@@ -1778,6 +1808,121 @@ end;
 function TJSInterpreter.GetGlobalVariable(const Name: string): TJSValue;
 begin
   Result := FGlobalScope.GetVariable(Name);
+end;
+
+procedure TJSInterpreter.GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+begin
+  if Item = nil then
+    Exit;
+
+  const Id = Pointer(Item as IInterface);
+  if Live.ContainsKey(Id) then
+    Exit;
+
+  Live.Add(Id, 0);
+  Work.Add(Item);
+end;
+
+procedure TJSInterpreter.GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+begin
+  if Value.IsObject then
+    GCMark(Value.ToObject, Live, Work);
+end;
+
+procedure TJSInterpreter.CollectGarbage;
+begin
+  const Live = TDictionary<Pointer, Byte>.Create;
+  const Work = TList<IInterface>.Create;
+  try
+    GCMark(FGlobalScope, Live, Work);
+    GCMark(FCurrentScope, Live, Work);
+    GCMark(FThisValue, Live, Work);
+    GCMark(FGlobalObject, Live, Work);
+    for var Func in FFunctionRegistry do
+      if Func.IsNative then
+        GCMark(Func, Live, Work);
+
+    while Work.Count > 0 do
+    begin
+      const Item = Work.Last;
+      Work.Delete(Work.Count - 1);
+
+      var Scope: IJSScope;
+      var Func: IJSFunction;
+      var Arr: IJSArray;
+      var Obj: IJSObject;
+
+      if Supports(Item, IJSScope, Scope) then
+      begin
+        GCMark(Scope.Parent, Live, Work);
+        for var Value in Scope.GetOwnVariables do
+          GCMarkValue(Value, Live, Work);
+      end
+      else if Supports(Item, IJSFunction, Func) then
+      begin
+        GCMark(Func.ClosureScope, Live, Work);
+        GCMark(Func.Prototype, Live, Work);
+        for var PropName in Func.GetOwnPropertyNames do
+          GCMarkValue(Func.GetProperty(PropName), Live, Work);
+      end
+      else if Supports(Item, IJSArray, Arr) then
+      begin
+        for var ElementIndex := 0 to Arr.Length - 1 do
+          GCMarkValue(Arr.Elements[ElementIndex], Live, Work);
+        GCMark(Arr.Prototype, Live, Work);
+        for var PropName in Arr.GetOwnPropertyNames do
+          GCMarkValue(Arr.GetProperty(PropName), Live, Work);
+      end
+      else if Supports(Item, IJSObject, Obj) then
+      begin
+        GCMark(Obj.Prototype, Live, Work);
+        for var PropName in Obj.GetOwnPropertyNames do
+          GCMarkValue(Obj.GetProperty(PropName), Live, Work);
+      end;
+    end;
+
+    for var Index := FFunctionRegistry.Count - 1 downto 0 do
+    begin
+      const Func = FFunctionRegistry[Index];
+      if not Live.ContainsKey(Pointer(Func as IInterface)) then
+      begin
+        FFunctionPrograms.Remove(Pointer(Func as IInterface));
+        Func.ClosureScope := nil;
+        Func.NativeFunction := nil;
+        FFunctionRegistry.Delete(Index);
+      end;
+    end;
+
+    for var Index := FScopeRegistry.Count - 1 downto 0 do
+    begin
+      const Scope = FScopeRegistry[Index];
+      if not Live.ContainsKey(Pointer(Scope as IInterface)) then
+      begin
+        Scope.ReleaseReferences;
+        FScopeRegistry.Delete(Index);
+      end;
+    end;
+  finally
+    Work.Free;
+    Live.Free;
+  end;
+end;
+
+function TJSInterpreter.LivePrograms: TArray<TObject>;
+begin
+  SetLength(Result, 0);
+  const Seen = TDictionary<TObject, Byte>.Create;
+  try
+    for var Pair in FFunctionPrograms do
+      if (Pair.Value <> nil) and not Seen.ContainsKey(Pair.Value) then
+      begin
+        Seen.Add(Pair.Value, 0);
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := Pair.Value;
+      end;
+  finally
+    Seen.Free;
+  end;
 end;
 
 end.

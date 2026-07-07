@@ -89,6 +89,8 @@ type
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
     procedure Clear;
+    function GetOwnVariables: TArray<TJSValue>;
+    procedure ReleaseReferences;
     property Parent: IJSScope read GetParent;
   end;
 
