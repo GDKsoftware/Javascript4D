@@ -53,6 +53,20 @@ begin
 end;
 ```
 
+## Memory Management
+
+Executing a script repeatedly in a long-lived engine (for example a render loop at 30 FPS) accumulates the scopes, functions and parsed programs created by each run. Call `CollectGarbage` to reclaim everything that is no longer reachable from global state, without recreating the engine and losing your globals:
+
+```pascal
+while Running do
+begin
+  Engine.Execute(FrameScript);
+  Engine.CollectGarbage;
+end;
+```
+
+Anything still referenced from a global variable, including closures, survives collection. Only script functions and scopes that the host retains directly (raw values held outside the engine) should not be relied upon across a collection; keep persistent state in globals.
+
 ## Supported JavaScript Features
 
 ### Core Language

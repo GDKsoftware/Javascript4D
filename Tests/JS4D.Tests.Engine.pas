@@ -6,6 +6,7 @@ interface
 
 uses
   DUnitX.TestFramework,
+  System.SysUtils,
   JS4D.Types,
   JS4D.Engine;
 
@@ -14,6 +15,7 @@ type
   TEngineTests = class
   private
     FEngine: TJSEngine;
+    function AllocatedBytes: NativeInt;
 
   public
     [Setup]
@@ -123,6 +125,16 @@ type
 
     [Test]
     procedure Execute_DateTimesNumber_ProducesNumericProduct;
+    [Test]
+    procedure Execute_RepeatedInSameEngine_DoesNotLeakMemory;
+
+    [Test]
+    procedure CollectGarbage_ClosureInGlobal_SurvivesAndWorks;
+    [Test]
+    procedure CollectGarbage_GlobalState_Persists;
+    [Test]
+    procedure CollectGarbage_Builtins_StillWork;
+
   end;
 
 implementation
@@ -398,6 +410,64 @@ end;
 procedure TEngineTests.Execute_DateTimesNumber_ProducesNumericProduct;
 begin
   Assert.AreEqual(Double(2000), FEngine.Evaluate('new Date(1000) * 2').ToNumber);
+end;
+
+function TEngineTests.AllocatedBytes: NativeInt;
+begin
+  var State: TMemoryManagerState;
+  GetMemoryManagerState(State);
+  Result := State.TotalAllocatedMediumBlockSize + State.TotalAllocatedLargeBlockSize;
+  for var SmallState in State.SmallBlockTypeStates do
+    Result := Result + NativeInt(SmallState.UseableBlockSize) * NativeInt(SmallState.AllocatedBlockCount);
+end;
+
+procedure TEngineTests.Execute_RepeatedInSameEngine_DoesNotLeakMemory;
+begin
+  const Script = 'function make(n) { var f = function() { return n * 2; }; return f(); } make(21);';
+
+  for var I := 1 to 200 do
+    FEngine.Execute(Script);
+
+  const Before = AllocatedBytes;
+  for var I := 1 to 4000 do
+  begin
+    FEngine.Execute(Script);
+    FEngine.CollectGarbage;
+  end;
+  const Growth = AllocatedBytes - Before;
+
+  Assert.IsTrue(Growth < 512 * 1024,
+    Format('Heap grew by %d bytes over 4000 executions in one engine (expected < 512 KB): scopes/functions are retained for the engine lifetime', [Growth]));
+end;
+
+procedure TEngineTests.CollectGarbage_ClosureInGlobal_SurvivesAndWorks;
+begin
+  FEngine.Execute('var counter = (function() { var n = 0; return function() { n = n + 1; return n; }; })();');
+  FEngine.Execute('counter();');
+  FEngine.CollectGarbage;
+
+  const Result = FEngine.Evaluate('counter()');
+
+  Assert.AreEqual(Double(2), Result.ToNumber, 'Closure stored in a global must survive collection with its captured state');
+end;
+
+procedure TEngineTests.CollectGarbage_GlobalState_Persists;
+begin
+  FEngine.Execute('var data = { total: 42 };');
+  FEngine.CollectGarbage;
+
+  const Result = FEngine.Evaluate('data.total');
+
+  Assert.AreEqual(Double(42), Result.ToNumber);
+end;
+
+procedure TEngineTests.CollectGarbage_Builtins_StillWork;
+begin
+  FEngine.CollectGarbage;
+
+  const Result = FEngine.Evaluate('Math.max(3, 7)');
+
+  Assert.AreEqual(Double(7), Result.ToNumber);
 end;
 
 initialization
