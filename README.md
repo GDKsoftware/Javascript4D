@@ -174,3 +174,6 @@ MIT License
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests.
+## Commercial Support
+
+This library is MIT licensed and free to use. For companies that depend on it commercially we offer support and maintenance agreements with guaranteed response times, and sponsored development of features you need. Contact us at [gdksoftware.com/contact-us](https://gdksoftware.com/contact-us) or open an issue to get in touch.
