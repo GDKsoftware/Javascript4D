@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  System.SyncObjs,
   System.Generics.Collections,
   JS4D.Types,
   JS4D.AST,
@@ -74,11 +75,25 @@ type
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
     FCurrentProgram: TObject;
+    FCancelRequested: Int64;
+    FExecutionDepth: Integer;
+    FStepBudget: Int64;
+    FStepsCompleted: Int64;
+    FStepSlice: Integer;
+    FStepsUntilCheck: Integer;
 
     procedure PushScope;
     procedure PopScope;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterScope(const Scope: IJSScope);
+
+    procedure BeginExecution;
+    procedure ConsumeStep; inline;
+    procedure ReachStepCheckpoint;
+    procedure OpenStepSlice;
+    function IsCancelRequested: Boolean;
+    function GetStepCount: Int64;
+    function ExecuteStatement(const Node: TJSStatement): TJSValue;
     procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
 
@@ -130,6 +145,7 @@ type
     destructor Destroy; override;
 
     function Execute(const Program_: TJSProgram): TJSValue;
+    procedure Cancel;
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
@@ -137,6 +153,8 @@ type
     function LivePrograms: TArray<TObject>;
 
     property GlobalScope: IJSScope read FGlobalScope;
+    property StepBudget: Int64 read FStepBudget write FStepBudget;
+    property StepCount: Int64 read GetStepCount;
   end;
 
 implementation
@@ -164,6 +182,8 @@ const
   CONSTRUCTOR_FUNCTION = 'Function';
   CONSTRUCTOR_REGEXP = 'RegExp';
   CONSTRUCTOR_DATE = 'Date';
+
+  StepCheckInterval = 1024;
 
 { TJSScope }
 
@@ -299,6 +319,12 @@ begin
   FScopeRegistry := TList<IJSScope>.Create;
   FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
   FCurrentProgram := nil;
+  FCancelRequested := 0;
+  FExecutionDepth := 0;
+  FStepBudget := 0;
+  FStepsCompleted := 0;
+  FStepSlice := 0;
+  FStepsUntilCheck := 0;
   FGlobalScope := TJSScope.Create(nil);
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
@@ -353,10 +379,85 @@ begin
   FCurrentScope := FCurrentScope.Parent;
 end;
 
+procedure TJSInterpreter.BeginExecution;
+begin
+  TInterlocked.Exchange(FCancelRequested, 0);
+  FStepsCompleted := 0;
+  OpenStepSlice;
+end;
+
+procedure TJSInterpreter.ConsumeStep;
+begin
+  if FStepsUntilCheck <= 0 then
+    ReachStepCheckpoint;
+
+  Dec(FStepsUntilCheck);
+end;
+
+procedure TJSInterpreter.ReachStepCheckpoint;
+begin
+  FStepsCompleted := GetStepCount;
+  FStepSlice := 0;
+  FStepsUntilCheck := 0;
+
+  if IsCancelRequested then
+    raise EJSExecutionCancelled.Create;
+
+  if (FStepBudget > 0) and (FStepsCompleted >= FStepBudget) then
+    raise EJSStepBudgetExceeded.Create(FStepBudget);
+
+  OpenStepSlice;
+end;
+
+procedure TJSInterpreter.OpenStepSlice;
+begin
+  var Slice: Int64 := StepCheckInterval;
+
+  if FStepBudget > 0 then
+  begin
+    const StepsLeft = FStepBudget - FStepsCompleted;
+
+    if StepsLeft < Slice then
+      Slice := StepsLeft;
+  end;
+
+  FStepSlice := Integer(Slice);
+  FStepsUntilCheck := FStepSlice;
+end;
+
+procedure TJSInterpreter.Cancel;
+begin
+  TInterlocked.Exchange(FCancelRequested, 1);
+end;
+
+function TJSInterpreter.IsCancelRequested: Boolean;
+begin
+  Result := TInterlocked.Read(FCancelRequested) <> 0;
+end;
+
+function TJSInterpreter.GetStepCount: Int64;
+begin
+  Result := FStepsCompleted + (FStepSlice - FStepsUntilCheck);
+end;
+
 function TJSInterpreter.Execute(const Program_: TJSProgram): TJSValue;
 begin
-  FCurrentProgram := Program_;
-  Result := Visit(Program_);
+  if FExecutionDepth = 0 then
+    BeginExecution;
+
+  Inc(FExecutionDepth);
+  try
+    FCurrentProgram := Program_;
+    Result := Visit(Program_);
+  finally
+    Dec(FExecutionDepth);
+  end;
+end;
+
+function TJSInterpreter.ExecuteStatement(const Node: TJSStatement): TJSValue;
+begin
+  ConsumeStep;
+  Result := Visit(Node);
 end;
 
 function TJSInterpreter.Visit(const Node: TJSASTNode): TJSValue;
@@ -448,7 +549,7 @@ begin
 
   for var Statement in Node.Body do
   begin
-    Result := Visit(Statement);
+    Result := ExecuteStatement(Statement);
   end;
 end;
 
@@ -460,7 +561,7 @@ begin
   try
     for var Statement in Node.Body do
     begin
-      Result := Visit(Statement);
+      Result := ExecuteStatement(Statement);
     end;
   finally
     PopScope;
@@ -532,7 +633,7 @@ begin
   while Visit(Node.Test).ToBoolean do
   begin
     try
-      Result := Visit(Node.Body);
+      Result := ExecuteStatement(Node.Body);
     except
       on TJSBreakSignal do
         Break;
@@ -548,7 +649,7 @@ begin
 
   repeat
     try
-      Result := Visit(Node.Body);
+      Result := ExecuteStatement(Node.Body);
     except
       on TJSBreakSignal do
         Break;
@@ -578,7 +679,7 @@ begin
       end;
 
       try
-        Result := Visit(Node.Body);
+        Result := ExecuteStatement(Node.Body);
       except
         on TJSBreakSignal do
           Break;
@@ -629,7 +730,7 @@ begin
       end;
 
       try
-        Result := Visit(Node.Body);
+        Result := ExecuteStatement(Node.Body);
       except
         on TJSBreakSignal do
           Break;
@@ -695,7 +796,7 @@ begin
 
           for var Statement in CurrentCase.Consequent do
           begin
-            Result := Visit(Statement);
+            Result := ExecuteStatement(Statement);
           end;
         end;
       except
@@ -717,7 +818,7 @@ begin
 
         for var Statement in CurrentCase.Consequent do
         begin
-          Result := Visit(Statement);
+          Result := ExecuteStatement(Statement);
         end;
       end;
     except
@@ -740,6 +841,8 @@ begin
   try
     Result := Visit(Node.Block);
   except
+    on EJSExecutionInterrupted do
+      raise;
     on E: TJSThrowSignal do
     begin
       if Assigned(Node.Handler) then
@@ -1562,6 +1665,8 @@ end;
 
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
 begin
+  ConsumeStep;
+
   if Func.IsNative then
     Exit(Func.NativeFunction(ThisObj, Args));
 

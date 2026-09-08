@@ -16,6 +16,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Closures**: Full support for lexical scoping and closures
 - **Error Handling**: Try/catch/finally with TypeError, RangeError, SyntaxError, etc.
 - **Native Binding**: Easy integration between Delphi and JavaScript
+- **Interruptible**: A step budget and a thread-safe `Cancel` stop a runaway script
 
 ## Quick Start
 
@@ -66,6 +67,53 @@ end;
 ```
 
 Anything still referenced from a global variable, including closures, survives collection. Only script functions and scopes that the host retains directly (raw values held outside the engine) should not be relied upon across a collection; keep persistent state in globals.
+
+## Stopping a Running Script
+
+A script written by an LLM, or by anyone else you do not control, can loop forever. The engine counts the steps it takes and gives the host two ways to stop a run: a step budget it enforces itself, and a `Cancel` any thread may call.
+
+A step is one statement executed, one iteration of a `while`, `do-while`, `for` or `for-in` loop, and one function call. Both checks happen at those points, so any script that runs away, by looping or by recursing, reaches one within a bounded number of steps.
+
+### Step budget
+
+`StepBudget` caps how many steps a single `Execute` may take. Zero, the default, means unlimited. Exceeding it raises `EJSStepBudgetExceeded`, which carries the budget it exceeded in its `StepBudget` property.
+
+```pascal
+Engine.StepBudget := 1000000;
+try
+  Engine.Execute(ScriptFromTheModel);
+except
+  on E: EJSStepBudgetExceeded do
+    WriteLn(Format('Script stopped after %d steps', [E.StepBudget]));
+end;
+```
+
+`StepCount` reports the steps the last `Execute` took, whether it finished or was stopped. Set `StepBudget` before calling `Execute`: the budget and the count both apply to one run and reset at the start of the next.
+
+### Cancel
+
+`Cancel` is thread safe and may be called while `Execute` runs on another thread. The running script stops at the next check and `Execute` raises `EJSExecutionCancelled` on the thread that called it.
+
+```pascal
+const Worker = TThread.CreateAnonymousThread(
+  procedure
+  begin
+    try
+      Engine.Execute(ScriptFromTheModel);
+    except
+      on EJSExecutionCancelled do
+        WriteLn('Script cancelled');
+    end;
+  end);
+Worker.Start;
+
+if not Worker.WaitFor(TimeoutMilliseconds) then
+  Engine.Cancel;
+```
+
+Every `Execute` clears the flag before it starts, so a `Cancel` that arrives between two runs does not stop the next one. Cancel the run you mean to stop, while that run is in progress.
+
+Both exceptions derive from `EJSExecutionInterrupted` and neither can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. The engine stays usable afterwards with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
 
 ## Supported JavaScript Features
 

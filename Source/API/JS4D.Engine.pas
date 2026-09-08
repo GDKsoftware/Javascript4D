@@ -30,6 +30,10 @@ type
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
     class function ConvertJSValueToJSON(const Value: TJSValue): TJSONValue; static;
 
+    function GetStepBudget: Int64;
+    procedure SetStepBudget(const Value: Int64);
+    function GetStepCount: Int64;
+
     procedure RegisterBuiltInFunctions;
     procedure RegisterConsole;
     procedure RegisterMath;
@@ -46,6 +50,7 @@ type
 
     function Execute(const Source: string): TJSValue;
     function Evaluate(const Expression: string): TJSValue;
+    procedure Cancel;
     procedure CollectGarbage;
 
     procedure RegisterFunction(const Name: string; const Func: TNativeFunction);
@@ -61,6 +66,8 @@ type
     function GetBoolean(const Name: string): Boolean;
 
     property OnConsoleOutput: TConsoleOutputHandler read FOnConsoleOutput write FOnConsoleOutput;
+    property StepBudget: Int64 read GetStepBudget write SetStepBudget;
+    property StepCount: Int64 read GetStepCount;
   end;
 
 implementation
@@ -345,6 +352,26 @@ end;
 function TJSEngine.Evaluate(const Expression: string): TJSValue;
 begin
   Result := Execute(Expression);
+end;
+
+procedure TJSEngine.Cancel;
+begin
+  FInterpreter.Cancel;
+end;
+
+function TJSEngine.GetStepBudget: Int64;
+begin
+  Result := FInterpreter.StepBudget;
+end;
+
+procedure TJSEngine.SetStepBudget(const Value: Int64);
+begin
+  FInterpreter.StepBudget := Value;
+end;
+
+function TJSEngine.GetStepCount: Int64;
+begin
+  Result := FInterpreter.StepCount;
 end;
 
 procedure TJSEngine.RegisterFunction(const Name: string; const Func: TNativeFunction);
