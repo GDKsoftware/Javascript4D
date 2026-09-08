@@ -183,7 +183,7 @@ const
   CONSTRUCTOR_REGEXP = 'RegExp';
   CONSTRUCTOR_DATE = 'Date';
 
-  StepCheckInterval = 1024;
+  STEP_CHECK_INTERVAL = 1024;
 
 { TJSScope }
 
@@ -381,7 +381,6 @@ end;
 
 procedure TJSInterpreter.BeginExecution;
 begin
-  TInterlocked.Exchange(FCancelRequested, 0);
   FStepsCompleted := 0;
   OpenStepSlice;
 end;
@@ -411,7 +410,7 @@ end;
 
 procedure TJSInterpreter.OpenStepSlice;
 begin
-  var Slice: Int64 := StepCheckInterval;
+  var Slice: Int64 := STEP_CHECK_INTERVAL;
 
   if FStepBudget > 0 then
   begin

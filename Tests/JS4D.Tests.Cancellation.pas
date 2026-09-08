@@ -44,7 +44,10 @@ type
     procedure Execute_CancelFromOtherThread_StopsInfiniteLoopQuickly;
 
     [Test]
-    procedure Execute_CancelBeforeExecute_IsClearedByExecute;
+    procedure Execute_CancelBeforeTheFirstRun_StopsThatRun;
+
+    [Test]
+    procedure Execute_CancelBetweenTwoRuns_StopsTheSecondRun;
 
     [Test]
     procedure Execute_NestedExecuteFromHostFunction_KeepsPendingCancel;
@@ -75,10 +78,13 @@ const
   SignallingEndlessLoopScript = 'signalStarted(); while (true) { }';
   CaughtEndlessLoopScript = 'try { while (true) { } } catch (e) { }';
   CancelThenNestLoopScript = 'cancelThenNest(); while (true) { }';
-  EndlessRecursionScript = 'function loop() { return loop(); } loop();';
+  RecursionDepthName = 'depth';
+  EndlessRecursionScript = 'var depth = 0; function loop() { depth = depth + 1; return loop(); } loop();';
+  FirstRunScript = 'var first = 1;';
   SummingLoopScript = 'var total = 0; for (var i = 1; i <= 10; i++) { total += i; }';
   LoopStepBudget = 5000;
   RecursionStepBudget = 200;
+  RecursionDepthWithinBudget = 66;
   GenerousStepBudget = 1000000;
   MaximumCancelMilliseconds = 500;
   StartSignalTimeoutMilliseconds = 10000;
@@ -157,7 +163,12 @@ begin
       FEngine.Execute(EndlessRecursionScript);
     end,
     EJSStepBudgetExceeded,
-    'Function calls must be counted, so endless recursion runs out of budget');
+    'Endless recursion must run out of its step budget');
+
+  Assert.AreEqual(Int64(RecursionStepBudget), FEngine.StepCount, 'Exactly the budgeted number of steps must have run');
+  Assert.AreEqual(Double(RecursionDepthWithinBudget), FEngine.GetNumber(RecursionDepthName),
+    Format('A level costs the call itself on top of its two statements, so %d steps reach depth %d',
+      [RecursionStepBudget, RecursionDepthWithinBudget]));
 end;
 
 procedure TCancellationTests.Execute_ScriptCatchBlock_CannotSwallowStepBudgetExceeded;
@@ -196,13 +207,33 @@ begin
   end;
 end;
 
-procedure TCancellationTests.Execute_CancelBeforeExecute_IsClearedByExecute;
+procedure TCancellationTests.Execute_CancelBeforeTheFirstRun_StopsThatRun;
 begin
   FEngine.Cancel;
+  FEngine.StepBudget := LoopStepBudget;
 
-  const Result = FEngine.Evaluate('1 + 2');
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(EndlessLoopScript);
+    end,
+    EJSExecutionCancelled,
+    'A cancel that arrives before the engine has run anything must stop the run that follows it');
+end;
 
-  Assert.AreEqual(Double(3), Result.ToNumber, 'A cancel that arrives before Execute must not stop the next run');
+procedure TCancellationTests.Execute_CancelBetweenTwoRuns_StopsTheSecondRun;
+begin
+  FEngine.Execute(FirstRunScript);
+  FEngine.Cancel;
+  FEngine.StepBudget := LoopStepBudget;
+
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(EndlessLoopScript);
+    end,
+    EJSExecutionCancelled,
+    'A cancel between two top-level runs must stop the second run, not be dropped by it');
 end;
 
 procedure TCancellationTests.Execute_NestedExecuteFromHostFunction_KeepsPendingCancel;

@@ -111,9 +111,9 @@ if not Worker.WaitFor(TimeoutMilliseconds) then
   Engine.Cancel;
 ```
 
-Every `Execute` clears the flag before it starts, so a `Cancel` that arrives between two runs does not stop the next one. Cancel the run you mean to stop, while that run is in progress.
+`Execute` does not clear the flag. A `Cancel` that arrives between two runs stays pending, so the next `Execute` stops at its first check, which is what a host that runs several scripts as one job means by cancelling. The check falls every 1024 steps, or sooner when a step budget is closer, so a run that finishes inside that interval can still complete; the flag stays set and stops the run after it. Nothing clears it: an engine that has been cancelled is done, and work that must run afterwards belongs to a fresh engine.
 
-Both exceptions derive from `EJSExecutionInterrupted` and neither can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. The engine stays usable afterwards with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
+Both exceptions derive from `EJSExecutionInterrupted` and neither can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. After a step budget stopped a script the engine stays usable with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
 
 ## Supported JavaScript Features
 
