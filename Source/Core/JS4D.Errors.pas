@@ -34,6 +34,23 @@ type
 
   EJSInternalError = class(EJSException);
 
+  EJSExecutionInterrupted = class(EJSException);
+
+  EJSExecutionCancelled = class(EJSExecutionInterrupted)
+  public
+    constructor Create;
+  end;
+
+  EJSStepBudgetExceeded = class(EJSExecutionInterrupted)
+  private
+    FStepBudget: Int64;
+
+  public
+    constructor Create(const StepBudget: Int64);
+
+    property StepBudget: Int64 read FStepBudget;
+  end;
+
   TJSErrorFactory = class
   public
     class function SyntaxError(const Message: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
@@ -63,6 +80,8 @@ const
   NotDefinedMessage = ' is not defined';
   InvalidArrayLengthMessage = 'Invalid array length';
   InvalidRegExpMessage = 'Invalid regular expression: ';
+  ExecutionCancelledMessage = 'Script execution was cancelled';
+  StepBudgetExceededMessage = 'Script exceeded its step budget of %d steps';
 
 { EJSException }
 
@@ -71,6 +90,21 @@ begin
   inherited Create(Message);
   FLine := Line;
   FColumn := Column;
+end;
+
+{ EJSExecutionCancelled }
+
+constructor EJSExecutionCancelled.Create;
+begin
+  inherited Create(ExecutionCancelledMessage);
+end;
+
+{ EJSStepBudgetExceeded }
+
+constructor EJSStepBudgetExceeded.Create(const StepBudget: Int64);
+begin
+  inherited Create(Format(StepBudgetExceededMessage, [StepBudget]));
+  FStepBudget := StepBudget;
 end;
 
 { TJSErrorFactory }
