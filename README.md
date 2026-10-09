@@ -202,7 +202,7 @@ Javascript4D/
 
 ## Building
 
-Requires Delphi 12.3 (RAD Studio Athens) or later.
+Requires Delphi 10.3 (RAD Studio Rio) or later. The `packages` folder has a runtime package for each RAD Studio version from 10.3 to 13.0.
 
 Open the project in RAD Studio IDE or use MSBuild:
 
