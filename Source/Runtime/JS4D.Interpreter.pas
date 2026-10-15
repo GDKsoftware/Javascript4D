@@ -81,6 +81,8 @@ type
     FStepsCompleted: Int64;
     FStepSlice: Integer;
     FStepsUntilCheck: Integer;
+    FLimits: TJSLimits;
+    FCallDepth: Integer;
 
     procedure PushScope;
     procedure PopScope;
@@ -133,6 +135,7 @@ type
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 
+    function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
     function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
@@ -153,8 +156,12 @@ type
     function LivePrograms: TArray<TObject>;
 
     property GlobalScope: IJSScope read FGlobalScope;
+    property Limits: TJSLimits read FLimits;
     property StepBudget: Int64 read FStepBudget write FStepBudget;
     property StepCount: Int64 read GetStepCount;
+    property MaxCallDepth: Integer read FLimits.MaxCallDepth write FLimits.MaxCallDepth;
+    property MaxStringLength: Integer read FLimits.MaxStringLength write FLimits.MaxStringLength;
+    property MaxArrayLength: Integer read FLimits.MaxArrayLength write FLimits.MaxArrayLength;
   end;
 
 implementation
@@ -325,6 +332,8 @@ begin
   FStepsCompleted := 0;
   FStepSlice := 0;
   FStepsUntilCheck := 0;
+  FLimits := TJSLimits.Default;
+  FCallDepth := 0;
   FGlobalScope := TJSScope.Create(nil);
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
@@ -948,6 +957,8 @@ end;
 
 function TJSInterpreter.VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
 begin
+  FLimits.EnsureArrayLength(Node.Elements.Count);
+
   const Arr = TJSArray.Create;
 
   for var Element in Node.Elements do
@@ -1101,7 +1112,7 @@ begin
       begin
         const IsStringConcat = (Left.IsString or Right.IsString);
         if IsStringConcat then
-          Result := TJSValue.CreateString(Left.ToString + Right.ToString)
+          Result := JoinStringValues(Left, Right)
         else
           Result := TJSValue.CreateNumber(Left.ToNumber + Right.ToNumber);
       end;
@@ -1340,7 +1351,7 @@ begin
           begin
             const IsStringConcat = (Current.IsString or Right.IsString);
             if IsStringConcat then
-              NewValue := TJSValue.CreateString(Current.ToString + Right.ToString)
+              NewValue := JoinStringValues(Current, Right)
             else
               NewValue := TJSValue.CreateNumber(Current.ToNumber + Right.ToNumber);
           end;
@@ -1387,7 +1398,7 @@ begin
           begin
             const IsStringConcat = (Current.IsString or Right.IsString);
             if IsStringConcat then
-              NewValue := TJSValue.CreateString(Current.ToString + Right.ToString)
+              NewValue := JoinStringValues(Current, Right)
             else
               NewValue := TJSValue.CreateNumber(Current.ToNumber + Right.ToNumber);
           end;
@@ -1507,12 +1518,12 @@ begin
           Exit(TJSBuiltins.CallArrayMethodWithCallback(ArrIntf, MethodName, Args, Executor));
         end
         else
-          Exit(TJSBuiltins.CallArrayMethod(ArrIntf, MethodName, Args));
+          Exit(TJSBuiltins.CallArrayMethod(ArrIntf, MethodName, Args, FLimits));
       end;
     end;
 
     if ObjValue.IsString and TJSBuiltins.HasStringMethod(MethodName) then
-      Exit(TJSBuiltins.CallStringMethod(ObjValue.AsString, MethodName, Args));
+      Exit(TJSBuiltins.CallStringMethod(ObjValue.AsString, MethodName, Args, FLimits));
 
     if ObjValue.IsNumber and TJSBuiltins.HasNumberMethod(MethodName) then
       Exit(TJSBuiltins.CallNumberMethod(ObjValue.AsNumber, MethodName, Args));
@@ -1662,12 +1673,27 @@ begin
     Result := TJSValue.CreateObject(FGlobalObject);
 end;
 
+function TJSInterpreter.JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
+begin
+  const LeftText = Left.ToString;
+  const RightText = Right.ToString;
+
+  const JoinedLength = Int64(Length(LeftText)) + Length(RightText);
+
+  FLimits.EnsureStringLength(JoinedLength);
+
+  Result := TJSValue.CreateString(LeftText + RightText);
+end;
+
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
 begin
   ConsumeStep;
 
   if Func.IsNative then
     Exit(Func.NativeFunction(ThisObj, Args));
+
+  if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
+    raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
 
   const OldThis = FThisValue;
   const OldStrictMode = FStrictMode;
@@ -1683,6 +1709,7 @@ begin
 
   FCurrentScope := TJSScope.Create(ParentScope);
   RegisterScope(FCurrentScope);
+  Inc(FCallDepth);
   try
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
@@ -1700,6 +1727,7 @@ begin
         Result := E.Value;
     end;
   finally
+    Dec(FCallDepth);
     FCurrentScope := OldScope;
     FThisValue := OldThis;
     FStrictMode := OldStrictMode;
@@ -1817,6 +1845,7 @@ begin
 
       if TryStrToInt(PropName, Index) then
       begin
+        FLimits.EnsureArrayLength(Int64(Index) + 1);
         ArrIntf[Index] := Value;
         Exit;
       end;

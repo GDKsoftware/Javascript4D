@@ -51,6 +51,33 @@ type
     property StepBudget: Int64 read FStepBudget;
   end;
 
+  EJSCallDepthExceeded = class(EJSExecutionInterrupted)
+  private
+    FMaxCallDepth: Integer;
+
+  public
+    constructor Create(const MaxCallDepth: Integer);
+
+    property MaxCallDepth: Integer read FMaxCallDepth;
+  end;
+
+  TJSAllocationKind = (
+    Characters,
+    Elements
+  );
+
+  EJSAllocationLimitExceeded = class(EJSExecutionInterrupted)
+  private
+    FKind: TJSAllocationKind;
+    FLimit: Integer;
+
+  public
+    constructor Create(const Kind: TJSAllocationKind; const Limit: Integer);
+
+    property Kind: TJSAllocationKind read FKind;
+    property Limit: Integer read FLimit;
+  end;
+
   TJSErrorFactory = class
   public
     class function SyntaxError(const Message: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
@@ -82,6 +109,9 @@ const
   InvalidRegExpMessage = 'Invalid regular expression: ';
   ExecutionCancelledMessage = 'Script execution was cancelled';
   StepBudgetExceededMessage = 'Script exceeded its step budget of %d steps';
+  CallDepthExceededMessage = 'Script exceeded its call depth limit of %d nested calls';
+  StringLengthExceededMessage = 'Script exceeded the string length limit of %d characters';
+  ArrayLengthExceededMessage = 'Script exceeded the array length limit of %d elements';
 
 { EJSException }
 
@@ -105,6 +135,31 @@ constructor EJSStepBudgetExceeded.Create(const StepBudget: Int64);
 begin
   inherited Create(Format(StepBudgetExceededMessage, [StepBudget]));
   FStepBudget := StepBudget;
+end;
+
+{ EJSCallDepthExceeded }
+
+constructor EJSCallDepthExceeded.Create(const MaxCallDepth: Integer);
+begin
+  inherited Create(Format(CallDepthExceededMessage, [MaxCallDepth]));
+  FMaxCallDepth := MaxCallDepth;
+end;
+
+{ EJSAllocationLimitExceeded }
+
+constructor EJSAllocationLimitExceeded.Create(const Kind: TJSAllocationKind; const Limit: Integer);
+begin
+  case Kind of
+    TJSAllocationKind.Characters:
+      inherited Create(Format(StringLengthExceededMessage, [Limit]));
+    TJSAllocationKind.Elements:
+      inherited Create(Format(ArrayLengthExceededMessage, [Limit]));
+    else
+      inherited Create(Format(ArrayLengthExceededMessage, [Limit]));
+  end;
+
+  FKind := Kind;
+  FLimit := Limit;
 end;
 
 { TJSErrorFactory }

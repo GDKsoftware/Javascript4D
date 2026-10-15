@@ -22,7 +22,8 @@ uses
   JS4D.Tests.Lexer in 'JS4D.Tests.Lexer.pas',
   JS4D.Tests.Parser in 'JS4D.Tests.Parser.pas',
   JS4D.Tests.Builtins in 'JS4D.Tests.Builtins.pas',
-  JS4D.Tests.Cancellation in 'JS4D.Tests.Cancellation.pas';
+  JS4D.Tests.Cancellation in 'JS4D.Tests.Cancellation.pas',
+  JS4D.Tests.Limits in 'JS4D.Tests.Limits.pas';
 
 var
   Runner: ITestRunner;

@@ -31,6 +31,24 @@ type
     EvalError
   );
 
+  TJSLimits = record
+  public
+    const
+      DefaultMaxCallDepth = 200;
+      DefaultMaxStringLength = 16 * 1024 * 1024;
+      DefaultMaxArrayLength = 1024 * 1024;
+
+  public
+    MaxCallDepth: Integer;
+    MaxStringLength: Integer;
+    MaxArrayLength: Integer;
+
+    class function Default: TJSLimits; static;
+
+    procedure EnsureStringLength(const RequestedLength: Int64);
+    procedure EnsureArrayLength(const RequestedLength: Int64);
+  end;
+
   IJSObject = interface;
   IJSArray = interface;
   IJSScope = interface;
@@ -467,7 +485,29 @@ implementation
 uses
   System.Math,
   System.DateUtils,
-  System.TimeSpan;
+  System.TimeSpan,
+  JS4D.Errors;
+
+{ TJSLimits }
+
+class function TJSLimits.Default: TJSLimits;
+begin
+  Result.MaxCallDepth := DefaultMaxCallDepth;
+  Result.MaxStringLength := DefaultMaxStringLength;
+  Result.MaxArrayLength := DefaultMaxArrayLength;
+end;
+
+procedure TJSLimits.EnsureStringLength(const RequestedLength: Int64);
+begin
+  if (MaxStringLength > 0) and (RequestedLength > MaxStringLength) then
+    raise EJSAllocationLimitExceeded.Create(TJSAllocationKind.Characters, MaxStringLength);
+end;
+
+procedure TJSLimits.EnsureArrayLength(const RequestedLength: Int64);
+begin
+  if (MaxArrayLength > 0) and (RequestedLength > MaxArrayLength) then
+    raise EJSAllocationLimitExceeded.Create(TJSAllocationKind.Elements, MaxArrayLength);
+end;
 
 const
   UNDEFINED_STRING = 'undefined';

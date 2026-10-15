@@ -16,7 +16,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Closures**: Full support for lexical scoping and closures
 - **Error Handling**: Try/catch/finally with TypeError, RangeError, SyntaxError, etc.
 - **Native Binding**: Easy integration between Delphi and JavaScript
-- **Interruptible**: A step budget and a thread-safe `Cancel` stop a runaway script
+- **Interruptible**: A step budget and a thread-safe `Cancel` stop a runaway script; call depth and allocation limits stop one that would crash the host
 
 ## Quick Start
 
@@ -70,7 +70,7 @@ Anything still referenced from a global variable, including closures, survives c
 
 ## Stopping a Running Script
 
-A script written by an LLM, or by anyone else you do not control, can loop forever. The engine counts the steps it takes and gives the host two ways to stop a run: a step budget it enforces itself, and a `Cancel` any thread may call.
+A script written by an LLM, or by anyone else you do not control, can loop forever, recurse until the native stack overflows, or build a string until memory runs out. The engine counts the steps it takes and gives the host two ways to stop a run: a step budget it enforces itself, and a `Cancel` any thread may call. Two further limits, on call depth and on allocation size, are on by default and keep a script from crashing the host before the step budget bites.
 
 A step is one statement executed, one iteration of a `while`, `do-while`, `for` or `for-in` loop, and one function call. Both checks happen at those points, so any script that runs away, by looping or by recursing, reaches one within a bounded number of steps.
 
@@ -113,7 +113,34 @@ if not Worker.WaitFor(TimeoutMilliseconds) then
 
 `Execute` does not clear the flag. A `Cancel` that arrives between two runs stays pending, so the next `Execute` stops at its first check, which is what a host that runs several scripts as one job means by cancelling. The check falls every 1024 steps, or sooner when a step budget is closer, so a run that finishes inside that interval can still complete; the flag stays set and stops the run after it. Nothing clears it: an engine that has been cancelled is done, and work that must run afterwards belongs to a fresh engine.
 
-Both exceptions derive from `EJSExecutionInterrupted` and neither can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. After a step budget stopped a script the engine stays usable with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
+### Call depth and allocation limits
+
+Every JavaScript call recurses in the interpreter, so unbounded recursion overflows the native stack long before a step budget of a useful size is reached, and a stack overflow can take the host process down. Strings and arrays can likewise grow geometrically. These limits are enforced before the work is done:
+
+| Property | Default | Limits | Raises |
+| --- | --- | --- | --- |
+| `MaxCallDepth` | 200 | Nested calls of script functions | `EJSCallDepthExceeded` |
+| `MaxStringLength` | 16 Mi chars | The length of any string a script builds | `EJSAllocationLimitExceeded` |
+| `MaxArrayLength` | 1 Mi elements | The length of any array a script builds | `EJSAllocationLimitExceeded` |
+
+The string limit covers `+`, `+=`, `concat`, `repeat`, `padStart`, `padEnd`, `join` and `replace`. The array limit covers array literals, `push`, `unshift`, `splice`, `concat`, `flat`, `split`, `Array.from` and assigning to an index past the end. A length is checked before the string or array is allocated, so `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB. Zero turns a limit off.
+
+```pascal
+Engine.MaxCallDepth := 100;
+Engine.MaxStringLength := 1024 * 1024;
+try
+  Engine.Execute(ScriptFromTheModel);
+except
+  on E: EJSCallDepthExceeded do
+    WriteLn(Format('Script nested deeper than %d calls', [E.MaxCallDepth]));
+  on E: EJSAllocationLimitExceeded do
+    WriteLn(E.Message);
+end;
+```
+
+`EJSAllocationLimitExceeded.Kind` tells a string limit (`Characters`) from an array limit (`Elements`) and `Limit` carries the limit that was exceeded. The default call depth leaves a wide margin on a default 1 MB Win64 thread stack: a plain recursion overflows it at roughly 870 nested calls in a Debug build, and scripts that nest more expressions per call overflow it at roughly 465. A host that runs scripts on a thread with a smaller stack, or that registers native functions which call back into the engine, should lower `MaxCallDepth` accordingly.
+
+All the interrupting exceptions (the two above and the limit exceptions) derive from `EJSExecutionInterrupted` and none can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. After a step budget or a limit stopped a script the engine stays usable with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
 
 ## Supported JavaScript Features
 

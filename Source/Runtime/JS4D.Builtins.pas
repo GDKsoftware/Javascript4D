@@ -17,21 +17,21 @@ type
 
   TJSBuiltins = class
   private
-    class function ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function ArrayPop(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayShift(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayUnshift(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArrayUnshift(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function ArrayIndexOf(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayLastIndexOf(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayJoin(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArrayJoin(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function ArraySlice(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArraySplice(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayConcat(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArraySplice(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function ArrayConcat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function ArrayReverse(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayIncludes(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayFill(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayCopyWithin(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
     class function ArrayMap(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
     class function ArrayFilter(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
@@ -43,7 +43,7 @@ type
     class function ArrayFind(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
     class function ArrayFindIndex(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
     class function ArraySort(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
-    class function ArrayFlat(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ArrayFlat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
     class function StringCharAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringCharCodeAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -52,20 +52,20 @@ type
     class function StringSubstring(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringSubstr(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringSlice(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringSplit(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringSplit(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringToLowerCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringToUpperCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringReplace(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringConcat(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringRepeat(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function StringRepeat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringStartsWith(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringEndsWith(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringIncludes(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringPadStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringPadEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringPadStart(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function StringPadEnd(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringToString(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringValueOf(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringMatch(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -78,9 +78,9 @@ type
     class function NumberValueOf(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
 
   public
-    class function CallArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function CallArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function CallArrayMethodWithCallback(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
-    class function CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function CallNumberMethod(const Num: Double; const MethodName: string; const Args: TArray<TJSValue>): TJSValue; static;
 
     class function HasArrayMethod(const MethodName: string): Boolean; static;
@@ -159,8 +159,12 @@ const
   EMPTY_STRING: string = '';
   SPACE_CHAR: string = ' ';
 
-class function TJSBuiltins.ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
+  const ArgsLength = Length(Args);
+
+  Limits.EnsureArrayLength(Int64(Arr.Length) + ArgsLength);
+
   for var Arg in Args do
   begin
     Arr.Push(Arg);
@@ -192,10 +196,12 @@ begin
   Arr.Pop;
 end;
 
-class function TJSBuiltins.ArrayUnshift(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayUnshift(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const OriginalLength = Arr.Length;
   const ArgsLength = Length(Args);
+
+  Limits.EnsureArrayLength(Int64(OriginalLength) + ArgsLength);
 
   for var Index := 0 to ArgsLength - 1 do
   begin
@@ -338,7 +344,7 @@ begin
   Result := TJSValue.CreateNumber(-1);
 end;
 
-class function TJSBuiltins.ArrayJoin(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayJoin(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   var Separator := DEFAULT_SEPARATOR;
 
@@ -356,6 +362,8 @@ begin
 
       if not Element.IsNullOrUndefined then
         StringBuilder.Append(Element.ToString);
+
+      Limits.EnsureStringLength(StringBuilder.Length);
     end;
 
     Result := TJSValue.CreateString(StringBuilder.ToString);
@@ -398,7 +406,7 @@ begin
   Result := TJSValue.CreateObject(NewArr);
 end;
 
-class function TJSBuiltins.ArraySplice(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArraySplice(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const Removed: IJSArray = TJSArray.Create;
 
@@ -442,6 +450,8 @@ begin
   const InsertCount = Length(ItemsToInsert);
   const Diff = InsertCount - DeleteCount;
 
+  Limits.EnsureArrayLength(Int64(Arr.Length) + Diff);
+
   if Diff > 0 then
   begin
     for var Index := 0 to Diff - 1 do
@@ -475,8 +485,21 @@ begin
   Result := TJSValue.CreateObject(Removed);
 end;
 
-class function TJSBuiltins.ArrayConcat(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayConcat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
+  var TotalLength := Int64(Arr.Length);
+
+  for var Arg in Args do
+  begin
+    var Source: IJSArray;
+    if Arg.IsArray and Supports(Arg.ToObject, IJSArray, Source) then
+      Inc(TotalLength, Source.Length)
+    else
+      Inc(TotalLength);
+  end;
+
+  Limits.EnsureArrayLength(TotalLength);
+
   const NewArr: IJSArray = TJSArray.Create;
 
   for var Index := 0 to Arr.Length - 1 do
@@ -673,9 +696,9 @@ begin
   Result := TJSValue.CreateObject(Arr);
 end;
 
-class function TJSBuiltins.ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
-  Result := ArrayJoin(Arr, []);
+  Result := ArrayJoin(Arr, [], Limits);
 end;
 
 class function TJSBuiltins.ArrayMap(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue;
@@ -1093,7 +1116,7 @@ begin
   Result := TJSValue.CreateObject(Arr);
 end;
 
-class function TJSBuiltins.ArrayFlat(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.ArrayFlat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 
   procedure FlattenArray(const Source: IJSArray; const Target: IJSArray; const Depth: Integer);
   begin
@@ -1107,10 +1130,16 @@ class function TJSBuiltins.ArrayFlat(const Arr: IJSArray; const Args: TArray<TJS
         if Supports(Element.ToObject, IJSArray, NestedArr) then
           FlattenArray(NestedArr, Target, Depth - 1)
         else
+        begin
+          Limits.EnsureArrayLength(Int64(Target.Length) + 1);
           Target.Push(Element);
+        end;
       end
       else
+      begin
+        Limits.EnsureArrayLength(Int64(Target.Length) + 1);
         Target.Push(Element);
+      end;
     end;
   end;
 
@@ -1308,7 +1337,7 @@ begin
     Result := TJSValue.CreateString(Copy(Str, StartIndex + 1, EndIndex - StartIndex));
 end;
 
-class function TJSBuiltins.StringSplit(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringSplit(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const ResultArr: IJSArray = TJSArray.Create;
 
@@ -1344,6 +1373,8 @@ begin
   begin
     const SplitResult = RegExpIntf.Split(Str, LimitValue);
 
+    Limits.EnsureArrayLength(SplitResult.Length);
+
     for var Index := 0 to SplitResult.Length - 1 do
     begin
       ResultArr.Push(SplitResult[Index]);
@@ -1357,7 +1388,11 @@ begin
 
   if SepStr = EMPTY_STRING then
   begin
-    for var Index := 1 to Min(Length(Str), LimitValue) do
+    const PartCount = Min(Length(Str), LimitValue);
+
+    Limits.EnsureArrayLength(PartCount);
+
+    for var Index := 1 to PartCount do
     begin
       ResultArr.Push(TJSValue.CreateString(Str[Index]));
     end;
@@ -1372,6 +1407,8 @@ begin
   while (CurrentPos <= Length(Str)) and (Count < LimitValue) do
   begin
     const NextPos = Pos(SepStr, Str, CurrentPos);
+
+    Limits.EnsureArrayLength(Int64(ResultArr.Length) + 1);
 
     if NextPos = 0 then
     begin
@@ -1415,7 +1452,7 @@ begin
   Result := TJSValue.CreateString(TrimRight(Str));
 end;
 
-class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) < 2 then
   begin
@@ -1428,21 +1465,33 @@ begin
   var RegExpIntf: IJSRegExp;
   if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
   begin
-    Result := TJSValue.CreateString(RegExpIntf.Replace(Str, ReplaceValue));
+    const Replaced = RegExpIntf.Replace(Str, ReplaceValue);
+
+    const ReplacedLength = Length(Replaced);
+
+    Limits.EnsureStringLength(ReplacedLength);
+    Result := TJSValue.CreateString(Replaced);
     Exit;
   end;
 
   const SearchValue = Args[0].ToString;
   const Position = Pos(SearchValue, Str);
 
-  if Position > 0 then
-    Result := TJSValue.CreateString(
-      Copy(Str, 1, Position - 1) + ReplaceValue + Copy(Str, Position + Length(SearchValue), MaxInt))
-  else
+  if Position = 0 then
+  begin
     Result := TJSValue.CreateString(Str);
+    Exit;
+  end;
+
+  const ResultLength = Int64(Length(Str)) - Length(SearchValue) + Length(ReplaceValue);
+
+  Limits.EnsureStringLength(ResultLength);
+
+  Result := TJSValue.CreateString(
+    Copy(Str, 1, Position - 1) + ReplaceValue + Copy(Str, Position + Length(SearchValue), MaxInt));
 end;
 
-class function TJSBuiltins.StringConcat(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   var StringBuilder := TStringBuilder.Create;
   try
@@ -1451,6 +1500,7 @@ begin
     for var Arg in Args do
     begin
       StringBuilder.Append(Arg.ToString);
+      Limits.EnsureStringLength(StringBuilder.Length);
     end;
 
     Result := TJSValue.CreateString(StringBuilder.ToString);
@@ -1459,7 +1509,7 @@ begin
   end;
 end;
 
-class function TJSBuiltins.StringRepeat(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringRepeat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) = 0 then
   begin
@@ -1469,11 +1519,15 @@ begin
 
   const Count = Trunc(Args[0].ToNumber);
 
-  if Count <= 0 then
+  if (Count <= 0) or (Str = EMPTY_STRING) then
   begin
     Result := TJSValue.CreateString(EMPTY_STRING);
     Exit;
   end;
+
+  const RepeatedLength = Int64(Length(Str)) * Count;
+
+  Limits.EnsureStringLength(RepeatedLength);
 
   var StringBuilder := TStringBuilder.Create;
   try
@@ -1552,7 +1606,7 @@ begin
   Result := TJSValue.CreateBoolean(Pos(SearchStr, Str, Position) > 0);
 end;
 
-class function TJSBuiltins.StringPadStart(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringPadStart(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) = 0 then
   begin
@@ -1580,6 +1634,8 @@ begin
       Exit;
     end;
   end;
+
+  Limits.EnsureStringLength(TargetLength);
 
   const PadLength = TargetLength - Length(Str);
   var Padding := EMPTY_STRING;
@@ -1594,7 +1650,7 @@ begin
   Result := TJSValue.CreateString(Padding + Str);
 end;
 
-class function TJSBuiltins.StringPadEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.StringPadEnd(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) = 0 then
   begin
@@ -1622,6 +1678,8 @@ begin
       Exit;
     end;
   end;
+
+  Limits.EnsureStringLength(TargetLength);
 
   const PadLength = TargetLength - Length(Str);
   var Padding := EMPTY_STRING;
@@ -1813,10 +1871,10 @@ begin
   Result := TJSValue.CreateNumber(Num);
 end;
 
-class function TJSBuiltins.CallArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.CallArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if MethodName = METHOD_PUSH then
-    Exit(ArrayPush(Arr, Args));
+    Exit(ArrayPush(Arr, Args, Limits));
 
   if MethodName = METHOD_POP then
     Exit(ArrayPop(Arr, Args));
@@ -1825,7 +1883,7 @@ begin
     Exit(ArrayShift(Arr, Args));
 
   if MethodName = METHOD_UNSHIFT then
-    Exit(ArrayUnshift(Arr, Args));
+    Exit(ArrayUnshift(Arr, Args, Limits));
 
   if MethodName = METHOD_INDEX_OF then
     Exit(ArrayIndexOf(Arr, Args));
@@ -1834,16 +1892,16 @@ begin
     Exit(ArrayLastIndexOf(Arr, Args));
 
   if MethodName = METHOD_JOIN then
-    Exit(ArrayJoin(Arr, Args));
+    Exit(ArrayJoin(Arr, Args, Limits));
 
   if MethodName = METHOD_SLICE then
     Exit(ArraySlice(Arr, Args));
 
   if MethodName = METHOD_SPLICE then
-    Exit(ArraySplice(Arr, Args));
+    Exit(ArraySplice(Arr, Args, Limits));
 
   if MethodName = METHOD_CONCAT then
-    Exit(ArrayConcat(Arr, Args));
+    Exit(ArrayConcat(Arr, Args, Limits));
 
   if MethodName = METHOD_REVERSE then
     Exit(ArrayReverse(Arr, Args));
@@ -1858,10 +1916,10 @@ begin
     Exit(ArrayCopyWithin(Arr, Args));
 
   if MethodName = METHOD_TO_STRING then
-    Exit(ArrayToString(Arr, Args));
+    Exit(ArrayToString(Arr, Args, Limits));
 
   if MethodName = METHOD_FLAT then
-    Exit(ArrayFlat(Arr, Args));
+    Exit(ArrayFlat(Arr, Args, Limits));
 
   Result := TJSValue.CreateUndefined;
 end;
@@ -1901,7 +1959,7 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-class function TJSBuiltins.CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+class function TJSBuiltins.CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if MethodName = METHOD_CHAR_AT then
     Exit(StringCharAt(Str, Args));
@@ -1925,7 +1983,7 @@ begin
     Exit(StringSlice(Str, Args));
 
   if MethodName = METHOD_SPLIT then
-    Exit(StringSplit(Str, Args));
+    Exit(StringSplit(Str, Args, Limits));
 
   if MethodName = METHOD_TO_LOWER_CASE then
     Exit(StringToLowerCase(Str, Args));
@@ -1943,7 +2001,7 @@ begin
     Exit(StringTrimEnd(Str, Args));
 
   if MethodName = METHOD_REPLACE then
-    Exit(StringReplace(Str, Args));
+    Exit(StringReplace(Str, Args, Limits));
 
   if MethodName = METHOD_MATCH then
     Exit(StringMatch(Str, Args));
@@ -1952,10 +2010,10 @@ begin
     Exit(StringSearch(Str, Args));
 
   if MethodName = METHOD_CONCAT then
-    Exit(StringConcat(Str, Args));
+    Exit(StringConcat(Str, Args, Limits));
 
   if MethodName = METHOD_REPEAT then
-    Exit(StringRepeat(Str, Args));
+    Exit(StringRepeat(Str, Args, Limits));
 
   if MethodName = METHOD_STARTS_WITH then
     Exit(StringStartsWith(Str, Args));
@@ -1967,10 +2025,10 @@ begin
     Exit(StringIncludes(Str, Args));
 
   if MethodName = METHOD_PAD_START then
-    Exit(StringPadStart(Str, Args));
+    Exit(StringPadStart(Str, Args, Limits));
 
   if MethodName = METHOD_PAD_END then
-    Exit(StringPadEnd(Str, Args));
+    Exit(StringPadEnd(Str, Args, Limits));
 
   if MethodName = METHOD_TO_STRING then
     Exit(StringToString(Str, Args));

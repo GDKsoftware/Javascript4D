@@ -33,6 +33,12 @@ type
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
+    function GetMaxCallDepth: Integer;
+    procedure SetMaxCallDepth(const Value: Integer);
+    function GetMaxStringLength: Integer;
+    procedure SetMaxStringLength(const Value: Integer);
+    function GetMaxArrayLength: Integer;
+    procedure SetMaxArrayLength(const Value: Integer);
 
     procedure RegisterBuiltInFunctions;
     procedure RegisterConsole;
@@ -68,6 +74,9 @@ type
     property OnConsoleOutput: TConsoleOutputHandler read FOnConsoleOutput write FOnConsoleOutput;
     property StepBudget: Int64 read GetStepBudget write SetStepBudget;
     property StepCount: Int64 read GetStepCount;
+    property MaxCallDepth: Integer read GetMaxCallDepth write SetMaxCallDepth;
+    property MaxStringLength: Integer read GetMaxStringLength write SetMaxStringLength;
+    property MaxArrayLength: Integer read GetMaxArrayLength write SetMaxArrayLength;
   end;
 
 implementation
@@ -372,6 +381,36 @@ end;
 function TJSEngine.GetStepCount: Int64;
 begin
   Result := FInterpreter.StepCount;
+end;
+
+function TJSEngine.GetMaxCallDepth: Integer;
+begin
+  Result := FInterpreter.MaxCallDepth;
+end;
+
+procedure TJSEngine.SetMaxCallDepth(const Value: Integer);
+begin
+  FInterpreter.MaxCallDepth := Value;
+end;
+
+function TJSEngine.GetMaxStringLength: Integer;
+begin
+  Result := FInterpreter.MaxStringLength;
+end;
+
+procedure TJSEngine.SetMaxStringLength(const Value: Integer);
+begin
+  FInterpreter.MaxStringLength := Value;
+end;
+
+function TJSEngine.GetMaxArrayLength: Integer;
+begin
+  Result := FInterpreter.MaxArrayLength;
+end;
+
+procedure TJSEngine.SetMaxArrayLength(const Value: Integer);
+begin
+  FInterpreter.MaxArrayLength := Value;
 end;
 
 procedure TJSEngine.RegisterFunction(const Name: string; const Func: TNativeFunction);
@@ -1460,6 +1499,10 @@ begin
       begin
         const Str = Source.AsString;
 
+        const CharCount = Length(Str);
+
+        FInterpreter.Limits.EnsureArrayLength(CharCount);
+
         for var Index := 1 to Length(Str) do
         begin
           ResultArr.Push(TJSValue.CreateString(Str[Index]));
@@ -1473,6 +1516,8 @@ begin
         if LengthValue.IsNumber then
         begin
           const Len = Trunc(LengthValue.ToNumber);
+
+          FInterpreter.Limits.EnsureArrayLength(Len);
 
           for var Index := 0 to Len - 1 do
           begin
