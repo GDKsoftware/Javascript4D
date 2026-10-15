@@ -59,6 +59,7 @@ type
     class function StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function BuildPadding(const PadStr: string; const PadLength: Integer): string; static;
     class procedure CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits); static;
     class function StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringRepeat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -350,21 +351,29 @@ begin
   var Separator := DEFAULT_SEPARATOR;
 
   if (Length(Args) > 0) and (not Args[0].IsUndefined) then
-    Separator := Args[0].ToString;
+    Separator := Args[0].ToLimitedString(Limits);
 
   var StringBuilder := TStringBuilder.Create;
   try
     for var Index := 0 to Arr.Length - 1 do
     begin
+      const Element = Arr[Index];
+      var ElementText := EMPTY_STRING;
+
+      if not Element.IsNullOrUndefined then
+        ElementText := Element.ToLimitedString(Limits);
+
+      var AddedLength := Length(ElementText);
+
+      if Index > 0 then
+        Inc(AddedLength, Length(Separator));
+
+      Limits.EnsureStringLength(Int64(StringBuilder.Length) + AddedLength);
+
       if Index > 0 then
         StringBuilder.Append(Separator);
 
-      const Element = Arr[Index];
-
-      if not Element.IsNullOrUndefined then
-        StringBuilder.Append(Element.ToString);
-
-      Limits.EnsureStringLength(StringBuilder.Length);
+      StringBuilder.Append(ElementText);
     end;
 
     Result := TJSValue.CreateString(StringBuilder.ToString);
@@ -1453,6 +1462,18 @@ begin
   Result := TJSValue.CreateString(TrimRight(Str));
 end;
 
+class function TJSBuiltins.BuildPadding(const PadStr: string; const PadLength: Integer): string;
+begin
+  const PadStrLength = Length(PadStr);
+
+  SetLength(Result, PadLength);
+
+  for var Index := 1 to PadLength do
+  begin
+    Result[Index] := PadStr[((Index - 1) mod PadStrLength) + 1];
+  end;
+end;
+
 class procedure TJSBuiltins.CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits);
 begin
   const SourceLength = Int64(Length(Str));
@@ -1465,7 +1486,9 @@ begin
     Exit;
 
   // The bound ignores the text each match removes, so it can only refuse early, never allow too much.
-  Limits.EnsureStringLength(SourceLength + RegExp.CountReplacements(Str) * Int64(ReplacementLength));
+  const MatchCount = RegExp.CountReplacements(Str);
+
+  Limits.EnsureStringLength(SourceLength + MatchCount * Int64(ReplacementLength));
 end;
 
 class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
@@ -1476,7 +1499,7 @@ begin
     Exit;
   end;
 
-  const ReplaceValue = Args[1].ToString;
+  const ReplaceValue = Args[1].ToLimitedString(Limits);
 
   var RegExpIntf: IJSRegExp;
   if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
@@ -1517,8 +1540,11 @@ begin
 
     for var Arg in Args do
     begin
-      StringBuilder.Append(Arg.ToString);
-      Limits.EnsureStringLength(StringBuilder.Length);
+      const ArgText = Arg.ToLimitedString(Limits);
+      const WithArg = Int64(StringBuilder.Length) + Length(ArgText);
+
+      Limits.EnsureStringLength(WithArg);
+      StringBuilder.Append(ArgText);
     end;
 
     Result := TJSValue.CreateString(StringBuilder.ToString);
@@ -1644,7 +1670,7 @@ begin
 
   if (Length(Args) > 1) and (not Args[1].IsUndefined) then
   begin
-    PadStr := Args[1].ToString;
+    PadStr := Args[1].ToLimitedString(Limits);
 
     if PadStr = EMPTY_STRING then
     begin
@@ -1656,14 +1682,7 @@ begin
   Limits.EnsureStringLength(TargetLength);
 
   const PadLength = TargetLength - Length(Str);
-  var Padding := EMPTY_STRING;
-
-  while Length(Padding) < PadLength do
-  begin
-    Padding := Padding + PadStr;
-  end;
-
-  Padding := Copy(Padding, 1, PadLength);
+  const Padding = BuildPadding(PadStr, PadLength);
 
   Result := TJSValue.CreateString(Padding + Str);
 end;
@@ -1688,7 +1707,7 @@ begin
 
   if (Length(Args) > 1) and (not Args[1].IsUndefined) then
   begin
-    PadStr := Args[1].ToString;
+    PadStr := Args[1].ToLimitedString(Limits);
 
     if PadStr = EMPTY_STRING then
     begin
@@ -1700,14 +1719,7 @@ begin
   Limits.EnsureStringLength(TargetLength);
 
   const PadLength = TargetLength - Length(Str);
-  var Padding := EMPTY_STRING;
-
-  while Length(Padding) < PadLength do
-  begin
-    Padding := Padding + PadStr;
-  end;
-
-  Padding := Copy(Padding, 1, PadLength);
+  const Padding = BuildPadding(PadStr, PadLength);
 
   Result := TJSValue.CreateString(Str + Padding);
 end;

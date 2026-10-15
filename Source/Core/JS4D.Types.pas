@@ -44,9 +44,11 @@ type
     MaxArrayLength: Integer;
 
     class function Default: TJSLimits; static;
+    class function Unlimited: TJSLimits; static;
 
     procedure EnsureStringLength(const RequestedLength: Int64);
     procedure EnsureArrayLength(const RequestedLength: Int64);
+    procedure EnsureNestingDepth(const RequestedDepth: Integer);
   end;
 
   IJSObject = interface;
@@ -60,6 +62,8 @@ type
     FNumberValue: Double;
     FStringValue: string;
     FObjectRef: IJSObject;
+
+    class procedure AppendArrayText(const Arr: IJSArray; const Builder: TStringBuilder; const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
 
   public
     class function CreateUndefined: TJSValue; static;
@@ -87,6 +91,7 @@ type
     function ToNumber: Double;
     function ToInteger: Int64;
     function ToString: string;
+    function ToLimitedString(const Limits: TJSLimits): string;
     function ToObject: IJSObject;
 
     function Clone: TJSValue;
@@ -505,6 +510,19 @@ begin
     raise EJSAllocationLimitExceeded.Create(TJSAllocationKind.Characters, MaxStringLength);
 end;
 
+class function TJSLimits.Unlimited: TJSLimits;
+begin
+  Result.MaxCallDepth := 0;
+  Result.MaxStringLength := 0;
+  Result.MaxArrayLength := 0;
+end;
+
+procedure TJSLimits.EnsureNestingDepth(const RequestedDepth: Integer);
+begin
+  if (MaxCallDepth > 0) and (RequestedDepth > MaxCallDepth) then
+    raise EJSCallDepthExceeded.Create(MaxCallDepth);
+end;
+
 procedure TJSLimits.EnsureArrayLength(const RequestedLength: Int64);
 begin
   if (MaxArrayLength > 0) and (RequestedLength > MaxArrayLength) then
@@ -740,8 +758,6 @@ begin
 end;
 
 function TJSValue.ToString: string;
-var
-  Arr: IJSArray;
 begin
   case FValueType of
     TJSValueType.Undefined:
@@ -779,30 +795,67 @@ begin
     TJSValueType.Function_:
       Result := FUNCTION_STRING;
     TJSValueType.Array_:
-      begin
-        if Supports(FObjectRef, IJSArray, Arr) then
-        begin
-          var StringBuilder := TStringBuilder.Create;
-          try
-            for var Index := 0 to Arr.Length - 1 do
-            begin
-              if Index > 0 then
-                StringBuilder.Append(ARRAY_SEPARATOR);
-
-              const ElementValue = Arr[Index];
-              if not ElementValue.IsNullOrUndefined then
-                StringBuilder.Append(ElementValue.ToString);
-            end;
-            Result := StringBuilder.ToString;
-          finally
-            StringBuilder.Free;
-          end;
-        end
-        else
-          Result := '';
-      end;
+      Result := ToLimitedString(TJSLimits.Unlimited);
     else
       Result := '';
+  end;
+end;
+
+function TJSValue.ToLimitedString(const Limits: TJSLimits): string;
+begin
+  var Arr: IJSArray;
+
+  if (FValueType <> TJSValueType.Array_) or (not Supports(FObjectRef, IJSArray, Arr)) then
+    Exit(ToString);
+
+  const Builder = TStringBuilder.Create;
+  const Visiting = TList<Pointer>.Create;
+  try
+    AppendArrayText(Arr, Builder, Visiting, Limits);
+    Result := Builder.ToString;
+  finally
+    Visiting.Free;
+    Builder.Free;
+  end;
+end;
+
+class procedure TJSValue.AppendArrayText(const Arr: IJSArray; const Builder: TStringBuilder; const Visiting: TList<Pointer>; const Limits: TJSLimits);
+begin
+  Limits.EnsureNestingDepth(Visiting.Count + 1);
+
+  Visiting.Add(Pointer(Arr as IInterface));
+  try
+    for var Index := 0 to Arr.Length - 1 do
+    begin
+      if Index > 0 then
+      begin
+        const WithSeparator = Int64(Builder.Length) + Length(ARRAY_SEPARATOR);
+
+        Limits.EnsureStringLength(WithSeparator);
+        Builder.Append(ARRAY_SEPARATOR);
+      end;
+
+      const ElementValue = Arr[Index];
+      var Nested: IJSArray;
+
+      if ElementValue.IsArray and Supports(ElementValue.ToObject, IJSArray, Nested) then
+      begin
+        // An array that is already being converted is a cycle and yields an empty element.
+        if not Visiting.Contains(Pointer(Nested as IInterface)) then
+          AppendArrayText(Nested, Builder, Visiting, Limits);
+      end
+      else if not ElementValue.IsNullOrUndefined then
+      begin
+        const ElementText = ElementValue.ToString;
+
+        const WithElement = Int64(Builder.Length) + Length(ElementText);
+
+        Limits.EnsureStringLength(WithElement);
+        Builder.Append(ElementText);
+      end;
+    end;
+  finally
+    Visiting.Delete(Visiting.Count - 1);
   end;
 end;
 

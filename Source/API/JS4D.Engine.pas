@@ -28,7 +28,6 @@ type
     FOnConsoleOutput: TConsoleOutputHandler;
 
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
-    class function ConvertJSValueToJSON(const Value: TJSValue): TJSONValue; static;
 
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
@@ -240,66 +239,179 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-class function TJSEngine.ConvertJSValueToJSON(const Value: TJSValue): TJSONValue;
-begin
-  if Value.IsUndefined then
-    Exit(TJSONNull.Create);
+type
+  // Builds the JSON tree of a script value while counting the text it will produce, so a structure
+  // that would exceed the string limit is refused before it is built. Cycles raise a TypeError.
+  TJSONConverter = class
+  private
+    FLimits: TJSLimits;
+    FVisiting: TList<Pointer>;
+    FTextLength: Int64;
 
-  if Value.IsNull then
-    Exit(TJSONNull.Create);
+    procedure AddTextLength(const Count: Int64);
+    function ConvertArray(const Value: TJSValue): TJSONValue;
+    function ConvertObject(const Value: TJSValue): TJSONValue;
+    function ConvertContainer(const Value: TJSValue; const Build: TFunc<TJSONValue>): TJSONValue;
+    function ConvertScalar(const Value: TJSValue): TJSONValue;
+
+  public
+    constructor Create(const Limits: TJSLimits);
+    destructor Destroy; override;
+
+    function Convert(const Value: TJSValue): TJSONValue;
+  end;
+
+const
+  JsonNullLength = 4;
+  JsonBooleanLength = 5;
+  JsonNumberLength = 24;
+  JsonQuotesLength = 2;
+  JsonKeyOverhead = 3;
+  JsonCircularMessage = 'Converting circular structure to JSON';
+
+{ TJSONConverter }
+
+constructor TJSONConverter.Create(const Limits: TJSLimits);
+begin
+  inherited Create;
+  FLimits := Limits;
+  FVisiting := TList<Pointer>.Create;
+  FTextLength := 0;
+end;
+
+destructor TJSONConverter.Destroy;
+begin
+  FVisiting.Free;
+  inherited;
+end;
+
+procedure TJSONConverter.AddTextLength(const Count: Int64);
+begin
+  Inc(FTextLength, Count);
+  FLimits.EnsureStringLength(FTextLength);
+end;
+
+function TJSONConverter.Convert(const Value: TJSValue): TJSONValue;
+begin
+  if Value.IsArray then
+    Exit(ConvertArray(Value));
+
+  if Value.IsFunction then
+    Exit(ConvertScalar(TJSValue.CreateNull));
+
+  if Value.IsObject then
+    Exit(ConvertObject(Value));
+
+  Result := ConvertScalar(Value);
+end;
+
+function TJSONConverter.ConvertScalar(const Value: TJSValue): TJSONValue;
+begin
+  if Value.IsNumber and (not System.Math.IsNaN(Value.AsNumber)) and (not System.Math.IsInfinite(Value.AsNumber)) then
+  begin
+    AddTextLength(JsonNumberLength);
+    Exit(TJSONNumber.Create(Value.AsNumber));
+  end;
 
   if Value.IsBoolean then
-    Exit(TJSONBool.Create(Value.AsBoolean));
-
-  if Value.IsNumber then
   begin
-    const Num = Value.AsNumber;
-
-    if System.Math.IsNaN(Num) or System.Math.IsInfinite(Num) then
-      Exit(TJSONNull.Create);
-
-    Exit(TJSONNumber.Create(Num));
+    AddTextLength(JsonBooleanLength);
+    Exit(TJSONBool.Create(Value.AsBoolean));
   end;
 
   if Value.IsString then
+  begin
+    const TextLength = Length(Value.AsString);
+
+    AddTextLength(Int64(TextLength) + JsonQuotesLength);
     Exit(TJSONString.Create(Value.AsString));
-
-  if Value.IsArray then
-  begin
-    const JSONArray = TJSONArray.Create;
-    var ArrIntf: IJSArray;
-    if Supports(Value.ToObject, IJSArray, ArrIntf) then
-    begin
-      for var Index := 0 to ArrIntf.Length - 1 do
-      begin
-        JSONArray.AddElement(ConvertJSValueToJSON(ArrIntf[Index]));
-      end;
-    end;
-
-    Exit(JSONArray);
   end;
 
-  if Value.IsFunction then
-    Exit(TJSONNull.Create);
-
-  if Value.IsObject then
-  begin
-    const JSONObject = TJSONObject.Create;
-    const Obj = Value.ToObject;
-    const PropertyNames = Obj.GetOwnPropertyNames;
-
-    for var PropName in PropertyNames do
-    begin
-      const PropValue = Obj.GetProperty(PropName);
-
-      if not PropValue.IsFunction then
-        JSONObject.AddPair(PropName, ConvertJSValueToJSON(PropValue));
-    end;
-
-    Exit(JSONObject);
-  end;
-
+  AddTextLength(JsonNullLength);
   Result := TJSONNull.Create;
+end;
+
+function TJSONConverter.ConvertContainer(const Value: TJSValue; const Build: TFunc<TJSONValue>): TJSONValue;
+begin
+  const Identity = Pointer(Value.ToObject as IInterface);
+
+  if FVisiting.Contains(Identity) then
+    raise TJSErrorFactory.TypeError(JsonCircularMessage);
+
+  const NestingDepth = FVisiting.Count + 1;
+
+  FLimits.EnsureNestingDepth(NestingDepth);
+
+  FVisiting.Add(Identity);
+  try
+    Result := Build();
+  finally
+    FVisiting.Delete(FVisiting.Count - 1);
+  end;
+end;
+
+function TJSONConverter.ConvertArray(const Value: TJSValue): TJSONValue;
+begin
+  Result := ConvertContainer(Value,
+    function: TJSONValue
+    begin
+      const JSONArray = TJSONArray.Create;
+      try
+        var ArrIntf: IJSArray;
+
+        if Supports(Value.ToObject, IJSArray, ArrIntf) then
+        begin
+          for var Index := 0 to ArrIntf.Length - 1 do
+          begin
+            AddTextLength(1);
+
+            const Element = Convert(ArrIntf[Index]);
+
+            JSONArray.AddElement(Element);
+          end;
+        end;
+      except
+        // Free the half-built array, then let the original error through.
+        JSONArray.Free;
+        raise;
+      end;
+
+      Result := JSONArray;
+    end);
+end;
+
+function TJSONConverter.ConvertObject(const Value: TJSValue): TJSONValue;
+begin
+  Result := ConvertContainer(Value,
+    function: TJSONValue
+    begin
+      const JSONObject = TJSONObject.Create;
+      try
+        const Obj = Value.ToObject;
+
+        for var PropName in Obj.GetOwnPropertyNames do
+        begin
+          const PropValue = Obj.GetProperty(PropName);
+
+          if not PropValue.IsFunction then
+          begin
+            const KeyLength = Length(PropName);
+
+            AddTextLength(Int64(KeyLength) + JsonKeyOverhead);
+
+            const Member = Convert(PropValue);
+
+            JSONObject.AddPair(PropName, Member);
+          end;
+        end;
+      except
+        // Free the half-built object, then let the original error through.
+        JSONObject.Free;
+        raise;
+      end;
+
+      Result := JSONObject;
+    end);
 end;
 
 constructor TJSEngine.Create;
@@ -580,7 +692,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateString(Args[0].ToString);
+      Result := TJSValue.CreateString(Args[0].ToLimitedString(FInterpreter.Limits));
     end);
 
   StringFunc.SetProperty('fromCharCode', TJSValue.CreateObject(TJSFunction.CreateNative('fromCharCode',
@@ -731,7 +843,7 @@ begin
         if Index > 0 then
           Output := Output + ' ';
 
-        Output := Output + Args[Index].ToString;
+        Output := Output + Args[Index].ToLimitedString(Engine.FInterpreter.Limits);
       end;
 
       if Assigned(Engine.FOnConsoleOutput) then
@@ -1444,11 +1556,19 @@ begin
         Exit;
       end;
 
-      const JSONValue = ConvertJSValueToJSON(Args[0]);
+      const Converter = TJSONConverter.Create(FInterpreter.Limits);
       try
-        Result := TJSValue.CreateString(JSONValue.ToJSON);
+        const JSONValue = Converter.Convert(Args[0]);
+        try
+          const JSONText = JSONValue.ToJSON;
+
+          FInterpreter.Limits.EnsureStringLength(Length(JSONText));
+          Result := TJSValue.CreateString(JSONText);
+        finally
+          JSONValue.Free;
+        end;
       finally
-        JSONValue.Free;
+        Converter.Free;
       end;
     end)));
 

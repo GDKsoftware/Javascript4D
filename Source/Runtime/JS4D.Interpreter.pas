@@ -135,6 +135,8 @@ type
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 
+    function ToText(const Value: TJSValue): string;
+    function VisitText(const Node: TJSASTNode): string;
     function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
     function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -987,9 +989,9 @@ begin
     if Prop.Key is TJSIdentifier then
       KeyName := TJSIdentifier(Prop.Key).Name
     else if Prop.Key is TJSLiteral then
-      KeyName := Visit(Prop.Key).ToString
+      KeyName := VisitText(Prop.Key)
     else
-      KeyName := Visit(Prop.Key).ToString;
+      KeyName := VisitText(Prop.Key);
 
     const Value = Visit(Prop.Value);
     Obj.SetProperty(KeyName, Value);
@@ -1079,7 +1081,7 @@ begin
             var PropName: string;
 
             if MemberExpr.Computed then
-              PropName := Visit(MemberExpr.Property_).ToString
+              PropName := VisitText(MemberExpr.Property_)
             else
               PropName := TJSIdentifier(MemberExpr.Property_).Name;
 
@@ -1494,7 +1496,7 @@ begin
     var MethodName: string;
 
     if MemberExpr.Computed then
-      MethodName := Visit(MemberExpr.Property_).ToString
+      MethodName := VisitText(MemberExpr.Property_)
     else
       MethodName := TJSIdentifier(MemberExpr.Property_).Name;
 
@@ -1568,7 +1570,7 @@ begin
   var PropName: string;
 
   if Node.Computed then
-    PropName := Visit(Node.Property_).ToString
+    PropName := VisitText(Node.Property_)
   else
     PropName := TJSIdentifier(Node.Property_).Name;
 
@@ -1673,10 +1675,22 @@ begin
     Result := TJSValue.CreateObject(FGlobalObject);
 end;
 
+function TJSInterpreter.ToText(const Value: TJSValue): string;
+begin
+  Result := Value.ToLimitedString(FLimits);
+end;
+
+function TJSInterpreter.VisitText(const Node: TJSASTNode): string;
+begin
+  const Value = Visit(Node);
+
+  Result := ToText(Value);
+end;
+
 function TJSInterpreter.JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
 begin
-  const LeftText = Left.ToString;
-  const RightText = Right.ToString;
+  const LeftText = ToText(Left);
+  const RightText = ToText(Right);
 
   const JoinedLength = Int64(Length(LeftText)) + Length(RightText);
 
@@ -1832,7 +1846,7 @@ begin
   var PropName: string;
 
   if Node.Computed then
-    PropName := Visit(Node.Property_).ToString
+    PropName := VisitText(Node.Property_)
   else
     PropName := TJSIdentifier(Node.Property_).Name;
 

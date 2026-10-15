@@ -17,6 +17,8 @@ type
   private
     FEngine: TJSEngine;
 
+    procedure AssertRecursionStopped(const Script: string);
+
   public
     [Setup]
     procedure Setup;
@@ -47,6 +49,27 @@ type
 
     [Test]
     procedure Execute_NestedCallsFiftyDeep_StillWork;
+
+    [Test]
+    procedure Execute_RecursionThroughMapCallback_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_RecursionThroughSortComparator_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_RecursionThroughNew_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_RecursionThroughCall_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_RecursionThroughApply_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_RecursionThroughBind_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;
   end;
 
   [TestFixture]
@@ -143,6 +166,45 @@ type
 
     [Test]
     procedure Execute_AfterAllocationLimitExceeded_EngineStaysUsable;
+
+    [Test]
+    procedure Execute_StringOfBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_BigArrayPlusEmptyString_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_EmptyStringPlusBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_ArrayToStringOfNestedBigArrays_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_JoinOfBigNestedArrays_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_JsonStringifyOfBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_BigArrayAsPropertyKey_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_CircularArrayToString_YieldsEmptyElement;
+
+    [Test]
+    procedure Execute_MutuallyCircularArrays_StopAtTheRepeat;
+
+    [Test]
+    procedure Execute_CircularJsonStringify_RaisesTypeError;
+
+    [Test]
+    procedure Execute_CircularArrayJsonStringify_RaisesTypeError;
+
+    [Test]
+    procedure Execute_PadStartLargePadding_ProducesRepeatedPad;
+
+    [Test]
+    procedure Execute_PadEndLargePadding_ProducesRepeatedPad;
   end;
 
 implementation
@@ -200,6 +262,35 @@ const
   IndexAssignmentScript = 'var a = []; a[1000000000] = 1;';
   TenElementsScript = 'var a = []; for (var i = 0; i < 10; i++) { a.push(i); } a.length';
   TenElements = 10;
+  RecursionThroughMapScript = 'function f(n) { return [1].map(function(x) { return f(n + 1); }); } f(0);';
+  RecursionThroughSortScript = 'function f(n) { return [2, 1].sort(function(a, b) { return f(n + 1); }); } f(0);';
+  RecursionThroughNewScript = 'function F(n) { return new F(n + 1); } new F(0);';
+  RecursionThroughCallScript = 'function f(n) { return f.call(null, n + 1); } f(0);';
+  RecursionThroughApplyScript = 'function f(n) { return f.apply(null, [n + 1]); } f(0);';
+  RecursionThroughBindScript = 'function f(n) { var g = f.bind(null, n + 1); return g(); } f(0);';
+  NestedArrayScript = 'var a = []; for (var i = 0; i < 150; i++) { a = [a]; } a + '''';';
+  BigPiecesPrefix = 'var s = ''x''.repeat(1000000); var a = []; for (var i = 0; i < 20; i++) { a.push(s); } ';
+  StringOfBigArrayScript = BigPiecesPrefix + 'String(a);';
+  BigArrayPlusScript = BigPiecesPrefix + 'a + '''';';
+  EmptyPlusBigArrayScript = BigPiecesPrefix + ''''' + a;';
+  NestedPiecesPrefix = 'var s = ''x''.repeat(1000000); var inner = []; for (var i = 0; i < 10; i++) { inner.push(s); } var outer = [inner, inner]; ';
+  NestedBigArraysScript = NestedPiecesPrefix + 'outer + '''';';
+  JoinNestedScript = NestedPiecesPrefix + 'outer.join('','');';
+  JsonStringifyScript = BigPiecesPrefix + 'JSON.stringify(a);';
+  BigKeyScript = BigPiecesPrefix + 'var o = {}; o[a] = 1;';
+  CircularArrayScript = 'var a = []; a.push(a); var text = ''['' + a + '']''; a.pop(); text';
+  CircularArrayResult = '[]';
+  MutualCircularScript = 'var a = [1]; var b = [a]; a.push(b); var text = '''' + a; a.pop(); text';
+  MutualCircularResult = '1,';
+  CircularJsonScript = 'var o = {}; o.self = o; JSON.stringify(o);';
+  CircularJsonCleanup = 'o.self = null;';
+  CircularArrayJsonScript = 'var a = []; a.push(a); JSON.stringify(a);';
+  CircularArrayJsonCleanup = 'a.pop();';
+  LargePadScript = '''x''.padStart(100000, ''ab'')';
+  LargePadEndScript = '''x''.padEnd(100000, ''ab'')';
+  LargePadLength = 100000;
+  PadStartBeginning = 'ababab';
+  PadEndBeginning = 'xababab';
   UnlimitedScript = 'var s = ''x''.repeat(200); var a = []; for (var i = 0; i < 20; i++) { a.push(i); } s.length + a.length';
   UnlimitedScriptResult = 220;
   OneBillionElementsMessage = 'An array far beyond the element limit must be refused before it is allocated';
@@ -311,6 +402,56 @@ begin
   const Result = FEngine.Evaluate(Script);
 
   Assert.AreEqual(Double(NestedCallDepth), Result.ToNumber, 'Calls nested fifty deep must stay inside the default limit');
+end;
+
+procedure TCallDepthLimitTests.AssertRecursionStopped(const Script: string);
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(Script);
+    end,
+    EJSCallDepthExceeded,
+    'The runaway script must end in the call depth exception');
+
+  const Result = FEngine.Evaluate(NormalScript);
+
+  Assert.AreEqual(Double(NormalScriptResult), Result.ToNumber, EngineUsableMessage);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughMapCallback_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughMapScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughSortComparator_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughSortScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughNew_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughNewScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughCall_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughCallScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughApply_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughApplyScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_RecursionThroughBind_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(RecursionThroughBindScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(NestedArrayScript);
 end;
 
 { TAllocationLimitTests }
@@ -547,6 +688,99 @@ begin
   const Result = FEngine.Evaluate(UnlimitedScript);
 
   Assert.AreEqual(Double(UnlimitedScriptResult), Result.ToNumber, 'A limit of zero must switch the check off');
+end;
+
+procedure TAllocationLimitTests.Execute_StringOfBigArray_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(StringOfBigArrayScript, 'String(array) must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_BigArrayPlusEmptyString_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(BigArrayPlusScript, 'array + string must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_EmptyStringPlusBigArray_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(EmptyPlusBigArrayScript, 'string + array must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_ArrayToStringOfNestedBigArrays_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(NestedBigArraysScript, 'Converting nested arrays must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_JoinOfBigNestedArrays_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(JoinNestedScript, 'join over nested arrays must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyOfBigArray_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(JsonStringifyScript, 'JSON.stringify must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_BigArrayAsPropertyKey_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(BigKeyScript, 'Using a big array as a property key must stop at the string limit');
+end;
+
+procedure TAllocationLimitTests.Execute_CircularArrayToString_YieldsEmptyElement;
+begin
+  const Result = FEngine.Evaluate(CircularArrayScript);
+
+  Assert.AreEqual(CircularArrayResult, Result.ToString, 'A cycle must convert to an empty element');
+end;
+
+procedure TAllocationLimitTests.Execute_MutuallyCircularArrays_StopAtTheRepeat;
+begin
+  const Result = FEngine.Evaluate(MutualCircularScript);
+
+  Assert.AreEqual(MutualCircularResult, Result.ToString, 'The repeated array must convert to an empty element');
+end;
+
+procedure TAllocationLimitTests.Execute_CircularJsonStringify_RaisesTypeError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(CircularJsonScript);
+    end,
+    EJSTypeError,
+    'JSON.stringify of a circular object must raise a TypeError');
+
+  // The engine does not collect reference cycles, so the test breaks its own cycle.
+  FEngine.Execute(CircularJsonCleanup);
+end;
+
+procedure TAllocationLimitTests.Execute_CircularArrayJsonStringify_RaisesTypeError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(CircularArrayJsonScript);
+    end,
+    EJSTypeError,
+    'JSON.stringify of a circular array must raise a TypeError');
+
+  // The engine does not collect reference cycles, so the test breaks its own cycle.
+  FEngine.Execute(CircularArrayJsonCleanup);
+end;
+
+procedure TAllocationLimitTests.Execute_PadStartLargePadding_ProducesRepeatedPad;
+begin
+  const Result = FEngine.Evaluate(LargePadScript).ToString;
+
+  Assert.AreEqual(LargePadLength, Length(Result), 'padStart must reach the requested length');
+  Assert.IsTrue(Result.StartsWith(PadStartBeginning), 'padStart must repeat the pad string');
+end;
+
+procedure TAllocationLimitTests.Execute_PadEndLargePadding_ProducesRepeatedPad;
+begin
+  const Result = FEngine.Evaluate(LargePadEndScript).ToString;
+
+  Assert.AreEqual(LargePadLength, Length(Result), 'padEnd must reach the requested length');
+  Assert.IsTrue(Result.StartsWith(PadEndBeginning), 'padEnd must repeat the pad string');
 end;
 
 procedure TAllocationLimitTests.Execute_AfterAllocationLimitExceeded_EngineStaysUsable;
