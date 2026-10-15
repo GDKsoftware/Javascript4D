@@ -119,14 +119,14 @@ Every JavaScript call recurses in the interpreter, so unbounded recursion overfl
 
 | Property | Default | Limits | Raises |
 | --- | --- | --- | --- |
-| `MaxCallDepth` | 200 | Nested calls of script functions | `EJSCallDepthExceeded` |
+| `MaxCallDepth` | 100 | Nested calls of script functions | `EJSCallDepthExceeded` |
 | `MaxStringLength` | 16 Mi chars | The length of any string a script builds | `EJSAllocationLimitExceeded` |
 | `MaxArrayLength` | 1 Mi elements | The length of any array a script builds | `EJSAllocationLimitExceeded` |
 
-The string limit covers `+`, `+=`, `concat`, `repeat`, `padStart`, `padEnd`, `join` and `replace`. The array limit covers array literals, `push`, `unshift`, `splice`, `concat`, `flat`, `split`, `Array.from` and assigning to an index past the end. A length is checked before the string or array is allocated, so `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB. Zero turns a limit off.
+The string limit covers `+`, `+=`, `concat`, `repeat`, `padStart`, `padEnd`, `join` and `replace`. A regular expression `replace` is refused before it runs when the source length plus the number of matches times the replacement length exceeds the limit; the bound ignores the text each match removes and does not expand `$` patterns in the replacement, which the post-check on the result still catches. The array limit covers array literals, `push`, `unshift`, `splice`, `concat`, `flat`, `split`, `Array.from` and assigning to an index past the end. A length is checked before the string or array is allocated, so `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB. Zero turns a limit off.
 
 ```pascal
-Engine.MaxCallDepth := 100;
+Engine.MaxCallDepth := 50;
 Engine.MaxStringLength := 1024 * 1024;
 try
   Engine.Execute(ScriptFromTheModel);
@@ -138,7 +138,7 @@ except
 end;
 ```
 
-`EJSAllocationLimitExceeded.Kind` tells a string limit (`Characters`) from an array limit (`Elements`) and `Limit` carries the limit that was exceeded. The default call depth leaves a wide margin on a default 1 MB Win64 thread stack: a plain recursion overflows it at roughly 870 nested calls in a Debug build, and scripts that nest more expressions per call overflow it at roughly 465. A host that runs scripts on a thread with a smaller stack, or that registers native functions which call back into the engine, should lower `MaxCallDepth` accordingly.
+`EJSAllocationLimitExceeded.Kind` tells a string limit (`Characters`) from an array limit (`Elements`) and `Limit` carries the limit that was exceeded. The default call depth leaves a wide margin on a default 1 MB Win64 thread stack: a plain recursion overflows it at roughly 870 nested calls in a Debug build, and scripts that nest more expressions per call overflow it at roughly 465, so the default of 100 keeps at least a 4x margin. A host that runs scripts on a thread with a smaller stack, or that registers native functions which call back into the engine, should lower `MaxCallDepth` accordingly.
 
 All the interrupting exceptions (the two above and the limit exceptions) derive from `EJSExecutionInterrupted` and none can be caught by the script itself: a `catch` block in JavaScript never sees them, and a `finally` block does not run once one is raised. After a step budget or a limit stopped a script the engine stays usable with its global state intact, so the next `Execute` starts from wherever the stopped script left the globals.
 

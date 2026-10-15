@@ -25,7 +25,7 @@ type
     procedure TearDown;
 
     [Test]
-    procedure MaxCallDepth_ByDefault_IsTwoHundred;
+    procedure MaxCallDepth_ByDefault_IsOneHundred;
 
     [Test]
     procedure Execute_UnboundedRecursion_RaisesCallDepthExceeded;
@@ -106,6 +106,9 @@ type
     procedure Execute_ReplaceOverLimit_Raises;
 
     [Test]
+    procedure Execute_RegExpReplaceOverLimit_Raises;
+
+    [Test]
     procedure Execute_PushOverLimit_Raises;
 
     [Test]
@@ -152,10 +155,10 @@ const
   CaughtRecursionScript = 'function f(n) { return f(n + 1); } try { f(0); } catch (e) { }';
   RecursionScriptFormat = 'function f(n) { if (n >= %d) { return n; } return f(n + 1); } f(0)';
   NestedCallDepth = 50;
-  LegalRecursionDepth = 150;
+  LegalRecursionDepth = 90;
   NormalScript = '40 + 2';
   NormalScriptResult = 42;
-  DefaultCallDepth = 200;
+  DefaultCallDepth = 100;
   SmallCallDepth = 10;
   WithinSmallCallDepth = 5;
   BeyondSmallCallDepth = 20;
@@ -184,6 +187,7 @@ const
   PadEndScript = '''x''.padEnd(101, ''ab'');';
   JoinScript = 'var a = [''x''.repeat(60), ''x''.repeat(60)]; a.join('','');';
   StringConcatScript = '''x''.repeat(60).concat(''x''.repeat(41));';
+  RegExpReplaceScript = '''x''.repeat(60).replace(/x/g, ''yy'');';
   ReplaceScript = '''x''.repeat(60).replace(''x'', ''y''.repeat(60));';
   PushScript = 'var a = []; for (var i = 0; i < 11; i++) { a.push(i); }';
   ArrayConcatScript = 'var a = [1, 2, 3, 4, 5, 6]; a.concat(a);';
@@ -212,9 +216,9 @@ begin
   FEngine.Free;
 end;
 
-procedure TCallDepthLimitTests.MaxCallDepth_ByDefault_IsTwoHundred;
+procedure TCallDepthLimitTests.MaxCallDepth_ByDefault_IsOneHundred;
 begin
-  Assert.AreEqual(DefaultCallDepth, FEngine.MaxCallDepth, 'The default call depth limit must be 200');
+  Assert.AreEqual(DefaultCallDepth, FEngine.MaxCallDepth, 'The default call depth limit must be 100');
 end;
 
 procedure TCallDepthLimitTests.Execute_UnboundedRecursion_RaisesCallDepthExceeded;
@@ -449,6 +453,13 @@ begin
   FEngine.MaxStringLength := SmallStringLength;
 
   AssertExceedsLimit(ReplaceScript, 'replace past the limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_RegExpReplaceOverLimit_Raises;
+begin
+  FEngine.MaxStringLength := SmallStringLength;
+
+  AssertExceedsLimit(RegExpReplaceScript, 'A global regexp replace past the limit must raise');
 end;
 
 procedure TAllocationLimitTests.Execute_PushOverLimit_Raises;

@@ -59,6 +59,7 @@ type
     class function StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class procedure CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits); static;
     class function StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringRepeat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringStartsWith(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -1452,6 +1453,21 @@ begin
   Result := TJSValue.CreateString(TrimRight(Str));
 end;
 
+class procedure TJSBuiltins.CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits);
+begin
+  const SourceLength = Int64(Length(Str));
+  const ReplacementLength = Length(Replacement);
+  const WorstCaseMatches = SourceLength + 1;
+
+  const CannotExceed = (SourceLength + WorstCaseMatches * ReplacementLength <= Limits.MaxStringLength);
+
+  if (Limits.MaxStringLength <= 0) or CannotExceed then
+    Exit;
+
+  // The bound ignores the text each match removes, so it can only refuse early, never allow too much.
+  Limits.EnsureStringLength(SourceLength + RegExp.CountReplacements(Str) * Int64(ReplacementLength));
+end;
+
 class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) < 2 then
@@ -1465,6 +1481,8 @@ begin
   var RegExpIntf: IJSRegExp;
   if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
   begin
+    CheckRegExpReplaceLength(RegExpIntf, Str, ReplaceValue, Limits);
+
     const Replaced = RegExpIntf.Replace(Str, ReplaceValue);
 
     const ReplacedLength = Length(Replaced);

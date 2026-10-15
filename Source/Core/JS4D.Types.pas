@@ -34,7 +34,7 @@ type
   TJSLimits = record
   public
     const
-      DefaultMaxCallDepth = 200;
+      DefaultMaxCallDepth = 100;
       DefaultMaxStringLength = 16 * 1024 * 1024;
       DefaultMaxArrayLength = 1024 * 1024;
 
@@ -240,6 +240,7 @@ type
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
     function Replace(const Str: string; const Replacement: string): string;
+    function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
     function Split(const Str: string; const Limit: Integer = -1): IJSArray;
     function GetPattern: string;
@@ -462,6 +463,7 @@ type
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
     function Replace(const Str: string; const Replacement: string): string;
+    function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
     function Split(const Str: string; const Limit: Integer = -1): IJSArray;
 
@@ -1644,6 +1646,14 @@ begin
     Result := FRegEx.Replace(Str, Replacement)
   else
     Result := FRegEx.Replace(Str, Replacement, 1);
+end;
+
+function TJSRegExpImpl.CountReplacements(const Str: string): Integer;
+begin
+  Result := FRegEx.Matches(Str).Count;
+
+  if (not FGlobal) and (Result > 1) then
+    Result := 1;
 end;
 
 function TJSRegExpImpl.Search(const Str: string): Integer;
