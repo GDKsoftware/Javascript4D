@@ -123,11 +123,20 @@ Every JavaScript call recurses in the interpreter, so unbounded recursion overfl
 | `MaxStringLength` | 16 Mi chars | The length of any string a script builds | `EJSAllocationLimitExceeded` |
 | `MaxArrayLength` | 1 Mi elements | The length of any array a script builds | `EJSAllocationLimitExceeded` |
 
-The string limit applies to the result of `+`, `+=`, `concat`, `repeat`, `padStart`, `padEnd`, `join` and `replace`, and to every conversion of an array to a string: `String(array)`, `array + ''`, an array used as a property key, an array printed with `console.log`, and the elements of `join` and `concat`. It also applies to the text `JSON.stringify` produces. The array limit applies to array literals, `push`, `unshift`, `splice`, `concat`, `flat`, `split`, `Array.from` and assigning to an index past the end. Other operations only produce results bounded by their already limited input and are not checked.
+**What the limits cover.** Zero turns a limit off.
 
-A length is checked before the string or array is allocated, so `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB. Conversions of arrays and `JSON.stringify` check the running length before each piece is appended. Two cases are checked after the fact because the underlying call allocates first: the result of a `replace` with a regular expression is refused up front when the source length plus the matches times the replacement length exceeds the limit, but a replacement that expands `$` patterns is only caught by the check on the finished result, and `JSON.parse` does not limit the arrays it builds from its input.
+- `MaxCallDepth` counts nested calls of script functions, including calls made through `map`, `sort`, `call`, `apply`, `bind` and `new`. It also caps how deeply nested arrays and objects may be when the engine turns them into text or JSON, so `a = [a]` repeated thousands of times cannot overflow the stack in `String(a)`, `indexOf(a)`, `JSON.stringify(a)` and the like.
+- `MaxStringLength` applies to the result of `+`, `+=`, `concat`, `repeat`, `padStart`, `padEnd`, `join` and `replace`, to every conversion of an array to a string (`String(array)`, `array + ''`, an array used as a property key or printed with `console.log`, and the pieces handed to `join` and `concat`), and to the text `JSON.stringify` produces.
+- `MaxArrayLength` applies to array literals, `push`, `unshift`, `splice`, `concat`, `flat`, `split`, `Array.from` and assigning to an index past the end.
+- Other builtins only return results bounded by their own limited input and are not checked.
 
-Nested arrays and objects count against `MaxCallDepth` when they are converted to a string or to JSON, so a structure nested deeper than the limit raises `EJSCallDepthExceeded`. An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element), and `JSON.stringify` of a circular structure raises a `TypeError`. The engine does not collect reference cycles, so a script that builds one should break it before it ends. Zero turns a limit off.
+**Checked before the work is done.** The length is compared with the limit before the string or array is allocated: `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB, and `padStart`, `concat`, `push`, `splice` and the like do the same. Array-to-text conversion and `JSON.stringify` check the running length before each piece is appended; `JSON.stringify` measures the text of each value as it will be written, so many small numbers are not refused on a worst-case estimate.
+
+**Checked after the fact.** A `replace` with a regular expression is refused up front when the source length plus the number of matches times the replacement length exceeds the limit, but a replacement that expands `$` patterns is only caught by the check on the finished result. `JSON.parse` does not limit the arrays it builds from its input.
+
+**Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. The engine does not collect reference cycles, so a script that builds one should break it before it ends.
+
+**Host-side conversion.** `TJSValue.ToString` is meant for values the host holds. It caps array nesting at the default call depth but does not limit the text length; inside the engine every conversion goes through `ToLimitedString` with the engine's limits.
 
 ```pascal
 Engine.MaxCallDepth := 50;

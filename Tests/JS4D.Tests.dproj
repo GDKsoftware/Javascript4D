@@ -97,6 +97,7 @@
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Interpreter.pas"/>
+        <DCCReference Include="..\Source\API\JS4D.Json.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="JS4D.Tests.Engine.pas"/>
         <DCCReference Include="JS4D.Tests.Lexer.pas"/>

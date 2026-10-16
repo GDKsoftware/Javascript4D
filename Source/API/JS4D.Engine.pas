@@ -16,6 +16,7 @@ uses
   JS4D.Parser,
   JS4D.AST,
   JS4D.Interpreter,
+  JS4D.Json,
   JS4D.Errors;
 
 type
@@ -29,6 +30,7 @@ type
 
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
 
+    function ToText(const Value: TJSValue): string;
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
@@ -239,181 +241,6 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-type
-  // Builds the JSON tree of a script value while counting the text it will produce, so a structure
-  // that would exceed the string limit is refused before it is built. Cycles raise a TypeError.
-  TJSONConverter = class
-  private
-    FLimits: TJSLimits;
-    FVisiting: TList<Pointer>;
-    FTextLength: Int64;
-
-    procedure AddTextLength(const Count: Int64);
-    function ConvertArray(const Value: TJSValue): TJSONValue;
-    function ConvertObject(const Value: TJSValue): TJSONValue;
-    function ConvertContainer(const Value: TJSValue; const Build: TFunc<TJSONValue>): TJSONValue;
-    function ConvertScalar(const Value: TJSValue): TJSONValue;
-
-  public
-    constructor Create(const Limits: TJSLimits);
-    destructor Destroy; override;
-
-    function Convert(const Value: TJSValue): TJSONValue;
-  end;
-
-const
-  JsonNullLength = 4;
-  JsonBooleanLength = 5;
-  JsonNumberLength = 24;
-  JsonQuotesLength = 2;
-  JsonKeyOverhead = 3;
-  JsonCircularMessage = 'Converting circular structure to JSON';
-
-{ TJSONConverter }
-
-constructor TJSONConverter.Create(const Limits: TJSLimits);
-begin
-  inherited Create;
-  FLimits := Limits;
-  FVisiting := TList<Pointer>.Create;
-  FTextLength := 0;
-end;
-
-destructor TJSONConverter.Destroy;
-begin
-  FVisiting.Free;
-  inherited;
-end;
-
-procedure TJSONConverter.AddTextLength(const Count: Int64);
-begin
-  Inc(FTextLength, Count);
-  FLimits.EnsureStringLength(FTextLength);
-end;
-
-function TJSONConverter.Convert(const Value: TJSValue): TJSONValue;
-begin
-  if Value.IsArray then
-    Exit(ConvertArray(Value));
-
-  if Value.IsFunction then
-    Exit(ConvertScalar(TJSValue.CreateNull));
-
-  if Value.IsObject then
-    Exit(ConvertObject(Value));
-
-  Result := ConvertScalar(Value);
-end;
-
-function TJSONConverter.ConvertScalar(const Value: TJSValue): TJSONValue;
-begin
-  if Value.IsNumber and (not System.Math.IsNaN(Value.AsNumber)) and (not System.Math.IsInfinite(Value.AsNumber)) then
-  begin
-    AddTextLength(JsonNumberLength);
-    Exit(TJSONNumber.Create(Value.AsNumber));
-  end;
-
-  if Value.IsBoolean then
-  begin
-    AddTextLength(JsonBooleanLength);
-    Exit(TJSONBool.Create(Value.AsBoolean));
-  end;
-
-  if Value.IsString then
-  begin
-    const TextLength = Length(Value.AsString);
-
-    AddTextLength(Int64(TextLength) + JsonQuotesLength);
-    Exit(TJSONString.Create(Value.AsString));
-  end;
-
-  AddTextLength(JsonNullLength);
-  Result := TJSONNull.Create;
-end;
-
-function TJSONConverter.ConvertContainer(const Value: TJSValue; const Build: TFunc<TJSONValue>): TJSONValue;
-begin
-  const Identity = Pointer(Value.ToObject as IInterface);
-
-  if FVisiting.Contains(Identity) then
-    raise TJSErrorFactory.TypeError(JsonCircularMessage);
-
-  const NestingDepth = FVisiting.Count + 1;
-
-  FLimits.EnsureNestingDepth(NestingDepth);
-
-  FVisiting.Add(Identity);
-  try
-    Result := Build();
-  finally
-    FVisiting.Delete(FVisiting.Count - 1);
-  end;
-end;
-
-function TJSONConverter.ConvertArray(const Value: TJSValue): TJSONValue;
-begin
-  Result := ConvertContainer(Value,
-    function: TJSONValue
-    begin
-      const JSONArray = TJSONArray.Create;
-      try
-        var ArrIntf: IJSArray;
-
-        if Supports(Value.ToObject, IJSArray, ArrIntf) then
-        begin
-          for var Index := 0 to ArrIntf.Length - 1 do
-          begin
-            AddTextLength(1);
-
-            const Element = Convert(ArrIntf[Index]);
-
-            JSONArray.AddElement(Element);
-          end;
-        end;
-      except
-        // Free the half-built array, then let the original error through.
-        JSONArray.Free;
-        raise;
-      end;
-
-      Result := JSONArray;
-    end);
-end;
-
-function TJSONConverter.ConvertObject(const Value: TJSValue): TJSONValue;
-begin
-  Result := ConvertContainer(Value,
-    function: TJSONValue
-    begin
-      const JSONObject = TJSONObject.Create;
-      try
-        const Obj = Value.ToObject;
-
-        for var PropName in Obj.GetOwnPropertyNames do
-        begin
-          const PropValue = Obj.GetProperty(PropName);
-
-          if not PropValue.IsFunction then
-          begin
-            const KeyLength = Length(PropName);
-
-            AddTextLength(Int64(KeyLength) + JsonKeyOverhead);
-
-            const Member = Convert(PropValue);
-
-            JSONObject.AddPair(PropName, Member);
-          end;
-        end;
-      except
-        // Free the half-built object, then let the original error through.
-        JSONObject.Free;
-        raise;
-      end;
-
-      Result := JSONObject;
-    end);
-end;
-
 constructor TJSEngine.Create;
 begin
   inherited Create;
@@ -478,6 +305,11 @@ end;
 procedure TJSEngine.Cancel;
 begin
   FInterpreter.Cancel;
+end;
+
+function TJSEngine.ToText(const Value: TJSValue): string;
+begin
+  Result := Value.ToLimitedString(FInterpreter.Limits);
 end;
 
 function TJSEngine.GetStepBudget: Int64;
@@ -585,7 +417,8 @@ begin
         Exit;
       end;
 
-      const Str = Trim(Args[0].ToString);
+      const Text = ToText(Args[0]);
+      const Str = Trim(Text);
       var Radix := 10;
 
       if Length(Args) > 1 then
@@ -626,7 +459,8 @@ begin
         Exit;
       end;
 
-      const Str = Trim(Args[0].ToString);
+      const Text = ToText(Args[0]);
+      const Str = Trim(Text);
       var FloatValue: Double;
 
       if TryStrToFloat(Str, FloatValue, TFormatSettings.Invariant) then
@@ -692,7 +526,9 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateString(Args[0].ToLimitedString(FInterpreter.Limits));
+      const Text = ToText(Args[0]);
+
+      Result := TJSValue.CreateString(Text);
     end);
 
   StringFunc.SetProperty('fromCharCode', TJSValue.CreateObject(TJSFunction.CreateNative('fromCharCode',
@@ -735,7 +571,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       var EncodedString := '';
       var CharIndex := 1;
 
@@ -767,7 +603,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
     end);
 
@@ -782,7 +618,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       var EncodedString := '';
       var CharIndex := 1;
 
@@ -814,7 +650,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
     end);
 
@@ -843,7 +679,7 @@ begin
         if Index > 0 then
           Output := Output + ' ';
 
-        Output := Output + Args[Index].ToLimitedString(Engine.FInterpreter.Limits);
+        Output := Output + ToText(Args[Index]);
       end;
 
       if Assigned(Engine.FOnConsoleOutput) then
@@ -1463,7 +1299,7 @@ begin
       end;
 
       const Obj = Args[0].ToObject;
-      const PropName = Args[1].ToString;
+      const PropName = ToText(Args[1]);
 
       if not Obj.HasOwnProperty(PropName) then
       begin
@@ -1492,7 +1328,7 @@ begin
       end;
 
       const Obj = Args[0].ToObject;
-      const PropName = Args[1].ToString;
+      const PropName = ToText(Args[1]);
       const DescObj = Args[2].ToObject;
 
       var Descriptor: TJSPropertyDescriptor;
@@ -1525,7 +1361,7 @@ begin
         Exit;
       end;
 
-      const JSONString = Args[0].ToString;
+      const JSONString = ToText(Args[0]);
 
       try
         const JSONValue = TJSONObject.ParseJSONValue(JSONString);
@@ -1561,8 +1397,9 @@ begin
         const JSONValue = Converter.Convert(Args[0]);
         try
           const JSONText = JSONValue.ToJSON;
+          const JSONLength = Length(JSONText);
 
-          FInterpreter.Limits.EnsureStringLength(Length(JSONText));
+          FInterpreter.Limits.EnsureStringLength(JSONLength);
           Result := TJSValue.CreateString(JSONText);
         finally
           JSONValue.Free;
@@ -1954,7 +1791,7 @@ begin
         Exit;
       end;
 
-      const DateStr = Args[0].ToString;
+      const DateStr = ToText(Args[0]);
 
       try
         const ParsedDate = ISO8601ToDate(DateStr, True);
@@ -2005,7 +1842,7 @@ procedure TJSEngine.RegisterErrors;
         var Msg := '';
 
         if Length(Args) > 0 then
-          Msg := Args[0].ToString;
+          Msg := ToText(Args[0]);
 
         const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
 
@@ -2065,10 +1902,10 @@ begin
       var Flags := '';
 
       if Length(Args) > 0 then
-        Pattern := Args[0].ToString;
+        Pattern := ToText(Args[0]);
 
       if Length(Args) > 1 then
-        Flags := Args[1].ToString;
+        Flags := ToText(Args[1]);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
 
@@ -2077,7 +1914,11 @@ begin
         begin
           var RE: IJSRegExp;
           if Supports(This, IJSRegExp, RE) and (Length(TestArgs) > 0) then
-            Result := TJSValue.CreateBoolean(RE.Test(TestArgs[0].ToString))
+          begin
+            const Subject = ToText(TestArgs[0]);
+
+            Result := TJSValue.CreateBoolean(RE.Test(Subject));
+          end
           else
             Result := TJSValue.CreateBoolean(False);
         end)));
@@ -2087,7 +1928,11 @@ begin
         begin
           var RE: IJSRegExp;
           if Supports(This, IJSRegExp, RE) and (Length(ExecArgs) > 0) then
-            Result := RE.Exec(ExecArgs[0].ToString)
+          begin
+            const Subject = ToText(ExecArgs[0]);
+
+            Result := RE.Exec(Subject);
+          end
           else
             Result := TJSValue.CreateNull;
         end)));

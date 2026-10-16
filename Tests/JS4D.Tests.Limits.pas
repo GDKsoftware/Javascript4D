@@ -205,6 +205,96 @@ type
 
     [Test]
     procedure Execute_PadEndLargePadding_ProducesRepeatedPad;
+
+    [Test]
+    procedure Execute_CompoundAssignmentWithBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_ConsoleLogOfBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_StringConcatWithBigArray_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_ArrayConcatWithSeveralArrays_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_JsonStringifyOfBigObject_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_JsonStringifyOfManySmallNumbers_IsAllowed;
+
+    [Test]
+    procedure Execute_JsonStringifyJustWithinLimit_IsAllowed;
+
+    [Test]
+    procedure Execute_JsonStringifyJustOverLimit_RaisesAllocationLimit;
+
+    [Test]
+    procedure Execute_JsonStringifyNestedPastCallDepth_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_JsonStringifyObjectsNestedPastCallDepth_RaisesCallDepthExceeded;
+  end;
+
+  [TestFixture]
+  TDeepStructureTests = class
+  private
+    FEngine: TJSEngine;
+
+    procedure AssertDeepArrayRejected(const Usage: string);
+
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure IndexOf_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Includes_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure StartsWith_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Search_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure ParseInt_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure DefaultSort_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure InOperator_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure HasOwnProperty_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure JsonParse_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure RegExpTest_WithDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Throw_OfDeepArray_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Release_OfDeepObjectChain_DoesNotOverflowTheStack;
+
+    [Test]
+    procedure Release_OfDeepMixedChain_DoesNotOverflowTheStack;
+
+    [Test]
+    procedure Release_OfDeepObjectChainDroppedByAssignment_DoesNotOverflowTheStack;
+
+    [Test]
+    procedure Release_OfDeepObjectChainAfterCollection_DoesNotOverflowTheStack;
   end;
 
 implementation
@@ -290,6 +380,34 @@ const
   LargePadEndScript = '''x''.padEnd(100000, ''ab'')';
   LargePadLength = 100000;
   PadStartBeginning = 'ababab';
+  CompoundBigArrayScript = BigPiecesPrefix + 'var t = ''''; t += a;';
+  ConsoleLogScript = BigPiecesPrefix + 'console.log(a);';
+  StringConcatBigArrayScript = BigPiecesPrefix + '''x''.concat(a);';
+  ArrayConcatSeveralScript = 'var a = [1, 2, 3, 4, 5, 6]; a.concat([7], [8], [9], [10, 11]);';
+  JsonBigObjectScript = 'var s = ''x''.repeat(1000000); var o = {}; for (var i = 0; i < 20; i++) { o[''k'' + i] = s; } JSON.stringify(o);';
+  JsonManyNumbersScript = 'var a = []; for (var i = 0; i < 700000; i++) a.push(i % 10); JSON.stringify(a).length';
+  JsonManyNumbersMinimumLength = 1400001;
+  JsonDigitsFormat = 'var a = []; for (var i = 0; i < %d; i++) { a.push(true); } JSON.stringify(a).length';
+  JsonDigitsWithinLimit = 19;
+  JsonDigitsWithinLimitLength = 96;
+  JsonDigitsOverLimit = 20;
+  JsonNestedArrayScript = 'var a = []; for (var i = 0; i < 150; i++) { a = [a]; } JSON.stringify(a);';
+  JsonNestedObjectScript = 'var o = {}; for (var i = 0; i < 150; i++) { o = { x: o }; } JSON.stringify(o);';
+  DeepArrayPrefix = 'var a = []; for (var i = 0; i < 200000; i++) a = [a]; ';
+  DeepIndexOfScript = '''x''.indexOf(a);';
+  DeepIncludesScript = '''x''.includes(a);';
+  DeepStartsWithScript = '''x''.startsWith(a);';
+  DeepSearchScript = '''x''.search(a);';
+  DeepParseIntScript = 'parseInt(a);';
+  DeepSortScript = '[a, a].sort();';
+  DeepInScript = 'a in {};';
+  DeepHasOwnPropertyScript = '({}).hasOwnProperty(a);';
+  DeepJsonParseScript = 'JSON.parse(a);';
+  DeepRegExpTestScript = 'var pattern = /x/; pattern.test(a);';
+  DeepThrowScript = 'throw a;';
+  DeepObjectChainScript = 'var a = {}; for (var i = 0; i < 200000; i++) a = { x: a };';
+  DeepMixedChainScript = 'var a = {}; for (var i = 0; i < 200000; i++) a = (i % 2 === 0) ? { x: a } : [a];';
+  DeepChainDropScript = DeepObjectChainScript + ' a = 0;';
   PadEndBeginning = 'xababab';
   UnlimitedScript = 'var s = ''x''.repeat(200); var a = []; for (var i = 0; i < 20; i++) { a.push(i); } s.length + a.length';
   UnlimitedScriptResult = 220;
@@ -351,9 +469,9 @@ begin
     end,
     EJSCallDepthExceeded);
 
-  const Result = FEngine.Evaluate(NormalScript);
+  const Outcome = FEngine.Evaluate(NormalScript);
 
-  Assert.AreEqual(Double(NormalScriptResult), Result.ToNumber, EngineUsableMessage);
+  Assert.AreEqual(Double(NormalScriptResult), Outcome.ToNumber, EngineUsableMessage);
 
   const LegalScript = Format(RecursionScriptFormat, [LegalRecursionDepth]);
   const Recursion = FEngine.Evaluate(LegalScript);
@@ -377,9 +495,9 @@ begin
   FEngine.MaxCallDepth := SmallCallDepth;
 
   const Script = Format(RecursionScriptFormat, [WithinSmallCallDepth]);
-  const Result = FEngine.Evaluate(Script);
+  const Outcome = FEngine.Evaluate(Script);
 
-  Assert.AreEqual(Double(WithinSmallCallDepth), Result.ToNumber, 'A recursion inside the configured limit must complete');
+  Assert.AreEqual(Double(WithinSmallCallDepth), Outcome.ToNumber, 'A recursion inside the configured limit must complete');
 end;
 
 procedure TCallDepthLimitTests.Execute_RecursionBeyondConfiguredLimit_RaisesCallDepthExceeded;
@@ -399,9 +517,9 @@ end;
 procedure TCallDepthLimitTests.Execute_NestedCallsFiftyDeep_StillWork;
 begin
   const Script = Format(RecursionScriptFormat, [NestedCallDepth]);
-  const Result = FEngine.Evaluate(Script);
+  const Outcome = FEngine.Evaluate(Script);
 
-  Assert.AreEqual(Double(NestedCallDepth), Result.ToNumber, 'Calls nested fifty deep must stay inside the default limit');
+  Assert.AreEqual(Double(NestedCallDepth), Outcome.ToNumber, 'Calls nested fifty deep must stay inside the default limit');
 end;
 
 procedure TCallDepthLimitTests.AssertRecursionStopped(const Script: string);
@@ -414,9 +532,9 @@ begin
     EJSCallDepthExceeded,
     'The runaway script must end in the call depth exception');
 
-  const Result = FEngine.Evaluate(NormalScript);
+  const Outcome = FEngine.Evaluate(NormalScript);
 
-  Assert.AreEqual(Double(NormalScriptResult), Result.ToNumber, EngineUsableMessage);
+  Assert.AreEqual(Double(NormalScriptResult), Outcome.ToNumber, EngineUsableMessage);
 end;
 
 procedure TCallDepthLimitTests.Execute_RecursionThroughMapCallback_RaisesCallDepthExceeded;
@@ -510,18 +628,18 @@ end;
 procedure TAllocationLimitTests.Execute_LargeButLegalScript_StillWorks;
 begin
   const Script = Format(LegalScriptFormat, [NestedCallDepth]);
-  const Result = FEngine.Evaluate(Script);
+  const Outcome = FEngine.Evaluate(Script);
 
-  Assert.AreEqual(Double(LegalScriptResult), Result.ToNumber, 'A large script inside the limits must behave as before');
+  Assert.AreEqual(Double(LegalScriptResult), Outcome.ToNumber, 'A large script inside the limits must behave as before');
 end;
 
 procedure TAllocationLimitTests.Execute_StringExactlyAtLimit_IsAllowed;
 begin
   FEngine.MaxStringLength := SmallStringLength;
 
-  const Result = FEngine.Evaluate(HundredCharsScript);
+  const Outcome = FEngine.Evaluate(HundredCharsScript);
 
-  Assert.AreEqual(Double(SmallStringLength), Result.ToNumber, 'A string of exactly the limit must be allowed');
+  Assert.AreEqual(Double(SmallStringLength), Outcome.ToNumber, 'A string of exactly the limit must be allowed');
 end;
 
 procedure TAllocationLimitTests.Execute_ConcatenationOverLimit_Raises;
@@ -675,9 +793,9 @@ procedure TAllocationLimitTests.Execute_ArrayExactlyAtLimit_IsAllowed;
 begin
   FEngine.MaxArrayLength := SmallArrayLength;
 
-  const Result = FEngine.Evaluate(TenElementsScript);
+  const Outcome = FEngine.Evaluate(TenElementsScript);
 
-  Assert.AreEqual(Double(TenElements), Result.ToNumber, 'An array of exactly the limit must be allowed');
+  Assert.AreEqual(Double(TenElements), Outcome.ToNumber, 'An array of exactly the limit must be allowed');
 end;
 
 procedure TAllocationLimitTests.Execute_ZeroLimits_MeanUnlimited;
@@ -685,9 +803,9 @@ begin
   FEngine.MaxStringLength := 0;
   FEngine.MaxArrayLength := 0;
 
-  const Result = FEngine.Evaluate(UnlimitedScript);
+  const Outcome = FEngine.Evaluate(UnlimitedScript);
 
-  Assert.AreEqual(Double(UnlimitedScriptResult), Result.ToNumber, 'A limit of zero must switch the check off');
+  Assert.AreEqual(Double(UnlimitedScriptResult), Outcome.ToNumber, 'A limit of zero must switch the check off');
 end;
 
 procedure TAllocationLimitTests.Execute_StringOfBigArray_RaisesAllocationLimit;
@@ -727,16 +845,16 @@ end;
 
 procedure TAllocationLimitTests.Execute_CircularArrayToString_YieldsEmptyElement;
 begin
-  const Result = FEngine.Evaluate(CircularArrayScript);
+  const Outcome = FEngine.Evaluate(CircularArrayScript);
 
-  Assert.AreEqual(CircularArrayResult, Result.ToString, 'A cycle must convert to an empty element');
+  Assert.AreEqual(CircularArrayResult, Outcome.ToString, 'A cycle must convert to an empty element');
 end;
 
 procedure TAllocationLimitTests.Execute_MutuallyCircularArrays_StopAtTheRepeat;
 begin
-  const Result = FEngine.Evaluate(MutualCircularScript);
+  const Outcome = FEngine.Evaluate(MutualCircularScript);
 
-  Assert.AreEqual(MutualCircularResult, Result.ToString, 'The repeated array must convert to an empty element');
+  Assert.AreEqual(MutualCircularResult, Outcome.ToString, 'The repeated array must convert to an empty element');
 end;
 
 procedure TAllocationLimitTests.Execute_CircularJsonStringify_RaisesTypeError;
@@ -769,31 +887,227 @@ end;
 
 procedure TAllocationLimitTests.Execute_PadStartLargePadding_ProducesRepeatedPad;
 begin
-  const Result = FEngine.Evaluate(LargePadScript).ToString;
+  const Padded = FEngine.Evaluate(LargePadScript);
+  const Outcome = Padded.ToString;
 
-  Assert.AreEqual(LargePadLength, Length(Result), 'padStart must reach the requested length');
-  Assert.IsTrue(Result.StartsWith(PadStartBeginning), 'padStart must repeat the pad string');
+  Assert.AreEqual(LargePadLength, Length(Outcome), 'padStart must reach the requested length');
+  Assert.IsTrue(Outcome.StartsWith(PadStartBeginning), 'padStart must repeat the pad string');
 end;
 
 procedure TAllocationLimitTests.Execute_PadEndLargePadding_ProducesRepeatedPad;
 begin
-  const Result = FEngine.Evaluate(LargePadEndScript).ToString;
+  const Padded = FEngine.Evaluate(LargePadEndScript);
+  const Outcome = Padded.ToString;
 
-  Assert.AreEqual(LargePadLength, Length(Result), 'padEnd must reach the requested length');
-  Assert.IsTrue(Result.StartsWith(PadEndBeginning), 'padEnd must repeat the pad string');
+  Assert.AreEqual(LargePadLength, Length(Outcome), 'padEnd must reach the requested length');
+  Assert.IsTrue(Outcome.StartsWith(PadEndBeginning), 'padEnd must repeat the pad string');
+end;
+
+procedure TAllocationLimitTests.Execute_CompoundAssignmentWithBigArray_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(CompoundBigArrayScript, 'string += array must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_ConsoleLogOfBigArray_RaisesAllocationLimit;
+begin
+  FEngine.OnConsoleOutput :=
+    procedure(const Output: string)
+    begin
+    end;
+
+  AssertExceedsLimit(ConsoleLogScript, 'console.log of a big array must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_StringConcatWithBigArray_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(StringConcatBigArrayScript, 'String concat with a big array must stop at the string limit');
+end;
+
+procedure TAllocationLimitTests.Execute_ArrayConcatWithSeveralArrays_RaisesAllocationLimit;
+begin
+  FEngine.MaxArrayLength := SmallArrayLength;
+
+  AssertExceedsLimit(ArrayConcatSeveralScript, 'concat with several arrays must count all of them');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyOfBigObject_RaisesAllocationLimit;
+begin
+  AssertExceedsLimit(JsonBigObjectScript, 'JSON.stringify of an object must stop at the string limit while it builds');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyOfManySmallNumbers_IsAllowed;
+begin
+  const Outcome = FEngine.Evaluate(JsonManyNumbersScript);
+
+  Assert.IsTrue(Outcome.ToNumber >= JsonManyNumbersMinimumLength, 'Every number needs at least one char plus a separator');
+  Assert.IsTrue(Outcome.ToNumber < DefaultStringLength, 'The check must use the real text length, not a worst case');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyJustWithinLimit_IsAllowed;
+begin
+  FEngine.MaxStringLength := SmallStringLength;
+  const Script = Format(JsonDigitsFormat, [JsonDigitsWithinLimit]);
+
+  const Outcome = FEngine.Evaluate(Script);
+
+  Assert.AreEqual(Double(JsonDigitsWithinLimitLength), Outcome.ToNumber, 'A JSON text inside the limit must be produced');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyJustOverLimit_RaisesAllocationLimit;
+begin
+  FEngine.MaxStringLength := SmallStringLength;
+  const Script = Format(JsonDigitsFormat, [JsonDigitsOverLimit]);
+
+  AssertExceedsLimit(Script, 'A JSON text just over the limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyNestedPastCallDepth_RaisesCallDepthExceeded;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(JsonNestedArrayScript);
+    end,
+    EJSCallDepthExceeded,
+    'JSON nesting beyond the call depth limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_JsonStringifyObjectsNestedPastCallDepth_RaisesCallDepthExceeded;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(JsonNestedObjectScript);
+    end,
+    EJSCallDepthExceeded,
+    'JSON object nesting beyond the call depth limit must raise');
 end;
 
 procedure TAllocationLimitTests.Execute_AfterAllocationLimitExceeded_EngineStaysUsable;
 begin
   AssertExceedsLimit(RepeatBillionScript, 'A repeat of a billion must be refused');
 
-  const Result = FEngine.Evaluate(NormalScript);
+  const Outcome = FEngine.Evaluate(NormalScript);
 
-  Assert.AreEqual(Double(NormalScriptResult), Result.ToNumber, EngineUsableMessage);
+  Assert.AreEqual(Double(NormalScriptResult), Outcome.ToNumber, EngineUsableMessage);
+end;
+
+{ TDeepStructureTests }
+
+procedure TDeepStructureTests.Setup;
+begin
+  FEngine := TJSEngine.Create;
+end;
+
+procedure TDeepStructureTests.TearDown;
+begin
+  FreeAndNil(FEngine);
+end;
+
+procedure TDeepStructureTests.AssertDeepArrayRejected(const Usage: string);
+begin
+  const Script = DeepArrayPrefix + Usage;
+
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(Script);
+    end,
+    EJSCallDepthExceeded,
+    'A very deeply nested array must be refused, not recursed into');
+end;
+
+procedure TDeepStructureTests.IndexOf_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepIndexOfScript);
+end;
+
+procedure TDeepStructureTests.Includes_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepIncludesScript);
+end;
+
+procedure TDeepStructureTests.StartsWith_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepStartsWithScript);
+end;
+
+procedure TDeepStructureTests.Search_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepSearchScript);
+end;
+
+procedure TDeepStructureTests.ParseInt_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepParseIntScript);
+end;
+
+procedure TDeepStructureTests.DefaultSort_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepSortScript);
+end;
+
+procedure TDeepStructureTests.InOperator_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepInScript);
+end;
+
+procedure TDeepStructureTests.HasOwnProperty_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepHasOwnPropertyScript);
+end;
+
+procedure TDeepStructureTests.JsonParse_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepJsonParseScript);
+end;
+
+procedure TDeepStructureTests.RegExpTest_WithDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepRegExpTestScript);
+end;
+
+procedure TDeepStructureTests.Release_OfDeepObjectChain_DoesNotOverflowTheStack;
+begin
+  FEngine.Execute(DeepObjectChainScript);
+
+  FreeAndNil(FEngine);
+
+  Assert.Pass('Freeing the engine released the whole chain');
+end;
+
+procedure TDeepStructureTests.Release_OfDeepMixedChain_DoesNotOverflowTheStack;
+begin
+  FEngine.Execute(DeepMixedChainScript);
+
+  FreeAndNil(FEngine);
+
+  Assert.Pass('Freeing the engine released the whole mixed chain');
+end;
+
+procedure TDeepStructureTests.Release_OfDeepObjectChainDroppedByAssignment_DoesNotOverflowTheStack;
+begin
+  FEngine.Execute(DeepChainDropScript);
+
+  Assert.Pass('Dropping the last reference released the whole chain');
+end;
+
+procedure TDeepStructureTests.Release_OfDeepObjectChainAfterCollection_DoesNotOverflowTheStack;
+begin
+  FEngine.Execute(DeepChainDropScript);
+  FEngine.CollectGarbage;
+
+  Assert.Pass('Collecting garbage after dropping the chain did not overflow');
+end;
+
+procedure TDeepStructureTests.Throw_OfDeepArray_RaisesCallDepthExceeded;
+begin
+  AssertDeepArrayRejected(DeepThrowScript);
 end;
 
 initialization
   TDUnitX.RegisterTestFixture(TCallDepthLimitTests);
   TDUnitX.RegisterTestFixture(TAllocationLimitTests);
+  TDUnitX.RegisterTestFixture(TDeepStructureTests);
 
 end.

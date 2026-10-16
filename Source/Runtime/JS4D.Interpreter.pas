@@ -919,7 +919,11 @@ begin
           begin
             var RE: IJSRegExp;
             if Supports(This, IJSRegExp, RE) and (Length(Args) > 0) then
-              Result := TJSValue.CreateBoolean(RE.Test(Args[0].ToString))
+            begin
+              const Subject = ToText(Args[0]);
+
+              Result := TJSValue.CreateBoolean(RE.Test(Subject));
+            end
             else
               Result := TJSValue.CreateBoolean(False);
           end);
@@ -931,7 +935,11 @@ begin
           begin
             var RE: IJSRegExp;
             if Supports(This, IJSRegExp, RE) and (Length(Args) > 0) then
-              Result := RE.Exec(Args[0].ToString)
+            begin
+              const Subject = ToText(Args[0]);
+
+              Result := RE.Exec(Subject);
+            end
             else
               Result := TJSValue.CreateNull;
           end);
@@ -1288,7 +1296,11 @@ begin
     TJSBinaryOperator.In_:
       begin
         if Right.IsObject then
-          Result := TJSValue.CreateBoolean(Right.ToObject.HasProperty(Left.ToString))
+        begin
+          const PropertyName = ToText(Left);
+
+          Result := TJSValue.CreateBoolean(Right.ToObject.HasProperty(PropertyName));
+        end
         else
           Result := TJSValue.CreateBoolean(False);
       end;
@@ -1517,7 +1529,7 @@ begin
             begin
               Result := CallFunction(Func, CallbackArgs, nil);
             end;
-          Exit(TJSBuiltins.CallArrayMethodWithCallback(ArrIntf, MethodName, Args, Executor));
+          Exit(TJSBuiltins.CallArrayMethodWithCallback(ArrIntf, MethodName, Args, Executor, FLimits));
         end
         else
           Exit(TJSBuiltins.CallArrayMethod(ArrIntf, MethodName, Args, FLimits));
@@ -1538,7 +1550,7 @@ begin
     end;
 
     if ObjValue.IsObject and TJSBuiltins.HasObjectMethod(MethodName) then
-      Exit(TJSBuiltins.CallObjectMethod(ObjValue.ToObject, MethodName, Args));
+      Exit(TJSBuiltins.CallObjectMethod(ObjValue.ToObject, MethodName, Args, FLimits));
 
     if ObjValue.IsObject then
       ThisObj := ObjValue.ToObject;
@@ -1934,10 +1946,10 @@ begin
     if MemberExpr.Property_ is TJSIdentifier then
       Result := TJSIdentifier(MemberExpr.Property_).Name
     else
-      Result := CalleeValue.ToString;
+      Result := ToText(CalleeValue);
   end
   else
-    Result := CalleeValue.ToString;
+    Result := ToText(CalleeValue);
 end;
 
 procedure TJSInterpreter.RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
