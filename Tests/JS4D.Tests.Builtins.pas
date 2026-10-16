@@ -8,6 +8,7 @@ uses
   System.Math,
   System.SysUtils,
   DUnitX.TestFramework,
+  JS4D.Interpreter,
   JS4D.Types,
   JS4D.Engine;
 
@@ -128,6 +129,21 @@ type
 
     [Test]
     procedure Array_Sort_TwoStepWithVariable;
+
+    [Test]
+    procedure Array_Sort_LargeArrayWithComparer_UsesLogLinearComparisons;
+
+    [Test]
+    procedure Array_Sort_EqualKeys_KeepsOriginalOrder;
+
+    [Test]
+    procedure Array_Sort_UndefinedValues_AreSortedLastWithoutComparerCall;
+
+    [Test]
+    procedure Array_Sort_WithoutComparer_ComparesAsStrings;
+
+    [Test]
+    procedure Array_Sort_ThrowingComparer_PropagatesException;
   end;
 
   [TestFixture]
@@ -975,6 +991,70 @@ begin
 
   const Result = FEngine.Evaluate('arr.join(",")');
   Assert.AreEqual('1,2,3', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_Sort_LargeArrayWithComparer_UsesLogLinearComparisons;
+const
+  Script =
+    'var calls = 0;' +
+    'var arr = [];' +
+    'for (var i = 0; i < 2000; i++) { arr.push((i * 7919) % 2003); }' +
+    'arr.sort(function(a, b) { calls++; return a - b; });' +
+    'var ordered = true;' +
+    'for (var j = 1; j < arr.length; j++) { if (arr[j - 1] > arr[j]) { ordered = false; } }';
+  MaxComparisons = 2000 * 12;
+begin
+  FEngine.Execute(Script);
+
+  const Calls = FEngine.GetVariable('calls').AsNumber;
+  Assert.IsTrue(FEngine.GetVariable('ordered').AsBoolean, 'The array must be sorted');
+  Assert.IsTrue(Calls <= MaxComparisons, Format('Comparator called %d times', [Round(Calls)]));
+end;
+
+procedure TArrayMethodsTests.Array_Sort_EqualKeys_KeepsOriginalOrder;
+const
+  Script =
+    'var items = [{k: 2, n: "a"}, {k: 1, n: "b"}, {k: 2, n: "c"}, {k: 1, n: "d"}, {k: 2, n: "e"}];' +
+    'items.sort(function(x, y) { return x.k - y.k; });';
+begin
+  FEngine.Execute(Script);
+
+  const Result = FEngine.Evaluate('items.map(function(x) { return x.n; }).join(",")');
+  Assert.AreEqual('b,d,a,c,e', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_Sort_UndefinedValues_AreSortedLastWithoutComparerCall;
+const
+  Script =
+    'var sawUndefined = false;' +
+    'var arr = [3, undefined, 1, undefined, 2];' +
+    'arr.sort(function(a, b) {' +
+    '  if (a === undefined || b === undefined) { sawUndefined = true; }' +
+    '  return a - b;' +
+    '});';
+begin
+  FEngine.Execute(Script);
+
+  Assert.IsFalse(FEngine.GetVariable('sawUndefined').AsBoolean, 'Undefined must not reach the comparator');
+  Assert.AreEqual('1,2,3,,', FEngine.Evaluate('arr.join(",")').AsString);
+  Assert.IsTrue(FEngine.Evaluate('arr[3] === undefined && arr[4] === undefined').AsBoolean);
+end;
+
+procedure TArrayMethodsTests.Array_Sort_WithoutComparer_ComparesAsStrings;
+begin
+  const Result = FEngine.Evaluate('[10, 9, 1].sort().join(",")');
+
+  Assert.AreEqual('1,10,9', Result.AsString);
+end;
+
+procedure TArrayMethodsTests.Array_Sort_ThrowingComparer_PropagatesException;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute('[3, 1, 2].sort(function(a, b) { throw new Error("boom"); });');
+    end,
+    TJSThrowSignal);
 end;
 
 procedure TStringMethodsTests.Setup;
