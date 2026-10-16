@@ -31,6 +31,27 @@ type
     EvalError
   );
 
+  TJSLimits = record
+  public
+    const
+      DefaultMaxCallDepth = 100;
+      DefaultMaxStringLength = 16 * 1024 * 1024;
+      DefaultMaxArrayLength = 1024 * 1024;
+
+  public
+    MaxCallDepth: Integer;
+    MaxStringLength: Integer;
+    MaxArrayLength: Integer;
+
+    class function Default: TJSLimits; static;
+    // Limits that only cap nesting depth, for host-side conversions that have no engine limits at hand.
+    class function DepthCapped: TJSLimits; static;
+
+    procedure EnsureStringLength(const RequestedLength: Int64);
+    procedure EnsureArrayLength(const RequestedLength: Int64);
+    procedure EnsureNestingDepth(const RequestedDepth: Integer);
+  end;
+
   IJSObject = interface;
   IJSArray = interface;
   IJSScope = interface;
@@ -42,6 +63,9 @@ type
     FNumberValue: Double;
     FStringValue: string;
     FObjectRef: IJSObject;
+
+    class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
+      const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
 
   public
     class function CreateUndefined: TJSValue; static;
@@ -68,7 +92,10 @@ type
     function ToBoolean: Boolean;
     function ToNumber: Double;
     function ToInteger: Int64;
+    // Host-side conversion. Arrays nested deeper than the default call depth raise EJSCallDepthExceeded,
+    // but the text length is not limited. Script values inside the engine go through ToLimitedString.
     function ToString: string;
+    function ToLimitedString(const Limits: TJSLimits): string;
     function ToObject: IJSObject;
 
     function Clone: TJSValue;
@@ -222,6 +249,7 @@ type
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
     function Replace(const Str: string; const Replacement: string): string;
+    function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
     function Split(const Str: string; const Limit: Integer = -1): IJSArray;
     function GetPattern: string;
@@ -251,6 +279,13 @@ type
   protected
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
+
+    // Releasing a very deeply nested chain of arrays and objects would recurse through one destructor
+    // per level and overflow the stack. A destructor calls ReleaseNested first, which empties the nested
+    // objects it holds the last reference to one at a time.
+    function HoldsNested: Boolean; virtual;
+    procedure DetachNested(const Pending: TList<IJSObject>); virtual;
+    procedure ReleaseNested;
 
   public
     constructor Create;
@@ -321,6 +356,8 @@ type
     FElements: TList<TJSValue>;
 
   protected
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
     function GetLength: Integer;
     function GetElement(const Index: Integer): TJSValue;
     procedure SetElement(const Index: Integer; const Value: TJSValue);
@@ -444,6 +481,7 @@ type
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
     function Replace(const Str: string; const Replacement: string): string;
+    function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
     function Split(const Str: string; const Limit: Integer = -1): IJSArray;
 
@@ -467,7 +505,42 @@ implementation
 uses
   System.Math,
   System.DateUtils,
-  System.TimeSpan;
+  System.TimeSpan,
+  JS4D.Errors;
+
+{ TJSLimits }
+
+class function TJSLimits.Default: TJSLimits;
+begin
+  Result.MaxCallDepth := DefaultMaxCallDepth;
+  Result.MaxStringLength := DefaultMaxStringLength;
+  Result.MaxArrayLength := DefaultMaxArrayLength;
+end;
+
+procedure TJSLimits.EnsureStringLength(const RequestedLength: Int64);
+begin
+  if (MaxStringLength > 0) and (RequestedLength > MaxStringLength) then
+    raise EJSAllocationLimitExceeded.Create(TJSAllocationKind.Characters, MaxStringLength);
+end;
+
+class function TJSLimits.DepthCapped: TJSLimits;
+begin
+  Result.MaxCallDepth := DefaultMaxCallDepth;
+  Result.MaxStringLength := 0;
+  Result.MaxArrayLength := 0;
+end;
+
+procedure TJSLimits.EnsureNestingDepth(const RequestedDepth: Integer);
+begin
+  if (MaxCallDepth > 0) and (RequestedDepth > MaxCallDepth) then
+    raise EJSCallDepthExceeded.Create(MaxCallDepth);
+end;
+
+procedure TJSLimits.EnsureArrayLength(const RequestedLength: Int64);
+begin
+  if (MaxArrayLength > 0) and (RequestedLength > MaxArrayLength) then
+    raise EJSAllocationLimitExceeded.Create(TJSAllocationKind.Elements, MaxArrayLength);
+end;
 
 const
   UNDEFINED_STRING = 'undefined';
@@ -698,8 +771,6 @@ begin
 end;
 
 function TJSValue.ToString: string;
-var
-  Arr: IJSArray;
 begin
   case FValueType of
     TJSValueType.Undefined:
@@ -737,30 +808,70 @@ begin
     TJSValueType.Function_:
       Result := FUNCTION_STRING;
     TJSValueType.Array_:
-      begin
-        if Supports(FObjectRef, IJSArray, Arr) then
-        begin
-          var StringBuilder := TStringBuilder.Create;
-          try
-            for var Index := 0 to Arr.Length - 1 do
-            begin
-              if Index > 0 then
-                StringBuilder.Append(ARRAY_SEPARATOR);
-
-              const ElementValue = Arr[Index];
-              if not ElementValue.IsNullOrUndefined then
-                StringBuilder.Append(ElementValue.ToString);
-            end;
-            Result := StringBuilder.ToString;
-          finally
-            StringBuilder.Free;
-          end;
-        end
-        else
-          Result := '';
-      end;
+      Result := ToLimitedString(TJSLimits.DepthCapped);
     else
       Result := '';
+  end;
+end;
+
+function TJSValue.ToLimitedString(const Limits: TJSLimits): string;
+begin
+  var Arr: IJSArray;
+
+  if (FValueType <> TJSValueType.Array_) or (not Supports(FObjectRef, IJSArray, Arr)) then
+    Exit(ToString);
+
+  const Builder = TStringBuilder.Create;
+  const Visiting = TList<Pointer>.Create;
+  try
+    AppendArrayText(Arr, Builder, Visiting, Limits);
+    Result := Builder.ToString;
+  finally
+    Visiting.Free;
+    Builder.Free;
+  end;
+end;
+
+class procedure TJSValue.AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
+  const Visiting: TList<Pointer>; const Limits: TJSLimits);
+begin
+  Limits.EnsureNestingDepth(Visiting.Count + 1);
+
+  Visiting.Add(Pointer(SourceArray as IInterface));
+  try
+    for var Index := 0 to SourceArray.Length - 1 do
+    begin
+      if Index > 0 then
+      begin
+        const WithSeparator = Int64(Builder.Length) + Length(ARRAY_SEPARATOR);
+
+        Limits.EnsureStringLength(WithSeparator);
+        Builder.Append(ARRAY_SEPARATOR);
+      end;
+
+      const ElementValue = SourceArray[Index];
+      const ElementObject = ElementValue.ToObject;
+      var Nested: IJSArray;
+
+      if ElementValue.IsArray and Supports(ElementObject, IJSArray, Nested) then
+      begin
+        const NestedMarker = Pointer(Nested as IInterface);
+
+        // An array that is already being converted is a cycle and yields an empty element.
+        if not Visiting.Contains(NestedMarker) then
+          AppendArrayText(Nested, Builder, Visiting, Limits);
+      end
+      else if not ElementValue.IsNullOrUndefined then
+      begin
+        const ElementText = ElementValue.ToString;
+        const WithElement = Int64(Builder.Length) + Length(ElementText);
+
+        Limits.EnsureStringLength(WithElement);
+        Builder.Append(ElementText);
+      end;
+    end;
+  finally
+    Visiting.Delete(Visiting.Count - 1);
   end;
 end;
 
@@ -800,9 +911,68 @@ begin
   FExtensible := True;
 end;
 
+function TJSObjectImpl.HoldsNested: Boolean;
+begin
+  Result := False;
+
+  for var Entry in FProperties do
+  begin
+    const PropertyValue = Entry.Value.Value;
+
+    if PropertyValue.IsObject and (not PropertyValue.IsFunction) then
+      Exit(True);
+  end;
+end;
+
+procedure TJSObjectImpl.DetachNested(const Pending: TList<IJSObject>);
+begin
+  for var Entry in FProperties do
+  begin
+    const PropertyValue = Entry.Value.Value;
+    const PropertyObject = PropertyValue.ToObject;
+    var Func: IJSFunction;
+
+    if PropertyValue.IsFunction and Supports(PropertyObject, IJSFunction, Func) then
+      Func.ClosureScope := nil
+    else if PropertyValue.IsObject then
+      Pending.Add(PropertyObject);
+  end;
+
+  FProperties.Clear;
+  FOrderedKeys.Clear;
+end;
+
+procedure TJSObjectImpl.ReleaseNested;
+begin
+  if not HoldsNested then
+    Exit;
+
+  const Pending = TList<IJSObject>.Create;
+  try
+    DetachNested(Pending);
+
+    while Pending.Count > 0 do
+    begin
+      const Current = Pending.Last;
+
+      Pending.Delete(Pending.Count - 1);
+
+      const CurrentObject = Current as TObject;
+      const IsOnlyOwner = (CurrentObject is TJSObjectImpl) and (TJSObjectImpl(CurrentObject).RefCount = 1);
+
+      if IsOnlyOwner then
+        TJSObjectImpl(CurrentObject).DetachNested(Pending);
+    end;
+  finally
+    Pending.Free;
+  end;
+end;
+
 destructor TJSObjectImpl.Destroy;
 begin
   FPrototype := nil;
+
+  ReleaseNested;
 
   for var Pair in FProperties do
   begin
@@ -1094,8 +1264,42 @@ begin
   FElements := TList<TJSValue>.Create;
 end;
 
+function TJSArrayImpl.HoldsNested: Boolean;
+begin
+  Result := inherited HoldsNested;
+
+  if Result or (not Assigned(FElements)) then
+    Exit;
+
+  for var Element in FElements do
+  begin
+    if Element.IsObject and (not Element.IsFunction) then
+      Exit(True);
+  end;
+end;
+
+procedure TJSArrayImpl.DetachNested(const Pending: TList<IJSObject>);
+begin
+  for var Element in FElements do
+  begin
+    const ElementObject = Element.ToObject;
+    var Func: IJSFunction;
+
+    if Element.IsFunction and Supports(ElementObject, IJSFunction, Func) then
+      Func.ClosureScope := nil
+    else if Element.IsObject then
+      Pending.Add(ElementObject);
+  end;
+
+  FElements.Clear;
+
+  inherited DetachNested(Pending);
+end;
+
 destructor TJSArrayImpl.Destroy;
 begin
+  ReleaseNested;
+
   for var Element in FElements do
   begin
     if Element.IsFunction then
@@ -1107,7 +1311,7 @@ begin
   end;
 
   FElements.Clear;
-  FElements.Free;
+  FreeAndNil(FElements);
   inherited;
 end;
 
@@ -1604,6 +1808,14 @@ begin
     Result := FRegEx.Replace(Str, Replacement)
   else
     Result := FRegEx.Replace(Str, Replacement, 1);
+end;
+
+function TJSRegExpImpl.CountReplacements(const Str: string): Integer;
+begin
+  Result := FRegEx.Matches(Str).Count;
+
+  if (not FGlobal) and (Result > 1) then
+    Result := 1;
 end;
 
 function TJSRegExpImpl.Search(const Str: string): Integer;

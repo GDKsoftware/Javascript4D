@@ -16,6 +16,7 @@ uses
   JS4D.Parser,
   JS4D.AST,
   JS4D.Interpreter,
+  JS4D.Json,
   JS4D.Errors;
 
 type
@@ -28,11 +29,17 @@ type
     FOnConsoleOutput: TConsoleOutputHandler;
 
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
-    class function ConvertJSValueToJSON(const Value: TJSValue): TJSONValue; static;
 
+    function ToText(const Value: TJSValue): string;
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
+    function GetMaxCallDepth: Integer;
+    procedure SetMaxCallDepth(const Value: Integer);
+    function GetMaxStringLength: Integer;
+    procedure SetMaxStringLength(const Value: Integer);
+    function GetMaxArrayLength: Integer;
+    procedure SetMaxArrayLength(const Value: Integer);
 
     procedure RegisterBuiltInFunctions;
     procedure RegisterConsole;
@@ -68,6 +75,9 @@ type
     property OnConsoleOutput: TConsoleOutputHandler read FOnConsoleOutput write FOnConsoleOutput;
     property StepBudget: Int64 read GetStepBudget write SetStepBudget;
     property StepCount: Int64 read GetStepCount;
+    property MaxCallDepth: Integer read GetMaxCallDepth write SetMaxCallDepth;
+    property MaxStringLength: Integer read GetMaxStringLength write SetMaxStringLength;
+    property MaxArrayLength: Integer read GetMaxArrayLength write SetMaxArrayLength;
   end;
 
 implementation
@@ -231,68 +241,6 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-class function TJSEngine.ConvertJSValueToJSON(const Value: TJSValue): TJSONValue;
-begin
-  if Value.IsUndefined then
-    Exit(TJSONNull.Create);
-
-  if Value.IsNull then
-    Exit(TJSONNull.Create);
-
-  if Value.IsBoolean then
-    Exit(TJSONBool.Create(Value.AsBoolean));
-
-  if Value.IsNumber then
-  begin
-    const Num = Value.AsNumber;
-
-    if System.Math.IsNaN(Num) or System.Math.IsInfinite(Num) then
-      Exit(TJSONNull.Create);
-
-    Exit(TJSONNumber.Create(Num));
-  end;
-
-  if Value.IsString then
-    Exit(TJSONString.Create(Value.AsString));
-
-  if Value.IsArray then
-  begin
-    const JSONArray = TJSONArray.Create;
-    var ArrIntf: IJSArray;
-    if Supports(Value.ToObject, IJSArray, ArrIntf) then
-    begin
-      for var Index := 0 to ArrIntf.Length - 1 do
-      begin
-        JSONArray.AddElement(ConvertJSValueToJSON(ArrIntf[Index]));
-      end;
-    end;
-
-    Exit(JSONArray);
-  end;
-
-  if Value.IsFunction then
-    Exit(TJSONNull.Create);
-
-  if Value.IsObject then
-  begin
-    const JSONObject = TJSONObject.Create;
-    const Obj = Value.ToObject;
-    const PropertyNames = Obj.GetOwnPropertyNames;
-
-    for var PropName in PropertyNames do
-    begin
-      const PropValue = Obj.GetProperty(PropName);
-
-      if not PropValue.IsFunction then
-        JSONObject.AddPair(PropName, ConvertJSValueToJSON(PropValue));
-    end;
-
-    Exit(JSONObject);
-  end;
-
-  Result := TJSONNull.Create;
-end;
-
 constructor TJSEngine.Create;
 begin
   inherited Create;
@@ -359,6 +307,11 @@ begin
   FInterpreter.Cancel;
 end;
 
+function TJSEngine.ToText(const Value: TJSValue): string;
+begin
+  Result := Value.ToLimitedString(FInterpreter.Limits);
+end;
+
 function TJSEngine.GetStepBudget: Int64;
 begin
   Result := FInterpreter.StepBudget;
@@ -372,6 +325,36 @@ end;
 function TJSEngine.GetStepCount: Int64;
 begin
   Result := FInterpreter.StepCount;
+end;
+
+function TJSEngine.GetMaxCallDepth: Integer;
+begin
+  Result := FInterpreter.MaxCallDepth;
+end;
+
+procedure TJSEngine.SetMaxCallDepth(const Value: Integer);
+begin
+  FInterpreter.MaxCallDepth := Value;
+end;
+
+function TJSEngine.GetMaxStringLength: Integer;
+begin
+  Result := FInterpreter.MaxStringLength;
+end;
+
+procedure TJSEngine.SetMaxStringLength(const Value: Integer);
+begin
+  FInterpreter.MaxStringLength := Value;
+end;
+
+function TJSEngine.GetMaxArrayLength: Integer;
+begin
+  Result := FInterpreter.MaxArrayLength;
+end;
+
+procedure TJSEngine.SetMaxArrayLength(const Value: Integer);
+begin
+  FInterpreter.MaxArrayLength := Value;
 end;
 
 procedure TJSEngine.RegisterFunction(const Name: string; const Func: TNativeFunction);
@@ -434,7 +417,8 @@ begin
         Exit;
       end;
 
-      const Str = Trim(Args[0].ToString);
+      const Text = ToText(Args[0]);
+      const Str = Trim(Text);
       var Radix := 10;
 
       if Length(Args) > 1 then
@@ -475,7 +459,8 @@ begin
         Exit;
       end;
 
-      const Str = Trim(Args[0].ToString);
+      const Text = ToText(Args[0]);
+      const Str = Trim(Text);
       var FloatValue: Double;
 
       if TryStrToFloat(Str, FloatValue, TFormatSettings.Invariant) then
@@ -541,7 +526,9 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateString(Args[0].ToString);
+      const Text = ToText(Args[0]);
+
+      Result := TJSValue.CreateString(Text);
     end);
 
   StringFunc.SetProperty('fromCharCode', TJSValue.CreateObject(TJSFunction.CreateNative('fromCharCode',
@@ -584,7 +571,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       var EncodedString := '';
       var CharIndex := 1;
 
@@ -616,7 +603,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
     end);
 
@@ -631,7 +618,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       var EncodedString := '';
       var CharIndex := 1;
 
@@ -663,7 +650,7 @@ begin
         Exit;
       end;
 
-      const Str = Args[0].ToString;
+      const Str = ToText(Args[0]);
       Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
     end);
 
@@ -692,7 +679,7 @@ begin
         if Index > 0 then
           Output := Output + ' ';
 
-        Output := Output + Args[Index].ToString;
+        Output := Output + ToText(Args[Index]);
       end;
 
       if Assigned(Engine.FOnConsoleOutput) then
@@ -1312,7 +1299,7 @@ begin
       end;
 
       const Obj = Args[0].ToObject;
-      const PropName = Args[1].ToString;
+      const PropName = ToText(Args[1]);
 
       if not Obj.HasOwnProperty(PropName) then
       begin
@@ -1341,7 +1328,7 @@ begin
       end;
 
       const Obj = Args[0].ToObject;
-      const PropName = Args[1].ToString;
+      const PropName = ToText(Args[1]);
       const DescObj = Args[2].ToObject;
 
       var Descriptor: TJSPropertyDescriptor;
@@ -1374,7 +1361,7 @@ begin
         Exit;
       end;
 
-      const JSONString = Args[0].ToString;
+      const JSONString = ToText(Args[0]);
 
       try
         const JSONValue = TJSONObject.ParseJSONValue(JSONString);
@@ -1405,11 +1392,20 @@ begin
         Exit;
       end;
 
-      const JSONValue = ConvertJSValueToJSON(Args[0]);
+      const Converter = TJSONConverter.Create(FInterpreter.Limits);
       try
-        Result := TJSValue.CreateString(JSONValue.ToJSON);
+        const JSONValue = Converter.Convert(Args[0]);
+        try
+          const JSONText = JSONValue.ToJSON;
+          const JSONLength = Length(JSONText);
+
+          FInterpreter.Limits.EnsureStringLength(JSONLength);
+          Result := TJSValue.CreateString(JSONText);
+        finally
+          JSONValue.Free;
+        end;
       finally
-        JSONValue.Free;
+        Converter.Free;
       end;
     end)));
 
@@ -1460,6 +1456,10 @@ begin
       begin
         const Str = Source.AsString;
 
+        const CharCount = Length(Str);
+
+        FInterpreter.Limits.EnsureArrayLength(CharCount);
+
         for var Index := 1 to Length(Str) do
         begin
           ResultArr.Push(TJSValue.CreateString(Str[Index]));
@@ -1473,6 +1473,8 @@ begin
         if LengthValue.IsNumber then
         begin
           const Len = Trunc(LengthValue.ToNumber);
+
+          FInterpreter.Limits.EnsureArrayLength(Len);
 
           for var Index := 0 to Len - 1 do
           begin
@@ -1789,7 +1791,7 @@ begin
         Exit;
       end;
 
-      const DateStr = Args[0].ToString;
+      const DateStr = ToText(Args[0]);
 
       try
         const ParsedDate = ISO8601ToDate(DateStr, True);
@@ -1840,7 +1842,7 @@ procedure TJSEngine.RegisterErrors;
         var Msg := '';
 
         if Length(Args) > 0 then
-          Msg := Args[0].ToString;
+          Msg := ToText(Args[0]);
 
         const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
 
@@ -1900,10 +1902,10 @@ begin
       var Flags := '';
 
       if Length(Args) > 0 then
-        Pattern := Args[0].ToString;
+        Pattern := ToText(Args[0]);
 
       if Length(Args) > 1 then
-        Flags := Args[1].ToString;
+        Flags := ToText(Args[1]);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
 
@@ -1912,7 +1914,11 @@ begin
         begin
           var RE: IJSRegExp;
           if Supports(This, IJSRegExp, RE) and (Length(TestArgs) > 0) then
-            Result := TJSValue.CreateBoolean(RE.Test(TestArgs[0].ToString))
+          begin
+            const Subject = ToText(TestArgs[0]);
+
+            Result := TJSValue.CreateBoolean(RE.Test(Subject));
+          end
           else
             Result := TJSValue.CreateBoolean(False);
         end)));
@@ -1922,7 +1928,11 @@ begin
         begin
           var RE: IJSRegExp;
           if Supports(This, IJSRegExp, RE) and (Length(ExecArgs) > 0) then
-            Result := RE.Exec(ExecArgs[0].ToString)
+          begin
+            const Subject = ToText(ExecArgs[0]);
+
+            Result := RE.Exec(Subject);
+          end
           else
             Result := TJSValue.CreateNull;
         end)));

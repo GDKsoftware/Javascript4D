@@ -86,6 +86,7 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="rtl.dcp"/>
+        <DCCReference Include="..\..\Source\API\JS4D.Json.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Types.pas"/>

@@ -33,6 +33,7 @@ requires
   rtl;
 
 contains
+  JS4D.Json in '..\..\Source\API\JS4D.Json.pas',
   JS4D.Engine in '..\..\Source\API\JS4D.Engine.pas',
   JS4D.Errors in '..\..\Source\Core\JS4D.Errors.pas',
   JS4D.Types in '..\..\Source\Core\JS4D.Types.pas',

@@ -11,6 +11,7 @@ uses
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
+  JS4D.Json in '..\Source\API\JS4D.Json.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas';
 
 {$R *.res}

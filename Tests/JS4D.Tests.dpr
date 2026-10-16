@@ -16,13 +16,15 @@ uses
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
+  JS4D.Json in '..\Source\API\JS4D.Json.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
   JS4D.Tests.Engine in 'JS4D.Tests.Engine.pas',
   JS4D.Tests.Lexer in 'JS4D.Tests.Lexer.pas',
   JS4D.Tests.Parser in 'JS4D.Tests.Parser.pas',
   JS4D.Tests.Builtins in 'JS4D.Tests.Builtins.pas',
-  JS4D.Tests.Cancellation in 'JS4D.Tests.Cancellation.pas';
+  JS4D.Tests.Cancellation in 'JS4D.Tests.Cancellation.pas',
+  JS4D.Tests.Limits in 'JS4D.Tests.Limits.pas';
 
 var
   Runner: ITestRunner;
