@@ -124,6 +124,7 @@ type
     function VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
     function VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
+    function IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
     function VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
@@ -1035,6 +1036,14 @@ end;
 
 function TJSInterpreter.VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
 begin
+  const IsTypeOfUndeclared = ((Node.Operator = TJSUnaryOperator.TypeOf) and
+                              IsUndeclaredIdentifier(Node.Argument));
+  if IsTypeOfUndeclared then
+  begin
+    Result := TJSValue.CreateString(UNDEFINED_TYPE);
+    Exit;
+  end;
+
   const Arg = Visit(Node.Argument);
 
   case Node.Operator of
@@ -1110,6 +1119,15 @@ begin
     else
       Result := TJSValue.CreateUndefined;
   end;
+end;
+
+function TJSInterpreter.IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
+begin
+  if not (Node is TJSIdentifier) then
+    Exit(False);
+
+  const Name = TJSIdentifier(Node).Name;
+  Result := not FCurrentScope.HasVariable(Name);
 end;
 
 function TJSInterpreter.VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;

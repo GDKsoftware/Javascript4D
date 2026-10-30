@@ -8,6 +8,7 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   JS4D.Types,
+  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -110,6 +111,15 @@ type
 
     [Test]
     procedure Execute_TypeofOperator_ReturnsType;
+
+    [Test]
+    [TestCase('Undeclared', 'typeof notDeclared,undefined')]
+    [TestCase('FeatureDetection', 'typeof window === "undefined" ? "server" : "browser",server')]
+    [TestCase('Declared', 'var answer = 42; typeof answer,number')]
+    procedure Execute_TypeofIdentifier_ReturnsType(const Script: string; const Expected: string);
+
+    [Test]
+    procedure Execute_UndeclaredIdentifier_RaisesReferenceError;
 
     [Test]
     procedure Execute_DateRelationalComparison_UsesTimestamp;
@@ -375,6 +385,23 @@ begin
   Assert.AreEqual('undefined', FEngine.Evaluate('typeof undefined').ToString);
 end;
 
+procedure TEngineTests.Execute_TypeofIdentifier_ReturnsType(const Script: string; const Expected: string);
+begin
+  const Result = FEngine.Evaluate(Script);
+
+  Assert.AreEqual(Expected, Result.ToString);
+end;
+
+procedure TEngineTests.Execute_UndeclaredIdentifier_RaisesReferenceError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Evaluate('notDeclared');
+    end,
+    EJSReferenceError);
+end;
+
 procedure TEngineTests.Execute_DateRelationalComparison_UsesTimestamp;
 begin
   Assert.IsTrue(FEngine.Evaluate('new Date(1000) >= new Date(0)').ToBoolean);
@@ -412,6 +439,7 @@ begin
   Assert.AreEqual(Double(2000), FEngine.Evaluate('new Date(1000) * 2').ToNumber);
 end;
 
+{$WARN SYMBOL_PLATFORM OFF}
 function TEngineTests.AllocatedBytes: NativeInt;
 begin
   var State: TMemoryManagerState;
@@ -420,6 +448,7 @@ begin
   for var SmallState in State.SmallBlockTypeStates do
     Result := Result + NativeInt(SmallState.UseableBlockSize) * NativeInt(SmallState.AllocatedBlockCount);
 end;
+{$WARN SYMBOL_PLATFORM DEFAULT}
 
 procedure TEngineTests.Execute_RepeatedInSameEngine_DoesNotLeakMemory;
 begin
