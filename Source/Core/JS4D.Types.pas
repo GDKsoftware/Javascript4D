@@ -400,6 +400,7 @@ type
     FLengthWritable: Boolean;
 
     function GetLengthDescriptor: TJSPropertyDescriptor;
+    function TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
     procedure ResizeTo(const NewLength: Integer);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
@@ -423,6 +424,8 @@ type
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
     function HasOwnProperty(const Name: string): Boolean; override;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
+    function HasProperty(const Name: string): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
 
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
@@ -1600,6 +1603,25 @@ begin
   Result.Configurable := False;
 end;
 
+function TJSArrayImpl.TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := False;
+
+  if Name = LENGTH_PROPERTY then
+  begin
+    Descriptor := GetLengthDescriptor;
+    Exit(True);
+  end;
+
+  var Index: Integer;
+  const IsCanonicalIndex = TryStrToInt(Name, Index) and (IntToStr(Index) = Name);
+  if not (IsCanonicalIndex and HasElement(Index)) then
+    Exit;
+
+  Descriptor := TJSPropertyDescriptor.Create(FElements[Index]);
+  Result := True;
+end;
+
 procedure TJSArrayImpl.MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
 begin
   if not Assigned(FHoles) then
@@ -1653,6 +1675,18 @@ end;
 function TJSArrayImpl.HasOwnProperty(const Name: string): Boolean;
 begin
   Result := (Name = LENGTH_PROPERTY) or inherited HasOwnProperty(Name);
+end;
+
+function TJSArrayImpl.HasProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetElementDescriptor(Name, Descriptor) or inherited HasProperty(Name);
+end;
+
+function TJSArrayImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := TryGetElementDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
 function TJSArrayImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;

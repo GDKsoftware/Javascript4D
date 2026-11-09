@@ -154,7 +154,7 @@ type
     procedure HoistDeclarations(const Node: TJSASTNode);
     function VisitBlockStatement(const Node: TJSBlockStatement): TJSValue;
     function VisitVariableDeclaration(const Node: TJSVariableDeclaration): TJSValue;
-    function VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
+    procedure DeclareFunction(const Node: TJSFunctionDeclaration);
     function VisitExpressionStatement(const Node: TJSExpressionStatement): TJSValue;
     function VisitIfStatement(const Node: TJSIfStatement): TJSValue;
     function VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
@@ -784,7 +784,7 @@ begin
     TJSASTNodeType.VariableDeclaration:
       Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
     TJSASTNodeType.FunctionDeclaration:
-      Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
+      Result := TJSValue.CreateUndefined;
     TJSASTNodeType.ExpressionStatement:
       Result := VisitExpressionStatement(TJSExpressionStatement(Node));
     TJSASTNodeType.IfStatement:
@@ -990,7 +990,7 @@ begin
           FCurrentScope.DeclareVariable(Declarator.Id.Name, TJSValue.CreateUndefined);
       end;
     TJSASTNodeType.FunctionDeclaration:
-      VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
+      DeclareFunction(TJSFunctionDeclaration(Node));
     TJSASTNodeType.BlockStatement:
       for var Statement in TJSBlockStatement(Node).Body do
       begin
@@ -1061,7 +1061,7 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-function TJSInterpreter.VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
+procedure TJSInterpreter.DeclareFunction(const Node: TJSFunctionDeclaration);
 begin
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
@@ -1083,8 +1083,6 @@ begin
   AttachPrototype(Func);
 
   FCurrentScope.DeclareVariable(Node.Id.Name, TJSValue.CreateObject(Func));
-
-  Result := TJSValue.CreateUndefined;
 end;
 
 function TJSInterpreter.VisitExpressionStatement(const Node: TJSExpressionStatement): TJSValue;
