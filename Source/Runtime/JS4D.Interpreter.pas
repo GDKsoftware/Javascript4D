@@ -166,6 +166,7 @@ type
     function VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
     function TakeLoopLabels: TArray<string>;
     function ToScopeObject(const Value: TJSValue): IJSObject;
+    function WithArrayPrototype(const Value: TJSValue): TJSValue;
     function WithObjectFor(const Callee: TJSExpression): IJSObject;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
     function VisitForInStatement(const Node: TJSForInStatement): TJSValue;
@@ -2425,12 +2426,26 @@ begin
   Result := TJSValue.CreateString(LeftText + RightText);
 end;
 
+function TJSInterpreter.WithArrayPrototype(const Value: TJSValue): TJSValue;
+begin
+  Result := Value;
+
+  var Arr: IJSArray;
+  const IsArray = Value.IsArray and Supports(Value.ToObject, IJSArray, Arr);
+  if not IsArray then
+    Exit;
+
+  const HasPrototype = Assigned(Arr.Prototype);
+  if not HasPrototype then
+    Arr.Prototype := FArrayPrototype;
+end;
+
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
 begin
   ConsumeStep;
 
   if Func.IsNative then
-    Exit(Func.NativeFunction(ThisObj, Args));
+    Exit(WithArrayPrototype(Func.NativeFunction(ThisObj, Args)));
 
   if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
     raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
@@ -2501,10 +2516,10 @@ begin
     Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
 
   if not TJSBuiltins.RequiresCallback(MethodName) then
-    Exit(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits));
+    Exit(WithArrayPrototype(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits)));
 
   const Executor = CreateCallbackExecutor(MethodName, Args);
-  Result := TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits);
+  Result := WithArrayPrototype(TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits));
 end;
 
 function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

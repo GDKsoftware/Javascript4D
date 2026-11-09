@@ -64,6 +64,24 @@ type
 
     [Test]
     procedure ObjectPrototype_HasOwnProperty_CalledOnObject;
+
+    [Test]
+    [TestCase('Object', 'Object', '|')]
+    [TestCase('Array', 'Array', '|')]
+    [TestCase('Function', 'Function', '|')]
+    procedure PrototypeConstructor_IsTheConstructor_NonEnumerable(const ConstructorName: string);
+
+    [Test]
+    [TestCase('Array', '[1].constructor === Array', '|')]
+    [TestCase('SplitResult', '"a,b".split(",").constructor === Array', '|')]
+    [TestCase('PlainObject', '({}).constructor === Object', '|')]
+    [TestCase('FunctionInstance', '(function () {}).constructor === Function', '|')]
+    [TestCase('SliceResult', '[1, 2].slice(1).constructor === Array', '|')]
+    [TestCase('ConcatResult', '[1].concat([2]).constructor === Array', '|')]
+    [TestCase('ObjectKeysResult', 'Object.keys({ a: 1 }).constructor === Array', '|')]
+    [TestCase('MatchResult', '"abc".match(/b/).constructor === Array', '|')]
+    [TestCase('RegExpExecResult', '/b/.exec("abc").constructor === Array', '|')]
+    procedure Instance_Constructor_ResolvesThroughPrototype(const Script: string);
   end;
 
 implementation
@@ -175,6 +193,21 @@ end;
 procedure TBuiltinPrototypeTests.ObjectPrototype_HasOwnProperty_CalledOnObject;
 begin
   Assert.IsTrue(EvaluateBoolean('Object.prototype.hasOwnProperty.call({ a: 1 }, "a")'));
+end;
+
+procedure TBuiltinPrototypeTests.PrototypeConstructor_IsTheConstructor_NonEnumerable(const ConstructorName: string);
+begin
+  const Script = Format(
+    '%0:s.prototype.constructor === %0:s && ' +
+    '!Object.getOwnPropertyDescriptor(%0:s.prototype, "constructor").enumerable',
+    [ConstructorName]);
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TBuiltinPrototypeTests.Instance_Constructor_ResolvesThroughPrototype(const Script: string);
+begin
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 end.

@@ -1433,7 +1433,7 @@ begin
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
   end;
 
-  ObjectObj.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+  AttachPrototypeObject(ObjectObj, PrototypeObj);
 
   FInterpreter.SetGlobalVariable(OBJECT_NAME, TJSValue.CreateObject(ObjectObj));
 end;
@@ -1588,7 +1588,7 @@ begin
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
   end;
 
-  ArrayObj.SetProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+  AttachPrototypeObject(ArrayObj, PrototypeObj);
 
   FInterpreter.SetGlobalVariable(ARRAY_NAME, TJSValue.CreateObject(ArrayObj));
 end;
@@ -1609,7 +1609,7 @@ begin
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
   end;
 
-  FunctionObj.SetProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+  AttachPrototypeObject(FunctionObj, PrototypeObj);
 
   FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
 end;
