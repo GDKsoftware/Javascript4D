@@ -123,6 +123,8 @@ type
     function VisitSwitchStatement(const Node: TJSSwitchStatement): TJSValue;
     function VisitThrowStatement(const Node: TJSThrowStatement): TJSValue;
     function VisitTryStatement(const Node: TJSTryStatement): TJSValue;
+    function VisitCatchClause(const Handler: TJSCatchClause; const Thrown: TJSValue): TJSValue;
+    procedure RunFinalizer(const Node: TJSTryStatement);
 
     function VisitIdentifier(const Node: TJSIdentifier): TJSValue;
     function VisitLiteral(const Node: TJSLiteral): TJSValue;
@@ -971,42 +973,54 @@ begin
   Result := TJSValue.CreateUndefined;
 
   try
-    Result := Visit(Node.Block);
+    try
+      Result := Visit(Node.Block);
+    except
+      on EJSExecutionInterrupted do
+        raise;
+      on EJSControlFlowSignal do
+        raise;
+      on E: TJSThrowSignal do
+      begin
+        if Assigned(Node.Handler) then
+          Result := VisitCatchClause(Node.Handler, E.Value)
+        else
+          raise;
+      end;
+      on E: Exception do
+      begin
+        if Assigned(Node.Handler) then
+          Result := VisitCatchClause(Node.Handler, TJSValue.CreateString(E.Message))
+        else
+          raise;
+      end;
+    end;
   except
     on EJSExecutionInterrupted do
       raise;
-    on E: TJSThrowSignal do
+    on Exception do
     begin
-      if Assigned(Node.Handler) then
-      begin
-        PushScope;
-        try
-          FCurrentScope.DeclareVariable(Node.Handler.Param.Name, E.Value);
-          Result := Visit(Node.Handler.Body);
-        finally
-          PopScope;
-        end;
-      end
-      else
-        raise;
-    end;
-    on E: Exception do
-    begin
-      if Assigned(Node.Handler) then
-      begin
-        PushScope;
-        try
-          FCurrentScope.DeclareVariable(Node.Handler.Param.Name, TJSValue.CreateString(E.Message));
-          Result := Visit(Node.Handler.Body);
-        finally
-          PopScope;
-        end;
-      end
-      else
-        raise;
+      RunFinalizer(Node);
+      raise;
     end;
   end;
 
+  RunFinalizer(Node);
+end;
+
+function TJSInterpreter.VisitCatchClause(const Handler: TJSCatchClause; const Thrown: TJSValue): TJSValue;
+begin
+  PushScope;
+  try
+    FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
+    Result := Visit(Handler.Body);
+  finally
+    PopScope;
+  end;
+end;
+
+procedure TJSInterpreter.RunFinalizer(const Node: TJSTryStatement);
+begin
   if Assigned(Node.Finalizer) then
     Visit(Node.Finalizer);
 end;
