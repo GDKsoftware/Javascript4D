@@ -25,14 +25,11 @@ type
       METHOD_REDUCE_RIGHT = 'reduceRight';
       METHOD_INDEX_OF = 'indexOf';
       METHOD_LAST_INDEX_OF = 'lastIndexOf';
-      LENGTH_PROPERTY = 'length';
-      TWO_POW_32 = 4294967296.0;
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
       REDUCE_OF_EMPTY_ARRAY = 'Reduce of empty array with no initial value';
 
-    class function ToLength(const Target: IJSObject): Int64; static;
     class function ToIntegerClamped(const Value: TJSValue): Int64; static;
     class function RequireCallback(const MethodName: string; const Args: TArray<TJSValue>): IJSFunction; static;
     class function CallbackArguments(const Element: TJSValue; const Index: Int64;
@@ -113,23 +110,6 @@ begin
   raise ENotSupportedException.CreateFmt('Unsupported array iteration method: %s', [MethodName]);
 end;
 
-class function TJSArrayIteration.ToLength(const Target: IJSObject): Int64;
-begin
-  var TargetArray: IJSArray;
-  const IsArray = Supports(Target, IJSArray, TargetArray);
-  if IsArray then
-    Exit(TargetArray.Length);
-
-  const Number = TJSArrayLike.ToNumber(Target.GetProperty(LENGTH_PROPERTY));
-
-  const IsFiniteNumber = not (System.Math.IsNaN(Number) or System.Math.IsInfinite(Number));
-  if not IsFiniteNumber then
-    Exit(0);
-
-  const Whole = Int(Number);
-  Result := Trunc(Whole - Floor(Whole / TWO_POW_32) * TWO_POW_32);
-end;
-
 class function TJSArrayIteration.ToIntegerClamped(const Value: TJSValue): Int64;
 begin
   const Number = TJSArrayLike.ToNumber(Value);
@@ -156,8 +136,8 @@ end;
 class function TJSArrayIteration.ForEach(const Target: IJSObject; const Args: TArray<TJSValue>;
                                          const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_FOR_EACH, Args);
-  const Count = ToLength(Target);
 
   for var Index: Int64 := 0 to Count - 1 do
   begin
@@ -175,8 +155,8 @@ end;
 class function TJSArrayIteration.Map(const Target: IJSObject; const Args: TArray<TJSValue>;
                                      const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_MAP, Args);
-  const Count = ToLength(Target);
   if Count > MaxInt then
     raise TJSErrorFactory.InvalidArrayLength;
 
@@ -202,8 +182,8 @@ class function TJSArrayIteration.Filter(const Target: IJSObject; const Args: TAr
                                         const Executor: TJSCallbackExecutor;
                                         const ArrayPrototype: IJSObject): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_FILTER, Args);
-  const Count = ToLength(Target);
   const Kept: IJSArray = TJSArray.Create;
   Kept.Prototype := ArrayPrototype;
 
@@ -225,8 +205,8 @@ end;
 class function TJSArrayIteration.Some(const Target: IJSObject; const Args: TArray<TJSValue>;
                                       const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_SOME, Args);
-  const Count = ToLength(Target);
 
   for var Index: Int64 := 0 to Count - 1 do
   begin
@@ -249,8 +229,8 @@ end;
 class function TJSArrayIteration.Every(const Target: IJSObject; const Args: TArray<TJSValue>;
                                        const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_EVERY, Args);
-  const Count = ToLength(Target);
 
   for var Index: Int64 := 0 to Count - 1 do
   begin
@@ -273,8 +253,8 @@ end;
 class function TJSArrayIteration.Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;
                                         const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_REDUCE, Args);
-  const Count = ToLength(Target);
   const HasInitialValue = (Length(Args) > 1);
 
   var Accumulator := TJSValue.CreateUndefined;
@@ -316,8 +296,8 @@ end;
 class function TJSArrayIteration.ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
                                              const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_REDUCE_RIGHT, Args);
-  const Count = ToLength(Target);
   const HasInitialValue = (Length(Args) > 1);
 
   var Accumulator := TJSValue.CreateUndefined;
@@ -359,7 +339,7 @@ end;
 class function TJSArrayIteration.IndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const NotFound = TJSValue.CreateNumber(-1);
-  const Count = ToLength(Target);
+  const Count = TJSArrayLike.ToLength(Target);
   if Count = 0 then
     Exit(NotFound);
 
@@ -389,7 +369,7 @@ end;
 class function TJSArrayIteration.LastIndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const NotFound = TJSValue.CreateNumber(-1);
-  const Count = ToLength(Target);
+  const Count = TJSArrayLike.ToLength(Target);
   if Count = 0 then
     Exit(NotFound);
 

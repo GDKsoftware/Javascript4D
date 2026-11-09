@@ -56,7 +56,8 @@ uses
   JS4D.Tests.Operators in 'JS4D.Tests.Operators.pas',
   JS4D.Tests.UriCoding in 'JS4D.Tests.UriCoding.pas',
   JS4D.Tests.GenericArrayMutators in 'JS4D.Tests.GenericArrayMutators.pas',
-  JS4D.Tests.LexicalGrammar in 'JS4D.Tests.LexicalGrammar.pas';
+  JS4D.Tests.LexicalGrammar in 'JS4D.Tests.LexicalGrammar.pas',
+  JS4D.Tests.ArrayIterationLength in 'JS4D.Tests.ArrayIterationLength.pas';
 
 var
   Runner: ITestRunner;
