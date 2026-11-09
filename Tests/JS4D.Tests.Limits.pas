@@ -147,6 +147,18 @@ type
     procedure Execute_FlatOverLimit_Raises;
 
     [Test]
+    procedure Execute_DefinePropertyLengthOverLimit_Raises;
+
+    [Test]
+    procedure Execute_AssigningLengthOverLimit_Raises;
+
+    [Test]
+    procedure Execute_AssigningLengthWithinLimit_ResizesArray;
+
+    [Test]
+    procedure Execute_AssigningSmallerLength_TruncatesArray;
+
+    [Test]
     procedure Execute_SplitOverLimit_Raises;
 
     [Test]
@@ -756,6 +768,33 @@ begin
   FEngine.MaxArrayLength := SmallArrayLength;
 
   AssertExceedsLimit(SpliceScript, 'splice that inserts past the limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_DefinePropertyLengthOverLimit_Raises;
+begin
+  FEngine.MaxArrayLength := SmallArrayLength;
+
+  AssertExceedsLimit('var a = []; Object.defineProperty(a, "length", { value: 1000 });',
+                     'defineProperty of a length past the limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_AssigningLengthOverLimit_Raises;
+begin
+  FEngine.MaxArrayLength := SmallArrayLength;
+
+  AssertExceedsLimit('var a = []; a.length = 1000;', 'assigning a length past the limit must raise');
+end;
+
+procedure TAllocationLimitTests.Execute_AssigningLengthWithinLimit_ResizesArray;
+begin
+  FEngine.MaxArrayLength := SmallArrayLength;
+
+  Assert.AreEqual(5.0, FEngine.Evaluate('var a = []; a.length = 5; a.length').AsNumber);
+end;
+
+procedure TAllocationLimitTests.Execute_AssigningSmallerLength_TruncatesArray;
+begin
+  Assert.AreEqual('1,2', FEngine.Evaluate('var a = [1, 2, 3, 4]; a.length = 2; a.join()').AsString);
 end;
 
 procedure TAllocationLimitTests.Execute_FlatOverLimit_Raises;

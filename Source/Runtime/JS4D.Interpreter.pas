@@ -14,6 +14,7 @@ uses
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ObjectScope,
+  JS4D.PropertyDescriptors,
   JS4D.ArrayIteration;
 
 type
@@ -109,6 +110,7 @@ type
     procedure PopScope;
     procedure RegisterScope(const Scope: IJSScope);
     procedure AttachPrototype(const Func: IJSFunction);
+    function ReferencesArguments(const Func: IJSFunction): Boolean;
     function CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
     function CreateThrowTypeError: IJSFunction;
     function CreateCalleeDescriptor: TJSPropertyDescriptor;
@@ -186,6 +188,7 @@ type
     function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
     function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    procedure AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
     procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
@@ -243,6 +246,7 @@ const
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   ARGUMENTS_NAME = 'arguments';
+  READ_ONLY_LENGTH = 'Cannot assign to read only property ''length''';
   EVAL_NAME = 'eval';
   CANNOT_ACCESS_PROPERTY = 'Cannot access property ''%s'' of undefined or null';
   POISONED_PROPERTY = 'Restricted property cannot be accessed in strict mode';
@@ -522,6 +526,13 @@ begin
   Result.Setter := Poison;
   Result.Enumerable := False;
   Result.Configurable := False;
+end;
+
+function TJSInterpreter.ReferencesArguments(const Func: IJSFunction): Boolean;
+begin
+  const Body = TObject(Func.BodyNode);
+
+  Result := (not (Body is TJSBlockStatement)) or TJSBlockStatement(Body).ReferencesArguments;
 end;
 
 function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
@@ -2262,7 +2273,10 @@ begin
   RegisterScope(FCurrentScope);
   Inc(FCallDepth);
   try
-    FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args, Func)));
+    if ReferencesArguments(Func) then
+    begin
+      FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args, Func)));
+    end;
 
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
@@ -2433,6 +2447,12 @@ begin
     var ArrIntf: IJSArray;
     if Supports(ObjValue.ToObject, IJSArray, ArrIntf) then
     begin
+      if PropName = LENGTH_PROPERTY then
+      begin
+        AssignArrayLength(ArrIntf, Value);
+        Exit;
+      end;
+
       var Index: Integer;
 
       if TryStrToInt(PropName, Index) then
@@ -2446,6 +2466,18 @@ begin
 
   if ObjValue.IsObject then
     ObjValue.ToObject.SetProperty(PropName, Value);
+end;
+
+procedure TJSInterpreter.AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
+begin
+  var Definition := Default(TJSPropertyDefinition);
+  Definition.HasValue := True;
+  Definition.Value := Value;
+
+  const CheckedDefinition = TJSPropertyDescriptors.WithCheckedLength(Target, LENGTH_PROPERTY, Definition, FLimits);
+  const IsAssigned = Target.DefineOwnProperty(LENGTH_PROPERTY, CheckedDefinition);
+  if (not IsAssigned) and FStrictMode then
+    raise TJSErrorFactory.TypeError(READ_ONLY_LENGTH);
 end;
 
 procedure TJSInterpreter.DeleteArrayElement(const Target: IJSObject; const PropName: string);

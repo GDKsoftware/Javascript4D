@@ -7,6 +7,7 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
+  System.Diagnostics,
   JS4D.Types,
   JS4D.Engine;
 
@@ -86,6 +87,9 @@ type
 
     [Test]
     procedure DefineProperty_ArrayLength_TruncatesArray;
+
+    [Test]
+    procedure Pop_ArrayWithManyHoles_RunsInLinearTime;
 
     [Test]
     procedure ForIn_SkipsNonEnumerableProperties;
@@ -343,6 +347,22 @@ begin
     'a.length';
 
   Assert.AreEqual(1.0, EvaluateNumber(Script));
+end;
+
+procedure TPropertyDescriptorTests.Pop_ArrayWithManyHoles_RunsInLinearTime;
+begin
+  const MaxMilliseconds = 3000;
+  const Script =
+    'var a = [];' + sLineBreak +
+    'a.length = 50000;' + sLineBreak +
+    'while (a.length) { a.pop(); }' + sLineBreak +
+    'a.length';
+
+  const Stopwatch = TStopwatch.StartNew;
+  const Remaining = EvaluateNumber(Script);
+
+  Assert.AreEqual(0.0, Remaining);
+  Assert.IsTrue(Stopwatch.ElapsedMilliseconds < MaxMilliseconds, 'Popping hole-filled array must not be quadratic');
 end;
 
 procedure TPropertyDescriptorTests.ForIn_SkipsNonEnumerableProperties;

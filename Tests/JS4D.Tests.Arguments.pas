@@ -48,6 +48,9 @@ type
     procedure Arguments_InsideNestedFunction_RefersToInnerCall;
 
     [Test]
+    procedure Arguments_ReadThroughEval_SeesCallArguments;
+
+    [Test]
     procedure Arguments_TypeOfGlobalArguments_IsUndefined;
   end;
 
@@ -120,6 +123,13 @@ begin
     'function outer() { function inner() { return arguments.length; } return inner(1, 2); }');
 
   Assert.AreEqual(2.0, FEngine.Evaluate('outer(1, 2, 3, 4)').AsNumber);
+end;
+
+procedure TArgumentsTests.Arguments_ReadThroughEval_SeesCallArguments;
+begin
+  FEngine.Execute('function viaEval() { return eval(''arguments.length''); }');
+
+  Assert.AreEqual(3.0, FEngine.Evaluate('viaEval(1, 2, 3)').AsNumber);
 end;
 
 procedure TArgumentsTests.Arguments_TypeOfGlobalArguments_IsUndefined;

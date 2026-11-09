@@ -1248,7 +1248,7 @@ begin
 
       const HasProperties = (Length(Args) > 1) and (not Args[1].IsUndefined);
       if HasProperties then
-        TJSPropertyDescriptors.DefineAll(NewObj, Args[1]);
+        TJSPropertyDescriptors.DefineAll(NewObj, Args[1], FInterpreter.Limits);
 
       Result := TJSValue.CreateObject(NewObj);
     end)));
@@ -1264,7 +1264,7 @@ begin
       if Length(Args) > 1 then
         Properties := Args[1];
 
-      TJSPropertyDescriptors.DefineAll(Args[0].ToObject, Properties);
+      TJSPropertyDescriptors.DefineAll(Args[0].ToObject, Properties, FInterpreter.Limits);
 
       Result := Args[0];
     end)));
@@ -1422,7 +1422,7 @@ begin
         Description := Args[2];
 
       const Definition = TJSPropertyDescriptors.ToDefinition(Description);
-      TJSPropertyDescriptors.Define(Args[0].ToObject, PropName, Definition);
+      TJSPropertyDescriptors.Define(Args[0].ToObject, PropName, Definition, FInterpreter.Limits);
 
       Result := Args[0];
     end)));

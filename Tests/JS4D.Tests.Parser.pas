@@ -39,6 +39,13 @@ type
     procedure Parse_IncrementOnNextLine_IsPrefixOfNextStatement;
 
     [Test]
+    [TestCase('PlainBody', 'function f() { return 1; },False')]
+    [TestCase('UsesArguments', 'function f() { return arguments.length; },True')]
+    [TestCase('UsesEval', 'function f() { return eval(''1''); },True')]
+    [TestCase('NestedUsesArguments', 'function f() { function g() { return arguments; } },True')]
+    procedure Parse_FunctionDeclaration_FlagsArgumentsReferences(const Source: string; const Expected: Boolean);
+
+    [Test]
     procedure Parse_IfStatement_CreatesIfNode;
 
     [Test]
@@ -155,6 +162,16 @@ begin
   Assert.AreEqual('a', FuncDecl.Params[0].Name);
   Assert.AreEqual('b', FuncDecl.Params[1].Name);
   Assert.IsNotNull(FuncDecl.Body);
+end;
+
+procedure TParserTests.Parse_FunctionDeclaration_FlagsArgumentsReferences(const Source: string; const Expected: Boolean);
+begin
+  FParser := TJSParser.Create(Source);
+  FProgram := FParser.Parse;
+
+  const FuncDecl = FProgram.Body[0] as TJSFunctionDeclaration;
+
+  Assert.AreEqual(Expected, FuncDecl.Body.ReferencesArguments);
 end;
 
 procedure TParserTests.Parse_IfStatement_CreatesIfNode;

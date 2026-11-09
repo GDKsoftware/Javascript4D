@@ -402,7 +402,7 @@ type
     function GetLengthDescriptor: TJSPropertyDescriptor;
     procedure ResizeTo(const NewLength: Integer);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
-    procedure ForgetHolesFrom(const FromIndex: Integer);
+    procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 
   protected
     function HoldsNested: Boolean; override;
@@ -1609,15 +1609,14 @@ begin
   end;
 end;
 
-procedure TJSArrayImpl.ForgetHolesFrom(const FromIndex: Integer);
+procedure TJSArrayImpl.ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 begin
   if (not Assigned(FHoles)) or (FHoles.Count = 0) then
     Exit;
 
-  for var Index in FHoles.Keys.ToArray do
+  for var Index := FromIndex to ToIndex do
   begin
-    if Index >= FromIndex then
-      FHoles.Remove(Index);
+    FHoles.Remove(Index);
   end;
 end;
 
@@ -1630,7 +1629,7 @@ begin
     FElements.Delete(FElements.Count - 1);
   end;
 
-  ForgetHolesFrom(NewLength);
+  ForgetHolesBetween(NewLength, OldLength - 1);
 
   while FElements.Count < NewLength do
   begin
@@ -1789,7 +1788,7 @@ begin
   begin
     Result := FElements[FElements.Count - 1];
     FElements.Delete(FElements.Count - 1);
-    ForgetHolesFrom(FElements.Count);
+    ForgetHolesBetween(FElements.Count, FElements.Count);
   end
   else
     Result := TJSValue.CreateUndefined;

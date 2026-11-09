@@ -106,6 +106,8 @@ implementation
 
 const
   TRUE_VALUE = 'true';
+  ARGUMENTS_NAME = 'arguments';
+  EVAL_NAME = 'eval';
 
 { TJSParser }
 
@@ -477,7 +479,10 @@ begin
   if StartsWithUseStrictDirective then
     FStrictMode := True;
   try
+    const StartPosition = FLexer.Position;
     Result := ParseNestedBlockStatement;
+    Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
+                                                              [ARGUMENTS_NAME, EVAL_NAME]);
   finally
     FStrictMode := OldStrictMode;
   end;

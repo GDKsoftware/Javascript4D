@@ -397,12 +397,14 @@ type
   TJSBlockStatement = class(TJSStatement)
   private
     FBody: TObjectList<TJSStatement>;
+    FReferencesArguments: Boolean;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
   end;
 
   TJSVariableDeclarator = class(TJSASTNode)
@@ -973,6 +975,7 @@ constructor TJSBlockStatement.Create;
 begin
   inherited Create(TJSASTNodeType.BlockStatement);
   FBody := TObjectList<TJSStatement>.Create(True);
+  FReferencesArguments := True;
 end;
 
 destructor TJSBlockStatement.Destroy;

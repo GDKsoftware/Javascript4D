@@ -7,6 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Character,
+  System.Math,
+  System.StrUtils,
   System.Generics.Collections,
   JS4D.Tokens,
   JS4D.Errors;
@@ -67,7 +69,10 @@ type
     function PeekToken(const Offset: Integer = 0): TJSToken;
     function CurrentToken: TJSToken;
     function IsEndOfTokens: Boolean;
+    function HasIdentifierBetween(const FromPosition: Integer; const ToPosition: Integer;
+                                  const Names: array of string): Boolean;
 
+    property Position: Integer read FCurrentIndex;
     property Line: Integer read FLine;
     property Column: Integer read FColumn;
   end;
@@ -984,6 +989,24 @@ end;
 function TJSLexer.IsEndOfTokens: Boolean;
 begin
   Result := FCurrentIndex >= FTokens.Count;
+end;
+
+function TJSLexer.HasIdentifierBetween(const FromPosition: Integer; const ToPosition: Integer;
+                                       const Names: array of string): Boolean;
+begin
+  const LastIndex = Min(ToPosition, FTokens.Count) - 1;
+
+  for var Index := Max(FromPosition, 0) to LastIndex do
+  begin
+    const Token = FTokens[Index];
+    if Token.TokenType <> TJSTokenType.Identifier then
+      Continue;
+
+    if MatchStr(Token.Value, Names) then
+      Exit(True);
+  end;
+
+  Result := False;
 end;
 
 end.
