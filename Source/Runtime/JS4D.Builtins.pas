@@ -98,6 +98,9 @@ type
     class function HasFunctionMethod(const MethodName: string): Boolean; static;
     class function HasObjectMethod(const MethodName: string): Boolean; static;
 
+    class function ArrayMethodNames: TArray<string>; static;
+    class function ObjectMethodNames: TArray<string>; static;
+
     class function CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
     class function RequiresCallback(const MethodName: string): Boolean; static;
@@ -164,6 +167,7 @@ const
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
   METHOD_HAS_OWN_PROPERTY = 'hasOwnProperty';
+  METHOD_PROPERTY_IS_ENUMERABLE = 'propertyIsEnumerable';
   DEFAULT_SEPARATOR: string = ',';
   EMPTY_STRING: string = '';
   SPACE_CHAR: string = ' ';
@@ -2167,34 +2171,24 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
+class function TJSBuiltins.ArrayMethodNames: TArray<string>;
+begin
+  Result := [METHOD_PUSH, METHOD_POP, METHOD_SHIFT, METHOD_UNSHIFT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF,
+             METHOD_JOIN, METHOD_SLICE, METHOD_SPLICE, METHOD_CONCAT, METHOD_REVERSE, METHOD_INCLUDES,
+             METHOD_FILL, METHOD_COPY_WITHIN, METHOD_TO_STRING, METHOD_FLAT, METHOD_MAP, METHOD_FILTER,
+             METHOD_FOR_EACH, METHOD_REDUCE, METHOD_REDUCE_RIGHT, METHOD_SOME, METHOD_EVERY, METHOD_FIND,
+             METHOD_FIND_INDEX, METHOD_SORT];
+end;
+
 class function TJSBuiltins.HasArrayMethod(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_PUSH) or
-            (MethodName = METHOD_POP) or
-            (MethodName = METHOD_SHIFT) or
-            (MethodName = METHOD_UNSHIFT) or
-            (MethodName = METHOD_INDEX_OF) or
-            (MethodName = METHOD_LAST_INDEX_OF) or
-            (MethodName = METHOD_JOIN) or
-            (MethodName = METHOD_SLICE) or
-            (MethodName = METHOD_SPLICE) or
-            (MethodName = METHOD_CONCAT) or
-            (MethodName = METHOD_REVERSE) or
-            (MethodName = METHOD_INCLUDES) or
-            (MethodName = METHOD_FILL) or
-            (MethodName = METHOD_COPY_WITHIN) or
-            (MethodName = METHOD_TO_STRING) or
-            (MethodName = METHOD_FLAT) or
-            (MethodName = METHOD_MAP) or
-            (MethodName = METHOD_FILTER) or
-            (MethodName = METHOD_FOR_EACH) or
-            (MethodName = METHOD_REDUCE) or
-            (MethodName = METHOD_REDUCE_RIGHT) or
-            (MethodName = METHOD_SOME) or
-            (MethodName = METHOD_EVERY) or
-            (MethodName = METHOD_FIND) or
-            (MethodName = METHOD_FIND_INDEX) or
-            (MethodName = METHOD_SORT);
+  Result := False;
+
+  for var ArrayMethodName in ArrayMethodNames do
+  begin
+    if ArrayMethodName = MethodName then
+      Exit(True);
+  end;
 end;
 
 class function TJSBuiltins.RequiresCallback(const MethodName: string): Boolean;
@@ -2273,26 +2267,43 @@ begin
   Result := HasNumberMethod(MethodName);
 end;
 
+class function TJSBuiltins.ObjectMethodNames: TArray<string>;
+begin
+  Result := [METHOD_HAS_OWN_PROPERTY, METHOD_PROPERTY_IS_ENUMERABLE];
+end;
+
 class function TJSBuiltins.HasObjectMethod(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_HAS_OWN_PROPERTY);
+  Result := (MethodName = METHOD_HAS_OWN_PROPERTY) or
+            (MethodName = METHOD_PROPERTY_IS_ENUMERABLE);
 end;
 
 class function TJSBuiltins.CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
+  if Length(Args) = 0 then
+    Exit(TJSValue.CreateBoolean(False));
+
+  const PropertyName = Args[0].ToLimitedString(Limits);
+
   if MethodName = METHOD_HAS_OWN_PROPERTY then
   begin
-    if Length(Args) = 0 then
-      Result := TJSValue.CreateBoolean(False)
-    else
-    begin
-      const PropertyName = Args[0].ToLimitedString(Limits);
+    const HasProperty = Obj.HasProperty(PropertyName);
+    Exit(TJSValue.CreateBoolean(HasProperty));
+  end;
 
-      Result := TJSValue.CreateBoolean(Obj.HasProperty(PropertyName));
+  if MethodName = METHOD_PROPERTY_IS_ENUMERABLE then
+  begin
+    var IsEnumerable := Obj.HasOwnProperty(PropertyName);
+    if IsEnumerable then
+    begin
+      const Descriptor = Obj.GetOwnPropertyDescriptor(PropertyName);
+      IsEnumerable := Descriptor.Enumerable;
     end;
-  end
-  else
-    Result := TJSValue.CreateUndefined;
+
+    Exit(TJSValue.CreateBoolean(IsEnumerable));
+  end;
+
+  Result := TJSValue.CreateUndefined;
 end;
 
 end.

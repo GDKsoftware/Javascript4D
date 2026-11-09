@@ -145,7 +145,6 @@ type
     function VisitText(const Node: TJSASTNode): string;
     function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
-    function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
     function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
@@ -162,6 +161,8 @@ type
     function GetGlobalVariable(const Name: string): TJSValue;
     procedure CollectGarbage;
     function LivePrograms: TArray<TObject>;
+    function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 
     property GlobalScope: IJSScope read FGlobalScope;
     property Limits: TJSLimits read FLimits;
@@ -1650,19 +1651,7 @@ begin
     begin
       var ArrIntf: IJSArray;
       if Supports(ObjValue.ToObject, IJSArray, ArrIntf) then
-      begin
-        if TJSBuiltins.RequiresCallback(MethodName) then
-        begin
-          const Executor: TJSCallbackExecutor =
-            function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
-            begin
-              Result := CallFunction(Func, CallbackArgs, nil);
-            end;
-          Exit(TJSBuiltins.CallArrayMethodWithCallback(ArrIntf, MethodName, Args, Executor, FLimits));
-        end
-        else
-          Exit(TJSBuiltins.CallArrayMethod(ArrIntf, MethodName, Args, FLimits));
-      end;
+        Exit(ExecuteArrayMethod(ArrIntf, MethodName, Args));
     end;
 
     if ObjValue.IsString and TJSBuiltins.HasStringMethod(MethodName) then
@@ -1889,6 +1878,20 @@ begin
     FThisValue := OldThis;
     FStrictMode := OldStrictMode;
   end;
+end;
+
+function TJSInterpreter.ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if not TJSBuiltins.RequiresCallback(MethodName) then
+    Exit(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits));
+
+  const Executor: TJSCallbackExecutor =
+    function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
+    begin
+      Result := CallFunction(Func, CallbackArgs, nil);
+    end;
+
+  Result := TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits);
 end;
 
 function TJSInterpreter.ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

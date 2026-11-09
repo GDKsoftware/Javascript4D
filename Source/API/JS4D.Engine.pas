@@ -16,6 +16,7 @@ uses
   JS4D.Parser,
   JS4D.AST,
   JS4D.Interpreter,
+  JS4D.Builtins,
   JS4D.Json,
   JS4D.Errors;
 
@@ -50,6 +51,11 @@ type
     procedure RegisterDate;
     procedure RegisterErrors;
     procedure RegisterRegExp;
+    procedure RegisterFunctionObject;
+
+    function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
 
   public
     constructor Create;
@@ -118,6 +124,15 @@ const
   CONSOLE_NAME = 'console';
   MATH_NAME = 'Math';
   OBJECT_NAME = 'Object';
+  FUNCTION_NAME = 'Function';
+  PROTOTYPE_PROPERTY = 'prototype';
+  FUNCTION_CALL = 'call';
+  FUNCTION_APPLY = 'apply';
+  FUNCTION_BIND = 'bind';
+  FUNCTION_CONSTRUCTOR_UNSUPPORTED = 'The Function constructor is not supported';
+  NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
+  NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
+  NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
   JSON_NAME = 'JSON';
   ARRAY_NAME = 'Array';
   NUMBER_NAME = 'Number';
@@ -662,6 +677,7 @@ begin
   RegisterDate;
   RegisterErrors;
   RegisterRegExp;
+  RegisterFunctionObject;
 end;
 
 procedure TJSEngine.RegisterConsole;
@@ -1343,7 +1359,14 @@ begin
     end)));
 
   const PrototypeObj = TJSObject.Create;
-  ObjectObj.SetNonConfigurableProperty('prototype', TJSValue.CreateObject(PrototypeObj));
+
+  for var MethodName in TJSBuiltins.ObjectMethodNames do
+  begin
+    const Method = CreateObjectPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  ObjectObj.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
 
   FInterpreter.SetGlobalVariable(OBJECT_NAME, TJSValue.CreateObject(ObjectObj));
 end;
@@ -1486,7 +1509,78 @@ begin
       Result := TJSValue.CreateObject(ResultArr);
     end)));
 
+  const PrototypeObj = TJSObject.Create;
+
+  for var MethodName in TJSBuiltins.ArrayMethodNames do
+  begin
+    const Method = CreateArrayPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  ArrayObj.SetProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+
   FInterpreter.SetGlobalVariable(ARRAY_NAME, TJSValue.CreateObject(ArrayObj));
+end;
+
+procedure TJSEngine.RegisterFunctionObject;
+begin
+  const FunctionObj = TJSFunction.CreateNative(FUNCTION_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      raise TJSErrorFactory.TypeError(FUNCTION_CONSTRUCTOR_UNSUPPORTED);
+    end);
+
+  const PrototypeObj = TJSObject.Create;
+
+  for var MethodName in [FUNCTION_CALL, FUNCTION_APPLY, FUNCTION_BIND] do
+  begin
+    const Method = CreateFunctionPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  FunctionObj.SetProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+
+  FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
+end;
+
+function TJSEngine.CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Target: IJSFunction;
+      const IsFunction = Supports(This, IJSFunction, Target);
+      if not IsFunction then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_FUNCTION, [MethodName]));
+
+      Result := FInterpreter.ExecuteFunctionMethod(Target, MethodName, Args);
+    end);
+end;
+
+function TJSEngine.CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Target: IJSArray;
+      const IsArray = Supports(This, IJSArray, Target);
+      if not IsArray then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_ARRAY, [MethodName]));
+
+      Result := FInterpreter.ExecuteArrayMethod(Target, MethodName, Args);
+    end);
+end;
+
+function TJSEngine.CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if not Assigned(This) then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+
+      Result := TJSBuiltins.CallObjectMethod(This, MethodName, Args, FInterpreter.Limits);
+    end);
 end;
 
 procedure TJSEngine.RegisterDate;
