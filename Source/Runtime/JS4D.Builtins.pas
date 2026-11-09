@@ -104,6 +104,7 @@ type
     class function CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
     class function RequiresCallback(const MethodName: string): Boolean; static;
+    class function TakesCallbackThis(const MethodName: string): Boolean; static;
 
     class function IsArrayMethod(const MethodName: string): Boolean; static;
     class function IsStringMethod(const MethodName: string): Boolean; static;
@@ -2205,6 +2206,17 @@ begin
             (MethodName = METHOD_SORT);
 end;
 
+class function TJSBuiltins.TakesCallbackThis(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_MAP) or
+            (MethodName = METHOD_FILTER) or
+            (MethodName = METHOD_FOR_EACH) or
+            (MethodName = METHOD_SOME) or
+            (MethodName = METHOD_EVERY) or
+            (MethodName = METHOD_FIND) or
+            (MethodName = METHOD_FIND_INDEX);
+end;
+
 class function TJSBuiltins.HasStringMethod(const MethodName: string): Boolean;
 begin
   Result := (MethodName = METHOD_CHAR_AT) or
@@ -2287,8 +2299,8 @@ begin
 
   if MethodName = METHOD_HAS_OWN_PROPERTY then
   begin
-    const HasProperty = Obj.HasProperty(PropertyName);
-    Exit(TJSValue.CreateBoolean(HasProperty));
+    const HasOwnProperty = Obj.HasOwnProperty(PropertyName);
+    Exit(TJSValue.CreateBoolean(HasOwnProperty));
   end;
 
   if MethodName = METHOD_PROPERTY_IS_ENUMERABLE then

@@ -17,6 +17,7 @@ uses
   JS4D.AST,
   JS4D.Interpreter,
   JS4D.Builtins,
+  JS4D.PropertyDescriptors,
   JS4D.Json,
   JS4D.Errors;
 
@@ -52,6 +53,9 @@ type
     procedure RegisterErrors;
     procedure RegisterRegExp;
     procedure RegisterFunctionObject;
+    procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
+    function GlobalPrototype(const ConstructorName: string): IJSObject;
+    procedure LinkIntrinsicPrototypes;
 
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
@@ -127,8 +131,10 @@ const
   CONSOLE_NAME = 'console';
   MATH_NAME = 'Math';
   OBJECT_NAME = 'Object';
+  REGEXP_NAME = 'RegExp';
   FUNCTION_NAME = 'Function';
   PROTOTYPE_PROPERTY = 'prototype';
+  CONSTRUCTOR_PROPERTY = 'constructor';
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
@@ -166,6 +172,7 @@ const
   OBJECT_GET_OWN_PROPERTY_NAMES = 'getOwnPropertyNames';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
   OBJECT_DEFINE_PROPERTY = 'defineProperty';
+  OBJECT_DEFINE_PROPERTIES = 'defineProperties';
   OBJECT_CREATE = 'create';
   OBJECT_HAS_OWN_PROPERTY = 'hasOwnProperty';
   JSON_PARSE = 'parse';
@@ -197,10 +204,8 @@ const
   ERROR_NAME_PROP = 'name';
   ERROR_STACK = 'stack';
   ERROR_TO_STRING = 'toString';
-  DESC_VALUE = 'value';
-  DESC_WRITABLE = 'writable';
-  DESC_ENUMERABLE = 'enumerable';
-  DESC_CONFIGURABLE = 'configurable';
+  OBJECT_METHOD_CALLED_ON_NON_OBJECT = 'Object method called on a value that is not an object';
+  OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL = 'Object prototype may only be an Object or null';
 
 { TJSEngine }
 
@@ -534,6 +539,7 @@ begin
   NumberFunc.SetProperty('NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
 
   FInterpreter.SetGlobalVariable(NUMBER_NAME, TJSValue.CreateObject(NumberFunc));
+  AttachPrototypeObject(NumberFunc, TJSObject.Create);
 
   const StringFunc = TJSFunction.CreateNative(STRING_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -564,6 +570,7 @@ begin
     end)));
 
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
+  AttachPrototypeObject(StringFunc, TJSObject.Create);
 
   FInterpreter.RegisterNativeFunction(BOOLEAN_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -576,6 +583,10 @@ begin
 
       Result := TJSValue.CreateBoolean(Args[0].ToBoolean);
     end);
+
+  var BooleanFunc: IJSFunction;
+  if Supports(FInterpreter.GetGlobalVariable(BOOLEAN_FUNC_NAME).ToObject, IJSFunction, BooleanFunc) then
+    AttachPrototypeObject(BooleanFunc, TJSObject.Create);
 
   FInterpreter.RegisterNativeFunction(ENCODE_URI_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -681,6 +692,7 @@ begin
   RegisterErrors;
   RegisterRegExp;
   RegisterFunctionObject;
+  LinkIntrinsicPrototypes;
 end;
 
 procedure TJSEngine.RegisterConsole;
@@ -1190,12 +1202,36 @@ begin
   ObjectObj.SetProperty(OBJECT_CREATE, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_CREATE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const HasPrototypeArg = (Length(Args) > 0) and (Args[0].IsObject or Args[0].IsNull);
+      if not HasPrototypeArg then
+        raise TJSErrorFactory.TypeError(OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL);
+
       const NewObj = TJSObject.Create;
 
-      if (Length(Args) > 0) and Args[0].IsObject then
+      if Args[0].IsObject then
         NewObj.Prototype := Args[0].ToObject;
 
+      const HasProperties = (Length(Args) > 1) and (not Args[1].IsUndefined);
+      if HasProperties then
+        TJSPropertyDescriptors.DefineAll(NewObj, Args[1]);
+
       Result := TJSValue.CreateObject(NewObj);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTIES, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTIES,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const HasTarget = (Length(Args) > 0) and Args[0].IsObject;
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
+
+      var Properties := TJSValue.CreateUndefined;
+      if Length(Args) > 1 then
+        Properties := Args[1];
+
+      TJSPropertyDescriptors.DefineAll(Args[0].ToObject, Properties);
+
+      Result := Args[0];
     end)));
 
   ObjectObj.SetProperty(OBJECT_GET_PROTOTYPE_OF, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_PROTOTYPE_OF,
@@ -1317,54 +1353,43 @@ begin
   ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) < 2) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const HasTarget = (Length(Args) > 0) and (not Args[0].IsNullOrUndefined);
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
+
+      if not Args[0].IsObject then
+        Exit(TJSValue.CreateUndefined);
+
+      var PropName := UNDEFINED_NAME;
+      if Length(Args) > 1 then
+        PropName := ToText(Args[1]);
 
       const Obj = Args[0].ToObject;
-      const PropName = ToText(Args[1]);
-
       if not Obj.HasOwnProperty(PropName) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+        Exit(TJSValue.CreateUndefined);
 
-      const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-      const DescObj: IJSObject = TJSObject.Create;
-
-      DescObj.SetProperty(DESC_VALUE, Descriptor.Value);
-      DescObj.SetProperty(DESC_WRITABLE, TJSValue.CreateBoolean(Descriptor.Writable));
-      DescObj.SetProperty(DESC_ENUMERABLE, TJSValue.CreateBoolean(Descriptor.Enumerable));
-      DescObj.SetProperty(DESC_CONFIGURABLE, TJSValue.CreateBoolean(Descriptor.Configurable));
-
+      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Obj.GetOwnPropertyDescriptor(PropName));
       Result := TJSValue.CreateObject(DescObj);
     end)));
 
   ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTY, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) < 3) or (not Args[0].IsObject) or (not Args[2].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const HasTarget = (Length(Args) > 0) and Args[0].IsObject;
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
 
-      const Obj = Args[0].ToObject;
-      const PropName = ToText(Args[1]);
-      const DescObj = Args[2].ToObject;
+      var PropName := UNDEFINED_NAME;
+      var Description := TJSValue.CreateUndefined;
+      if Length(Args) > 1 then
+        PropName := ToText(Args[1]);
+      if Length(Args) > 2 then
+        Description := Args[2];
 
-      var Descriptor: TJSPropertyDescriptor;
-      Descriptor.Value := DescObj.GetProperty(DESC_VALUE);
-      Descriptor.Writable := DescObj.GetProperty(DESC_WRITABLE).ToBoolean;
-      Descriptor.Enumerable := DescObj.GetProperty(DESC_ENUMERABLE).ToBoolean;
-      Descriptor.Configurable := DescObj.GetProperty(DESC_CONFIGURABLE).ToBoolean;
+      const Definition = TJSPropertyDescriptors.ToDefinition(Description);
+      TJSPropertyDescriptors.Define(Args[0].ToObject, PropName, Definition);
 
-      Obj.DefineProperty(PropName, Descriptor);
-
-      Result := TJSValue.CreateObject(Obj);
+      Result := Args[0];
     end)));
 
   for var MethodName in TJSBuiltins.ObjectMethodNames do
@@ -1646,6 +1671,8 @@ procedure TJSEngine.RegisterDate;
 const
   UNIX_EPOCH: TDateTime = 25569.0;
 begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+
   const DateFunc = TJSFunction.CreateNative(DATE_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -1926,6 +1953,7 @@ begin
             Result := TJSValue.CreateString('');
         end)));
 
+      DateObj.Prototype := PrototypeObj;
       Result := TJSValue.CreateObject(DateObj);
     end);
 
@@ -1983,12 +2011,25 @@ begin
     end)));
 
   FInterpreter.SetGlobalVariable(DATE_NAME, TJSValue.CreateObject(DateFunc));
+  AttachPrototypeObject(DateFunc, PrototypeObj);
+end;
+
+procedure TJSEngine.AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
+begin
+  var ConstructorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Constructor_ as IJSObject));
+  ConstructorDescriptor.Enumerable := False;
+  PrototypeObj.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
+
+  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+  FInterpreter.RegisterFunction(Constructor_);
 end;
 
 procedure TJSEngine.RegisterErrors;
 
-  function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSObject;
+  function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
   begin
+    const PrototypeObj: IJSObject = TJSObject.Create;
+
     Result := TJSFunction.CreateNative(ErrorName,
       function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
       begin
@@ -1998,6 +2039,7 @@ procedure TJSEngine.RegisterErrors;
           Msg := ToText(Args[0]);
 
         const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
+        ErrorObj.Prototype := PrototypeObj;
 
         ErrorObj.SetProperty(ERROR_TO_STRING, TJSValue.CreateObject(TJSFunction.CreateNative(ERROR_TO_STRING,
           function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
@@ -2019,6 +2061,8 @@ procedure TJSEngine.RegisterErrors;
 
         Result := TJSValue.CreateObject(ErrorObj);
       end);
+
+    AttachPrototypeObject(Result, PrototypeObj);
   end;
 
 begin
@@ -2045,9 +2089,9 @@ begin
 end;
 
 procedure TJSEngine.RegisterRegExp;
-const
-  REGEXP_NAME = 'RegExp';
 begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+
   const RegExpFunc = TJSFunction.CreateNative(REGEXP_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -2100,10 +2144,56 @@ begin
             Result := TJSValue.CreateString('/(?:)/');
         end)));
 
+      RegExpObj.Prototype := PrototypeObj;
       Result := TJSValue.CreateObject(RegExpObj);
     end);
 
   FInterpreter.SetGlobalVariable(REGEXP_NAME, TJSValue.CreateObject(RegExpFunc));
+  AttachPrototypeObject(RegExpFunc, PrototypeObj);
+end;
+
+function TJSEngine.GlobalPrototype(const ConstructorName: string): IJSObject;
+begin
+  Result := nil;
+
+  const ConstructorValue = FInterpreter.GetGlobalVariable(ConstructorName);
+  if not ConstructorValue.IsObject then
+    Exit;
+
+  const PrototypeValue = ConstructorValue.ToObject.GetProperty(PROTOTYPE_PROPERTY);
+  if PrototypeValue.IsObject then
+    Result := PrototypeValue.ToObject;
+end;
+
+procedure TJSEngine.LinkIntrinsicPrototypes;
+begin
+  const ObjectPrototype = GlobalPrototype(OBJECT_NAME);
+  const ErrorPrototype = GlobalPrototype(ERROR_NAME);
+
+  for var ConstructorName in [ERROR_NAME, ARRAY_NAME, FUNCTION_NAME, DATE_NAME, REGEXP_NAME, NUMBER_NAME,
+                              STRING_FUNC_NAME, BOOLEAN_FUNC_NAME] do
+  begin
+    const Prototype = GlobalPrototype(ConstructorName);
+    Prototype.Prototype := ObjectPrototype;
+  end;
+
+  for var ConstructorName in [TYPE_ERROR_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, SYNTAX_ERROR_NAME,
+                              URI_ERROR_NAME, EVAL_ERROR_NAME] do
+  begin
+    const Prototype = GlobalPrototype(ConstructorName);
+    Prototype.Prototype := ErrorPrototype;
+  end;
+
+  for var GlobalName in [MATH_NAME, JSON_NAME] do
+  begin
+    const GlobalValue = FInterpreter.GetGlobalVariable(GlobalName);
+    GlobalValue.ToObject.Prototype := ObjectPrototype;
+  end;
+
+  FInterpreter.ObjectPrototype := ObjectPrototype;
+  FInterpreter.ArrayPrototype := GlobalPrototype(ARRAY_NAME);
+  FInterpreter.FunctionPrototype := GlobalPrototype(FUNCTION_NAME);
+  FInterpreter.RegExpPrototype := GlobalPrototype(REGEXP_NAME);
 end;
 
 end.

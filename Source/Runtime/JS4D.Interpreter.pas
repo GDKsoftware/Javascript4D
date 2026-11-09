@@ -64,13 +64,17 @@ type
     property Value: TJSValue read FValue;
   end;
 
-  TJSInterpreter = class
+  TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
     FCurrentScope: IJSScope;
     FThisValue: IJSObject;
     FStrictMode: Boolean;
     FGlobalObject: IJSObject;
+    FObjectPrototype: IJSObject;
+    FArrayPrototype: IJSObject;
+    FFunctionPrototype: IJSObject;
+    FRegExpPrototype: IJSObject;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
@@ -86,7 +90,6 @@ type
 
     procedure PushScope;
     procedure PopScope;
-    procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterScope(const Scope: IJSScope);
     procedure AttachPrototype(const Func: IJSFunction);
     function CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
@@ -103,6 +106,9 @@ type
     function ExecuteStatement(const Node: TJSStatement): TJSValue;
     procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+    procedure GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+    function ErrorConstructorName(const Error: Exception): string;
+    function CreateErrorValue(const Error: Exception): TJSValue;
 
     function Visit(const Node: TJSASTNode): TJSValue;
 
@@ -147,7 +153,6 @@ type
     function ToText(const Value: TJSValue): string;
     function VisitText(const Node: TJSASTNode): string;
     function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
-    function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
     function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
@@ -158,7 +163,9 @@ type
     destructor Destroy; override;
 
     function Execute(const Program_: TJSProgram): TJSValue;
+    function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
     procedure Cancel;
+    procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
@@ -168,6 +175,10 @@ type
     function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 
     property GlobalScope: IJSScope read FGlobalScope;
+    property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
+    property ArrayPrototype: IJSObject read FArrayPrototype write FArrayPrototype;
+    property FunctionPrototype: IJSObject read FFunctionPrototype write FFunctionPrototype;
+    property RegExpPrototype: IJSObject read FRegExpPrototype write FRegExpPrototype;
     property Limits: TJSLimits read FLimits;
     property StepBudget: Int64 read FStepBudget write FStepBudget;
     property StepCount: Int64 read GetStepCount;
@@ -379,11 +390,17 @@ begin
   FGlobalScope := nil;
   FGlobalObject := nil;
   FThisValue := nil;
+  FObjectPrototype := nil;
+  FArrayPrototype := nil;
+  FFunctionPrototype := nil;
+  FRegExpPrototype := nil;
   inherited;
 end;
 
 procedure TJSInterpreter.RegisterFunction(const Func: IJSFunction);
 begin
+  Func.CallHandler := Self;
+
   if not FFunctionRegistry.Contains(Func) then
     FFunctionRegistry.Add(Func);
   FFunctionPrograms.AddOrSetValue(Pointer(Func as IInterface), FCurrentProgram);
@@ -398,6 +415,7 @@ end;
 procedure TJSInterpreter.AttachPrototype(const Func: IJSFunction);
 begin
   const PrototypeObj: IJSObject = TJSObject.Create;
+  PrototypeObj.Prototype := FObjectPrototype;
 
   var ConstructorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func as IJSObject));
   ConstructorDescriptor.Enumerable := False;
@@ -412,10 +430,11 @@ end;
 function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
 begin
   Result := TJSObject.Create;
+  Result.Prototype := FObjectPrototype;
 
   for var Index := 0 to Length(Args) - 1 do
   begin
-    Result.SetProperty(IntToStr(Index), Args[Index]);
+    Result.DefineProperty(IntToStr(Index), TJSPropertyDescriptor.Create(Args[Index]));
   end;
 
   var LengthDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Args)));
@@ -456,7 +475,9 @@ begin
 
   const PrototypeValue = Constructor_.GetProperty(PROTOTYPE_PROPERTY);
   if PrototypeValue.IsObject then
-    Result.Prototype := PrototypeValue.ToObject;
+    Result.Prototype := PrototypeValue.ToObject
+  else
+    Result.Prototype := FObjectPrototype;
 end;
 
 procedure TJSInterpreter.PushScope;
@@ -731,6 +752,7 @@ end;
 function TJSInterpreter.VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
 begin
   const Func = TJSFunction.Create;
+  Func.Prototype := FFunctionPrototype;
   Func.Name := Node.Id.Name;
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
@@ -853,6 +875,10 @@ begin
 
   for var PropName in PropertyNames do
   begin
+    const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
+    if not Descriptor.Enumerable then
+      Continue;
+
     if Node.Left is TJSVariableDeclaration then
     begin
       const VarDecl = TJSVariableDeclaration(Node.Left);
@@ -990,7 +1016,7 @@ begin
       on E: Exception do
       begin
         if Assigned(Node.Handler) then
-          Result := VisitCatchClause(Node.Handler, TJSValue.CreateString(E.Message))
+          Result := VisitCatchClause(Node.Handler, CreateErrorValue(E))
         else
           raise;
       end;
@@ -1006,6 +1032,45 @@ begin
   end;
 
   RunFinalizer(Node);
+end;
+
+function TJSInterpreter.ErrorConstructorName(const Error: Exception): string;
+begin
+  Result := '';
+
+  if Error is EJSTypeError then
+    Result := CONSTRUCTOR_TYPE_ERROR
+  else if Error is EJSReferenceError then
+    Result := CONSTRUCTOR_REFERENCE_ERROR
+  else if Error is EJSRangeError then
+    Result := CONSTRUCTOR_RANGE_ERROR
+  else if Error is EJSSyntaxError then
+    Result := CONSTRUCTOR_SYNTAX_ERROR
+  else if Error is EJSURIError then
+    Result := CONSTRUCTOR_URI_ERROR
+  else if Error is EJSEvalError then
+    Result := CONSTRUCTOR_EVAL_ERROR;
+end;
+
+function TJSInterpreter.CreateErrorValue(const Error: Exception): TJSValue;
+begin
+  const ErrorName = ErrorConstructorName(Error);
+  const IsKnownError = (not ErrorName.IsEmpty) and FGlobalScope.HasVariable(ErrorName);
+  if not IsKnownError then
+    Exit(TJSValue.CreateString(Error.Message));
+
+  var Func: IJSFunction;
+  const ConstructorValue = FGlobalScope.GetVariable(ErrorName);
+  const IsCallable = ConstructorValue.IsFunction and Supports(ConstructorValue.ToObject, IJSFunction, Func);
+  if not IsCallable then
+    Exit(TJSValue.CreateString(Error.Message));
+
+  const Prefix = ErrorName + ': ';
+  var Message := Error.Message;
+  if Message.StartsWith(Prefix) then
+    Message := Message.Substring(Length(Prefix));
+
+  Result := CallFunction(Func, [TJSValue.CreateString(Message)], nil);
 end;
 
 function TJSInterpreter.VisitCatchClause(const Handler: TJSCatchClause; const Thrown: TJSValue): TJSValue;
@@ -1049,6 +1114,7 @@ begin
     TJSLiteralType.RegExp:
       begin
         const RegExpObj: IJSRegExp = TJSRegExp.Create(Node.RegExpPattern, Node.RegExpFlags);
+        RegExpObj.Prototype := FRegExpPrototype;
 
         var TestFunc: IJSFunction := TJSFunction.CreateNative('test',
           function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1106,6 +1172,7 @@ begin
   FLimits.EnsureArrayLength(Node.Elements.Count);
 
   const Arr = TJSArray.Create;
+  Arr.Prototype := FArrayPrototype;
 
   for var Element in Node.Elements do
   begin
@@ -1125,6 +1192,7 @@ end;
 function TJSInterpreter.VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
 begin
   const Obj = TJSObject.Create;
+  Obj.Prototype := FObjectPrototype;
 
   for var Prop in Node.Properties do
   begin
@@ -1138,7 +1206,7 @@ begin
       KeyName := VisitText(Prop.Key);
 
     const Value = Visit(Prop.Value);
-    Obj.SetProperty(KeyName, Value);
+    Obj.DefineProperty(KeyName, TJSPropertyDescriptor.Create(Value));
   end;
 
   Result := TJSValue.CreateObject(Obj);
@@ -1147,6 +1215,7 @@ end;
 function TJSInterpreter.VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
 begin
   const Func = TJSFunction.Create;
+  Func.Prototype := FFunctionPrototype;
 
   if Assigned(Node.Id) then
     Func.Name := Node.Id.Name;
@@ -1240,9 +1309,14 @@ begin
 
             const Obj = ObjValue.ToObject;
 
-            if FStrictMode and Obj.HasProperty(PropName) and not Obj.IsPropertyConfigurable(PropName) then
+            const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
+            const IsLocked = Obj.HasOwnProperty(PropName) and (not OwnDescriptor.Configurable);
+            if IsLocked and FStrictMode then
               raise TJSErrorFactory.TypeError('Cannot delete property ''' + PropName + ''' of object',
                 Node.Line, Node.Column);
+
+            if IsLocked then
+              Exit(TJSValue.CreateBoolean(False));
 
             Obj.DeleteProperty(PropName);
             Result := TJSValue.CreateBoolean(True);
@@ -1829,7 +1903,7 @@ function TJSInterpreter.VisitThisExpression(const Node: TJSThisExpression): TJSV
 begin
   if Assigned(FThisValue) then
     Result := TJSValue.CreateObject(FThisValue)
-  else if FStrictMode then
+  else if FStrictMode and (FCallDepth > 0) then
     Result := TJSValue.CreateUndefined
   else
     Result := TJSValue.CreateObject(FGlobalObject);
@@ -1917,10 +1991,15 @@ begin
   if not TJSBuiltins.RequiresCallback(MethodName) then
     Exit(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits));
 
+  var ThisArg: IJSObject := nil;
+  const HasThisArg = TJSBuiltins.TakesCallbackThis(MethodName) and (Length(Args) > 1) and Args[1].IsObject;
+  if HasThisArg then
+    ThisArg := Args[1].ToObject;
+
   const Executor: TJSCallbackExecutor =
     function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
     begin
-      Result := CallFunction(Func, CallbackArgs, nil);
+      Result := CallFunction(Func, CallbackArgs, ThisArg);
     end;
 
   Result := TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits);
@@ -2154,6 +2233,18 @@ begin
     GCMark(Value.ToObject, Live, Work);
 end;
 
+procedure TJSInterpreter.GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+begin
+  for var PropName in Obj.GetOwnPropertyNames do
+  begin
+    const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
+
+    GCMarkValue(Descriptor.Value, Live, Work);
+    GCMarkValue(Descriptor.Getter, Live, Work);
+    GCMarkValue(Descriptor.Setter, Live, Work);
+  end;
+end;
+
 procedure TJSInterpreter.CollectGarbage;
 begin
   const Live = TDictionary<Pointer, Byte>.Create;
@@ -2187,22 +2278,19 @@ begin
       begin
         GCMark(Func.ClosureScope, Live, Work);
         GCMark(Func.Prototype, Live, Work);
-        for var PropName in Func.GetOwnPropertyNames do
-          GCMarkValue(Func.GetProperty(PropName), Live, Work);
+        GCMarkOwnProperties(Func, Live, Work);
       end
       else if Supports(Item, IJSArray, Arr) then
       begin
         for var ElementIndex := 0 to Arr.Length - 1 do
           GCMarkValue(Arr.Elements[ElementIndex], Live, Work);
         GCMark(Arr.Prototype, Live, Work);
-        for var PropName in Arr.GetOwnPropertyNames do
-          GCMarkValue(Arr.GetProperty(PropName), Live, Work);
+        GCMarkOwnProperties(Arr, Live, Work);
       end
       else if Supports(Item, IJSObject, Obj) then
       begin
         GCMark(Obj.Prototype, Live, Work);
-        for var PropName in Obj.GetOwnPropertyNames do
-          GCMarkValue(Obj.GetProperty(PropName), Live, Work);
+        GCMarkOwnProperties(Obj, Live, Work);
       end;
     end;
 

@@ -55,6 +55,7 @@ type
   IJSObject = interface;
   IJSArray = interface;
   IJSScope = interface;
+  IJSFunction = interface;
 
   TJSValue = record
   private
@@ -88,6 +89,8 @@ type
     function IsArray: Boolean;
     function IsNaN: Boolean;
     function IsInfinity: Boolean;
+
+    function SameValue(const Other: TJSValue): Boolean;
 
     function ToBoolean: Boolean;
     function ToNumber: Double;
@@ -125,11 +128,39 @@ type
 
   TJSPropertyDescriptor = record
     Value: TJSValue;
+    Getter: TJSValue;
+    Setter: TJSValue;
+    IsAccessor: Boolean;
     Writable: Boolean;
     Enumerable: Boolean;
     Configurable: Boolean;
 
     class function Create(const AValue: TJSValue): TJSPropertyDescriptor; static;
+  end;
+
+  TJSPropertyDefinition = record
+    HasValue: Boolean;
+    HasWritable: Boolean;
+    HasGetter: Boolean;
+    HasSetter: Boolean;
+    HasEnumerable: Boolean;
+    HasConfigurable: Boolean;
+    Value: TJSValue;
+    Getter: TJSValue;
+    Setter: TJSValue;
+    Writable: Boolean;
+    Enumerable: Boolean;
+    Configurable: Boolean;
+
+    function IsAccessorDefinition: Boolean;
+    function IsDataDefinition: Boolean;
+    function IsEmpty: Boolean;
+  end;
+
+  TJSCallHandler = class abstract
+  public
+    function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+      const ThisObj: IJSObject): TJSValue; virtual; abstract;
   end;
 
   IJSObject = interface
@@ -153,6 +184,8 @@ type
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
     function HasOwnProperty(const Name: string): Boolean;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
   end;
 
   IJSArray = interface(IJSObject)
@@ -181,6 +214,9 @@ type
     function GetClosureScope: IJSScope;
     procedure SetClosureScope(const Value: IJSScope);
     procedure SetNativeFunction(const Value: TNativeFunction);
+    function GetCallHandler: TJSCallHandler;
+    procedure SetCallHandler(const Value: TJSCallHandler);
+    function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
     property BodyNode: TObject read GetBodyNode write SetBodyNode;
@@ -188,6 +224,7 @@ type
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
+    property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
   end;
 
   IJSError = interface(IJSObject)
@@ -276,7 +313,17 @@ type
     FSealed: Boolean;
     FExtensible: Boolean;
 
+    function InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
+    procedure InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
+    function AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    class procedure ReleaseClosure(const Value: TJSValue); static;
+
   protected
+    class function CanRedefine(const Current: TJSPropertyDescriptor;
+                               const Definition: TJSPropertyDefinition): Boolean; static;
+    class function ApplyDefinition(const Current: TJSPropertyDescriptor;
+                                   const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
+
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
 
@@ -305,9 +352,11 @@ type
     procedure Freeze;
     procedure Seal;
     procedure PreventExtensions;
-    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
-    function HasOwnProperty(const Name: string): Boolean;
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
+    function HasOwnProperty(const Name: string): Boolean; virtual;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
   end;
@@ -321,6 +370,7 @@ type
     FIsNative: Boolean;
     FIsStrict: Boolean;
     FClosureScope: IJSScope;
+    FCallHandler: TJSCallHandler;
 
   protected
     function GetName: string;
@@ -336,11 +386,15 @@ type
     procedure SetIsStrict(const Value: Boolean);
     function GetClosureScope: IJSScope;
     procedure SetClosureScope(const Value: IJSScope);
+    function GetCallHandler: TJSCallHandler;
+    procedure SetCallHandler(const Value: TJSCallHandler);
 
   public
     constructor Create;
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
     destructor Destroy; override;
+
+    function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -349,11 +403,16 @@ type
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
+    property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
   private
     FElements: TList<TJSValue>;
+    FLengthWritable: Boolean;
+
+    function GetLengthDescriptor: TJSPropertyDescriptor;
+    procedure ResizeTo(const NewLength: Integer);
 
   protected
     function HoldsNested: Boolean; override;
@@ -368,6 +427,10 @@ type
 
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
+
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
+    function HasOwnProperty(const Name: string): Boolean; override;
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
 
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
@@ -569,10 +632,28 @@ const
 
 class function TJSPropertyDescriptor.Create(const AValue: TJSValue): TJSPropertyDescriptor;
 begin
+  Result := Default(TJSPropertyDescriptor);
   Result.Value := AValue;
   Result.Writable := True;
   Result.Enumerable := True;
   Result.Configurable := True;
+end;
+
+{ TJSPropertyDefinition }
+
+function TJSPropertyDefinition.IsAccessorDefinition: Boolean;
+begin
+  Result := HasGetter or HasSetter;
+end;
+
+function TJSPropertyDefinition.IsDataDefinition: Boolean;
+begin
+  Result := HasValue or HasWritable;
+end;
+
+function TJSPropertyDefinition.IsEmpty: Boolean;
+begin
+  Result := not (HasValue or HasWritable or HasGetter or HasSetter or HasEnumerable or HasConfigurable);
 end;
 
 class function TJSValue.CreateUndefined: TJSValue;
@@ -691,6 +772,34 @@ end;
 function TJSValue.IsNaN: Boolean;
 begin
   Result := IsNumber and System.Math.IsNaN(FNumberValue);
+end;
+
+function TJSValue.SameValue(const Other: TJSValue): Boolean;
+begin
+  if FValueType <> Other.FValueType then
+    Exit(False);
+
+  case FValueType of
+    TJSValueType.Undefined,
+    TJSValueType.Null:
+      Result := True;
+    TJSValueType.Boolean_:
+      Result := FBooleanValue = Other.FBooleanValue;
+    TJSValueType.Number:
+      begin
+        const BothNaN = System.Math.IsNaN(FNumberValue) and System.Math.IsNaN(Other.FNumberValue);
+        const SameSign = FNumberValue.Sign = Other.FNumberValue.Sign;
+        Result := BothNaN or ((FNumberValue = Other.FNumberValue) and SameSign);
+      end;
+    TJSValueType.String_:
+      Result := FStringValue = Other.FStringValue;
+    TJSValueType.Object_,
+    TJSValueType.Function_,
+    TJSValueType.Array_:
+      Result := (FObjectRef as IInterface) = (Other.FObjectRef as IInterface);
+  else
+    raise ENotSupportedException.CreateFmt('Unsupported value type: %d', [Ord(FValueType)]);
+  end;
 end;
 
 function TJSValue.IsInfinity: Boolean;
@@ -976,12 +1085,9 @@ begin
 
   for var Pair in FProperties do
   begin
-    if Pair.Value.Value.IsFunction then
-    begin
-      var Func: IJSFunction;
-      if Supports(Pair.Value.Value.ToObject, IJSFunction, Func) then
-        Func.ClosureScope := nil;
-    end;
+    ReleaseClosure(Pair.Value.Value);
+    ReleaseClosure(Pair.Value.Getter);
+    ReleaseClosure(Pair.Value.Setter);
   end;
 
   FProperties.Clear;
@@ -1008,40 +1114,89 @@ begin
     Result := FPrototype.HasProperty(Name);
 end;
 
+class procedure TJSObjectImpl.ReleaseClosure(const Value: TJSValue);
+begin
+  var Func: IJSFunction;
+
+  if Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func) then
+    Func.ClosureScope := nil;
+end;
+
+function TJSObjectImpl.InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
+begin
+  var Func: IJSFunction;
+
+  const HasGetter = Descriptor.Getter.IsFunction and Supports(Descriptor.Getter.ToObject, IJSFunction, Func);
+  if not HasGetter then
+    Exit(TJSValue.CreateUndefined);
+
+  Result := Func.Call(Self, nil);
+end;
+
+procedure TJSObjectImpl.InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
+begin
+  var Func: IJSFunction;
+
+  const HasSetter = Descriptor.Setter.IsFunction and Supports(Descriptor.Setter.ToObject, IJSFunction, Func);
+  if HasSetter then
+    Func.Call(Self, [Value]);
+end;
+
 function TJSObjectImpl.GetProperty(const Name: string): TJSValue;
 var
   Descriptor: TJSPropertyDescriptor;
 begin
-  if FProperties.TryGetValue(Name, Descriptor) then
-    Exit(Descriptor.Value);
+  if not TryGetPropertyDescriptor(Name, Descriptor) then
+    Exit(TJSValue.CreateUndefined);
 
-  if FPrototype <> nil then
-    Exit(FPrototype.GetProperty(Name));
+  if Descriptor.IsAccessor then
+    Result := InvokeGetter(Descriptor)
+  else
+    Result := Descriptor.Value;
+end;
 
-  Result := TJSValue.CreateUndefined;
+function TJSObjectImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := FProperties.TryGetValue(Name, Descriptor);
+
+  if (not Result) and (FPrototype <> nil) then
+    Result := FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
 procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
 var
   Descriptor: TJSPropertyDescriptor;
+  PrototypeDescriptor: TJSPropertyDescriptor;
 begin
   if FProperties.TryGetValue(Name, Descriptor) then
   begin
-    if Descriptor.Writable then
+    if Descriptor.IsAccessor then
+    begin
+      InvokeSetter(Descriptor, Value);
+    end
+    else if Descriptor.Writable then
     begin
       Descriptor.Value := Value;
       FProperties[Name] := Descriptor;
     end;
-  end
-  else
-  begin
-    if not FExtensible then
-      Exit;
 
-    Descriptor := TJSPropertyDescriptor.Create(Value);
-    FProperties.Add(Name, Descriptor);
-    FOrderedKeys.Add(Name);
+    Exit;
   end;
+
+  const HasInherited = (FPrototype <> nil) and FPrototype.TryGetPropertyDescriptor(Name, PrototypeDescriptor);
+  if HasInherited and PrototypeDescriptor.IsAccessor then
+  begin
+    InvokeSetter(PrototypeDescriptor, Value);
+    Exit;
+  end;
+
+  const BlockedByInherited = HasInherited and (not PrototypeDescriptor.Writable);
+  if BlockedByInherited or (not FExtensible) then
+    Exit;
+
+  Descriptor := TJSPropertyDescriptor.Create(Value);
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
 end;
 
 procedure TJSObjectImpl.SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
@@ -1172,6 +1327,131 @@ begin
   end;
 end;
 
+function TJSObjectImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  var Current: TJSPropertyDescriptor;
+
+  if not FProperties.TryGetValue(Name, Current) then
+    Exit(AddDefinedProperty(Name, Definition));
+
+  Result := CanRedefine(Current, Definition);
+  if Result then
+    FProperties[Name] := ApplyDefinition(Current, Definition);
+end;
+
+function TJSObjectImpl.AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if not FExtensible then
+    Exit(False);
+
+  var Descriptor := Default(TJSPropertyDescriptor);
+  Descriptor.Enumerable := Definition.Enumerable;
+  Descriptor.Configurable := Definition.Configurable;
+
+  if Definition.IsAccessorDefinition then
+  begin
+    Descriptor.IsAccessor := True;
+    Descriptor.Getter := Definition.Getter;
+    Descriptor.Setter := Definition.Setter;
+  end
+  else
+  begin
+    Descriptor.Value := Definition.Value;
+    Descriptor.Writable := Definition.Writable;
+  end;
+
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+  Result := True;
+end;
+
+class function TJSObjectImpl.CanRedefine(const Current: TJSPropertyDescriptor;
+                                         const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if Definition.IsEmpty or Current.Configurable then
+    Exit(True);
+
+  const BecomesConfigurable = Definition.HasConfigurable and Definition.Configurable;
+  const ChangesEnumerable = Definition.HasEnumerable and (Definition.Enumerable <> Current.Enumerable);
+  if BecomesConfigurable or ChangesEnumerable then
+    Exit(False);
+
+  const ChangesKind = (Definition.IsAccessorDefinition and (not Current.IsAccessor)) or
+                      (Definition.IsDataDefinition and Current.IsAccessor);
+  if ChangesKind then
+    Exit(False);
+
+  if Current.IsAccessor then
+  begin
+    const ChangesGetter = Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter));
+    const ChangesSetter = Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter));
+    Exit(not (ChangesGetter or ChangesSetter));
+  end;
+
+  if Current.Writable then
+    Exit(True);
+
+  const BecomesWritable = Definition.HasWritable and Definition.Writable;
+  const ChangesValue = Definition.HasValue and (not Definition.Value.SameValue(Current.Value));
+  Result := not (BecomesWritable or ChangesValue);
+end;
+
+class function TJSObjectImpl.ApplyDefinition(const Current: TJSPropertyDescriptor;
+                                             const Definition: TJSPropertyDefinition): TJSPropertyDescriptor;
+begin
+  Result := Current;
+
+  const ChangesKind = (Definition.IsAccessorDefinition and (not Current.IsAccessor)) or
+                      (Definition.IsDataDefinition and Current.IsAccessor);
+  if ChangesKind then
+  begin
+    Result.IsAccessor := Definition.IsAccessorDefinition;
+    Result.Value := TJSValue.CreateUndefined;
+    Result.Getter := TJSValue.CreateUndefined;
+    Result.Setter := TJSValue.CreateUndefined;
+    Result.Writable := False;
+  end;
+
+  if Definition.HasValue then
+    Result.Value := Definition.Value;
+
+  if Definition.HasWritable then
+    Result.Writable := Definition.Writable;
+
+  if Definition.HasGetter then
+    Result.Getter := Definition.Getter;
+
+  if Definition.HasSetter then
+    Result.Setter := Definition.Setter;
+
+  if Definition.HasEnumerable then
+    Result.Enumerable := Definition.Enumerable;
+
+  if Definition.HasConfigurable then
+    Result.Configurable := Definition.Configurable;
+end;
+
+function TJSFunctionImpl.Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if FIsNative then
+    Exit(FNativeFunction(ThisObj, Args));
+
+  if FCallHandler = nil then
+    raise TJSErrorFactory.TypeError(Format('Function %s cannot be called outside an interpreter', [FName]));
+
+  Result := FCallHandler.CallFunction(Self, Args, ThisObj);
+end;
+
+function TJSFunctionImpl.GetCallHandler: TJSCallHandler;
+begin
+  Result := FCallHandler;
+end;
+
+procedure TJSFunctionImpl.SetCallHandler(const Value: TJSCallHandler);
+begin
+  FCallHandler := Value;
+end;
+
 constructor TJSFunctionImpl.Create;
 begin
   inherited Create;
@@ -1262,6 +1542,66 @@ constructor TJSArrayImpl.Create;
 begin
   inherited Create;
   FElements := TList<TJSValue>.Create;
+  FLengthWritable := True;
+end;
+
+function TJSArrayImpl.GetLengthDescriptor: TJSPropertyDescriptor;
+begin
+  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(FElements.Count));
+  Result.Writable := FLengthWritable;
+  Result.Enumerable := False;
+  Result.Configurable := False;
+end;
+
+procedure TJSArrayImpl.ResizeTo(const NewLength: Integer);
+begin
+  while FElements.Count > NewLength do
+  begin
+    FElements.Delete(FElements.Count - 1);
+  end;
+
+  while FElements.Count < NewLength do
+  begin
+    FElements.Add(TJSValue.CreateUndefined);
+  end;
+end;
+
+function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+begin
+  if Name = LENGTH_PROPERTY then
+    Result := GetLengthDescriptor
+  else
+    Result := inherited GetOwnPropertyDescriptor(Name);
+end;
+
+function TJSArrayImpl.HasOwnProperty(const Name: string): Boolean;
+begin
+  Result := (Name = LENGTH_PROPERTY) or inherited HasOwnProperty(Name);
+end;
+
+function TJSArrayImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if Name <> LENGTH_PROPERTY then
+    Exit(inherited DefineOwnProperty(Name, Definition));
+
+  const Current = GetLengthDescriptor;
+  Result := CanRedefine(Current, Definition);
+  if not Result then
+    Exit;
+
+  if Definition.HasValue then
+  begin
+    const NewLength = Definition.Value.ToNumber;
+    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
+                          (NewLength <= MaxInt);
+    if not IsValidLength then
+      raise TJSErrorFactory.InvalidArrayLength;
+
+    ResizeTo(Trunc(NewLength));
+  end;
+
+  if Definition.HasWritable then
+    FLengthWritable := Definition.Writable;
 end;
 
 function TJSArrayImpl.HoldsNested: Boolean;
