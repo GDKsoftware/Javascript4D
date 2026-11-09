@@ -1671,6 +1671,7 @@ begin
     else
     begin
       Arr.Push(TJSValue.CreateUndefined);
+      Arr.DeleteElement(Arr.Length - 1);
     end;
   end;
 
@@ -2351,7 +2352,8 @@ begin
 
       var Index: Integer;
 
-      if TryStrToInt(PropName, Index) then
+      const IsPlainElement = TryStrToInt(PropName, Index) and ArrIntf.HasElement(Index);
+      if IsPlainElement then
       begin
         Result := ArrIntf[Index];
         Exit;
@@ -2705,18 +2707,32 @@ begin
   end;
 
   var Index: Integer;
-  if not TryStrToInt(PropName, Index) then
+  if not TJSArray.TryParseIndex(PropName, Index) then
   begin
     IsHandled := False;
     Exit;
   end;
 
-  const IsRejected = FStrictMode and (not Target.HasElement(Index)) and (not Target.IsExtensible);
-  if IsRejected then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+  const IsWritablePlainElement = Target.HasElement(Index) and (not Target.IsFrozen);
+  if IsWritablePlainElement then
+  begin
+    Target[Index] := Value;
+    Exit;
+  end;
+
+  const LengthDescriptor = Target.GetOwnPropertyDescriptor(LENGTH_PROPERTY);
+  const LengthAllowsIndex = (Index < Target.Length) or LengthDescriptor.Writable;
+  const CanWrite = LengthAllowsIndex and TJSPropertyDescriptors.CanPut(Target, PropName);
+  if not CanWrite then
+  begin
+    if FStrictMode then
+      raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+
+    Exit;
+  end;
 
   FLimits.EnsureArrayLength(Int64(Index) + 1);
-  Target[Index] := Value;
+  Target.SetProperty(PropName, Value);
 end;
 
 procedure TJSInterpreter.AssignArrayLength(const Target: IJSArray; const Value: TJSValue);

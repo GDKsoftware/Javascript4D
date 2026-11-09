@@ -321,9 +321,9 @@ type
 
     function HasProperty(const Name: string): Boolean; virtual;
     function GetProperty(const Name: string): TJSValue;
-    procedure SetProperty(const Name: string; const Value: TJSValue);
+    procedure SetProperty(const Name: string; const Value: TJSValue); virtual;
     procedure SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
-    procedure DeleteProperty(const Name: string);
+    procedure DeleteProperty(const Name: string); virtual;
     function IsPropertyConfigurable(const Name: string): Boolean;
     function GetOwnPropertyNames: TArray<string>; virtual;
 
@@ -400,8 +400,22 @@ type
     FLengthWritable: Boolean;
 
     function GetLengthDescriptor: TJSPropertyDescriptor;
+    function PlainElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
     function TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
-    procedure ResizeTo(const NewLength: Integer);
+    function DefineLength(const Definition: TJSPropertyDefinition): Boolean;
+    function DefineElement(const Index: Integer; const Name: string;
+                           const Definition: TJSPropertyDefinition): Boolean;
+    function RedefineElement(const Index: Integer; const Name: string;
+                             const Definition: TJSPropertyDefinition): Boolean;
+    function AddElement(const Index: Integer; const Name: string;
+                        const Definition: TJSPropertyDefinition): Boolean;
+    procedure MoveToSpecialElement(const Index: Integer; const Name: string;
+                                   const Descriptor: TJSPropertyDescriptor);
+    procedure ForgetSpecialElement(const Index: Integer);
+    function IsLockedElement(const Index: Integer): Boolean;
+    function ResizeTo(const NewLength: Integer): Boolean;
+    function ShrinkTo(const NewLength: Integer): Boolean;
+    procedure GrowTo(const NewLength: Integer);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 
@@ -413,6 +427,8 @@ type
     procedure SetElement(const Index: Integer; const Value: TJSValue);
 
   public
+    class function TryParseIndex(const Name: string; out Index: Integer): Boolean; static;
+
     constructor Create;
     destructor Destroy; override;
 
@@ -421,6 +437,9 @@ type
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
 
+    procedure SetProperty(const Name: string; const Value: TJSValue); override;
+    procedure DeleteProperty(const Name: string); override;
+    function GetOwnPropertyNames: TArray<string>; override;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
     function HasOwnProperty(const Name: string): Boolean; override;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
@@ -1595,12 +1614,24 @@ begin
   FLengthWritable := True;
 end;
 
+class function TJSArrayImpl.TryParseIndex(const Name: string; out Index: Integer): Boolean;
+begin
+  Result := TryStrToInt(Name, Index) and (Index >= 0) and (IntToStr(Index) = Name);
+end;
+
 function TJSArrayImpl.GetLengthDescriptor: TJSPropertyDescriptor;
 begin
   Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(FElements.Count));
-  Result.Writable := FLengthWritable;
+  Result.Writable := FLengthWritable and (not FFrozen);
   Result.Enumerable := False;
   Result.Configurable := False;
+end;
+
+function TJSArrayImpl.PlainElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
+begin
+  Result := TJSPropertyDescriptor.Create(FElements[Index]);
+  Result.Writable := not FFrozen;
+  Result.Configurable := not FSealed;
 end;
 
 function TJSArrayImpl.TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
@@ -1614,11 +1645,10 @@ begin
   end;
 
   var Index: Integer;
-  const IsCanonicalIndex = TryStrToInt(Name, Index) and (IntToStr(Index) = Name);
-  if not (IsCanonicalIndex and HasElement(Index)) then
+  if not (TryParseIndex(Name, Index) and HasElement(Index)) then
     Exit;
 
-  Descriptor := TJSPropertyDescriptor.Create(FElements[Index]);
+  Descriptor := PlainElementDescriptor(Index);
   Result := True;
 end;
 
@@ -1644,16 +1674,42 @@ begin
   end;
 end;
 
-procedure TJSArrayImpl.ResizeTo(const NewLength: Integer);
+procedure TJSArrayImpl.ForgetSpecialElement(const Index: Integer);
+begin
+  if FProperties.Count = 0 then
+    Exit;
+
+  const Name = IntToStr(Index);
+  if FProperties.ContainsKey(Name) then
+  begin
+    FProperties.Remove(Name);
+    FOrderedKeys.Remove(Name);
+  end;
+end;
+
+procedure TJSArrayImpl.MoveToSpecialElement(const Index: Integer; const Name: string;
+                                            const Descriptor: TJSPropertyDescriptor);
+begin
+  FElements[Index] := TJSValue.CreateUndefined;
+  MarkHoles(Index, Index);
+
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+end;
+
+function TJSArrayImpl.IsLockedElement(const Index: Integer): Boolean;
+begin
+  if HasElement(Index) then
+    Exit(FSealed);
+
+  var Descriptor: TJSPropertyDescriptor;
+  const IsSpecial = (FProperties.Count > 0) and FProperties.TryGetValue(IntToStr(Index), Descriptor);
+  Result := IsSpecial and (not Descriptor.Configurable);
+end;
+
+procedure TJSArrayImpl.GrowTo(const NewLength: Integer);
 begin
   const OldLength = FElements.Count;
-
-  while FElements.Count > NewLength do
-  begin
-    FElements.Delete(FElements.Count - 1);
-  end;
-
-  ForgetHolesBetween(NewLength, OldLength - 1);
 
   while FElements.Count < NewLength do
   begin
@@ -1664,17 +1720,92 @@ begin
     MarkHoles(OldLength, NewLength - 1);
 end;
 
+function TJSArrayImpl.ShrinkTo(const NewLength: Integer): Boolean;
+begin
+  const OldLength = FElements.Count;
+  var KeptLength := NewLength;
+
+  const MayBeLocked = FSealed or (FProperties.Count > 0);
+  if MayBeLocked then
+  begin
+    for var Index := OldLength - 1 downto NewLength do
+    begin
+      if IsLockedElement(Index) then
+      begin
+        KeptLength := Index + 1;
+        Break;
+      end;
+
+      ForgetSpecialElement(Index);
+    end;
+  end;
+
+  while FElements.Count > KeptLength do
+  begin
+    FElements.Delete(FElements.Count - 1);
+  end;
+
+  ForgetHolesBetween(KeptLength, OldLength - 1);
+
+  Result := (KeptLength = NewLength);
+end;
+
+function TJSArrayImpl.ResizeTo(const NewLength: Integer): Boolean;
+begin
+  Result := True;
+
+  if NewLength < FElements.Count then
+    Result := ShrinkTo(NewLength)
+  else
+    GrowTo(NewLength);
+end;
+
 function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
 begin
+  var Index: Integer;
+
   if Name = LENGTH_PROPERTY then
     Result := GetLengthDescriptor
+  else if TryParseIndex(Name, Index) and HasElement(Index) then
+    Result := PlainElementDescriptor(Index)
   else
     Result := inherited GetOwnPropertyDescriptor(Name);
 end;
 
 function TJSArrayImpl.HasOwnProperty(const Name: string): Boolean;
 begin
-  Result := (Name = LENGTH_PROPERTY) or inherited HasOwnProperty(Name);
+  var Index: Integer;
+
+  Result := (Name = LENGTH_PROPERTY) or
+            (TryParseIndex(Name, Index) and HasElement(Index)) or
+            inherited HasOwnProperty(Name);
+end;
+
+function TJSArrayImpl.GetOwnPropertyNames: TArray<string>;
+begin
+  const Names = TList<string>.Create;
+  try
+    const HasSpecialElements = (FProperties.Count > 0);
+
+    for var Index := 0 to FElements.Count - 1 do
+    begin
+      const Name = IntToStr(Index);
+      const IsOwnElement = HasElement(Index) or (HasSpecialElements and FProperties.ContainsKey(Name));
+      if IsOwnElement then
+        Names.Add(Name);
+    end;
+
+    for var Key in inherited GetOwnPropertyNames do
+    begin
+      var Index: Integer;
+      if not TryParseIndex(Key, Index) then
+        Names.Add(Key);
+    end;
+
+    Result := Names.ToArray;
+  finally
+    Names.Free;
+  end;
 end;
 
 function TJSArrayImpl.HasProperty(const Name: string): Boolean;
@@ -1689,11 +1820,67 @@ begin
   Result := TryGetElementDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
-function TJSArrayImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+procedure TJSArrayImpl.SetProperty(const Name: string; const Value: TJSValue);
 begin
-  if Name <> LENGTH_PROPERTY then
-    Exit(inherited DefineOwnProperty(Name, Definition));
+  if Name = LENGTH_PROPERTY then
+  begin
+    var Definition := Default(TJSPropertyDefinition);
+    Definition.HasValue := True;
+    Definition.Value := Value;
+    DefineLength(Definition);
+    Exit;
+  end;
 
+  var Index: Integer;
+  if not TryParseIndex(Name, Index) then
+  begin
+    inherited SetProperty(Name, Value);
+    Exit;
+  end;
+
+  if HasElement(Index) then
+  begin
+    if not FFrozen then
+      FElements[Index] := Value;
+
+    Exit;
+  end;
+
+  const LengthDescriptor = GetLengthDescriptor;
+  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  if LengthBlocksIndex then
+    Exit;
+
+  const IsSpecialElement = FProperties.ContainsKey(Name);
+  inherited SetProperty(Name, Value);
+
+  const WasAddedAsDataProperty = (not IsSpecialElement) and FProperties.ContainsKey(Name);
+  if WasAddedAsDataProperty then
+  begin
+    FProperties.Remove(Name);
+    FOrderedKeys.Remove(Name);
+    SetElement(Index, Value);
+  end;
+end;
+
+procedure TJSArrayImpl.DeleteProperty(const Name: string);
+begin
+  var Index: Integer;
+  const IsPlainElement = TryParseIndex(Name, Index) and HasElement(Index);
+
+  if IsPlainElement then
+  begin
+    if not FSealed then
+      DeleteElement(Index);
+
+    Exit;
+  end;
+
+  inherited DeleteProperty(Name);
+end;
+
+function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
+begin
   const Current = GetLengthDescriptor;
   Result := CanRedefine(Current, Definition);
   if not Result then
@@ -1707,11 +1894,73 @@ begin
     if not IsValidLength then
       raise TJSErrorFactory.InvalidArrayLength;
 
-    ResizeTo(Trunc(NewLength));
+    Result := ResizeTo(Trunc(NewLength));
   end;
 
   if Definition.HasWritable then
     FLengthWritable := Definition.Writable;
+end;
+
+function TJSArrayImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if Name = LENGTH_PROPERTY then
+    Exit(DefineLength(Definition));
+
+  var Index: Integer;
+  if not TryParseIndex(Name, Index) then
+    Exit(inherited DefineOwnProperty(Name, Definition));
+
+  Result := DefineElement(Index, Name, Definition);
+end;
+
+function TJSArrayImpl.DefineElement(const Index: Integer; const Name: string;
+                                    const Definition: TJSPropertyDefinition): Boolean;
+begin
+  const LengthDescriptor = GetLengthDescriptor;
+  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  if LengthBlocksIndex then
+    Exit(False);
+
+  if HasElement(Index) then
+    Result := RedefineElement(Index, Name, Definition)
+  else if FProperties.ContainsKey(Name) then
+    Result := inherited DefineOwnProperty(Name, Definition)
+  else
+    Result := AddElement(Index, Name, Definition);
+
+  if Result and (Index >= FElements.Count) then
+    GrowTo(Index + 1);
+end;
+
+function TJSArrayImpl.RedefineElement(const Index: Integer; const Name: string;
+                                      const Definition: TJSPropertyDefinition): Boolean;
+begin
+  const Current = PlainElementDescriptor(Index);
+  Result := CanRedefine(Current, Definition);
+  if not Result then
+    Exit;
+
+  const Updated = ApplyDefinition(Current, Definition);
+  const IsPlain = (not Updated.IsAccessor) and Updated.Writable and Updated.Enumerable and Updated.Configurable;
+  if IsPlain then
+    FElements[Index] := Updated.Value
+  else
+    MoveToSpecialElement(Index, Name, Updated);
+end;
+
+function TJSArrayImpl.AddElement(const Index: Integer; const Name: string;
+                                 const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if not FExtensible then
+    Exit(False);
+
+  const IsPlain = (not Definition.IsAccessorDefinition) and Definition.Writable and Definition.Enumerable and
+                  Definition.Configurable;
+  if not IsPlain then
+    Exit(AddDefinedProperty(Name, Definition));
+
+  SetElement(Index, Definition.Value);
+  Result := True;
 end;
 
 function TJSArrayImpl.HoldsNested: Boolean;
@@ -1794,6 +2043,7 @@ begin
   if Assigned(FHoles) then
     FHoles.Remove(Index);
 
+  ForgetSpecialElement(Index);
   FElements[Index] := Value;
 end;
 
@@ -1823,6 +2073,7 @@ begin
   if FElements.Count > 0 then
   begin
     Result := FElements[FElements.Count - 1];
+    ForgetSpecialElement(FElements.Count - 1);
     FElements.Delete(FElements.Count - 1);
     ForgetHolesBetween(FElements.Count, FElements.Count);
   end

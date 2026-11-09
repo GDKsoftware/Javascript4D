@@ -113,7 +113,12 @@ class function TJSPropertyDescriptors.WithCheckedLength(const Target: IJSObject;
 begin
   Result := Definition;
 
-  const SetsArrayLength = Definition.HasValue and (Name = LENGTH_NAME) and Supports(Target, IJSArray);
+  var ElementIndex: Integer;
+  const DefinesArrayElement = Supports(Target, IJSArray) and TJSArray.TryParseIndex(Name, ElementIndex);
+  if DefinesArrayElement then
+    Limits.EnsureArrayLength(Int64(ElementIndex) + 1);
+
+  const SetsArrayLength =Definition.HasValue and (Name = LENGTH_NAME) and Supports(Target, IJSArray);
   if not SetsArrayLength then
     Exit;
 

@@ -581,16 +581,22 @@ begin
   const Count = Min(EndIndex - StartIndex, Arr.Length - Target);
 
   var TempArr: TArray<TJSValue>;
+  var IsPresent: TArray<Boolean>;
   SetLength(TempArr, Count);
+  SetLength(IsPresent, Count);
 
   for var Index := 0 to Count - 1 do
   begin
     TempArr[Index] := Arr[StartIndex + Index];
+    IsPresent[Index] := Arr.HasElement(StartIndex + Index);
   end;
 
   for var Index := 0 to Count - 1 do
   begin
-    Arr[Target + Index] := TempArr[Index];
+    if IsPresent[Index] then
+      Arr[Target + Index] := TempArr[Index]
+    else
+      Arr.DeleteElement(Target + Index);
   end;
 
   Result := TJSValue.CreateObject(Arr);

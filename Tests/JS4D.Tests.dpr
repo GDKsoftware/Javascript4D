@@ -33,6 +33,8 @@ uses
   JS4D.Tests.TryStatement in 'JS4D.Tests.TryStatement.pas',
   JS4D.Tests.PropertyDescriptors in 'JS4D.Tests.PropertyDescriptors.pas',
   JS4D.Tests.GenericArrayMethods in 'JS4D.Tests.GenericArrayMethods.pas',
+  JS4D.Tests.ArrayElements in 'JS4D.Tests.ArrayElements.pas',
+  JS4D.Tests.JsonParse in 'JS4D.Tests.JsonParse.pas',
   JS4D.Tests.Eval in 'JS4D.Tests.Eval.pas',
   JS4D.Tests.FunctionConstructor in 'JS4D.Tests.FunctionConstructor.pas',
   JS4D.Tests.MemberAccess in 'JS4D.Tests.MemberAccess.pas',

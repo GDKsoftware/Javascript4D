@@ -23,6 +23,7 @@ uses
   JS4D.DateBuiltins,
   JS4D.BuiltinAttributes,
   JS4D.Json,
+  JS4D.JsonSyntax,
   JS4D.Errors;
 
 type
@@ -148,6 +149,7 @@ const
   FUNCTION_NAME = 'Function';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
+  LENGTH_PROPERTY = 'length';
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
@@ -191,6 +193,7 @@ const
   OBJECT_CREATE = 'create';
   OBJECT_HAS_OWN_PROPERTY = 'hasOwnProperty';
   JSON_PARSE = 'parse';
+  INVALID_JSON_TEXT = 'Unexpected token in JSON';
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_FROM = 'from';
@@ -1123,17 +1126,10 @@ begin
 
       const Obj = Args[0].ToObject;
 
-      var ArrIntf: IJSArray;
-      if Supports(Obj, IJSArray, ArrIntf) then
+      for var PropName in Obj.GetOwnPropertyNames do
       begin
-        for var Index := 0 to ArrIntf.Length - 1 do
-          ResultArr.Push(TJSValue.CreateString(IntToStr(Index)));
-      end
-      else
-      begin
-        const PropertyNames = Obj.GetOwnPropertyNames;
-
-        for var PropName in PropertyNames do
+        const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
+        if Descriptor.Enumerable then
           ResultArr.Push(TJSValue.CreateString(PropName));
       end;
 
@@ -1455,6 +1451,10 @@ begin
 
       const JSONString = ToText(Args[0]);
 
+      const IsValidJSON = TJSJsonSyntax.IsValid(JSONString);
+      if not IsValidJSON then
+        raise TJSErrorFactory.SyntaxError(INVALID_JSON_TEXT);
+
       try
         const JSONValue = TJSONObject.ParseJSONValue(JSONString);
 
@@ -1696,8 +1696,10 @@ begin
     const ElementCount = Trunc(RequestedLength);
     FInterpreter.Limits.EnsureArrayLength(ElementCount);
 
-    for var Index := 1 to ElementCount do
-      ResultArr.Push(TJSValue.CreateUndefined);
+    var LengthDefinition := Default(TJSPropertyDefinition);
+    LengthDefinition.HasValue := True;
+    LengthDefinition.Value := TJSValue.CreateNumber(ElementCount);
+    ResultArr.DefineOwnProperty(LENGTH_PROPERTY, LengthDefinition);
   end
   else
   begin
