@@ -39,6 +39,11 @@ type
     function ParseIfStatement: TJSIfStatement;
     function ParseWhileStatement: TJSWhileStatement;
     function ParseDoWhileStatement: TJSDoWhileStatement;
+    function ParseWithStatement: TJSWithStatement;
+    function ParseWithBody: TJSStatement;
+    function StartsWithDeclaration: Boolean;
+    function ParseFunctionBodyBlock: TJSBlockStatement;
+    function StartsWithUseStrictDirective: Boolean;
     function ParseForStatement: TJSStatement;
     function ParseReturnStatement: TJSReturnStatement;
     function ParseBreakStatement: TJSBreakStatement;
@@ -229,6 +234,8 @@ begin
       Result := ParseWhileStatement;
     TJSTokenType.KeywordDo:
       Result := ParseDoWhileStatement;
+    TJSTokenType.KeywordWith:
+      Result := ParseWithStatement;
     TJSTokenType.KeywordFor:
       Result := ParseForStatement;
     TJSTokenType.KeywordReturn:
@@ -339,7 +346,7 @@ begin
     Expect(TJSTokenType.RightParen);
 
     const OldStrictMode = FStrictMode;
-    Result.Body := ParseBlockStatement;
+    Result.Body := ParseFunctionBodyBlock;
 
     if (Result.Body.Body.Count > 0) and IsUseStrictDirective(Result.Body.Body[0]) then
     begin
@@ -395,6 +402,85 @@ begin
   const Body = ParseStatement;
 
   Result := TJSWhileStatement.Create(Test, Body);
+end;
+
+function TJSParser.ParseWithStatement: TJSWithStatement;
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.SyntaxError('with statement is not allowed in strict mode',
+      CurrentToken.Line, CurrentToken.Column);
+
+  Expect(TJSTokenType.KeywordWith);
+  Expect(TJSTokenType.LeftParen);
+
+  const Target = ParseExpression;
+
+  try
+    Expect(TJSTokenType.RightParen);
+
+    const Body = ParseWithBody;
+
+    Result := TJSWithStatement.Create(Target, Body);
+  except
+    Target.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseWithBody: TJSStatement;
+begin
+  if StartsWithDeclaration then
+    raise TJSErrorFactory.SyntaxError('Declaration is not allowed as the body of a with statement',
+      CurrentToken.Line, CurrentToken.Column);
+
+  Result := ParseStatement;
+end;
+
+function TJSParser.StartsWithDeclaration: Boolean;
+begin
+  if Check(TJSTokenType.KeywordFunction) then
+    Exit(True);
+
+  if not Check(TJSTokenType.Identifier) then
+    Exit(False);
+
+  const Word = CurrentToken.Value;
+  const FollowingToken = FLexer.PeekToken(1);
+  const IsOnSameLine = (FollowingToken.Line = CurrentToken.Line);
+  const FollowedByName = (FollowingToken.TokenType = TJSTokenType.Identifier);
+
+  const IsLetDeclaration = ((Word = 'let') and
+                            ((FollowingToken.TokenType = TJSTokenType.LeftBracket) or
+                             (IsOnSameLine and (FollowedByName or (FollowingToken.TokenType = TJSTokenType.LeftBrace)))));
+  const IsConstOrClassDeclaration = (((Word = 'const') or (Word = 'class')) and FollowedByName);
+
+  Result := IsLetDeclaration or IsConstOrClassDeclaration;
+end;
+
+function TJSParser.StartsWithUseStrictDirective: Boolean;
+begin
+  if not Check(TJSTokenType.LeftBrace) then
+    Exit(False);
+
+  const DirectiveToken = FLexer.PeekToken(1);
+  const EndToken = FLexer.PeekToken(2);
+  const IsUseStrictString = ((DirectiveToken.TokenType = TJSTokenType.StringLiteral) and
+                             (DirectiveToken.Value = 'use strict'));
+  const EndsDirective = ((EndToken.TokenType in [TJSTokenType.Semicolon, TJSTokenType.RightBrace]) or
+                         (EndToken.Line <> DirectiveToken.Line));
+  Result := IsUseStrictString and EndsDirective;
+end;
+
+function TJSParser.ParseFunctionBodyBlock: TJSBlockStatement;
+begin
+  const OldStrictMode = FStrictMode;
+  if StartsWithUseStrictDirective then
+    FStrictMode := True;
+  try
+    Result := ParseNestedBlockStatement;
+  finally
+    FStrictMode := OldStrictMode;
+  end;
 end;
 
 function TJSParser.ParseDoWhileStatement: TJSDoWhileStatement;
@@ -1329,7 +1415,7 @@ begin
     Expect(TJSTokenType.RightParen);
 
     const OldStrictMode = FStrictMode;
-    const Body = ParseNestedBlockStatement;
+    const Body = ParseFunctionBodyBlock;
     Result.Body := Body;
 
     if (Body.Body.Count > 0) and IsUseStrictDirective(Body.Body[0]) then

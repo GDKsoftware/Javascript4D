@@ -38,7 +38,8 @@ uses
   JS4D.Tests.RestrictedProperties in 'JS4D.Tests.RestrictedProperties.pas',
   JS4D.Tests.IdentifierNames in 'JS4D.Tests.IdentifierNames.pas',
   JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
-  JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas';
+  JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas',
+  JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas';
 
 var
   Runner: ITestRunner;

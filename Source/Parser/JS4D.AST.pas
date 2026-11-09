@@ -485,6 +485,19 @@ type
     property Body: TJSStatement read FBody;
   end;
 
+  TJSWithStatement = class(TJSStatement)
+  private
+    FTarget: TJSExpression;
+    FBody: TJSStatement;
+
+  public
+    constructor Create(const Target: TJSExpression; const Body: TJSStatement);
+    destructor Destroy; override;
+
+    property Target: TJSExpression read FTarget;
+    property Body: TJSStatement read FBody;
+  end;
+
   TJSDoWhileStatement = class(TJSStatement)
   private
     FTest: TJSExpression;
@@ -1059,6 +1072,22 @@ end;
 destructor TJSWhileStatement.Destroy;
 begin
   FTest.Free;
+  FBody.Free;
+  inherited;
+end;
+
+{ TJSWithStatement }
+
+constructor TJSWithStatement.Create(const Target: TJSExpression; const Body: TJSStatement);
+begin
+  inherited Create(TJSASTNodeType.WithStatement);
+  FTarget := Target;
+  FBody := Body;
+end;
+
+destructor TJSWithStatement.Destroy;
+begin
+  FTarget.Free;
   FBody.Free;
   inherited;
 end;

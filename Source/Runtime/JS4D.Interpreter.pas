@@ -13,6 +13,7 @@ uses
   JS4D.AST,
   JS4D.Errors,
   JS4D.Builtins,
+  JS4D.ObjectScope,
   JS4D.ArrayIteration;
 
 type
@@ -134,6 +135,9 @@ type
     function VisitIfStatement(const Node: TJSIfStatement): TJSValue;
     function VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
     function VisitDoWhileStatement(const Node: TJSDoWhileStatement): TJSValue;
+    function VisitWithStatement(const Node: TJSWithStatement): TJSValue;
+    function ToScopeObject(const Value: TJSValue): IJSObject;
+    function WithObjectFor(const Callee: TJSExpression): IJSObject;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
     function VisitForInStatement(const Node: TJSForInStatement): TJSValue;
     function VisitReturnStatement(const Node: TJSReturnStatement): TJSValue;
@@ -713,6 +717,8 @@ begin
       Result := VisitWhileStatement(TJSWhileStatement(Node));
     TJSASTNodeType.DoWhileStatement:
       Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
+    TJSASTNodeType.WithStatement:
+      Result := VisitWithStatement(TJSWithStatement(Node));
     TJSASTNodeType.ForStatement:
       Result := VisitForStatement(TJSForStatement(Node));
     TJSASTNodeType.ForInStatement:
@@ -890,6 +896,8 @@ begin
       HoistDeclarations(TJSWhileStatement(Node).Body);
     TJSASTNodeType.DoWhileStatement:
       HoistDeclarations(TJSDoWhileStatement(Node).Body);
+    TJSASTNodeType.WithStatement:
+      HoistDeclarations(TJSWithStatement(Node).Body);
     TJSASTNodeType.ForStatement:
       begin
         HoistDeclarations(TJSForStatement(Node).Init);
@@ -983,6 +991,49 @@ begin
     Result := Visit(Node.Alternate)
   else
     Result := TJSValue.CreateUndefined;
+end;
+
+function TJSInterpreter.ToScopeObject(const Value: TJSValue): IJSObject;
+begin
+  if Value.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError('Cannot convert undefined or null to object');
+
+  if Value.IsObject then
+    Exit(Value.ToObject);
+
+  Result := WrapPrimitive(Value);
+end;
+
+function TJSInterpreter.VisitWithStatement(const Node: TJSWithStatement): TJSValue;
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.SyntaxError('with statement is not allowed in strict mode', Node.Line, Node.Column);
+
+  const TargetValue = Visit(Node.Target);
+  const ScopeObject = ToScopeObject(TargetValue);
+  const OuterScope = FCurrentScope;
+
+  FCurrentScope := TJSObjectScope.Create(OuterScope, ScopeObject);
+  RegisterScope(FCurrentScope);
+  try
+    Result := ExecuteStatement(Node.Body);
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
+
+function TJSInterpreter.WithObjectFor(const Callee: TJSExpression): IJSObject;
+begin
+  Result := nil;
+
+  if not (Callee is TJSIdentifier) then
+    Exit;
+
+  const CalleeName = TJSIdentifier(Callee).Name;
+  const DeclaringScope = FCurrentScope.Resolve(CalleeName);
+  var ObjectScope: IJSObjectScope;
+  if Supports(DeclaringScope, IJSObjectScope, ObjectScope) then
+    Result := ObjectScope.BindingObject;
 end;
 
 function TJSInterpreter.VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
@@ -1989,6 +2040,9 @@ begin
 
   if IsDirectEvalCall(Node.Callee, Func) then
     Exit(CallDirectEval(Func, Args));
+
+  if not Assigned(ThisObj) then
+    ThisObj := WithObjectFor(Node.Callee);
 
   if not Assigned(ThisObj) then
     ThisObj := ThisObjectFor(Func, ThisValue);
