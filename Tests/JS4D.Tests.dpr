@@ -33,6 +33,9 @@ uses
   JS4D.Tests.PropertyDescriptors in 'JS4D.Tests.PropertyDescriptors.pas',
   JS4D.Tests.GenericArrayMethods in 'JS4D.Tests.GenericArrayMethods.pas',
   JS4D.Tests.Eval in 'JS4D.Tests.Eval.pas',
+  JS4D.Tests.FunctionConstructor in 'JS4D.Tests.FunctionConstructor.pas',
+  JS4D.Tests.MemberAccess in 'JS4D.Tests.MemberAccess.pas',
+  JS4D.Tests.RestrictedProperties in 'JS4D.Tests.RestrictedProperties.pas',
   JS4D.Tests.IdentifierNames in 'JS4D.Tests.IdentifierNames.pas',
   JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
   JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas';

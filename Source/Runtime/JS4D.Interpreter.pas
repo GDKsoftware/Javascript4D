@@ -77,6 +77,7 @@ type
     FObjectPrototype: IJSObject;
     FArrayPrototype: IJSObject;
     FFunctionPrototype: IJSObject;
+    FThrowTypeError: IJSFunction;
     FRegExpPrototype: IJSObject;
     FStringPrototype: IJSObject;
     FNumberPrototype: IJSObject;
@@ -101,7 +102,9 @@ type
     procedure PopScope;
     procedure RegisterScope(const Scope: IJSScope);
     procedure AttachPrototype(const Func: IJSFunction);
-    function CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
+    function CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
+    function CreateThrowTypeError: IJSFunction;
+    function CreateCalleeDescriptor: TJSPropertyDescriptor;
     procedure DetachProperties(const Func: IJSFunction);
     function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
@@ -140,6 +143,7 @@ type
     function VisitThrowStatement(const Node: TJSThrowStatement): TJSValue;
     function RunProgramBody(const Node: TJSProgram): TJSValue;
     function EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
+    function EvaluateProgram(const Program_: TJSProgram; const IsDirect: Boolean): TJSValue;
     function CreateEvalScope(const IsDirect: Boolean; const IsStrictSource: Boolean): IJSScope;
     function IsDirectEvalCall(const Callee: TJSExpression; const Func: IJSFunction): Boolean;
     function CallDirectEval(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
@@ -161,6 +165,7 @@ type
     function VisitConditionalExpression(const Node: TJSConditionalExpression): TJSValue;
     function VisitCallExpression(const Node: TJSCallExpression): TJSValue;
     function VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
+    procedure RequireObjectCoercible(const Value: TJSValue; const PropName: string);
     function VisitNewExpression(const Node: TJSNewExpression): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
@@ -185,6 +190,8 @@ type
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
     procedure RegisterEval(const ProgramParser: TJSProgramParser);
+    function CreateFunctionFromSource(const Source: string): TJSValue;
+    function ThrowTypeErrorFunction: IJSFunction;
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
     procedure CollectGarbage;
@@ -225,6 +232,11 @@ const
   CONSTRUCTOR_PROPERTY = 'constructor';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
+  CANNOT_ACCESS_PROPERTY = 'Cannot access property ''%s'' of undefined or null';
+  POISONED_PROPERTY = 'Restricted property cannot be accessed in strict mode';
+  CALLEE_PROPERTY = 'callee';
+  EMPTY_NAME = '';
+  INVALID_FUNCTION_SOURCE = 'Invalid function parameters or body';
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
@@ -396,6 +408,9 @@ end;
 
 destructor TJSInterpreter.Destroy;
 begin
+  if Assigned(FThrowTypeError) then
+    FThrowTypeError.Prototype := nil;
+
   for var Func in FFunctionRegistry do
   begin
     Func.ClosureScope := nil;
@@ -411,6 +426,7 @@ begin
   FScopeRegistry.Free;
   FFunctionPrograms.Free;
   FEvalFunction := nil;
+  FThrowTypeError := nil;
   FProgramParser := nil;
 
   FCurrentScope := nil;
@@ -454,7 +470,47 @@ begin
   Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
 end;
 
-function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
+function TJSInterpreter.CreateThrowTypeError: IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(EMPTY_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      raise TJSErrorFactory.TypeError(POISONED_PROPERTY);
+    end);
+  Result.IsConstructor := False;
+  Result.Prototype := FFunctionPrototype;
+
+  var LengthDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(0));
+  LengthDescriptor.Writable := False;
+  LengthDescriptor.Enumerable := False;
+  LengthDescriptor.Configurable := False;
+  Result.DefineProperty(LENGTH_PROPERTY, LengthDescriptor);
+
+  RegisterFunction(Result);
+  Result.Freeze;
+end;
+
+function TJSInterpreter.ThrowTypeErrorFunction: IJSFunction;
+begin
+  if not Assigned(FThrowTypeError) then
+    FThrowTypeError := CreateThrowTypeError;
+
+  Result := FThrowTypeError;
+end;
+
+function TJSInterpreter.CreateCalleeDescriptor: TJSPropertyDescriptor;
+begin
+  const Poison = TJSValue.CreateObject(ThrowTypeErrorFunction);
+
+  Result := TJSPropertyDescriptor.Create(TJSValue.CreateUndefined);
+  Result.IsAccessor := True;
+  Result.Getter := Poison;
+  Result.Setter := Poison;
+  Result.Enumerable := False;
+  Result.Configurable := False;
+end;
+
+function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
 begin
   Result := TJSObject.Create;
   Result.Prototype := FObjectPrototype;
@@ -467,6 +523,9 @@ begin
   var LengthDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Args)));
   LengthDescriptor.Enumerable := False;
   Result.DefineProperty(LENGTH_PROPERTY, LengthDescriptor);
+
+  if Func.IsStrict then
+    Result.DefineProperty(CALLEE_PROPERTY, CreateCalleeDescriptor);
 end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
@@ -734,7 +793,25 @@ end;
 
 function TJSInterpreter.EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
 begin
+  Result := EvaluateProgram(FProgramParser(Source), IsDirect);
+end;
+
+function TJSInterpreter.CreateFunctionFromSource(const Source: string): TJSValue;
+begin
   const Program_ = FProgramParser(Source);
+
+  const HasSingleStatement = (Program_.Body.Count = 1);
+  const IsExpressionStatement = HasSingleStatement and (Program_.Body[0] is TJSExpressionStatement);
+  const IsFunctionSource = IsExpressionStatement and
+                           (TJSExpressionStatement(Program_.Body[0]).Expression is TJSFunctionExpression);
+  if not IsFunctionSource then
+    raise TJSErrorFactory.SyntaxError(INVALID_FUNCTION_SOURCE);
+
+  Result := EvaluateProgram(Program_, False);
+end;
+
+function TJSInterpreter.EvaluateProgram(const Program_: TJSProgram; const IsDirect: Boolean): TJSValue;
+begin
   const IsStrictSource = (Program_.IsStrict or (IsDirect and FStrictMode));
 
   const OldScope = FCurrentScope;
@@ -1919,6 +1996,12 @@ begin
   Result := CallFunction(Func, Args, ThisObj);
 end;
 
+procedure TJSInterpreter.RequireObjectCoercible(const Value: TJSValue; const PropName: string);
+begin
+  if Value.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ACCESS_PROPERTY, [PropName]));
+end;
+
 function TJSInterpreter.VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
 begin
   const ObjValue = Visit(Node.Object_);
@@ -1929,6 +2012,8 @@ begin
     PropName := VisitText(Node.Property_)
   else
     PropName := TJSIdentifier(Node.Property_).Name;
+
+  RequireObjectCoercible(ObjValue, PropName);
 
   if ObjValue.IsArray then
   begin
@@ -2091,7 +2176,7 @@ begin
   RegisterScope(FCurrentScope);
   Inc(FCallDepth);
   try
-    FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args)));
+    FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args, Func)));
 
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
@@ -2248,6 +2333,8 @@ begin
     PropName := VisitText(Node.Property_)
   else
     PropName := TJSIdentifier(Node.Property_).Name;
+
+  RequireObjectCoercible(ObjValue, PropName);
 
   if ObjValue.IsArray then
   begin

@@ -53,6 +53,7 @@ type
     class function StringSplit(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringToLowerCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringToUpperCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringLocaleCompare(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -129,6 +130,9 @@ const
   METHOD_SPLIT = 'split';
   METHOD_TO_LOWER_CASE = 'toLowerCase';
   METHOD_TO_UPPER_CASE = 'toUpperCase';
+  METHOD_TO_LOCALE_LOWER_CASE = 'toLocaleLowerCase';
+  METHOD_TO_LOCALE_UPPER_CASE = 'toLocaleUpperCase';
+  METHOD_LOCALE_COMPARE = 'localeCompare';
   METHOD_TRIM = 'trim';
   METHOD_TRIM_START = 'trimStart';
   METHOD_TRIM_LEFT = 'trimLeft';
@@ -1124,6 +1128,15 @@ begin
   Result := TJSValue.CreateString(UpperCase(Str));
 end;
 
+class function TJSBuiltins.StringLocaleCompare(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var Other := 'undefined';
+  if Length(Args) > 0 then
+    Other := Args[0].ToString;
+
+  Result := TJSValue.CreateNumber(Sign(CompareStr(Str, Other)));
+end;
+
 class function TJSBuiltins.StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
   Result := TJSValue.CreateString(Trim(Str));
@@ -1665,11 +1678,14 @@ begin
   if MethodName = METHOD_SPLIT then
     Exit(StringSplit(Str, Args, Limits));
 
-  if MethodName = METHOD_TO_LOWER_CASE then
+  if (MethodName = METHOD_TO_LOWER_CASE) or (MethodName = METHOD_TO_LOCALE_LOWER_CASE) then
     Exit(StringToLowerCase(Str, Args));
 
-  if MethodName = METHOD_TO_UPPER_CASE then
+  if (MethodName = METHOD_TO_UPPER_CASE) or (MethodName = METHOD_TO_LOCALE_UPPER_CASE) then
     Exit(StringToUpperCase(Str, Args));
+
+  if MethodName = METHOD_LOCALE_COMPARE then
+    Exit(StringLocaleCompare(Str, Args));
 
   if MethodName = METHOD_TRIM then
     Exit(StringTrim(Str, Args));
@@ -1790,7 +1806,8 @@ begin
              METHOD_SUBSTR, METHOD_SLICE, METHOD_SPLIT, METHOD_TO_LOWER_CASE, METHOD_TO_UPPER_CASE, METHOD_TRIM,
              METHOD_TRIM_START, METHOD_TRIM_LEFT, METHOD_TRIM_END, METHOD_TRIM_RIGHT, METHOD_REPLACE,
              METHOD_MATCH, METHOD_SEARCH, METHOD_CONCAT, METHOD_REPEAT, METHOD_STARTS_WITH, METHOD_ENDS_WITH,
-             METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF];
+             METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF,
+             METHOD_TO_LOCALE_LOWER_CASE, METHOD_TO_LOCALE_UPPER_CASE, METHOD_LOCALE_COMPARE];
 end;
 
 class function TJSBuiltins.NumberMethodNames: TArray<string>;

@@ -34,6 +34,7 @@ type
     function ObjectIsPrototypeOf(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function ErrorToString(const This: IJSObject): TJSValue;
     function RegExpToString(const This: IJSObject): TJSValue;
+    function RegExpExec(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function FunctionToString(const This: IJSObject): TJSValue;
 
     function CallStringMethod(const This: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -65,6 +66,8 @@ const
   METHOD_VALUE_OF = 'valueOf';
   METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_IS_PROTOTYPE_OF = 'isPrototypeOf';
+  METHOD_EXEC = 'exec';
+  METHOD_TEST = 'test';
   TYPE_NAME_STRING = 'String';
   TYPE_NAME_NUMBER = 'Number';
   TYPE_NAME_BOOLEAN = 'Boolean';
@@ -82,6 +85,8 @@ const
   CALLED_ON_INCOMPATIBLE_TYPE = '%s.prototype.%s called on an incompatible receiver';
   CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   NOT_A_REGEXP = 'RegExp.prototype.toString called on a value that is not a regular expression';
+  NOT_A_REGEXP_RECEIVER = 'RegExp.prototype method called on a value that is not a regular expression';
+  UNDEFINED_TEXT = 'undefined';
   NOT_A_FUNCTION = 'Function.prototype.toString called on a value that is not a function';
   ERROR_TO_STRING_ON_NON_OBJECT = 'Error.prototype.toString called on a value that is not an object';
   REGEXP_FORMAT = '/%s/%s';
@@ -340,6 +345,19 @@ begin
   Result := TJSValue.CreateString(SourceText);
 end;
 
+function TJSPrototypeMethods.RegExpExec(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var RegExpObj: IJSRegExp;
+  if not Supports(This, IJSRegExp, RegExpObj) then
+    raise TJSErrorFactory.TypeError(NOT_A_REGEXP_RECEIVER);
+
+  var Subject := UNDEFINED_TEXT;
+  if Length(Args) > 0 then
+    Subject := ValueToText(Args[0]);
+
+  Result := RegExpObj.Exec(Subject);
+end;
+
 function TJSPrototypeMethods.FunctionToString(const This: IJSObject): TJSValue;
 begin
   var Func: IJSFunction;
@@ -463,6 +481,19 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := RegExpToString(This);
+    end);
+
+  DefineMethod(PrototypeObj, METHOD_EXEC,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := RegExpExec(This, Args);
+    end);
+
+  DefineMethod(PrototypeObj, METHOD_TEST,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Matched = RegExpExec(This, Args);
+      Result := TJSValue.CreateBoolean(not Matched.IsNull);
     end);
 end;
 

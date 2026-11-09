@@ -61,7 +61,9 @@ type
     procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
     function GlobalPrototype(const ConstructorName: string): IJSObject;
     procedure LinkIntrinsicPrototypes;
+    procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
+    function BuildFunctionSource(const Args: TArray<TJSValue>): string;
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
@@ -143,7 +145,9 @@ const
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
-  FUNCTION_CONSTRUCTOR_UNSUPPORTED = 'The Function constructor is not supported';
+  FUNCTION_CALLER = 'caller';
+  FUNCTION_ARGUMENTS = 'arguments';
+  FUNCTION_SOURCE_FORMAT = '(function (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
   NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
   NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
   NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
@@ -1591,7 +1595,7 @@ begin
   const FunctionObj = TJSFunction.CreateNative(FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      raise TJSErrorFactory.TypeError(FUNCTION_CONSTRUCTOR_UNSUPPORTED);
+      Result := FInterpreter.CreateFunctionFromSource(BuildFunctionSource(Args));
     end);
 
   const PrototypeObj = TJSObject.Create;
@@ -1605,6 +1609,28 @@ begin
   FunctionObj.SetProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
 
   FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
+end;
+
+function TJSEngine.BuildFunctionSource(const Args: TArray<TJSValue>): string;
+begin
+  var Body := '';
+  var Parameters := '';
+
+  const HasArguments = (Length(Args) > 0);
+  if HasArguments then
+  begin
+    Body := Args[High(Args)].ToString;
+
+    for var Index := 0 to High(Args) - 1 do
+    begin
+      if Index > 0 then
+        Parameters := Parameters + ',';
+
+      Parameters := Parameters + Args[Index].ToString;
+    end;
+  end;
+
+  Result := Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
 end;
 
 function TJSEngine.CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
@@ -2250,6 +2276,23 @@ begin
   FInterpreter.ArrayPrototype := GlobalPrototype(ARRAY_NAME);
   FInterpreter.FunctionPrototype := GlobalPrototype(FUNCTION_NAME);
   FInterpreter.RegExpPrototype := GlobalPrototype(REGEXP_NAME);
+
+  DefineRestrictedFunctionProperties(GlobalPrototype(FUNCTION_NAME));
+end;
+
+procedure TJSEngine.DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
+begin
+  const Poison = TJSValue.CreateObject(FInterpreter.ThrowTypeErrorFunction);
+
+  for var PropertyName in [FUNCTION_CALLER, FUNCTION_ARGUMENTS] do
+  begin
+    var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateUndefined);
+    Descriptor.IsAccessor := True;
+    Descriptor.Getter := Poison;
+    Descriptor.Setter := Poison;
+    Descriptor.Enumerable := False;
+    PrototypeObj.DefineProperty(PropertyName, Descriptor);
+  end;
 end;
 
 end.

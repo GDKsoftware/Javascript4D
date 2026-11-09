@@ -112,6 +112,9 @@
         <DCCReference Include="JS4D.Tests.PropertyDescriptors.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMethods.pas"/>
         <DCCReference Include="JS4D.Tests.Eval.pas"/>
+        <DCCReference Include="JS4D.Tests.FunctionConstructor.pas"/>
+        <DCCReference Include="JS4D.Tests.MemberAccess.pas"/>
+        <DCCReference Include="JS4D.Tests.RestrictedProperties.pas"/>
         <DCCReference Include="JS4D.Tests.IdentifierNames.pas"/>
         <DCCReference Include="JS4D.Tests.PrimitiveWrappers.pas"/>
         <DCCReference Include="JS4D.Tests.AssignmentTargets.pas"/>
