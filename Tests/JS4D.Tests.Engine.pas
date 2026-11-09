@@ -122,6 +122,17 @@ type
     procedure Execute_UndeclaredIdentifier_RaisesReferenceError;
 
     [Test]
+    [TestCase('VarInIfBlock', '(function () { if (true) { var t = 1; } return t; })(),1')]
+    [TestCase('VarRedeclaredInBlock', '(function () { var t = 0; if (true) { var t = 5; } return t; })(),5')]
+    [TestCase('VarInForInit', '(function () { for (var i = 0; i < 3; i++) {} return i; })(),3')]
+    [TestCase('VarInForIn', '(function () { for (var k in {a: 1}) {} return k; })(),a')]
+    [TestCase('VarInCatchBlock', '(function () { try { throw 1; } catch (e) { var m = e; } return m; })(),1')]
+    [TestCase('VarReadBeforeDeclaration', '(function () { var before = x; var x = 1; return before; })(),undefined')]
+    [TestCase('FunctionCalledBeforeDeclaration', '(function () { return f(); function f() { return 42; } })(),42')]
+    [TestCase('UndeclaredAssignmentGoesGlobal', '(function () { g = 9; })(); g,9')]
+    procedure Execute_VarScoping_FollowsFunctionScope(const Script: string; const Expected: string);
+
+    [Test]
     procedure Execute_DateRelationalComparison_UsesTimestamp;
 
     [Test]
@@ -400,6 +411,13 @@ begin
       FEngine.Evaluate('notDeclared');
     end,
     EJSReferenceError);
+end;
+
+procedure TEngineTests.Execute_VarScoping_FollowsFunctionScope(const Script: string; const Expected: string);
+begin
+  const Result = FEngine.Evaluate(Script);
+
+  Assert.AreEqual(Expected, Result.ToString);
 end;
 
 procedure TEngineTests.Execute_DateRelationalComparison_UsesTimestamp;

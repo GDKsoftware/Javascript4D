@@ -102,6 +102,7 @@ type
     function Visit(const Node: TJSASTNode): TJSValue;
 
     function VisitProgram(const Node: TJSProgram): TJSValue;
+    procedure HoistDeclarations(const Node: TJSASTNode);
     function VisitBlockStatement(const Node: TJSBlockStatement): TJSValue;
     function VisitVariableDeclaration(const Node: TJSVariableDeclaration): TJSValue;
     function VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
@@ -274,6 +275,8 @@ begin
 
   if Assigned(ResolvedScope) then
     ResolvedScope.DeclareVariable(Name, Value)
+  else if Assigned(FParent) then
+    FParent.SetVariable(Name, Value)
   else
     FVariables.AddOrSetValue(Name, Value);
 end;
@@ -560,7 +563,71 @@ begin
 
   for var Statement in Node.Body do
   begin
+    HoistDeclarations(Statement);
+  end;
+
+  for var Statement in Node.Body do
+  begin
     Result := ExecuteStatement(Statement);
+  end;
+end;
+
+procedure TJSInterpreter.HoistDeclarations(const Node: TJSASTNode);
+begin
+  if Node = nil then
+    Exit;
+
+  case Node.NodeType of
+    TJSASTNodeType.VariableDeclaration:
+      for var Declarator in TJSVariableDeclaration(Node).Declarations do
+      begin
+        if FCurrentScope.Resolve(Declarator.Id.Name) <> FCurrentScope then
+          FCurrentScope.DeclareVariable(Declarator.Id.Name, TJSValue.CreateUndefined);
+      end;
+    TJSASTNodeType.FunctionDeclaration:
+      VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
+    TJSASTNodeType.BlockStatement:
+      for var Statement in TJSBlockStatement(Node).Body do
+      begin
+        HoistDeclarations(Statement);
+      end;
+    TJSASTNodeType.IfStatement:
+      begin
+        HoistDeclarations(TJSIfStatement(Node).Consequent);
+        HoistDeclarations(TJSIfStatement(Node).Alternate);
+      end;
+    TJSASTNodeType.WhileStatement:
+      HoistDeclarations(TJSWhileStatement(Node).Body);
+    TJSASTNodeType.DoWhileStatement:
+      HoistDeclarations(TJSDoWhileStatement(Node).Body);
+    TJSASTNodeType.ForStatement:
+      begin
+        HoistDeclarations(TJSForStatement(Node).Init);
+        HoistDeclarations(TJSForStatement(Node).Body);
+      end;
+    TJSASTNodeType.ForInStatement:
+      begin
+        HoistDeclarations(TJSForInStatement(Node).Left);
+        HoistDeclarations(TJSForInStatement(Node).Body);
+      end;
+    TJSASTNodeType.TryStatement:
+      begin
+        const TryNode = TJSTryStatement(Node);
+        HoistDeclarations(TryNode.Block);
+
+        if Assigned(TryNode.Handler) then
+          HoistDeclarations(TryNode.Handler.Body);
+
+        HoistDeclarations(TryNode.Finalizer);
+      end;
+    TJSASTNodeType.SwitchStatement:
+      for var SwitchCase in TJSSwitchStatement(Node).Cases do
+      begin
+        for var Statement in SwitchCase.Consequent do
+        begin
+          HoistDeclarations(Statement);
+        end;
+      end;
   end;
 end;
 
@@ -568,14 +635,9 @@ function TJSInterpreter.VisitBlockStatement(const Node: TJSBlockStatement): TJSV
 begin
   Result := TJSValue.CreateUndefined;
 
-  PushScope;
-  try
-    for var Statement in Node.Body do
-    begin
-      Result := ExecuteStatement(Statement);
-    end;
-  finally
-    PopScope;
+  for var Statement in Node.Body do
+  begin
+    Result := ExecuteStatement(Statement);
   end;
 end;
 
@@ -583,14 +645,8 @@ function TJSInterpreter.VisitVariableDeclaration(const Node: TJSVariableDeclarat
 begin
   for var Declarator in Node.Declarations do
   begin
-    var InitValue: TJSValue;
-
     if Assigned(Declarator.Init) then
-      InitValue := Visit(Declarator.Init)
-    else
-      InitValue := TJSValue.CreateUndefined;
-
-    FCurrentScope.DeclareVariable(Declarator.Id.Name, InitValue);
+      FCurrentScope.SetVariable(Declarator.Id.Name, Visit(Declarator.Init));
   end;
 
   Result := TJSValue.CreateUndefined;
@@ -674,40 +730,35 @@ function TJSInterpreter.VisitForStatement(const Node: TJSForStatement): TJSValue
 begin
   Result := TJSValue.CreateUndefined;
 
-  PushScope;
-  try
-    if Assigned(Node.Init) then
-      Visit(Node.Init);
+  if Assigned(Node.Init) then
+    Visit(Node.Init);
 
-    while True do
+  while True do
+  begin
+    if Assigned(Node.Test) then
     begin
-      if Assigned(Node.Test) then
-      begin
-        const TestValue = Visit(Node.Test);
+      const TestValue = Visit(Node.Test);
 
-        if not TestValue.ToBoolean then
-          Break;
-      end;
-
-      try
-        Result := ExecuteStatement(Node.Body);
-      except
-        on TJSBreakSignal do
-          Break;
-        on TJSContinueSignal do
-          begin
-            if Assigned(Node.Update) then
-              Visit(Node.Update);
-
-            Continue;
-          end;
-      end;
-
-      if Assigned(Node.Update) then
-        Visit(Node.Update);
+      if not TestValue.ToBoolean then
+        Break;
     end;
-  finally
-    PopScope;
+
+    try
+      Result := ExecuteStatement(Node.Body);
+    except
+      on TJSBreakSignal do
+        Break;
+      on TJSContinueSignal do
+        begin
+          if Assigned(Node.Update) then
+            Visit(Node.Update);
+
+          Continue;
+        end;
+    end;
+
+    if Assigned(Node.Update) then
+      Visit(Node.Update);
   end;
 end;
 
@@ -723,34 +774,29 @@ begin
   const Obj = RightValue.ToObject;
   const PropertyNames = Obj.GetOwnPropertyNames;
 
-  PushScope;
-  try
-    for var PropName in PropertyNames do
+  for var PropName in PropertyNames do
+  begin
+    if Node.Left is TJSVariableDeclaration then
     begin
-      if Node.Left is TJSVariableDeclaration then
-      begin
-        const VarDecl = TJSVariableDeclaration(Node.Left);
+      const VarDecl = TJSVariableDeclaration(Node.Left);
 
-        if VarDecl.Declarations.Count > 0 then
-          FCurrentScope.DeclareVariable(VarDecl.Declarations[0].Id.Name, TJSValue.CreateString(PropName));
-      end
-      else if Node.Left is TJSIdentifier then
-      begin
-        const Identifier = TJSIdentifier(Node.Left);
-        FCurrentScope.SetVariable(Identifier.Name, TJSValue.CreateString(PropName));
-      end;
-
-      try
-        Result := ExecuteStatement(Node.Body);
-      except
-        on TJSBreakSignal do
-          Break;
-        on TJSContinueSignal do
-          Continue;
-      end;
+      if VarDecl.Declarations.Count > 0 then
+        FCurrentScope.SetVariable(VarDecl.Declarations[0].Id.Name, TJSValue.CreateString(PropName));
+    end
+    else if Node.Left is TJSIdentifier then
+    begin
+      const Identifier = TJSIdentifier(Node.Left);
+      FCurrentScope.SetVariable(Identifier.Name, TJSValue.CreateString(PropName));
     end;
-  finally
-    PopScope;
+
+    try
+      Result := ExecuteStatement(Node.Body);
+    except
+      on TJSBreakSignal do
+        Break;
+      on TJSContinueSignal do
+        Continue;
+    end;
   end;
 end;
 
@@ -1762,6 +1808,8 @@ begin
       else
         FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
     end;
+
+    HoistDeclarations(TJSASTNode(Func.BodyNode));
 
     try
       Visit(TJSASTNode(Func.BodyNode));
