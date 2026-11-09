@@ -104,6 +104,7 @@
         <DCCReference Include="JS4D.Tests.Parser.pas"/>
         <DCCReference Include="JS4D.Tests.Cancellation.pas"/>
         <DCCReference Include="JS4D.Tests.Limits.pas"/>
+        <DCCReference Include="JS4D.Tests.Prototypes.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

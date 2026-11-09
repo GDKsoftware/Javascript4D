@@ -88,6 +88,10 @@ type
     procedure PopScope;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterScope(const Scope: IJSScope);
+    procedure AttachPrototype(const Func: IJSFunction);
+    procedure DetachProperties(const Func: IJSFunction);
+    function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
+    function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
 
     procedure BeginExecution;
     procedure ConsumeStep; inline;
@@ -178,6 +182,8 @@ const
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
   LENGTH_PROPERTY = 'length';
+  PROTOTYPE_PROPERTY = 'prototype';
+  CONSTRUCTOR_PROPERTY = 'constructor';
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
@@ -353,6 +359,7 @@ begin
   begin
     Func.ClosureScope := nil;
     Func.NativeFunction := nil;
+    DetachProperties(Func);
   end;
   FFunctionRegistry.Free;
 
@@ -381,6 +388,56 @@ procedure TJSInterpreter.RegisterScope(const Scope: IJSScope);
 begin
   if not FScopeRegistry.Contains(Scope) then
     FScopeRegistry.Add(Scope);
+end;
+
+procedure TJSInterpreter.AttachPrototype(const Func: IJSFunction);
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+
+  var ConstructorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func as IJSObject));
+  ConstructorDescriptor.Enumerable := False;
+  PrototypeObj.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
+
+  var PrototypeDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(PrototypeObj));
+  PrototypeDescriptor.Enumerable := False;
+  PrototypeDescriptor.Configurable := False;
+  Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
+end;
+
+procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
+begin
+  for var PropName in Func.GetOwnPropertyNames do
+  begin
+    Func.DeleteProperty(PropName);
+  end;
+end;
+
+function TJSInterpreter.IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
+begin
+  Result := False;
+
+  const PrototypeValue = Constructor_.GetProperty(PROTOTYPE_PROPERTY);
+  if not PrototypeValue.IsObject then
+    Exit;
+
+  const TargetPrototype = PrototypeValue.ToObject;
+  var Current := Instance.Prototype;
+  while Assigned(Current) do
+  begin
+    if (Current as IInterface) = (TargetPrototype as IInterface) then
+      Exit(True);
+
+    Current := Current.Prototype;
+  end;
+end;
+
+function TJSInterpreter.CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
+begin
+  Result := TJSObject.Create;
+
+  const PrototypeValue = Constructor_.GetProperty(PROTOTYPE_PROPERTY);
+  if PrototypeValue.IsObject then
+    Result.Prototype := PrototypeValue.ToObject;
 end;
 
 procedure TJSInterpreter.PushScope;
@@ -670,6 +727,7 @@ begin
 
   Func.Parameters := Params;
   RegisterFunction(Func);
+  AttachPrototype(Func);
 
   FCurrentScope.DeclareVariable(Node.Id.Name, TJSValue.CreateObject(Func));
 
@@ -1076,6 +1134,7 @@ begin
 
   Func.Parameters := Params;
   RegisterFunction(Func);
+  AttachPrototype(Func);
 
   Result := TJSValue.CreateObject(Func);
 end;
@@ -1284,6 +1343,12 @@ begin
           Exit;
         end;
         const RightName = RightFunc.Name;
+
+        if IsInPrototypeChain(LeftObj, RightFunc) then
+        begin
+          Result := TJSValue.CreateBoolean(True);
+          Exit;
+        end;
 
         var ErrorIntf: IJSError;
         if Supports(LeftObj, IJSError, ErrorIntf) then
@@ -1713,7 +1778,7 @@ begin
   if not Supports(CalleeValue.ToObject, IJSFunction, Func) then
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
-  const NewObj: IJSObject = TJSObject.Create;
+  const NewObj = CreateInstanceFor(Func);
 
   var Args: TArray<TJSValue>;
   SetLength(Args, Node.Arguments.Count);
@@ -2114,6 +2179,7 @@ begin
         FFunctionPrograms.Remove(Pointer(Func as IInterface));
         Func.ClosureScope := nil;
         Func.NativeFunction := nil;
+        DetachProperties(Func);
         FFunctionRegistry.Delete(Index);
       end;
     end;
