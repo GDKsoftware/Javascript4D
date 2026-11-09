@@ -48,6 +48,24 @@ type
     procedure FunctionLength_BoundFunction_NeverNegative;
 
     [Test]
+    procedure FunctionName_DeclaredFunction_IsDeclaredName;
+
+    [Test]
+    procedure FunctionName_AnonymousFunctionExpression_IsEmptyString;
+
+    [Test]
+    procedure FunctionName_IsOwnReadOnlyNonEnumerableProperty;
+
+    [Test]
+    procedure FunctionName_AssignmentIsIgnored;
+
+    [Test]
+    procedure NativeName_MethodsAndConstructors_MatchPropertyKey;
+
+    [Test]
+    procedure NativeName_IsOwnReadOnlyNonEnumerableProperty;
+
+    [Test]
     procedure NativeLength_ArrayPrototypeMethods_MatchSpecification;
 
     [Test]
@@ -141,6 +159,50 @@ end;
 procedure TBuiltinAttributeTests.FunctionLength_BoundFunction_NeverNegative;
 begin
   Assert.AreEqual(0.0, EvaluateNumber('(function (a) {}).bind(null, 1, 2, 3).length'));
+end;
+
+procedure TBuiltinAttributeTests.FunctionName_DeclaredFunction_IsDeclaredName;
+begin
+  Assert.IsTrue(EvaluateBoolean('function foo() {} foo.name === "foo"'));
+end;
+
+procedure TBuiltinAttributeTests.FunctionName_AnonymousFunctionExpression_IsEmptyString;
+begin
+  Assert.IsTrue(EvaluateBoolean('(function () {}).hasOwnProperty("name") && (function () {}).name === ""'));
+end;
+
+procedure TBuiltinAttributeTests.FunctionName_IsOwnReadOnlyNonEnumerableProperty;
+begin
+  const Script =
+    'function foo() {}' + sLineBreak +
+    'var d = Object.getOwnPropertyDescriptor(foo, "name");' + sLineBreak +
+    'foo.hasOwnProperty("name") && d.value === "foo" && !d.writable && !d.enumerable && d.configurable';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TBuiltinAttributeTests.FunctionName_AssignmentIsIgnored;
+begin
+  Assert.IsTrue(EvaluateBoolean('function foo() {} foo.name = "bar"; foo.name === "foo"'));
+end;
+
+procedure TBuiltinAttributeTests.NativeName_MethodsAndConstructors_MatchPropertyKey;
+begin
+  const Script =
+    'Array.prototype.join.name === "join" && Array.name === "Array" && Math.max.name === "max" &&' +
+    ' parseInt.name === "parseInt" && TypeError.name === "TypeError" && Date.UTC.name === "UTC" &&' +
+    ' String.prototype.split.name === "split" && Object.defineProperty.name === "defineProperty"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TBuiltinAttributeTests.NativeName_IsOwnReadOnlyNonEnumerableProperty;
+begin
+  const Script =
+    'var d = Object.getOwnPropertyDescriptor(Array.prototype.join, "name");' + sLineBreak +
+    'd.value === "join" && !d.writable && !d.enumerable && d.configurable';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_ArrayPrototypeMethods_MatchSpecification;

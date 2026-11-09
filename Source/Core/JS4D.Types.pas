@@ -381,6 +381,7 @@ type
     destructor Destroy; override;
 
     class procedure DefineLength(const Target: IJSObject; const Count: Integer); static;
+    class procedure DefineName(const Target: IJSObject; const Name: string); static;
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
@@ -1516,6 +1517,7 @@ begin
   inherited Create;
   FIsNative := False;
   FIsConstructor := True;
+  DefineName(Self, '');
 end;
 
 constructor TJSFunctionImpl.CreateNative(const Name: string; const Func: TNativeFunction);
@@ -1525,6 +1527,7 @@ begin
   FNativeFunction := Func;
   FIsNative := True;
   FIsConstructor := True;
+  DefineName(Self, Name);
 end;
 
 destructor TJSFunctionImpl.Destroy;
@@ -1542,6 +1545,7 @@ end;
 procedure TJSFunctionImpl.SetName(const Value: string);
 begin
   FName := Value;
+  DefineName(Self, Value);
 end;
 
 function TJSFunctionImpl.GetParameters: TArray<string>;
@@ -1562,6 +1566,15 @@ begin
   Descriptor.Enumerable := False;
   Descriptor.Configurable := True;
   Target.DefineProperty(LENGTH_PROPERTY, Descriptor);
+end;
+
+class procedure TJSFunctionImpl.DefineName(const Target: IJSObject; const Name: string);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateString(Name));
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Target.DefineProperty(PROP_NAME, Descriptor);
 end;
 
 function TJSFunctionImpl.GetBodyNode: TObject;
