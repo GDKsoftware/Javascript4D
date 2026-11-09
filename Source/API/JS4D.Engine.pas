@@ -21,6 +21,7 @@ uses
   JS4D.PropertyDescriptors,
   JS4D.PrototypeMethods,
   JS4D.DateBuiltins,
+  JS4D.BuiltinAttributes,
   JS4D.Json,
   JS4D.Errors;
 
@@ -63,6 +64,7 @@ type
     procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
     function GlobalPrototype(const ConstructorName: string): IJSObject;
     procedure LinkIntrinsicPrototypes;
+    procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
     function BuildFunctionSource(const Args: TArray<TJSValue>): string;
@@ -715,6 +717,17 @@ begin
   RegisterFunctionObject;
   RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
+  ApplyBuiltinAttributes;
+end;
+
+procedure TJSEngine.ApplyBuiltinAttributes;
+begin
+  const Attributes = TJSBuiltinAttributes.Create(FInterpreter);
+  try
+    Attributes.Apply;
+  finally
+    Attributes.Free;
+  end;
 end;
 
 procedure TJSEngine.RegisterConsole;

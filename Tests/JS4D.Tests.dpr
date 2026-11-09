@@ -40,7 +40,8 @@ uses
   JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
   JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
-  JS4D.Tests.Date in 'JS4D.Tests.Date.pas';
+  JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
+  JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas';
 
 var
   Runner: ITestRunner;

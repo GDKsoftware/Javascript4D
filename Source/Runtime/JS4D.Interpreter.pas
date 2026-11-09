@@ -190,6 +190,7 @@ type
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
+    function BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
 
   public
     constructor Create;
@@ -595,6 +596,20 @@ function TJSInterpreter.WrapPrimitive(const Value: TJSValue): IJSObject;
 begin
   Result := TJSPrimitiveWrapper.Create(Value);
   Result.Prototype := PrimitivePrototypeFor(Value);
+end;
+
+function TJSInterpreter.BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
+begin
+  const TargetLength = Target.GetProperty(LENGTH_PROPERTY);
+  if not TargetLength.IsNumber then
+    Exit(0);
+
+  const LengthNumber = TargetLength.AsNumber;
+  const IsUsableLength = not (IsNaN(LengthNumber) or IsInfinite(LengthNumber));
+  if not IsUsableLength then
+    Exit(0);
+
+  Result := Max(0, Trunc(LengthNumber) - BoundArgumentCount);
 end;
 
 function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
@@ -2387,6 +2402,7 @@ begin
 
     BoundFunc.ClosureScope := nil;
     BoundFunc.IsConstructor := OriginalFunc.IsConstructor;
+    TJSFunction.DefineLength(BoundFunc, BoundLength(OriginalFunc, Length(CapturedArgs)));
     RegisterFunction(BoundFunc);
     var BoundInfo: TJSBoundFunction;
     BoundInfo.Target := OriginalFunc;

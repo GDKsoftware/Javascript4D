@@ -378,6 +378,8 @@ type
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
     destructor Destroy; override;
 
+    class procedure DefineLength(const Target: IJSObject; const Count: Integer); static;
+
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
     property Name: string read GetName write SetName;
@@ -1223,12 +1225,16 @@ begin
   if FProperties.TryGetValue(Name, Descriptor) then
   begin
     Descriptor.Value := Value;
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
     Descriptor.Configurable := False;
     FProperties[Name] := Descriptor;
   end
   else
   begin
     Descriptor := TJSPropertyDescriptor.Create(Value);
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
     Descriptor.Configurable := False;
     FProperties.Add(Name, Descriptor);
     FOrderedKeys.Add(Name);
@@ -1520,6 +1526,16 @@ end;
 procedure TJSFunctionImpl.SetParameters(const Value: TArray<string>);
 begin
   FParameters := Value;
+  DefineLength(Self, Length(Value));
+end;
+
+class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Count));
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Target.DefineProperty(LENGTH_PROPERTY, Descriptor);
 end;
 
 function TJSFunctionImpl.GetBodyNode: TObject;
