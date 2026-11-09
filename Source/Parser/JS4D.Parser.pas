@@ -13,6 +13,11 @@ uses
   JS4D.Errors;
 
 type
+  TJSLabelInfo = record
+    Name: string;
+    LabelsIteration: Boolean;
+  end;
+
   TJSParser = class
   private
     FLexer: TJSLexer;
@@ -20,6 +25,10 @@ type
     FPreviousTokenLine: Integer;
     FStrictMode: Boolean;
     FInOperatorAllowed: Boolean;
+    FActiveLabels: TList<TJSLabelInfo>;
+    FLabelScopeStart: Integer;
+    FLoopDepth: Integer;
+    FSwitchDepth: Integer;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -39,6 +48,11 @@ type
     function ParseIfStatement: TJSIfStatement;
     function ParseWhileStatement: TJSWhileStatement;
     function ParseDoWhileStatement: TJSDoWhileStatement;
+    function ParseLoopBody: TJSStatement;
+    function ParseLabeledStatement: TJSLabeledStatement;
+    function LabelsIterationStatement: Boolean;
+    function FindActiveLabel(const LabelName: string): Integer;
+    function ParseJumpLabel(const KeywordToken: TJSToken): string;
     function ParseWithStatement: TJSWithStatement;
     function ParseWithBody: TJSStatement;
     function StartsWithDeclaration: Boolean;
@@ -108,6 +122,9 @@ const
   TRUE_VALUE = 'true';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
+  UndefinedLabelMessage = 'Undefined label ''%s''';
+  DuplicateLabelMessage = 'Label ''%s'' has already been declared';
+  ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
 
 { TJSParser }
 
@@ -118,6 +135,7 @@ begin
   FLexer.Tokenize;
   FOwnsLexer := True;
   FInOperatorAllowed := True;
+  FActiveLabels := TList<TJSLabelInfo>.Create;
 end;
 
 constructor TJSParser.Create(const Lexer: TJSLexer);
@@ -126,10 +144,13 @@ begin
   FLexer := Lexer;
   FOwnsLexer := False;
   FInOperatorAllowed := True;
+  FActiveLabels := TList<TJSLabelInfo>.Create;
 end;
 
 destructor TJSParser.Destroy;
 begin
+  FActiveLabels.Free;
+
   if FOwnsLexer then
     FLexer.Free;
 
@@ -223,6 +244,11 @@ end;
 
 function TJSParser.ParseStatement: TJSStatement;
 begin
+  const StartsLabel = (Check(TJSTokenType.Identifier) and
+                       (FLexer.PeekToken(1).TokenType = TJSTokenType.Colon));
+  if StartsLabel then
+    Exit(ParseLabeledStatement);
+
   case CurrentToken.TokenType of
     TJSTokenType.LeftBrace:
       Result := ParseBlockStatement;
@@ -401,7 +427,7 @@ begin
 
   Expect(TJSTokenType.RightParen);
 
-  const Body = ParseStatement;
+  const Body = ParseLoopBody;
 
   Result := TJSWhileStatement.Create(Test, Body);
 end;
@@ -476,8 +502,16 @@ end;
 function TJSParser.ParseFunctionBodyBlock: TJSBlockStatement;
 begin
   const OldStrictMode = FStrictMode;
+  const OuterLabelScopeStart = FLabelScopeStart;
+  const OuterLoopDepth = FLoopDepth;
+  const OuterSwitchDepth = FSwitchDepth;
+
   if StartsWithUseStrictDirective then
     FStrictMode := True;
+
+  FLabelScopeStart := FActiveLabels.Count;
+  FLoopDepth := 0;
+  FSwitchDepth := 0;
   try
     const StartPosition = FLexer.Position;
     Result := ParseNestedBlockStatement;
@@ -485,6 +519,9 @@ begin
                                                               [ARGUMENTS_NAME, EVAL_NAME]);
   finally
     FStrictMode := OldStrictMode;
+    FLabelScopeStart := OuterLabelScopeStart;
+    FLoopDepth := OuterLoopDepth;
+    FSwitchDepth := OuterSwitchDepth;
   end;
 end;
 
@@ -492,7 +529,7 @@ function TJSParser.ParseDoWhileStatement: TJSDoWhileStatement;
 begin
   Expect(TJSTokenType.KeywordDo);
 
-  const Body = ParseStatement;
+  const Body = ParseLoopBody;
 
   Expect(TJSTokenType.KeywordWhile);
   Expect(TJSTokenType.LeftParen);
@@ -532,7 +569,7 @@ begin
       const Right = ParseExpression;
       Expect(TJSTokenType.RightParen);
 
-      const Body = ParseStatement;
+      const Body = ParseLoopBody;
 
       Exit(TJSForInStatement.Create(VarDecl, Right, Body));
     end;
@@ -585,7 +622,7 @@ begin
       const Right = ParseExpression;
       Expect(TJSTokenType.RightParen);
 
-      const Body = ParseStatement;
+      const Body = ParseLoopBody;
 
       Exit(TJSForInStatement.Create(Expr, Right, Body));
     end;
@@ -607,7 +644,7 @@ begin
 
   Expect(TJSTokenType.RightParen);
 
-  const Body = ParseStatement;
+  const Body = ParseLoopBody;
 
   Result := TJSForStatement.Create(Init, Test, Update, Body);
 end;
@@ -632,38 +669,135 @@ end;
 
 function TJSParser.ParseBreakStatement: TJSBreakStatement;
 begin
+  const KeywordToken = CurrentToken;
   Expect(TJSTokenType.KeywordBreak);
 
-  var LabelId: TJSIdentifier := nil;
-
-  if Check(TJSTokenType.Identifier) then
-  begin
-    const LabelName = CurrentToken.Value;
-    Advance;
-    LabelId := TJSIdentifier.Create(LabelName);
-  end;
+  const LabelName = ParseJumpLabel(KeywordToken);
+  const HasLabel = not LabelName.IsEmpty;
+  const IsInsideBreakable = ((FLoopDepth > 0) or (FSwitchDepth > 0));
+  if (not HasLabel) and (not IsInsideBreakable) then
+    raise TJSErrorFactory.SyntaxError('Illegal break statement', KeywordToken.Line, KeywordToken.Column);
 
   ExpectSemicolon;
+
+  var LabelId: TJSIdentifier := nil;
+  if HasLabel then
+    LabelId := TJSIdentifier.Create(LabelName);
 
   Result := TJSBreakStatement.Create(LabelId);
 end;
 
 function TJSParser.ParseContinueStatement: TJSContinueStatement;
 begin
+  const KeywordToken = CurrentToken;
   Expect(TJSTokenType.KeywordContinue);
 
-  var LabelId: TJSIdentifier := nil;
-
-  if Check(TJSTokenType.Identifier) then
+  const LabelName = ParseJumpLabel(KeywordToken);
+  const HasLabel = not LabelName.IsEmpty;
+  if HasLabel then
   begin
-    const LabelName = CurrentToken.Value;
-    Advance;
-    LabelId := TJSIdentifier.Create(LabelName);
+    const LabelIndex = FindActiveLabel(LabelName);
+    const LabelsLoop = FActiveLabels[LabelIndex].LabelsIteration;
+    if not LabelsLoop then
+      raise TJSErrorFactory.SyntaxError(Format(ContinueTargetNotLoopMessage, [LabelName]),
+        KeywordToken.Line, KeywordToken.Column);
+  end
+  else if FLoopDepth = 0 then
+  begin
+    raise TJSErrorFactory.SyntaxError('Illegal continue statement', KeywordToken.Line, KeywordToken.Column);
   end;
 
   ExpectSemicolon;
 
+  var LabelId: TJSIdentifier := nil;
+  if HasLabel then
+    LabelId := TJSIdentifier.Create(LabelName);
+
   Result := TJSContinueStatement.Create(LabelId);
+end;
+
+function TJSParser.ParseJumpLabel(const KeywordToken: TJSToken): string;
+begin
+  Result := '';
+
+  const IsLabelOnSameLine = (Check(TJSTokenType.Identifier) and (CurrentToken.Line = KeywordToken.Line));
+  if not IsLabelOnSameLine then
+    Exit;
+
+  Result := CurrentToken.Value;
+
+  const IsDeclared = (FindActiveLabel(Result) >= 0);
+  if not IsDeclared then
+    raise TJSErrorFactory.SyntaxError(Format(UndefinedLabelMessage, [Result]),
+      CurrentToken.Line, CurrentToken.Column);
+
+  Advance;
+end;
+
+function TJSParser.FindActiveLabel(const LabelName: string): Integer;
+begin
+  for var Index := FActiveLabels.Count - 1 downto FLabelScopeStart do
+  begin
+    if FActiveLabels[Index].Name = LabelName then
+      Exit(Index);
+  end;
+
+  Result := -1;
+end;
+
+function TJSParser.LabelsIterationStatement: Boolean;
+begin
+  var Offset := 0;
+
+  while (FLexer.PeekToken(Offset).TokenType = TJSTokenType.Identifier) and
+        (FLexer.PeekToken(Offset + 1).TokenType = TJSTokenType.Colon) do
+  begin
+    Inc(Offset, 2);
+  end;
+
+  Result := (FLexer.PeekToken(Offset).TokenType in [TJSTokenType.KeywordFor,
+                                                   TJSTokenType.KeywordWhile,
+                                                   TJSTokenType.KeywordDo]);
+end;
+
+function TJSParser.ParseLabeledStatement: TJSLabeledStatement;
+begin
+  const LabelToken = CurrentToken;
+  CheckStrictModeReservedWord(LabelToken.Value);
+
+  const IsDuplicate = (FindActiveLabel(LabelToken.Value) >= 0);
+  if IsDuplicate then
+    raise TJSErrorFactory.SyntaxError(Format(DuplicateLabelMessage, [LabelToken.Value]),
+      LabelToken.Line, LabelToken.Column);
+
+  var Info: TJSLabelInfo;
+  Info.Name := LabelToken.Value;
+  Info.LabelsIteration := LabelsIterationStatement;
+
+  Advance;
+  Expect(TJSTokenType.Colon);
+
+  if StartsWithDeclaration then
+    raise TJSErrorFactory.SyntaxError('Declaration is not allowed as the body of a labelled statement',
+      CurrentToken.Line, CurrentToken.Column);
+
+  FActiveLabels.Add(Info);
+  try
+    const Body = ParseStatement;
+    Result := TJSLabeledStatement.Create(Info.Name, Body);
+  finally
+    FActiveLabels.Delete(FActiveLabels.Count - 1);
+  end;
+end;
+
+function TJSParser.ParseLoopBody: TJSStatement;
+begin
+  Inc(FLoopDepth);
+  try
+    Result := ParseStatement;
+  finally
+    Dec(FLoopDepth);
+  end;
 end;
 
 function TJSParser.ParseSwitchStatement: TJSSwitchStatement;
@@ -678,6 +812,7 @@ begin
 
   Result := TJSSwitchStatement.Create(Discriminant);
 
+  Inc(FSwitchDepth);
   try
     while (not Check(TJSTokenType.RightBrace)) and (not IsAtEnd) do
     begin
@@ -704,7 +839,9 @@ begin
     end;
 
     Expect(TJSTokenType.RightBrace);
+    Dec(FSwitchDepth);
   except
+    Dec(FSwitchDepth);
     Result.Free;
     raise;
   end;

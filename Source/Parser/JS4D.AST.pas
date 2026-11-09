@@ -35,6 +35,7 @@ type
     TryStatement,
     EmptyStatement,
     WithStatement,
+    LabeledStatement,
     DebuggerStatement,
 
     Identifier,
@@ -641,6 +642,19 @@ type
     property Block: TJSBlockStatement read FBlock;
     property Handler: TJSCatchClause read FHandler;
     property Finalizer: TJSBlockStatement read FFinalizer;
+  end;
+
+  TJSLabeledStatement = class(TJSStatement)
+  private
+    FLabelName: string;
+    FBody: TJSStatement;
+
+  public
+    constructor Create(const LabelName: string; const Body: TJSStatement);
+    destructor Destroy; override;
+
+    property LabelName: string read FLabelName;
+    property Body: TJSStatement read FBody;
   end;
 
   TJSEmptyStatement = class(TJSStatement)
@@ -1268,6 +1282,21 @@ begin
   FBlock.Free;
   FHandler.Free;
   FFinalizer.Free;
+  inherited;
+end;
+
+{ TJSLabeledStatement }
+
+constructor TJSLabeledStatement.Create(const LabelName: string; const Body: TJSStatement);
+begin
+  inherited Create(TJSASTNodeType.LabeledStatement);
+  FLabelName := LabelName;
+  FBody := Body;
+end;
+
+destructor TJSLabeledStatement.Destroy;
+begin
+  FBody.Free;
   inherited;
 end;
 

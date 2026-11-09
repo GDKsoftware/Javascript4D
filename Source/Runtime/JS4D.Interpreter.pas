@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  System.StrUtils,
   System.SyncObjs,
   System.Generics.Collections,
   JS4D.Types,
@@ -44,8 +45,21 @@ type
 
   EJSControlFlowSignal = class(EAbort);
 
-  TJSBreakSignal = class(EJSControlFlowSignal);
-  TJSContinueSignal = class(EJSControlFlowSignal);
+  TJSJumpSignal = class(EJSControlFlowSignal)
+  private
+    FTargetLabel: string;
+
+  public
+    constructor Create(const TargetLabel: string);
+
+    function IsLabelled: Boolean;
+    function AppliesTo(const OwnLabels: TArray<string>): Boolean;
+
+    property TargetLabel: string read FTargetLabel;
+  end;
+
+  TJSBreakSignal = class(TJSJumpSignal);
+  TJSContinueSignal = class(TJSJumpSignal);
 
   TJSReturnSignal = class(EJSControlFlowSignal)
   private
@@ -105,6 +119,7 @@ type
     FProgramParser: TJSProgramParser;
     FEvalFunction: IJSFunction;
     FDirectEvalCall: Boolean;
+    FLoopLabels: TArray<string>;
 
     procedure PushScope;
     procedure PopScope;
@@ -144,6 +159,8 @@ type
     function VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
     function VisitDoWhileStatement(const Node: TJSDoWhileStatement): TJSValue;
     function VisitWithStatement(const Node: TJSWithStatement): TJSValue;
+    function VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
+    function TakeLoopLabels: TArray<string>;
     function ToScopeObject(const Value: TJSValue): IJSObject;
     function WithObjectFor(const Callee: TJSExpression): IJSObject;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
@@ -370,6 +387,24 @@ begin
     Exit(FParent.Resolve(Name));
 
   Result := nil;
+end;
+
+{ TJSJumpSignal }
+
+constructor TJSJumpSignal.Create(const TargetLabel: string);
+begin
+  inherited Create('');
+  FTargetLabel := TargetLabel;
+end;
+
+function TJSJumpSignal.IsLabelled: Boolean;
+begin
+  Result := not FTargetLabel.IsEmpty;
+end;
+
+function TJSJumpSignal.AppliesTo(const OwnLabels: TArray<string>): Boolean;
+begin
+  Result := (not IsLabelled) or MatchStr(FTargetLabel, OwnLabels);
 end;
 
 { TJSReturnSignal }
@@ -754,6 +789,8 @@ begin
       Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
     TJSASTNodeType.WithStatement:
       Result := VisitWithStatement(TJSWithStatement(Node));
+    TJSASTNodeType.LabeledStatement:
+      Result := VisitLabeledStatement(TJSLabeledStatement(Node));
     TJSASTNodeType.ForStatement:
       Result := VisitForStatement(TJSForStatement(Node));
     TJSASTNodeType.ForInStatement:
@@ -933,6 +970,8 @@ begin
       HoistDeclarations(TJSDoWhileStatement(Node).Body);
     TJSASTNodeType.WithStatement:
       HoistDeclarations(TJSWithStatement(Node).Body);
+    TJSASTNodeType.LabeledStatement:
+      HoistDeclarations(TJSLabeledStatement(Node).Body);
     TJSASTNodeType.ForStatement:
       begin
         HoistDeclarations(TJSForStatement(Node).Init);
@@ -1071,8 +1110,45 @@ begin
     Result := ObjectScope.BindingObject;
 end;
 
+function TJSInterpreter.VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
+begin
+  const BodyIsLoop = (Node.Body.NodeType in [TJSASTNodeType.WhileStatement,
+                                             TJSASTNodeType.DoWhileStatement,
+                                             TJSASTNodeType.ForStatement,
+                                             TJSASTNodeType.ForInStatement]);
+  const BodyIsLabeled = (Node.Body.NodeType = TJSASTNodeType.LabeledStatement);
+
+  if BodyIsLoop or BodyIsLabeled then
+    FLoopLabels := FLoopLabels + [Node.LabelName]
+  else
+    FLoopLabels := nil;
+
+  Result := TJSValue.CreateUndefined;
+  try
+    try
+      Result := ExecuteStatement(Node.Body);
+    except
+      on Signal: TJSBreakSignal do
+      begin
+        const IsAddressedToOtherLabel = (Signal.TargetLabel <> Node.LabelName);
+        if IsAddressedToOtherLabel then
+          raise;
+      end;
+    end;
+  finally
+    FLoopLabels := nil;
+  end;
+end;
+
+function TJSInterpreter.TakeLoopLabels: TArray<string>;
+begin
+  Result := FLoopLabels;
+  FLoopLabels := nil;
+end;
+
 function TJSInterpreter.VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
 begin
+  const OwnLabels = TakeLoopLabels;
   Result := TJSValue.CreateUndefined;
 
   while Visit(Node.Test).ToBoolean do
@@ -1080,32 +1156,54 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on TJSBreakSignal do
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
+
         Break;
-      on TJSContinueSignal do
+      end;
+      on Signal: TJSContinueSignal do
+      begin
+        if not Signal.AppliesTo(OwnLabels) then
+          raise;
+
         Continue;
+      end;
     end;
   end;
 end;
 
 function TJSInterpreter.VisitDoWhileStatement(const Node: TJSDoWhileStatement): TJSValue;
 begin
+  const OwnLabels = TakeLoopLabels;
   Result := TJSValue.CreateUndefined;
 
   repeat
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on TJSBreakSignal do
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
+
         Break;
-      on TJSContinueSignal do
+      end;
+      on Signal: TJSContinueSignal do
+      begin
+        if not Signal.AppliesTo(OwnLabels) then
+          raise;
+
         Continue;
+      end;
     end;
   until not Visit(Node.Test).ToBoolean;
 end;
 
 function TJSInterpreter.VisitForStatement(const Node: TJSForStatement): TJSValue;
 begin
+  const OwnLabels = TakeLoopLabels;
   Result := TJSValue.CreateUndefined;
 
   if Assigned(Node.Init) then
@@ -1124,15 +1222,23 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on TJSBreakSignal do
-        Break;
-      on TJSContinueSignal do
-        begin
-          if Assigned(Node.Update) then
-            Visit(Node.Update);
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
 
-          Continue;
-        end;
+        Break;
+      end;
+      on Signal: TJSContinueSignal do
+      begin
+        if not Signal.AppliesTo(OwnLabels) then
+          raise;
+
+        if Assigned(Node.Update) then
+          Visit(Node.Update);
+
+        Continue;
+      end;
     end;
 
     if Assigned(Node.Update) then
@@ -1142,6 +1248,7 @@ end;
 
 function TJSInterpreter.VisitForInStatement(const Node: TJSForInStatement): TJSValue;
 begin
+  const OwnLabels = TakeLoopLabels;
   Result := TJSValue.CreateUndefined;
 
   const RightValue = Visit(TJSExpression(Node.Right));
@@ -1174,10 +1281,20 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on TJSBreakSignal do
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
+
         Break;
-      on TJSContinueSignal do
+      end;
+      on Signal: TJSContinueSignal do
+      begin
+        if not Signal.AppliesTo(OwnLabels) then
+          raise;
+
         Continue;
+      end;
     end;
   end;
 end;
@@ -1196,12 +1313,20 @@ end;
 
 function TJSInterpreter.VisitBreakStatement(const Node: TJSBreakStatement): TJSValue;
 begin
-  raise TJSBreakSignal.Create('');
+  var TargetLabel := '';
+  if Assigned(Node.LabelId) then
+    TargetLabel := Node.LabelId.Name;
+
+  raise TJSBreakSignal.Create(TargetLabel);
 end;
 
 function TJSInterpreter.VisitContinueStatement(const Node: TJSContinueStatement): TJSValue;
 begin
-  raise TJSContinueSignal.Create('');
+  var TargetLabel := '';
+  if Assigned(Node.LabelId) then
+    TargetLabel := Node.LabelId.Name;
+
+  raise TJSContinueSignal.Create(TargetLabel);
 end;
 
 function TJSInterpreter.VisitSwitchStatement(const Node: TJSSwitchStatement): TJSValue;
@@ -1239,8 +1364,13 @@ begin
           end;
         end;
       except
-        on TJSBreakSignal do
+        on Signal: TJSBreakSignal do
+        begin
+          if Signal.IsLabelled then
+            raise;
+
           Exit;
+        end;
       end;
 
       Break;
@@ -1261,8 +1391,13 @@ begin
         end;
       end;
     except
-      on TJSBreakSignal do
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
+
         Exit;
+      end;
     end;
   end;
 end;
