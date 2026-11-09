@@ -47,7 +47,8 @@ uses
   JS4D.Tests.FunctionDeclarations in 'JS4D.Tests.FunctionDeclarations.pas',
   JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas',
   JS4D.Tests.RegExpSyntax in 'JS4D.Tests.RegExpSyntax.pas',
-  JS4D.Tests.ObjectAccessors in 'JS4D.Tests.ObjectAccessors.pas';
+  JS4D.Tests.ObjectAccessors in 'JS4D.Tests.ObjectAccessors.pas',
+  JS4D.Tests.Operators in 'JS4D.Tests.Operators.pas';
 
 var
   Runner: ITestRunner;

@@ -39,6 +39,7 @@ type
     class procedure Define(const Target: IJSObject; const Name: string;
                            const Definition: TJSPropertyDefinition; const Limits: TJSLimits); static;
     class procedure DefineAll(const Target: IJSObject; const Properties: TJSValue; const Limits: TJSLimits); static;
+    class function CanPut(const Target: IJSObject; const Name: string): Boolean; static;
   end;
 
 implementation
@@ -162,6 +163,21 @@ begin
   begin
     Define(Target, Names[Index], Definitions[Index], Limits);
   end;
+end;
+
+class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name: string): Boolean;
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  if not Target.TryGetPropertyDescriptor(Name, Descriptor) then
+    Exit(Target.IsExtensible);
+
+  if Descriptor.IsAccessor then
+    Exit(Descriptor.Setter.IsFunction);
+
+  if not Descriptor.Writable then
+    Exit(False);
+
+  Result := Target.HasOwnProperty(Name) or Target.IsExtensible;
 end;
 
 end.
