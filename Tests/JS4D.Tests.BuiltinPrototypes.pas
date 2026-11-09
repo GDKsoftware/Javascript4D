@@ -60,7 +60,7 @@ type
     procedure ArrayPrototype_Map_CallsCallback;
 
     [Test]
-    procedure ArrayPrototype_Join_OnNonArray_ThrowsTypeError;
+    procedure ArrayPrototype_Join_OnNonArray_JoinsArrayLikeElements;
 
     [Test]
     procedure ObjectPrototype_HasOwnProperty_CalledOnObject;
@@ -180,14 +180,11 @@ begin
     FEngine.Evaluate('Array.prototype.map.call([1, 2], function (n) { return n * 2; }).join(",")').AsString);
 end;
 
-procedure TBuiltinPrototypeTests.ArrayPrototype_Join_OnNonArray_ThrowsTypeError;
+procedure TBuiltinPrototypeTests.ArrayPrototype_Join_OnNonArray_JoinsArrayLikeElements;
 begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FEngine.Evaluate('Array.prototype.join.call({})');
-    end,
-    EJSTypeError);
+  const Joined = FEngine.Evaluate('Array.prototype.join.call({ 0: "a", 1: "b", length: 2 })');
+
+  Assert.AreEqual('a,b', Joined.AsString);
 end;
 
 procedure TBuiltinPrototypeTests.ObjectPrototype_HasOwnProperty_CalledOnObject;

@@ -18,6 +18,7 @@ uses
   JS4D.GlobalScope,
   JS4D.PropertyDescriptors,
   JS4D.ArrayIteration,
+  JS4D.ArrayGeneric,
   JS4D.Operators;
 
 type
@@ -267,6 +268,7 @@ type
     function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
@@ -2626,6 +2628,17 @@ function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; con
 begin
   const Executor = CreateCallbackExecutor(MethodName, Args);
   Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype);
+end;
+
+function TJSInterpreter.ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var Context: TJSArrayGenericContext;
+  Context.ArrayPrototype := FArrayPrototype;
+  Context.ObjectPrototype := FObjectPrototype;
+  Context.Limits := FLimits;
+  Context.Executor := CreateCallbackExecutor(MethodName, Args);
+
+  Result := TJSArrayGeneric.Call(Target, MethodName, Args, Context);
 end;
 
 function TJSInterpreter.ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

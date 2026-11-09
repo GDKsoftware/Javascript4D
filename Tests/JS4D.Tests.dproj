@@ -134,6 +134,7 @@
         <DCCReference Include="JS4D.Tests.ObjectAccessors.pas"/>
         <DCCReference Include="JS4D.Tests.Operators.pas"/>
         <DCCReference Include="JS4D.Tests.UriCoding.pas"/>
+        <DCCReference Include="JS4D.Tests.GenericArrayMutators.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

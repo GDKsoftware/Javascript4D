@@ -9,7 +9,8 @@ uses
   System.Math,
   JS4D.Types,
   JS4D.Errors,
-  JS4D.Builtins;
+  JS4D.Builtins,
+  JS4D.ArrayLike;
 
 type
   TJSArrayIteration = class
@@ -25,23 +26,15 @@ type
       METHOD_INDEX_OF = 'indexOf';
       METHOD_LAST_INDEX_OF = 'lastIndexOf';
       LENGTH_PROPERTY = 'length';
-      VALUE_OF = 'valueOf';
-      TO_STRING = 'toString';
-      CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
       TWO_POW_32 = 4294967296.0;
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
       REDUCE_OF_EMPTY_ARRAY = 'Reduce of empty array with no initial value';
 
-    class function ToNumber(const Value: TJSValue): Double; static;
-    class function TryCallConversion(const Source: IJSObject; const MethodName: string;
-                                     out Primitive: TJSValue): Boolean; static;
     class function ToLength(const Target: IJSObject): Int64; static;
     class function ToIntegerClamped(const Value: TJSValue): Int64; static;
-    class function TryGetElement(const Target: IJSObject; const Index: Int64; out Element: TJSValue): Boolean; static;
     class function RequireCallback(const MethodName: string; const Args: TArray<TJSValue>): IJSFunction; static;
-    class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
     class function CallbackArguments(const Element: TJSValue; const Index: Int64;
                                      const Target: IJSObject): TArray<TJSValue>; static;
 
@@ -120,32 +113,6 @@ begin
   raise ENotSupportedException.CreateFmt('Unsupported array iteration method: %s', [MethodName]);
 end;
 
-class function TJSArrayIteration.TryCallConversion(const Source: IJSObject; const MethodName: string;
-                                                   out Primitive: TJSValue): Boolean;
-begin
-  var Conversion: IJSFunction;
-  const Method = Source.GetProperty(MethodName);
-  const IsCallable = Method.IsFunction and Supports(Method.ToObject, IJSFunction, Conversion);
-  if not IsCallable then
-    Exit(False);
-
-  Primitive := Conversion.Call(Source, nil);
-  Result := not Primitive.IsObject;
-end;
-
-class function TJSArrayIteration.ToNumber(const Value: TJSValue): Double;
-begin
-  if not Value.IsObject then
-    Exit(Value.ToNumber);
-
-  var Primitive: TJSValue;
-  const Source = Value.ToObject;
-  if TryCallConversion(Source, VALUE_OF, Primitive) or TryCallConversion(Source, TO_STRING, Primitive) then
-    Exit(Primitive.ToNumber);
-
-  raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
-end;
-
 class function TJSArrayIteration.ToLength(const Target: IJSObject): Int64;
 begin
   var TargetArray: IJSArray;
@@ -153,7 +120,7 @@ begin
   if IsArray then
     Exit(TargetArray.Length);
 
-  const Number = ToNumber(Target.GetProperty(LENGTH_PROPERTY));
+  const Number = TJSArrayLike.ToNumber(Target.GetProperty(LENGTH_PROPERTY));
 
   const IsFiniteNumber = not (System.Math.IsNaN(Number) or System.Math.IsInfinite(Number));
   if not IsFiniteNumber then
@@ -165,29 +132,11 @@ end;
 
 class function TJSArrayIteration.ToIntegerClamped(const Value: TJSValue): Int64;
 begin
-  const Number = ToNumber(Value);
+  const Number = TJSArrayLike.ToNumber(Value);
   if System.Math.IsNaN(Number) then
     Exit(0);
 
   Result := Trunc(EnsureRange(Number, -MAX_INTEGER_MAGNITUDE, MAX_INTEGER_MAGNITUDE));
-end;
-
-class function TJSArrayIteration.TryGetElement(const Target: IJSObject; const Index: Int64;
-                                               out Element: TJSValue): Boolean;
-begin
-  var TargetArray: IJSArray;
-  const IsArray = Supports(Target, IJSArray, TargetArray);
-  const IsOwnElement = IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index));
-  if IsOwnElement then
-  begin
-    Element := TargetArray[Integer(Index)];
-    Exit(True);
-  end;
-
-  const Name = IntToStr(Index);
-  Result := Target.HasProperty(Name);
-  if Result then
-    Element := Target.GetProperty(Name);
 end;
 
 class function TJSArrayIteration.RequireCallback(const MethodName: string;
@@ -196,14 +145,6 @@ begin
   const HasCallback = (Length(Args) > 0) and Args[0].IsFunction;
   if (not HasCallback) or (not Supports(Args[0].ToObject, IJSFunction, Result)) then
     raise TJSErrorFactory.TypeError(Format(CALLBACK_NOT_A_FUNCTION, [MethodName]));
-end;
-
-class function TJSArrayIteration.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
-begin
-  if Position < Length(Args) then
-    Result := Args[Position]
-  else
-    Result := TJSValue.CreateUndefined;
 end;
 
 class function TJSArrayIteration.CallbackArguments(const Element: TJSValue; const Index: Int64;
@@ -221,7 +162,7 @@ begin
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    if TryGetElement(Target, Index, Element) then
+    if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
       const CallbackArgs = CallbackArguments(Element, Index, Target);
       Executor(Callback, CallbackArgs);
@@ -247,7 +188,7 @@ begin
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    if TryGetElement(Target, Index, Element) then
+    if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
       const CallbackArgs = CallbackArguments(Element, Index, Target);
       Mapped[Integer(Index)] := Executor(Callback, CallbackArgs);
@@ -269,7 +210,7 @@ begin
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    if not TryGetElement(Target, Index, Element) then
+    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
       Continue;
 
     const CallbackArgs = CallbackArguments(Element, Index, Target);
@@ -290,7 +231,7 @@ begin
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    if not TryGetElement(Target, Index, Element) then
+    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
       Continue;
 
     const CallbackArgs = CallbackArguments(Element, Index, Target);
@@ -314,7 +255,7 @@ begin
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    if not TryGetElement(Target, Index, Element) then
+    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
       Continue;
 
     const CallbackArgs = CallbackArguments(Element, Index, Target);
@@ -348,7 +289,7 @@ begin
     var FoundFirst := False;
     while (not FoundFirst) and (Index < Count) do
     begin
-      FoundFirst := TryGetElement(Target, Index, Accumulator);
+      FoundFirst := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
       Inc(Index);
     end;
 
@@ -359,7 +300,7 @@ begin
   while Index < Count do
   begin
     var Element: TJSValue;
-    if TryGetElement(Target, Index, Element) then
+    if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
       const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
                                               TJSValue.CreateObject(Target)];
@@ -391,7 +332,7 @@ begin
     var FoundLast := False;
     while (not FoundLast) and (Index >= 0) do
     begin
-      FoundLast := TryGetElement(Target, Index, Accumulator);
+      FoundLast := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
       Dec(Index);
     end;
 
@@ -402,7 +343,7 @@ begin
   while Index >= 0 do
   begin
     var Element: TJSValue;
-    if TryGetElement(Target, Index, Element) then
+    if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
       const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
                                               TJSValue.CreateObject(Target)];
@@ -422,8 +363,8 @@ begin
   if Count = 0 then
     Exit(NotFound);
 
-  const SearchElement = Argument(Args, 0);
-  const RequestedStart = ToIntegerClamped(Argument(Args, 1));
+  const SearchElement = TJSArrayLike.Argument(Args, 0);
+  const RequestedStart = ToIntegerClamped(TJSArrayLike.Argument(Args, 1));
   if RequestedStart >= Count then
     Exit(NotFound);
 
@@ -434,7 +375,7 @@ begin
   for var Index: Int64 := StartIndex to Count - 1 do
   begin
     var Element: TJSValue;
-    const IsMatch = TryGetElement(Target, Index, Element) and Element.StrictEquals(SearchElement);
+    const IsMatch = TJSArrayLike.TryGetElement(Target, Index, Element) and Element.StrictEquals(SearchElement);
     if IsMatch then
     begin
       Result := TJSValue.CreateNumber(Index);
@@ -452,7 +393,7 @@ begin
   if Count = 0 then
     Exit(NotFound);
 
-  const SearchElement = Argument(Args, 0);
+  const SearchElement = TJSArrayLike.Argument(Args, 0);
 
   var StartIndex := Count - 1;
   if Length(Args) > 1 then
@@ -467,7 +408,7 @@ begin
   for var Index := StartIndex downto 0 do
   begin
     var Element: TJSValue;
-    const IsMatch = TryGetElement(Target, Index, Element) and Element.StrictEquals(SearchElement);
+    const IsMatch = TJSArrayLike.TryGetElement(Target, Index, Element) and Element.StrictEquals(SearchElement);
     if IsMatch then
     begin
       Result := TJSValue.CreateNumber(Index);

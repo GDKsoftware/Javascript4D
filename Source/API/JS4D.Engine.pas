@@ -17,6 +17,7 @@ uses
   JS4D.Interpreter,
   JS4D.Builtins,
   JS4D.ArrayIteration,
+  JS4D.ArrayGeneric,
   JS4D.PropertyDescriptors,
   JS4D.PrototypeMethods,
   JS4D.DateBuiltins,
@@ -1600,10 +1601,13 @@ begin
 
       var Target: IJSArray;
       const IsArray = Supports(This, IJSArray, Target);
-      if not IsArray then
-        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_ARRAY, [MethodName]));
+      if IsArray then
+        Exit(FInterpreter.ExecuteArrayMethod(Target, MethodName, Args));
 
-      Result := FInterpreter.ExecuteArrayMethod(Target, MethodName, Args);
+      if TJSArrayGeneric.Handles(MethodName) then
+        Exit(FInterpreter.ExecuteGenericArrayMethod(This, MethodName, Args));
+
+      raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_ARRAY, [MethodName]));
     end);
 end;
 
