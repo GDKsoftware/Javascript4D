@@ -34,7 +34,8 @@ uses
   JS4D.Tests.GenericArrayMethods in 'JS4D.Tests.GenericArrayMethods.pas',
   JS4D.Tests.Eval in 'JS4D.Tests.Eval.pas',
   JS4D.Tests.IdentifierNames in 'JS4D.Tests.IdentifierNames.pas',
-  JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas';
+  JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
+  JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas';
 
 var
   Runner: ITestRunner;

@@ -19,6 +19,7 @@ type
     FOwnsLexer: Boolean;
     FPreviousTokenLine: Integer;
     FStrictMode: Boolean;
+    FInOperatorAllowed: Boolean;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -50,6 +51,10 @@ type
 
     function ParseExpression: TJSExpression;
     function ParseAssignmentExpression: TJSExpression;
+    function ParseExpressionWithoutIn: TJSExpression;
+    function ParseNestedExpression: TJSExpression;
+    function ParseNestedAssignmentExpression: TJSExpression;
+    function ParseNestedBlockStatement: TJSBlockStatement;
     function ParseConditionalExpression: TJSExpression;
     function ParseLogicalOrExpression: TJSExpression;
     function ParseLogicalAndExpression: TJSExpression;
@@ -74,6 +79,9 @@ type
     function ParseArguments: TObjectList<TJSExpression>;
 
     function IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
+    function IsRelationalOperator: Boolean;
+    function IsValidAssignmentTarget(const Target: TJSExpression): Boolean;
+    procedure EnsureAssignmentTarget(const Target: TJSExpression);
     function TokenToAssignmentOperator(const TokenType: TJSTokenType): TJSAssignmentOperator;
 
     function IsUseStrictDirective(const Statement: TJSStatement): Boolean;
@@ -102,6 +110,7 @@ begin
   FLexer := TJSLexer.Create(Source);
   FLexer.Tokenize;
   FOwnsLexer := True;
+  FInOperatorAllowed := True;
 end;
 
 constructor TJSParser.Create(const Lexer: TJSLexer);
@@ -109,6 +118,7 @@ begin
   inherited Create;
   FLexer := Lexer;
   FOwnsLexer := False;
+  FInOperatorAllowed := True;
 end;
 
 destructor TJSParser.Destroy;
@@ -468,10 +478,19 @@ begin
   end
   else if not Check(TJSTokenType.Semicolon) then
   begin
-    const Expr = ParseExpression;
+    const IsDeclarationKeyword = (Check(TJSTokenType.Identifier) and
+                                  ((CurrentToken.Value = 'let') or (CurrentToken.Value = 'const')));
+    const NextToken = FLexer.PeekToken(1);
+    const StartsWithBindingPattern = (IsDeclarationKeyword and (NextToken.TokenType = TJSTokenType.LeftBracket));
+    if StartsWithBindingPattern then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+    const Expr = ParseExpressionWithoutIn;
 
     if Match(TJSTokenType.KeywordIn) then
     begin
+      EnsureAssignmentTarget(Expr);
+
       const Right = ParseExpression;
       Expect(TJSTokenType.RightParen);
 
@@ -679,12 +698,58 @@ begin
   Result := Expr;
 end;
 
+function TJSParser.ParseExpressionWithoutIn: TJSExpression;
+begin
+  const PreviousAllowed = FInOperatorAllowed;
+  FInOperatorAllowed := False;
+  try
+    Result := ParseExpression;
+  finally
+    FInOperatorAllowed := PreviousAllowed;
+  end;
+end;
+
+function TJSParser.ParseNestedExpression: TJSExpression;
+begin
+  const PreviousAllowed = FInOperatorAllowed;
+  FInOperatorAllowed := True;
+  try
+    Result := ParseExpression;
+  finally
+    FInOperatorAllowed := PreviousAllowed;
+  end;
+end;
+
+function TJSParser.ParseNestedAssignmentExpression: TJSExpression;
+begin
+  const PreviousAllowed = FInOperatorAllowed;
+  FInOperatorAllowed := True;
+  try
+    Result := ParseAssignmentExpression;
+  finally
+    FInOperatorAllowed := PreviousAllowed;
+  end;
+end;
+
+function TJSParser.ParseNestedBlockStatement: TJSBlockStatement;
+begin
+  const PreviousAllowed = FInOperatorAllowed;
+  FInOperatorAllowed := True;
+  try
+    Result := ParseBlockStatement;
+  finally
+    FInOperatorAllowed := PreviousAllowed;
+  end;
+end;
+
 function TJSParser.ParseAssignmentExpression: TJSExpression;
 begin
   const Left = ParseConditionalExpression;
 
   if IsAssignmentOperator(CurrentToken.TokenType) then
   begin
+    EnsureAssignmentTarget(Left);
+
     const Op = TokenToAssignmentOperator(CurrentToken.TokenType);
     Advance;
 
@@ -702,7 +767,7 @@ begin
 
   if Match(TJSTokenType.Question) then
   begin
-    const Consequent = ParseAssignmentExpression;
+    const Consequent = ParseNestedAssignmentExpression;
     Expect(TJSTokenType.Colon);
     const Alternate = ParseAssignmentExpression;
 
@@ -797,8 +862,7 @@ function TJSParser.ParseRelationalExpression: TJSExpression;
 begin
   Result := ParseShiftExpression;
 
-  while CheckAny([TJSTokenType.LessThan, TJSTokenType.GreaterThan, TJSTokenType.LessThanOrEqual,
-                  TJSTokenType.GreaterThanOrEqual, TJSTokenType.KeywordInstanceof, TJSTokenType.KeywordIn]) do
+  while IsRelationalOperator do
   begin
     var Op: TJSBinaryOperator;
 
@@ -940,6 +1004,7 @@ begin
     Advance;
 
     const Argument = ParseCallExpression;
+    EnsureAssignmentTarget(Argument);
 
     Exit(TJSUpdateExpression.Create(Op, Argument, True));
   end;
@@ -950,6 +1015,8 @@ begin
   const IsOnSameLine = (CurrentToken.Line = FPreviousTokenLine);
   if IsUpdateToken and IsOnSameLine then
   begin
+    EnsureAssignmentTarget(Argument);
+
     var Op: TJSUpdateOperator;
 
     if CurrentToken.TokenType = TJSTokenType.Increment then
@@ -994,7 +1061,7 @@ begin
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseExpression;
+      const Prop = ParseNestedExpression;
       Expect(TJSTokenType.RightBracket);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
@@ -1025,7 +1092,7 @@ begin
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseExpression;
+      const Prop = ParseNestedExpression;
       Expect(TJSTokenType.RightBracket);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
@@ -1124,7 +1191,7 @@ begin
     TJSTokenType.LeftParen:
       begin
         Advance;
-        const Expr = ParseExpression;
+        const Expr = ParseNestedExpression;
         Expect(TJSTokenType.RightParen);
         Exit(Expr);
       end;
@@ -1159,7 +1226,7 @@ begin
       end
       else
       begin
-        const Element = ParseAssignmentExpression;
+        const Element = ParseNestedAssignmentExpression;
         Result.Elements.Add(Element);
 
         if not Check(TJSTokenType.RightBracket) then
@@ -1203,7 +1270,7 @@ begin
       else if Check(TJSTokenType.LeftBracket) then
       begin
         Advance;
-        Key := ParseAssignmentExpression;
+        Key := ParseNestedAssignmentExpression;
         Expect(TJSTokenType.RightBracket);
         Computed := True;
       end
@@ -1212,7 +1279,7 @@ begin
 
       Expect(TJSTokenType.Colon);
 
-      const Value = ParseAssignmentExpression;
+      const Value = ParseNestedAssignmentExpression;
       const Prop = TJSObjectProperty.Create(Key, Value, Computed);
       Result.Properties.Add(Prop);
 
@@ -1262,7 +1329,7 @@ begin
     Expect(TJSTokenType.RightParen);
 
     const OldStrictMode = FStrictMode;
-    const Body = ParseBlockStatement;
+    const Body = ParseNestedBlockStatement;
     Result.Body := Body;
 
     if (Body.Body.Count > 0) and IsUseStrictDirective(Body.Body[0]) then
@@ -1292,7 +1359,7 @@ begin
     if not Check(TJSTokenType.RightParen) then
     begin
       repeat
-        const Arg = ParseAssignmentExpression;
+        const Arg = ParseNestedAssignmentExpression;
         Result.Add(Arg);
       until not Match(TJSTokenType.Comma);
     end;
@@ -1320,6 +1387,37 @@ begin
     TJSTokenType.RightShiftAssign,
     TJSTokenType.UnsignedRightShiftAssign
   ];
+end;
+
+function TJSParser.IsRelationalOperator: Boolean;
+begin
+  const IsInKeyword = Check(TJSTokenType.KeywordIn);
+  if IsInKeyword then
+    Exit(FInOperatorAllowed);
+
+  Result := CheckAny([TJSTokenType.LessThan, TJSTokenType.GreaterThan, TJSTokenType.LessThanOrEqual,
+                      TJSTokenType.GreaterThanOrEqual, TJSTokenType.KeywordInstanceof]);
+end;
+
+function TJSParser.IsValidAssignmentTarget(const Target: TJSExpression): Boolean;
+begin
+  const IsCall = (Target.NodeType = TJSASTNodeType.CallExpression);
+  if IsCall then
+    Exit(not FStrictMode);
+
+  Result := Target.NodeType in [
+    TJSASTNodeType.Identifier,
+    TJSASTNodeType.MemberExpression
+  ];
+end;
+
+procedure TJSParser.EnsureAssignmentTarget(const Target: TJSExpression);
+begin
+  if IsValidAssignmentTarget(Target) then
+    Exit;
+
+  Target.Free;
+  raise TJSErrorFactory.SyntaxError('Invalid left-hand side in assignment', CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.TokenToAssignmentOperator(const TokenType: TJSTokenType): TJSAssignmentOperator;
