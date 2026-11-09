@@ -101,6 +101,7 @@ type
     function ToString: string;
     function ToLimitedString(const Limits: TJSLimits): string;
     function ToObject: IJSObject;
+    function ToPrimitive(const PreferString: Boolean): TJSValue;
 
     function Clone: TJSValue;
 
@@ -249,41 +250,8 @@ type
   IJSDate = interface(IJSObject)
     ['{E5F6A7B8-C9D0-1234-EFAB-567890123456}']
     function GetTime: Double;
-    function GetFullYear: Integer;
-    function GetMonth: Integer;
-    function GetDate: Integer;
-    function GetDay: Integer;
-    function GetHours: Integer;
-    function GetMinutes: Integer;
-    function GetSeconds: Integer;
-    function GetMilliseconds: Integer;
-    function GetUTCFullYear: Integer;
-    function GetUTCMonth: Integer;
-    function GetUTCDate: Integer;
-    function GetUTCDay: Integer;
-    function GetUTCHours: Integer;
-    function GetUTCMinutes: Integer;
-    function GetUTCSeconds: Integer;
-    function GetUTCMilliseconds: Integer;
-    function GetTimezoneOffset: Integer;
     procedure SetTime(const Value: Double);
-    procedure SetFullYear(const Value: Integer);
-    procedure SetMonth(const Value: Integer);
-    procedure SetDate(const Value: Integer);
-    procedure SetHours(const Value: Integer);
-    procedure SetMinutes(const Value: Integer);
-    procedure SetSeconds(const Value: Integer);
-    procedure SetMilliseconds(const Value: Integer);
-    function ToISOString: string;
-    function ToDateString: string;
-    function ToTimeString: string;
-    function ToLocaleString: string;
-    function GetDateTime: TDateTime;
-    procedure SetDateTime(const Value: TDateTime);
-    function GetTimestamp: Double;
-    procedure SetTimestamp(const Value: Double);
-    property DateTime: TDateTime read GetDateTime write SetDateTime;
-    property Timestamp: Double read GetTimestamp write SetTimestamp;
+    property Time: Double read GetTime write SetTime;
   end;
 
   IJSRegExp = interface(IJSObject)
@@ -482,62 +450,16 @@ type
 
   TJSDateImpl = class(TJSObjectImpl, IJSDate)
   private
-    FDateTime: TDateTime;
-    FTimestamp: Double;
-
-    procedure UpdateFromTimestamp;
-    procedure UpdateFromDateTime;
+    FTime: Double;
 
   protected
-    function GetDateTime: TDateTime;
-    procedure SetDateTime(const Value: TDateTime);
-    function GetTimestamp: Double;
-    procedure SetTimestamp(const Value: Double);
+    function GetTime: Double;
+    procedure SetTime(const Value: Double);
 
   public
-    constructor Create; overload;
-    constructor Create(const Timestamp: Double); overload;
-    constructor Create(const Year, Month: Integer; const Day: Integer = 1;
-      const Hours: Integer = 0; const Minutes: Integer = 0;
-      const Seconds: Integer = 0; const Milliseconds: Integer = 0); overload;
+    constructor Create(const Time: Double);
 
-    function GetTime: Double;
-    function GetFullYear: Integer;
-    function GetMonth: Integer;
-    function GetDate: Integer;
-    function GetDay: Integer;
-    function GetHours: Integer;
-    function GetMinutes: Integer;
-    function GetSeconds: Integer;
-    function GetMilliseconds: Integer;
-
-    function GetUTCFullYear: Integer;
-    function GetUTCMonth: Integer;
-    function GetUTCDate: Integer;
-    function GetUTCDay: Integer;
-    function GetUTCHours: Integer;
-    function GetUTCMinutes: Integer;
-    function GetUTCSeconds: Integer;
-    function GetUTCMilliseconds: Integer;
-
-    function GetTimezoneOffset: Integer;
-
-    procedure SetTime(const Value: Double);
-    procedure SetFullYear(const Value: Integer);
-    procedure SetMonth(const Value: Integer);
-    procedure SetDate(const Value: Integer);
-    procedure SetHours(const Value: Integer);
-    procedure SetMinutes(const Value: Integer);
-    procedure SetSeconds(const Value: Integer);
-    procedure SetMilliseconds(const Value: Integer);
-
-    function ToISOString: string;
-    function ToDateString: string;
-    function ToTimeString: string;
-    function ToLocaleString: string;
-
-    property DateTime: TDateTime read GetDateTime write SetDateTime;
-    property Timestamp: Double read GetTimestamp write SetTimestamp;
+    property Time: Double read GetTime write SetTime;
   end;
 
   TJSRegExpImpl = class(TJSObjectImpl, IJSRegExp)
@@ -614,8 +536,6 @@ implementation
 
 uses
   System.Math,
-  System.DateUtils,
-  System.TimeSpan,
   JS4D.Errors;
 
 { TJSLimits }
@@ -658,6 +578,9 @@ const
   TRUE_STRING = 'true';
   FALSE_STRING = 'false';
   NAN_STRING = 'NaN';
+  VALUE_OF_METHOD = 'valueOf';
+  TO_STRING_METHOD = 'toString';
+  CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   INFINITY_STRING = 'Infinity';
   NEGATIVE_INFINITY_STRING = '-Infinity';
   OBJECT_STRING = '[object Object]';
@@ -1058,6 +981,32 @@ begin
     Result := FObjectRef
   else
     Result := nil;
+end;
+
+function TJSValue.ToPrimitive(const PreferString: Boolean): TJSValue;
+begin
+  if not IsObject then
+    Exit(Self);
+
+  var ConversionNames := [VALUE_OF_METHOD, TO_STRING_METHOD];
+  if PreferString then
+    ConversionNames := [TO_STRING_METHOD, VALUE_OF_METHOD];
+
+  for var ConversionName in ConversionNames do
+  begin
+    const Conversion = FObjectRef.GetProperty(ConversionName);
+
+    var Func: IJSFunction;
+    const IsCallable = Conversion.IsFunction and Supports(Conversion.ToObject, IJSFunction, Func);
+    if not IsCallable then
+      Continue;
+
+    const Converted = Func.Call(FObjectRef, nil);
+    if not Converted.IsObject then
+      Exit(Converted);
+  end;
+
+  raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
 end;
 
 function TJSValue.Clone: TJSValue;
@@ -1887,237 +1836,20 @@ begin
   end;
 end;
 
-const
-  UNIX_EPOCH: TDateTime = 25569.0;
-
-constructor TJSDateImpl.Create;
+constructor TJSDateImpl.Create(const Time: Double);
 begin
   inherited Create;
-  FDateTime := Now;
-  UpdateFromDateTime;
-end;
-
-constructor TJSDateImpl.Create(const Timestamp: Double);
-begin
-  inherited Create;
-  FTimestamp := Timestamp;
-  UpdateFromTimestamp;
-end;
-
-constructor TJSDateImpl.Create(const Year, Month, Day, Hours, Minutes, Seconds, Milliseconds: Integer);
-begin
-  inherited Create;
-  FDateTime := EncodeDateTime(Year, Month + 1, Day, Hours, Minutes, Seconds, Milliseconds);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.UpdateFromTimestamp;
-begin
-  const UTCDateTime = UNIX_EPOCH + (FTimestamp / 86400000.0);
-  FDateTime := TTimeZone.Local.ToLocalTime(UTCDateTime);
-end;
-
-procedure TJSDateImpl.UpdateFromDateTime;
-begin
-  FTimestamp := (FDateTime - UNIX_EPOCH) * 86400000.0;
-end;
-
-function TJSDateImpl.GetDateTime: TDateTime;
-begin
-  Result := FDateTime;
-end;
-
-procedure TJSDateImpl.SetDateTime(const Value: TDateTime);
-begin
-  FDateTime := Value;
-  UpdateFromDateTime;
-end;
-
-function TJSDateImpl.GetTimestamp: Double;
-begin
-  Result := FTimestamp;
-end;
-
-procedure TJSDateImpl.SetTimestamp(const Value: Double);
-begin
-  FTimestamp := Value;
-  UpdateFromTimestamp;
+  FTime := Time;
 end;
 
 function TJSDateImpl.GetTime: Double;
 begin
-  Result := FTimestamp;
-end;
-
-function TJSDateImpl.GetFullYear: Integer;
-begin
-  Result := YearOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMonth: Integer;
-begin
-  Result := MonthOf(FDateTime) - 1;
-end;
-
-function TJSDateImpl.GetDate: Integer;
-begin
-  Result := DayOf(FDateTime);
-end;
-
-function TJSDateImpl.GetDay: Integer;
-begin
-  Result := DayOfTheWeek(FDateTime) mod 7;
-end;
-
-function TJSDateImpl.GetHours: Integer;
-begin
-  Result := HourOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMinutes: Integer;
-begin
-  Result := MinuteOf(FDateTime);
-end;
-
-function TJSDateImpl.GetSeconds: Integer;
-begin
-  Result := SecondOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMilliseconds: Integer;
-begin
-  Result := MilliSecondOf(FDateTime);
-end;
-
-function TJSDateImpl.GetUTCFullYear: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := YearOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMonth: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MonthOf(UTCTime) - 1;
-end;
-
-function TJSDateImpl.GetUTCDate: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := DayOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCDay: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := DayOfTheWeek(UTCTime) mod 7;
-end;
-
-function TJSDateImpl.GetUTCHours: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := HourOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMinutes: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MinuteOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCSeconds: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := SecondOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMilliseconds: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MilliSecondOf(UTCTime);
-end;
-
-function TJSDateImpl.GetTimezoneOffset: Integer;
-begin
-  const Offset = TTimeZone.Local.GetUtcOffset(FDateTime);
-  Result := -Round(Offset.TotalMinutes);
+  Result := FTime;
 end;
 
 procedure TJSDateImpl.SetTime(const Value: Double);
 begin
-  FTimestamp := Value;
-  UpdateFromTimestamp;
-end;
-
-procedure TJSDateImpl.SetFullYear(const Value: Integer);
-begin
-  FDateTime := RecodeYear(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMonth(const Value: Integer);
-begin
-  FDateTime := RecodeMonth(FDateTime, Value + 1);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetDate(const Value: Integer);
-begin
-  FDateTime := RecodeDay(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetHours(const Value: Integer);
-begin
-  FDateTime := RecodeHour(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMinutes(const Value: Integer);
-begin
-  FDateTime := RecodeMinute(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetSeconds(const Value: Integer);
-begin
-  FDateTime := RecodeSecond(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMilliseconds(const Value: Integer);
-begin
-  FDateTime := RecodeMilliSecond(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-function TJSDateImpl.ToISOString: string;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := FormatDateTime('yyyy"-"mm"-"dd"T"hh":"nn":"ss"."zzz"Z"', UTCTime);
-end;
-
-function TJSDateImpl.ToDateString: string;
-const
-  DayNames: array[1..7] of string = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
-  MonthNames: array[1..12] of string = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
-begin
-  const DayIdx = DayOfTheWeek(FDateTime);
-  const MonthIdx = MonthOf(FDateTime);
-
-  Result := DayNames[DayIdx] + ' ' + MonthNames[MonthIdx] + ' ' +
-            Format('%.2d', [DayOf(FDateTime)]) + ' ' + IntToStr(YearOf(FDateTime));
-end;
-
-function TJSDateImpl.ToTimeString: string;
-begin
-  Result := FormatDateTime('hh":"nn":"ss', FDateTime);
-end;
-
-function TJSDateImpl.ToLocaleString: string;
-begin
-  Result := DateTimeToStr(FDateTime);
+  FTime := Value;
 end;
 
 constructor TJSRegExpImpl.Create(const Pattern: string; const Flags: string);

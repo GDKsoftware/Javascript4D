@@ -68,6 +68,11 @@ type
 
   TJSProgramParser = reference to function(const Source: string): TJSProgram;
 
+  TJSBoundFunction = record
+    Target: IJSFunction;
+    Arguments: TArray<TJSValue>;
+  end;
+
   TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
@@ -86,6 +91,7 @@ type
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
+    FBoundFunctions: TDictionary<Pointer, TJSBoundFunction>;
     FCurrentProgram: TObject;
     FCancelRequested: Int64;
     FExecutionDepth: Integer;
@@ -171,6 +177,7 @@ type
     function VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
     procedure RequireObjectCoercible(const Value: TJSValue; const PropName: string);
     function VisitNewExpression(const Node: TJSNewExpression): TJSValue;
+    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 
@@ -394,6 +401,7 @@ begin
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
   FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
+  FBoundFunctions := TDictionary<Pointer, TJSBoundFunction>.Create;
   FCurrentProgram := nil;
   FCancelRequested := 0;
   FExecutionDepth := 0;
@@ -429,6 +437,7 @@ begin
   end;
   FScopeRegistry.Free;
   FFunctionPrograms.Free;
+  FBoundFunctions.Free;
   FEvalFunction := nil;
   FThrowTypeError := nil;
   FProgramParser := nil;
@@ -2142,8 +2151,6 @@ begin
   if not Func.IsConstructor then
     raise TJSErrorFactory.NotAConstructor(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
-  const NewObj = CreateInstanceFor(Func);
-
   var Args: TArray<TJSValue>;
   SetLength(Args, Node.Arguments.Count);
 
@@ -2152,6 +2159,16 @@ begin
     Args[Index] := Visit(Node.Arguments[Index]);
   end;
 
+  Result := Construct(Func, Args);
+end;
+
+function TJSInterpreter.Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var Bound: TJSBoundFunction;
+  if FBoundFunctions.TryGetValue(Pointer(Func as IInterface), Bound) then
+    Exit(Construct(Bound.Target, Bound.Arguments + Args));
+
+  const NewObj = CreateInstanceFor(Func);
   const ReturnValue = CallFunction(Func, Args, NewObj);
 
   if ReturnValue.IsObject then
@@ -2369,7 +2386,12 @@ begin
       end);
 
     BoundFunc.ClosureScope := nil;
+    BoundFunc.IsConstructor := OriginalFunc.IsConstructor;
     RegisterFunction(BoundFunc);
+    var BoundInfo: TJSBoundFunction;
+    BoundInfo.Target := OriginalFunc;
+    BoundInfo.Arguments := CapturedArgs;
+    FBoundFunctions.Add(Pointer(BoundFunc as IInterface), BoundInfo);
     Result := TJSValue.CreateObject(BoundFunc);
     Exit;
   end;
