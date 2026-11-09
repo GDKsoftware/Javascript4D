@@ -435,9 +435,9 @@ end;
 
 procedure TJSEngine.RegisterBuiltInFunctions;
 begin
-  FInterpreter.SetGlobalVariable(NAN_NAME, TJSValue.CreateNaN);
-  FInterpreter.SetGlobalVariable(INFINITY_NAME, TJSValue.CreateInfinity);
-  FInterpreter.SetGlobalVariable(UNDEFINED_NAME, TJSValue.CreateUndefined);
+  FInterpreter.SetGlobalConstant(NAN_NAME, TJSValue.CreateNaN);
+  FInterpreter.SetGlobalConstant(INFINITY_NAME, TJSValue.CreateInfinity);
+  FInterpreter.SetGlobalConstant(UNDEFINED_NAME, TJSValue.CreateUndefined);
 
   FInterpreter.RegisterNativeFunction(PARSE_INT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue

@@ -42,7 +42,8 @@ uses
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
-  JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas';
+  JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas',
+  JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas';
 
 var
   Runner: ITestRunner;

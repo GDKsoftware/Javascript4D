@@ -15,6 +15,7 @@ uses
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ObjectScope,
+  JS4D.GlobalScope,
   JS4D.PropertyDescriptors,
   JS4D.ArrayIteration;
 
@@ -159,6 +160,9 @@ type
     function VisitWhileStatement(const Node: TJSWhileStatement): TJSValue;
     function VisitDoWhileStatement(const Node: TJSDoWhileStatement): TJSValue;
     function VisitWithStatement(const Node: TJSWithStatement): TJSValue;
+    procedure GuardStrictAssignmentTarget(const Node: TJSAssignmentExpression);
+    procedure GuardGlobalFunctionDeclarations(const Node: TJSProgram);
+    procedure GuardGlobalFunctionDeclaration(const Declaration: TJSFunctionDeclaration);
     function VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
     function TakeLoopLabels: TArray<string>;
     function ToScopeObject(const Value: TJSValue): IJSObject;
@@ -225,6 +229,7 @@ type
     function CreateFunctionFromSource(const Source: string): TJSValue;
     function ThrowTypeErrorFunction: IJSFunction;
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
+    procedure SetGlobalConstant(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
     procedure CollectGarbage;
     function LivePrograms: TArray<TObject>;
@@ -451,11 +456,11 @@ begin
   FStepsUntilCheck := 0;
   FLimits := TJSLimits.Default;
   FCallDepth := 0;
-  FGlobalScope := TJSScope.Create(nil);
+  FGlobalObject := TJSObject.Create;
+  FGlobalScope := TJSGlobalScope.Create(FGlobalObject);
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
   FThisValue := nil;
-  FGlobalObject := TJSObject.Create;
 end;
 
 destructor TJSInterpreter.Destroy;
@@ -854,9 +859,40 @@ begin
   Result := RunProgramBody(Node);
 end;
 
+procedure TJSInterpreter.GuardGlobalFunctionDeclarations(const Node: TJSProgram);
+begin
+  const IsGlobalCode = (FCurrentScope = FGlobalScope);
+  if not IsGlobalCode then
+    Exit;
+
+  for var Statement in Node.Body do
+  begin
+    if Statement is TJSFunctionDeclaration then
+      GuardGlobalFunctionDeclaration(TJSFunctionDeclaration(Statement));
+  end;
+end;
+
+procedure TJSInterpreter.GuardGlobalFunctionDeclaration(const Declaration: TJSFunctionDeclaration);
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  const IsExisting = FGlobalObject.TryGetPropertyDescriptor(Declaration.Id.Name, Descriptor);
+  if not IsExisting then
+    Exit;
+
+  const IsReplaceable = (Descriptor.Configurable or
+                         (Descriptor.Writable and Descriptor.Enumerable and not Descriptor.IsAccessor));
+  if IsReplaceable then
+    Exit;
+
+  const Message = Format('Cannot declare global function %s', [Declaration.Id.Name]);
+  raise TJSErrorFactory.TypeError(Message, Declaration.Line, Declaration.Column);
+end;
+
 function TJSInterpreter.RunProgramBody(const Node: TJSProgram): TJSValue;
 begin
   Result := TJSValue.CreateUndefined;
+
+  GuardGlobalFunctionDeclarations(Node);
 
   for var Statement in Node.Body do
   begin
@@ -1982,24 +2018,31 @@ begin
   end;
 end;
 
+procedure TJSInterpreter.GuardStrictAssignmentTarget(const Node: TJSAssignmentExpression);
+begin
+  const IsStrictIdentifierTarget = FStrictMode and (Node.Left is TJSIdentifier);
+  if not IsStrictIdentifierTarget then
+    Exit;
+
+  const TargetName = TJSIdentifier(Node.Left).Name;
+  const IsRestrictedName = (TargetName = 'eval') or (TargetName = ARGUMENTS_NAME);
+  if IsRestrictedName then
+    raise TJSErrorFactory.SyntaxError('Assignment to ' + TargetName + ' in strict mode', Node.Line, Node.Column);
+
+  const IsDeclared = FCurrentScope.HasVariable(TargetName);
+  if not IsDeclared then
+    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + TargetName, Node.Line, Node.Column);
+end;
+
 function TJSInterpreter.VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
 begin
+  GuardStrictAssignmentTarget(Node);
+
   const Right = Visit(Node.Right);
 
   if Node.Left is TJSIdentifier then
   begin
     const Identifier = TJSIdentifier(Node.Left);
-
-    if FStrictMode then
-    begin
-      if (Identifier.Name = 'eval') or (Identifier.Name = ARGUMENTS_NAME) then
-        raise TJSErrorFactory.SyntaxError('Assignment to ' + Identifier.Name + ' in strict mode',
-          Node.Line, Node.Column);
-
-      if not FCurrentScope.HasVariable(Identifier.Name) then
-        raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + Identifier.Name,
-          Node.Line, Node.Column);
-    end;
 
     var NewValue: TJSValue;
 
@@ -2677,7 +2720,7 @@ procedure TJSInterpreter.RegisterNativeFunction(const Name: string; const Func: 
 begin
   const JSFunc: IJSFunction = TJSFunction.CreateNative(Name, Func);
   RegisterFunction(JSFunc);
-  FGlobalScope.DeclareVariable(Name, TJSValue.CreateObject(JSFunc));
+  SetGlobalVariable(Name, TJSValue.CreateObject(JSFunc));
 end;
 
 procedure TJSInterpreter.RegisterEval(const ProgramParser: TJSProgramParser);
@@ -2704,7 +2747,18 @@ end;
 
 procedure TJSInterpreter.SetGlobalVariable(const Name: string; const Value: TJSValue);
 begin
-  FGlobalScope.DeclareVariable(Name, Value);
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  FGlobalObject.DefineProperty(Name, Descriptor);
+end;
+
+procedure TJSInterpreter.SetGlobalConstant(const Name: string; const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := False;
+  FGlobalObject.DefineProperty(Name, Descriptor);
 end;
 
 function TJSInterpreter.GetGlobalVariable(const Name: string): TJSValue;
