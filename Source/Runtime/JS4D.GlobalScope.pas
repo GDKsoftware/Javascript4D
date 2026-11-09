@@ -5,7 +5,8 @@ unit JS4D.GlobalScope;
 interface
 
 uses
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.ObjectScope;
 
 type
   TJSGlobalScope = class(TInterfacedObject, IJSScope)
@@ -19,6 +20,8 @@ type
     function GetVariable(const Name: string): TJSValue;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
     procedure Clear;
@@ -53,7 +56,26 @@ end;
 
 procedure TJSGlobalScope.DeclareVariable(const Name: string; const Value: TJSValue);
 begin
+  const IsNewBinding = not FGlobalObject.HasOwnProperty(Name);
+  if not IsNewBinding then
+  begin
+    FGlobalObject.SetProperty(Name, Value);
+    Exit;
+  end;
+
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Configurable := False;
+  FGlobalObject.DefineProperty(Name, Descriptor);
+end;
+
+procedure TJSGlobalScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+begin
   FGlobalObject.SetProperty(Name, Value);
+end;
+
+function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;
+begin
+  Result := TJSObjectScope.DeleteBinding(FGlobalObject, Name);
 end;
 
 function TJSGlobalScope.Resolve(const Name: string): IJSScope;

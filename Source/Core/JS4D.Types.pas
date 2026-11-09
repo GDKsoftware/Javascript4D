@@ -118,6 +118,8 @@ type
     function GetVariable(const Name: string): TJSValue;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
     procedure Clear;

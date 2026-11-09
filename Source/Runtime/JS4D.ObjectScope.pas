@@ -20,12 +20,16 @@ type
     FParent: IJSScope;
 
   public
+    class function DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean; static;
+
     constructor Create(const Parent: IJSScope; const BindingObject: IJSObject);
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
     procedure Clear;
@@ -37,6 +41,17 @@ type
   end;
 
 implementation
+
+class function TJSObjectScope.DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean;
+begin
+  const IsOwnBinding = BindingObject.HasOwnProperty(Name);
+  if not IsOwnBinding then
+    Exit(True);
+
+  Result := BindingObject.IsPropertyConfigurable(Name);
+  if Result then
+    BindingObject.DeleteProperty(Name);
+end;
 
 constructor TJSObjectScope.Create(const Parent: IJSScope; const BindingObject: IJSObject);
 begin
@@ -75,6 +90,16 @@ end;
 procedure TJSObjectScope.DeclareVariable(const Name: string; const Value: TJSValue);
 begin
   FBindingObject.SetProperty(Name, Value);
+end;
+
+procedure TJSObjectScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+begin
+  DeclareVariable(Name, Value);
+end;
+
+function TJSObjectScope.DeleteVariable(const Name: string): Boolean;
+begin
+  Result := DeleteBinding(FBindingObject, Name);
 end;
 
 function TJSObjectScope.Resolve(const Name: string): IJSScope;

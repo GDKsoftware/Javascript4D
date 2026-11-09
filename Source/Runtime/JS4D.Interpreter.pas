@@ -37,6 +37,8 @@ type
     function GetVariable(const Name: string): TJSValue;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     procedure Clear;
     function GetOwnVariables: TArray<TJSValue>;
@@ -128,6 +130,7 @@ type
     FProgramParser: TJSProgramParser;
     FEvalFunction: IJSFunction;
     FDirectEvalCall: Boolean;
+    FEvalVariableScope: IJSScope;
     FLoopLabels: TArray<string>;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
@@ -202,7 +205,11 @@ type
     procedure DefineLiteralAccessor(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
     function VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
+    function VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
+    function DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
     function IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
+    function DeleteIdentifier(const Name: string): Boolean;
+    procedure DeclareBinding(const Name: string; const Value: TJSValue);
     function VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
@@ -282,6 +289,7 @@ type
 implementation
 
 const
+  NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
   UNDEFINED_TYPE = 'undefined';
   OBJECT_TYPE = 'object';
   BOOLEAN_TYPE = 'boolean';
@@ -409,6 +417,16 @@ begin
   FVariables.AddOrSetValue(Name, Value);
 end;
 
+procedure TJSScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+begin
+  DeclareVariable(Name, Value);
+end;
+
+function TJSScope.DeleteVariable(const Name: string): Boolean;
+begin
+  Result := not FVariables.ContainsKey(Name);
+end;
+
 function TJSScope.Resolve(const Name: string): IJSScope;
 begin
   if FVariables.ContainsKey(Name) then
@@ -510,6 +528,7 @@ begin
   FScopeRegistry.Free;
   FFunctionPrograms.Free;
   FBoundFunctions.Free;
+  FEvalVariableScope := nil;
   FEvalFunction := nil;
   FThrowTypeError := nil;
   FProgramParser := nil;
@@ -973,7 +992,9 @@ begin
   const OldThis = FThisValue;
   const OldStrictMode = FStrictMode;
   const OldProgram = FCurrentProgram;
+  const OldEvalVariableScope = FEvalVariableScope;
   FCurrentScope := CreateEvalScope(IsDirect, IsStrictSource);
+  FEvalVariableScope := FCurrentScope;
   FStrictMode := IsStrictSource;
   FCurrentProgram := Program_;
   if not IsDirect then
@@ -982,6 +1003,7 @@ begin
     Result := RunProgramBody(Program_);
   finally
     FCurrentProgram := OldProgram;
+    FEvalVariableScope := OldEvalVariableScope;
     FStrictMode := OldStrictMode;
     FThisValue := OldThis;
     FCurrentScope := OldScope;
@@ -1027,7 +1049,7 @@ begin
       for var Declarator in TJSVariableDeclaration(Node).Declarations do
       begin
         if FCurrentScope.Resolve(Declarator.Id.Name) <> FCurrentScope then
-          FCurrentScope.DeclareVariable(Declarator.Id.Name, TJSValue.CreateUndefined);
+          DeclareBinding(Declarator.Id.Name, TJSValue.CreateUndefined);
       end;
     TJSASTNodeType.FunctionDeclaration:
       DeclareFunction(TJSFunctionDeclaration(Node));
@@ -1122,7 +1144,7 @@ begin
   RegisterFunction(Func);
   AttachPrototype(Func);
 
-  FCurrentScope.DeclareVariable(Node.Id.Name, TJSValue.CreateObject(Func));
+  DeclareBinding(Node.Id.Name, TJSValue.CreateObject(Func));
 end;
 
 function TJSInterpreter.VisitExpressionStatement(const Node: TJSExpressionStatement): TJSValue;
@@ -1145,7 +1167,7 @@ end;
 function TJSInterpreter.ToScopeObject(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError('Cannot convert undefined or null to object');
+    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
 
   if Value.IsObject then
     Exit(Value.ToObject);
@@ -1764,8 +1786,66 @@ begin
   Result := TJSValue.CreateObject(Func);
 end;
 
+function TJSInterpreter.VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
+begin
+  if Node.Argument is TJSIdentifier then
+  begin
+    if FStrictMode then
+      raise TJSErrorFactory.SyntaxError('Delete of an unqualified identifier in strict mode',
+        Node.Line, Node.Column);
+
+    const IdentifierName = TJSIdentifier(Node.Argument).Name;
+    const IsDeleted = DeleteIdentifier(IdentifierName);
+    Exit(TJSValue.CreateBoolean(IsDeleted));
+  end;
+
+  const IsMemberReference = Node.Argument is TJSMemberExpression;
+  if not IsMemberReference then
+  begin
+    Visit(Node.Argument);
+    Exit(TJSValue.CreateBoolean(True));
+  end;
+
+  Result := DeleteMember(Node, TJSMemberExpression(Node.Argument));
+end;
+
+function TJSInterpreter.DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
+begin
+  const ObjValue = Visit(MemberExpr.Object_);
+  if ObjValue.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT, Node.Line, Node.Column);
+
+  if not ObjValue.IsObject then
+    Exit(TJSValue.CreateBoolean(False));
+
+  var PropName: string;
+
+  if MemberExpr.Computed then
+    PropName := VisitText(MemberExpr.Property_)
+  else
+    PropName := TJSIdentifier(MemberExpr.Property_).Name;
+
+  const Obj = ObjValue.ToObject;
+
+  const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
+  const IsLocked = Obj.HasOwnProperty(PropName) and (not OwnDescriptor.Configurable);
+  if IsLocked and FStrictMode then
+    raise TJSErrorFactory.TypeError(Format('Cannot delete property ''%s'' of object', [PropName]),
+      Node.Line, Node.Column);
+
+  if IsLocked then
+    Exit(TJSValue.CreateBoolean(False));
+
+  DeleteArrayElement(Obj, PropName);
+  Obj.DeleteProperty(PropName);
+  Result := TJSValue.CreateBoolean(True);
+end;
+
 function TJSInterpreter.VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
 begin
+  if Node.Operator = TJSUnaryOperator.Delete then
+    Exit(VisitDeleteExpression(Node));
+
   const IsTypeOfUndeclared = ((Node.Operator = TJSUnaryOperator.TypeOf) and
                               IsUndeclaredIdentifier(Node.Argument));
   if IsTypeOfUndeclared then
@@ -1815,55 +1895,28 @@ begin
       end;
     TJSUnaryOperator.Void:
       Result := TJSValue.CreateUndefined;
-    TJSUnaryOperator.Delete:
-      begin
-        if Node.Argument is TJSIdentifier then
-        begin
-          if FStrictMode then
-            raise TJSErrorFactory.SyntaxError('Delete of an unqualified identifier in strict mode',
-              Node.Line, Node.Column);
-
-          Result := TJSValue.CreateBoolean(False);
-          Exit;
-        end;
-
-        if Node.Argument is TJSMemberExpression then
-        begin
-          const MemberExpr = TJSMemberExpression(Node.Argument);
-          const ObjValue = Visit(MemberExpr.Object_);
-
-          if ObjValue.IsObject then
-          begin
-            var PropName: string;
-
-            if MemberExpr.Computed then
-              PropName := VisitText(MemberExpr.Property_)
-            else
-              PropName := TJSIdentifier(MemberExpr.Property_).Name;
-
-            const Obj = ObjValue.ToObject;
-
-            const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
-            const IsLocked = Obj.HasOwnProperty(PropName) and (not OwnDescriptor.Configurable);
-            if IsLocked and FStrictMode then
-              raise TJSErrorFactory.TypeError('Cannot delete property ''' + PropName + ''' of object',
-                Node.Line, Node.Column);
-
-            if IsLocked then
-              Exit(TJSValue.CreateBoolean(False));
-
-            DeleteArrayElement(Obj, PropName);
-            Obj.DeleteProperty(PropName);
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-        end;
-
-        Result := TJSValue.CreateBoolean(False);
-      end;
     else
       Result := TJSValue.CreateUndefined;
   end;
+end;
+
+procedure TJSInterpreter.DeclareBinding(const Name: string; const Value: TJSValue);
+begin
+  const IsEvalDeclaration = Assigned(FEvalVariableScope) and (FCurrentScope = FEvalVariableScope);
+  if IsEvalDeclaration then
+    FCurrentScope.DeclareDeletableVariable(Name, Value)
+  else
+    FCurrentScope.DeclareVariable(Name, Value);
+end;
+
+function TJSInterpreter.DeleteIdentifier(const Name: string): Boolean;
+begin
+  const DeclaringScope = FCurrentScope.Resolve(Name);
+  const IsResolvable = Assigned(DeclaringScope);
+  if not IsResolvable then
+    Exit(True);
+
+  Result := DeclaringScope.DeleteVariable(Name);
 end;
 
 function TJSInterpreter.IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
