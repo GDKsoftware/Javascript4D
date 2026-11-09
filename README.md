@@ -1,6 +1,6 @@
 # JavaScript4D
 
-A complete JavaScript (ECMAScript 5.1) parser and interpreter written in Delphi/Object Pascal.
+A JavaScript parser and interpreter written in Delphi/Object Pascal. It targets ECMAScript 5.1 and is being extended towards ECMAScript 2015; see [Conformance](#conformance-test262) for what passes today.
 
 ## Overview
 
@@ -8,7 +8,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 ## Features
 
-- **Complete ES5.1 Support**: Full ECMAScript 5.1 specification compliance
+- **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
@@ -265,6 +265,25 @@ powershell -File Conformance/run-conformance.ps1
 ```
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
+
+Pass rates for the areas with the most tests, counting only the tests that run (tests for unsupported features are skipped):
+
+| Area | Tests run | Passed | Rate |
+|---|---:|---:|---:|
+| built-ins/Array | 2468 | 1759 | 71.3% |
+| built-ins/Date | 492 | 440 | 89.4% |
+| built-ins/Function | 413 | 284 | 68.8% |
+| built-ins/JSON | 108 | 40 | 37.0% |
+| built-ins/Math | 276 | 141 | 51.1% |
+| built-ins/Number | 280 | 133 | 47.5% |
+| built-ins/Object | 3077 | 2517 | 81.8% |
+| built-ins/RegExp | 581 | 343 | 59.0% |
+| built-ins/String | 904 | 577 | 63.8% |
+| language/expressions | 2285 | 1546 | 67.7% |
+| language/statements | 1023 | 659 | 64.4% |
+| **Total** | 14029 | 9747 | 69.5% |
+
+The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 
 Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
 
