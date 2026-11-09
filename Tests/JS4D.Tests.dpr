@@ -30,7 +30,8 @@ uses
   JS4D.Tests.Arguments in 'JS4D.Tests.Arguments.pas',
   JS4D.Tests.Constructors in 'JS4D.Tests.Constructors.pas',
   JS4D.Tests.TryStatement in 'JS4D.Tests.TryStatement.pas',
-  JS4D.Tests.PropertyDescriptors in 'JS4D.Tests.PropertyDescriptors.pas';
+  JS4D.Tests.PropertyDescriptors in 'JS4D.Tests.PropertyDescriptors.pas',
+  JS4D.Tests.GenericArrayMethods in 'JS4D.Tests.GenericArrayMethods.pas';
 
 var
   Runner: ITestRunner;

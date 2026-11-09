@@ -12,7 +12,8 @@ uses
   JS4D.Types,
   JS4D.AST,
   JS4D.Errors,
-  JS4D.Builtins;
+  JS4D.Builtins,
+  JS4D.ArrayIteration;
 
 type
   TJSScope = class(TInterfacedObject, IJSScope)
@@ -155,6 +156,8 @@ type
     function JoinStringValues(const Left: TJSValue; const Right: TJSValue): TJSValue;
     procedure SetMemberValue(const Node: TJSMemberExpression; const Value: TJSValue);
     function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
+    function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
 
@@ -173,6 +176,7 @@ type
     function LivePrograms: TArray<TObject>;
     function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 
     property GlobalScope: IJSScope read FGlobalScope;
     property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
@@ -1318,6 +1322,7 @@ begin
             if IsLocked then
               Exit(TJSValue.CreateBoolean(False));
 
+            DeleteArrayElement(Obj, PropName);
             Obj.DeleteProperty(PropName);
             Result := TJSValue.CreateBoolean(True);
             Exit;
@@ -1986,23 +1991,36 @@ begin
   end;
 end;
 
-function TJSInterpreter.ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+function TJSInterpreter.CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
 begin
-  if not TJSBuiltins.RequiresCallback(MethodName) then
-    Exit(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits));
-
   var ThisArg: IJSObject := nil;
   const HasThisArg = TJSBuiltins.TakesCallbackThis(MethodName) and (Length(Args) > 1) and Args[1].IsObject;
   if HasThisArg then
     ThisArg := Args[1].ToObject;
 
-  const Executor: TJSCallbackExecutor =
+  Result :=
     function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
     begin
       Result := CallFunction(Func, CallbackArgs, ThisArg);
     end;
+end;
 
+function TJSInterpreter.ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if TJSArrayIteration.Handles(MethodName) then
+    Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
+
+  if not TJSBuiltins.RequiresCallback(MethodName) then
+    Exit(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits));
+
+  const Executor = CreateCallbackExecutor(MethodName, Args);
   Result := TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits);
+end;
+
+function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Executor = CreateCallbackExecutor(MethodName, Args);
+  Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype);
 end;
 
 function TJSInterpreter.ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -2127,31 +2145,19 @@ begin
     ObjValue.ToObject.SetProperty(PropName, Value);
 end;
 
+procedure TJSInterpreter.DeleteArrayElement(const Target: IJSObject; const PropName: string);
+begin
+  var TargetArray: IJSArray;
+  var Index: Integer;
+
+  const IsElement = Supports(Target, IJSArray, TargetArray) and TryStrToInt(PropName, Index);
+  if IsElement then
+    TargetArray.DeleteElement(Index);
+end;
+
 function TJSInterpreter.StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
 begin
-  if Left.ValueType <> Right.ValueType then
-    Exit(False);
-
-  case Left.ValueType of
-    TJSValueType.Undefined:
-      Result := True;
-    TJSValueType.Null:
-      Result := True;
-    TJSValueType.Boolean_:
-      Result := Left.AsBoolean = Right.AsBoolean;
-    TJSValueType.Number:
-      begin
-        const HasNaN = (Left.IsNaN or Right.IsNaN);
-        if HasNaN then
-          Exit(False);
-
-        Result := Left.AsNumber = Right.AsNumber;
-      end;
-    TJSValueType.String_:
-      Result := Left.AsString = Right.AsString;
-    else
-      Result := Left.ToObject = Right.ToObject;
-  end;
+  Result := Left.StrictEquals(Right);
 end;
 
 function TJSInterpreter.AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;

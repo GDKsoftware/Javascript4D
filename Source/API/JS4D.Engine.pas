@@ -17,6 +17,7 @@ uses
   JS4D.AST,
   JS4D.Interpreter,
   JS4D.Builtins,
+  JS4D.ArrayIteration,
   JS4D.PropertyDescriptors,
   JS4D.Json,
   JS4D.Errors;
@@ -1598,6 +1599,9 @@ begin
   Result := TJSFunction.CreateNative(MethodName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      if TJSArrayIteration.Handles(MethodName) then
+        Exit(FInterpreter.ExecuteArrayIterationMethod(This, MethodName, Args));
+
       var Target: IJSArray;
       const IsArray = Supports(This, IJSArray, Target);
       if not IsArray then

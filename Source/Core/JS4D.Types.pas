@@ -91,6 +91,7 @@ type
     function IsInfinity: Boolean;
 
     function SameValue(const Other: TJSValue): Boolean;
+    function StrictEquals(const Other: TJSValue): Boolean;
 
     function ToBoolean: Boolean;
     function ToNumber: Double;
@@ -195,6 +196,8 @@ type
     procedure SetElement(const Index: Integer; const Value: TJSValue);
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
+    function HasElement(const Index: Integer): Boolean;
+    procedure DeleteElement(const Index: Integer);
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
@@ -409,10 +412,13 @@ type
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
   private
     FElements: TList<TJSValue>;
+    FHoles: TDictionary<Integer, Boolean>;
     FLengthWritable: Boolean;
 
     function GetLengthDescriptor: TJSPropertyDescriptor;
     procedure ResizeTo(const NewLength: Integer);
+    procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
+    procedure ForgetHolesFrom(const FromIndex: Integer);
 
   protected
     function HoldsNested: Boolean; override;
@@ -427,6 +433,8 @@ type
 
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
+    function HasElement(const Index: Integer): Boolean;
+    procedure DeleteElement(const Index: Integer);
 
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
     function HasOwnProperty(const Name: string): Boolean; override;
@@ -800,6 +808,15 @@ begin
   else
     raise ENotSupportedException.CreateFmt('Unsupported value type: %d', [Ord(FValueType)]);
   end;
+end;
+
+function TJSValue.StrictEquals(const Other: TJSValue): Boolean;
+begin
+  const BothNumbers = IsNumber and Other.IsNumber;
+  if BothNumbers then
+    Exit(FNumberValue = Other.FNumberValue);
+
+  Result := SameValue(Other);
 end;
 
 function TJSValue.IsInfinity: Boolean;
@@ -1553,17 +1570,47 @@ begin
   Result.Configurable := False;
 end;
 
+procedure TJSArrayImpl.MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
+begin
+  if not Assigned(FHoles) then
+    FHoles := TDictionary<Integer, Boolean>.Create;
+
+  for var Index := FromIndex to ToIndex do
+  begin
+    FHoles.AddOrSetValue(Index, True);
+  end;
+end;
+
+procedure TJSArrayImpl.ForgetHolesFrom(const FromIndex: Integer);
+begin
+  if (not Assigned(FHoles)) or (FHoles.Count = 0) then
+    Exit;
+
+  for var Index in FHoles.Keys.ToArray do
+  begin
+    if Index >= FromIndex then
+      FHoles.Remove(Index);
+  end;
+end;
+
 procedure TJSArrayImpl.ResizeTo(const NewLength: Integer);
 begin
+  const OldLength = FElements.Count;
+
   while FElements.Count > NewLength do
   begin
     FElements.Delete(FElements.Count - 1);
   end;
 
+  ForgetHolesFrom(NewLength);
+
   while FElements.Count < NewLength do
   begin
     FElements.Add(TJSValue.CreateUndefined);
   end;
+
+  if NewLength > OldLength then
+    MarkHoles(OldLength, NewLength - 1);
 end;
 
 function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
@@ -1652,6 +1699,7 @@ begin
 
   FElements.Clear;
   FreeAndNil(FElements);
+  FreeAndNil(FHoles);
   inherited;
 end;
 
@@ -1670,12 +1718,36 @@ end;
 
 procedure TJSArrayImpl.SetElement(const Index: Integer; const Value: TJSValue);
 begin
+  const OldLength = FElements.Count;
+
   while FElements.Count <= Index do
   begin
     FElements.Add(TJSValue.CreateUndefined);
   end;
 
+  if Index > OldLength then
+    MarkHoles(OldLength, Index - 1);
+
+  if Assigned(FHoles) then
+    FHoles.Remove(Index);
+
   FElements[Index] := Value;
+end;
+
+function TJSArrayImpl.HasElement(const Index: Integer): Boolean;
+begin
+  const InRange = (Index >= 0) and (Index < FElements.Count);
+  Result := InRange and ((not Assigned(FHoles)) or (not FHoles.ContainsKey(Index)));
+end;
+
+procedure TJSArrayImpl.DeleteElement(const Index: Integer);
+begin
+  const InRange = (Index >= 0) and (Index < FElements.Count);
+  if not InRange then
+    Exit;
+
+  FElements[Index] := TJSValue.CreateUndefined;
+  MarkHoles(Index, Index);
 end;
 
 procedure TJSArrayImpl.Push(const Value: TJSValue);
@@ -1689,6 +1761,7 @@ begin
   begin
     Result := FElements[FElements.Count - 1];
     FElements.Delete(FElements.Count - 1);
+    ForgetHolesFrom(FElements.Count);
   end
   else
     Result := TJSValue.CreateUndefined;
