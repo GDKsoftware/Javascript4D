@@ -59,6 +59,8 @@ type
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function BuildPadding(const PadStr: string; const PadLength: Integer): string; static;
+    class function PatternPosition(const SearchStr: string; const Str: string): Integer; static;
+    class function PatternText(const Pattern: TJSValue; const Limits: TJSLimits): string; static;
     class procedure CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits); static;
     class function StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringRepeat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -1439,8 +1441,8 @@ begin
     Exit;
   end;
 
-  const SearchStr = Args[0].ToLimitedString(Limits);
-  const Position = Pos(SearchStr, Str);
+  const SearchStr = PatternText(Args[0], Limits);
+  const Position = PatternPosition(SearchStr, Str);
 
   if Position > 0 then
   begin
@@ -1452,6 +1454,22 @@ begin
   end
   else
     Result := TJSValue.CreateNull;
+end;
+
+class function TJSBuiltins.PatternText(const Pattern: TJSValue; const Limits: TJSLimits): string;
+begin
+  if Pattern.IsUndefined then
+    Result := ''
+  else
+    Result := Pattern.ToLimitedString(Limits);
+end;
+
+class function TJSBuiltins.PatternPosition(const SearchStr: string; const Str: string): Integer;
+begin
+  if SearchStr.IsEmpty then
+    Result := 1
+  else
+    Result := Pos(SearchStr, Str);
 end;
 
 class function TJSBuiltins.StringSearch(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
@@ -1469,8 +1487,8 @@ begin
     Exit;
   end;
 
-  const SearchStr = Args[0].ToLimitedString(Limits);
-  const Position = Pos(SearchStr, Str);
+  const SearchStr = PatternText(Args[0], Limits);
+  const Position = PatternPosition(SearchStr, Str);
 
   if Position > 0 then
     Result := TJSValue.CreateNumber(Position - 1)

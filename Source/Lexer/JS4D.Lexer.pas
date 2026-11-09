@@ -608,7 +608,7 @@ begin
       Advance;
       Break;
     end
-    else if Ch = LF_CHAR then
+    else if IsLineTerminator(Ch) or (Ch = CR_CHAR) then
     begin
       raise TJSErrorFactory.SyntaxError(SUnterminatedRegularExpression, FLine, FColumn);
     end

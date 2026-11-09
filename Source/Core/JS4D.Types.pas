@@ -538,7 +538,8 @@ implementation
 
 uses
   System.Math,
-  JS4D.Errors;
+  JS4D.Errors,
+  JS4D.RegExpSyntax;
 
 { TJSLimits }
 
@@ -576,6 +577,7 @@ end;
 
 const
   UNDEFINED_STRING = 'undefined';
+  EMPTY_PATTERN_GROUP = '(?:)';
   NULL_STRING = 'null';
   TRUE_STRING = 'true';
   FALSE_STRING = 'false';
@@ -1870,6 +1872,9 @@ end;
 constructor TJSRegExpImpl.Create(const Pattern: string; const Flags: string);
 begin
   inherited Create;
+  TJSRegExpSyntax.ValidateFlags(Flags);
+  TJSRegExpSyntax.ValidatePattern(Pattern, Flags);
+
   FPattern := Pattern;
   FFlags := Flags;
   FGlobal := (Pos('g', Flags) > 0);
@@ -1885,7 +1890,11 @@ begin
   if FMultiline then
     Options := Options + [roMultiLine];
 
-  FRegEx := TRegEx.Create(Pattern, Options);
+  var CompilablePattern := Pattern;
+  if Pattern.IsEmpty then
+    CompilablePattern := EMPTY_PATTERN_GROUP;
+
+  FRegEx := TRegEx.Create(CompilablePattern, Options);
 
   SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
   SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));

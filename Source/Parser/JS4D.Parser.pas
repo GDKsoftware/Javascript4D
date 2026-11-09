@@ -10,7 +10,8 @@ uses
   JS4D.Tokens,
   JS4D.Lexer,
   JS4D.AST,
-  JS4D.Errors;
+  JS4D.Errors,
+  JS4D.RegExpSyntax;
 
 type
   TJSLabelInfo = record
@@ -132,8 +133,8 @@ constructor TJSParser.Create(const Source: string);
 begin
   inherited Create;
   FLexer := TJSLexer.Create(Source);
-  FLexer.Tokenize;
   FOwnsLexer := True;
+  FLexer.Tokenize;
   FInOperatorAllowed := True;
   FActiveLabels := TList<TJSLabelInfo>.Create;
 end;
@@ -1401,11 +1402,16 @@ begin
     TJSTokenType.RegExpLiteral:
       begin
         const Value = CurrentToken.Value;
+        const Line = CurrentToken.Line;
+        const Column = CurrentToken.Column;
         Advance;
 
         const SlashPos = Value.LastIndexOf('/');
         const Pattern = Value.Substring(0, SlashPos);
         const Flags = Value.Substring(SlashPos + 1);
+
+        TJSRegExpSyntax.ValidateFlags(Flags, Line, Column);
+        TJSRegExpSyntax.ValidatePattern(Pattern, Flags, Line, Column);
 
         Exit(TJSLiteral.CreateRegExp(Pattern, Flags));
       end;

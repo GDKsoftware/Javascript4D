@@ -11,6 +11,7 @@ uses
   DUnitX.TestFramework,
   JS4D.Types in '..\Source\Core\JS4D.Types.pas',
   JS4D.Errors in '..\Source\Core\JS4D.Errors.pas',
+  JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
@@ -43,7 +44,8 @@ uses
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
   JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas',
-  JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas';
+  JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas',
+  JS4D.Tests.RegExpSyntax in 'JS4D.Tests.RegExpSyntax.pas';
 
 var
   Runner: ITestRunner;

@@ -39,6 +39,8 @@ type
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
 
     function ToText(const Value: TJSValue): string;
+    function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
+    function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
@@ -1819,6 +1821,43 @@ begin
     CreateErrorConstructor(TJSErrorType.EvalError, EVAL_ERROR_NAME)));
 end;
 
+function TJSEngine.RegExpPatternArgument(const Args: TArray<TJSValue>): string;
+begin
+  Result := '';
+
+  const HasPattern = (Length(Args) > 0) and (not Args[0].IsUndefined);
+  if not HasPattern then
+    Exit;
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  if IsRegExp then
+    Result := SourceRegExp.Pattern
+  else
+  begin
+    const PatternValue = Args[0].ToPrimitive(True);
+    Result := ToText(PatternValue);
+  end;
+end;
+
+function TJSEngine.RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
+begin
+  Result := '';
+
+  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
+  if HasFlags then
+  begin
+    const FlagsValue = Args[1].ToPrimitive(True);
+    Result := ToText(FlagsValue);
+    Exit;
+  end;
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = (Length(Args) > 0) and Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  if IsRegExp then
+    Result := SourceRegExp.Flags;
+end;
+
 procedure TJSEngine.RegisterRegExp;
 begin
   const PrototypeObj: IJSObject = TJSObject.Create;
@@ -1826,14 +1865,8 @@ begin
   const RegExpFunc = TJSFunction.CreateNative(REGEXP_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      var Pattern := '';
-      var Flags := '';
-
-      if Length(Args) > 0 then
-        Pattern := ToText(Args[0]);
-
-      if Length(Args) > 1 then
-        Flags := ToText(Args[1]);
+      const Pattern = RegExpPatternArgument(Args);
+      const Flags = RegExpFlagsArgument(Args);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
 

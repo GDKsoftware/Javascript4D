@@ -6,6 +6,7 @@ uses
   System.SysUtils,
   JS4D.Types in 'Source\Core\JS4D.Types.pas',
   JS4D.Errors in 'Source\Core\JS4D.Errors.pas',
+  JS4D.RegExpSyntax in 'Source\Core\JS4D.RegExpSyntax.pas',
   JS4D.Tokens in 'Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in 'Source\Lexer\JS4D.Lexer.pas',
   JS4D.AST in 'Source\Parser\JS4D.AST.pas',
