@@ -58,7 +58,8 @@ type
     function ParseWithBody: TJSStatement;
     function StartsWithDeclaration: Boolean;
     function ParseFunctionBodyBlock: TJSBlockStatement;
-    function StartsWithUseStrictDirective: Boolean;
+    function PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
+    procedure RejectLegacyLiteralInStrictMode(const Token: TJSToken);
     function ParseForStatement: TJSStatement;
     function ParseReturnStatement: TJSReturnStatement;
     function ParseBreakStatement: TJSBreakStatement;
@@ -110,7 +111,6 @@ type
     procedure EnsureAssignmentTarget(const Target: TJSExpression);
     function TokenToAssignmentOperator(const TokenType: TJSTokenType): TJSAssignmentOperator;
 
-    function IsUseStrictDirective(const Statement: TJSStatement): Boolean;
     function IsStrictModeReservedWord(const Name: string): Boolean;
     procedure CheckStrictModeReservedWord(const Name: string);
     function IsRestrictedStrictName(const Name: string): Boolean;
@@ -132,6 +132,8 @@ implementation
 
 const
   TRUE_VALUE = 'true';
+  USE_STRICT_DIRECTIVE = 'use strict';
+  LegacyLiteralInStrictModeMessage = 'Octal literals and escape sequences are not allowed in strict mode';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
   KEYWORD_GET = 'get';
@@ -249,16 +251,16 @@ begin
   Result := TJSProgram.Create;
 
   try
+    if PrologueDeclaresStrictMode(0) then
+    begin
+      FStrictMode := True;
+      Result.IsStrict := True;
+    end;
+
     while not IsAtEnd do
     begin
       const Statement = ParseStatement;
       Result.Body.Add(Statement);
-
-      if (Result.Body.Count = 1) and IsUseStrictDirective(Statement) then
-      begin
-        FStrictMode := True;
-        Result.IsStrict := True;
-      end;
     end;
   except
     Result.Free;
@@ -401,8 +403,7 @@ begin
     const OldStrictMode = FStrictMode;
     Result.Body := ParseFunctionBodyBlock;
 
-    const HasUseStrictDirective = (Result.Body.Body.Count > 0) and IsUseStrictDirective(Result.Body.Body[0]);
-    if HasUseStrictDirective then
+    if Result.Body.DeclaresStrictMode then
     begin
       Result.IsStrict := True;
       FStrictMode := True;
@@ -508,18 +509,47 @@ begin
   Result := IsLetDeclaration or IsConstOrClassDeclaration;
 end;
 
-function TJSParser.StartsWithUseStrictDirective: Boolean;
+function TJSParser.PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
 begin
-  if not Check(TJSTokenType.LeftBrace) then
-    Exit(False);
+  Result := False;
+  var HasLegacyDirective := False;
+  var Offset := FirstTokenOffset;
 
-  const DirectiveToken = FLexer.PeekToken(1);
-  const EndToken = FLexer.PeekToken(2);
-  const IsUseStrictString = ((DirectiveToken.TokenType = TJSTokenType.StringLiteral) and
-                             (DirectiveToken.Value = 'use strict'));
-  const EndsDirective = ((EndToken.TokenType in [TJSTokenType.Semicolon, TJSTokenType.RightBrace]) or
-                         (EndToken.Line <> DirectiveToken.Line));
-  Result := IsUseStrictString and EndsDirective;
+  while True do
+  begin
+    const DirectiveToken = FLexer.PeekToken(Offset);
+    if DirectiveToken.TokenType <> TJSTokenType.StringLiteral then
+      Break;
+
+    const EndToken = FLexer.PeekToken(Offset + 1);
+    const EndsWithSemicolon = (EndToken.TokenType = TJSTokenType.Semicolon);
+    const EndsDirective = (EndsWithSemicolon or
+                           (EndToken.TokenType in [TJSTokenType.RightBrace, TJSTokenType.EndOfFile]) or
+                           (EndToken.Line <> DirectiveToken.Line));
+    if not EndsDirective then
+      Break;
+
+    const IsUseStrict = (DirectiveToken.Value = USE_STRICT_DIRECTIVE) and (not DirectiveToken.HasEscape);
+    if IsUseStrict then
+      Result := True;
+
+    if DirectiveToken.IsLegacyLiteral then
+      HasLegacyDirective := True;
+
+    Inc(Offset);
+    if EndsWithSemicolon then
+      Inc(Offset);
+  end;
+
+  if Result and HasLegacyDirective then
+    raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage,
+      CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.RejectLegacyLiteralInStrictMode(const Token: TJSToken);
+begin
+  if FStrictMode and Token.IsLegacyLiteral then
+    raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage, Token.Line, Token.Column);
 end;
 
 function TJSParser.ParseFunctionBodyBlock: TJSBlockStatement;
@@ -529,7 +559,8 @@ begin
   const OuterLoopDepth = FLoopDepth;
   const OuterSwitchDepth = FSwitchDepth;
 
-  if StartsWithUseStrictDirective then
+  const DeclaresStrictMode = Check(TJSTokenType.LeftBrace) and PrologueDeclaresStrictMode(1);
+  if DeclaresStrictMode then
     FStrictMode := True;
 
   FLabelScopeStart := FActiveLabels.Count;
@@ -538,6 +569,7 @@ begin
   try
     const StartPosition = FLexer.Position;
     Result := ParseNestedBlockStatement;
+    Result.DeclaresStrictMode := DeclaresStrictMode;
     Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
                                                               [ARGUMENTS_NAME, EVAL_NAME]);
   finally
@@ -1412,23 +1444,15 @@ begin
     TJSTokenType.NumberLiteral:
       begin
         const Value = CurrentToken.NumberValue;
-        const IsOctal = CurrentToken.IsOctal;
-
-        if FStrictMode and IsOctal then
-          raise TJSErrorFactory.SyntaxError('Octal literals are not allowed in strict mode',
-            CurrentToken.Line, CurrentToken.Column);
-
+        RejectLegacyLiteralInStrictMode(CurrentToken);
         Advance;
-
-        if IsOctal then
-          Exit(TJSLiteral.CreateOctalNumber(Value))
-        else
-          Exit(TJSLiteral.CreateNumber(Value));
+        Exit(TJSLiteral.CreateNumber(Value));
       end;
 
     TJSTokenType.StringLiteral:
       begin
         const Value = CurrentToken.Value;
+        RejectLegacyLiteralInStrictMode(CurrentToken);
         Advance;
         Exit(TJSLiteral.CreateString(Value));
       end;
@@ -1581,11 +1605,13 @@ begin
 
   if Check(TJSTokenType.StringLiteral) then
   begin
+    RejectLegacyLiteralInStrictMode(CurrentToken);
     Result := TJSLiteral.CreateString(CurrentToken.Value);
     Advance;
   end
   else if Check(TJSTokenType.NumberLiteral) then
   begin
+    RejectLegacyLiteralInStrictMode(CurrentToken);
     Result := TJSLiteral.CreateNumber(CurrentToken.NumberValue);
     Advance;
   end
@@ -1695,8 +1721,7 @@ begin
   const Body = ParseFunctionBodyBlock;
   Func.Body := Body;
 
-  const HasUseStrictDirective = (Body.Body.Count > 0) and IsUseStrictDirective(Body.Body[0]);
-  if HasUseStrictDirective then
+  if Body.DeclaresStrictMode then
   begin
     Func.IsStrict := True;
     FStrictMode := True;
@@ -1815,26 +1840,6 @@ begin
     else
       Result := TJSAssignmentOperator.Assign;
   end;
-end;
-
-function TJSParser.IsUseStrictDirective(const Statement: TJSStatement): Boolean;
-begin
-  Result := False;
-
-  if not (Statement is TJSExpressionStatement) then
-    Exit;
-
-  const ExprStmt = TJSExpressionStatement(Statement);
-
-  if not (ExprStmt.Expression is TJSLiteral) then
-    Exit;
-
-  const Literal = TJSLiteral(ExprStmt.Expression);
-
-  if Literal.LiteralType <> TJSLiteralType.String_ then
-    Exit;
-
-  Result := (Literal.StringValue = 'use strict');
 end;
 
 function TJSParser.IsStrictModeReservedWord(const Name: string): Boolean;

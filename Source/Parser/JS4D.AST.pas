@@ -115,14 +115,12 @@ type
     FStringValue: string;
     FRegExpPattern: string;
     FRegExpFlags: string;
-    FIsOctal: Boolean;
 
   public
     class function CreateUndefined: TJSLiteral;
     class function CreateNull: TJSLiteral;
     class function CreateBoolean(const Value: Boolean): TJSLiteral;
     class function CreateNumber(const Value: Double): TJSLiteral;
-    class function CreateOctalNumber(const Value: Double): TJSLiteral;
     class function CreateString(const Value: string): TJSLiteral;
     class function CreateRegExp(const Pattern: string; const Flags: string): TJSLiteral;
 
@@ -132,7 +130,6 @@ type
     property StringValue: string read FStringValue;
     property RegExpPattern: string read FRegExpPattern;
     property RegExpFlags: string read FRegExpFlags;
-    property IsOctal: Boolean read FIsOctal;
   end;
 
   TJSArrayExpression = class(TJSExpression)
@@ -404,6 +401,7 @@ type
   private
     FBody: TObjectList<TJSStatement>;
     FReferencesArguments: Boolean;
+    FDeclaresStrictMode: Boolean;
 
   public
     constructor Create;
@@ -411,6 +409,7 @@ type
 
     property Body: TObjectList<TJSStatement> read FBody;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
+    property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
   end;
 
   TJSVariableDeclarator = class(TJSASTNode)
@@ -730,15 +729,6 @@ begin
   Result := TJSLiteral.Create(TJSASTNodeType.Literal);
   Result.FLiteralType := TJSLiteralType.Number;
   Result.FNumberValue := Value;
-  Result.FIsOctal := False;
-end;
-
-class function TJSLiteral.CreateOctalNumber(const Value: Double): TJSLiteral;
-begin
-  Result := TJSLiteral.Create(TJSASTNodeType.Literal);
-  Result.FLiteralType := TJSLiteralType.Number;
-  Result.FNumberValue := Value;
-  Result.FIsOctal := True;
 end;
 
 class function TJSLiteral.CreateString(const Value: string): TJSLiteral;

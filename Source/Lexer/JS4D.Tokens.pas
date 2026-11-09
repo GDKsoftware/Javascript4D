@@ -113,7 +113,7 @@ type
     FLine: Integer;
     FColumn: Integer;
     FSourcePosition: Integer;
-    FIsOctal: Boolean;
+    FIsLegacyLiteral: Boolean;
     FHasEscape: Boolean;
 
   public
@@ -126,7 +126,7 @@ type
     property Line: Integer read FLine;
     property Column: Integer read FColumn;
     property SourcePosition: Integer read FSourcePosition write FSourcePosition;
-    property IsOctal: Boolean read FIsOctal write FIsOctal;
+    property IsLegacyLiteral: Boolean read FIsLegacyLiteral write FIsLegacyLiteral;
     property HasEscape: Boolean read FHasEscape write FHasEscape;
   end;
 

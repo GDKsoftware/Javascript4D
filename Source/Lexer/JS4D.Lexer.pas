@@ -23,6 +23,7 @@ type
     FLineStart: Integer;
     FTokens: TObjectList<TJSToken>;
     FCurrentIndex: Integer;
+    FStringHasLegacyEscape: Boolean;
 
     function CurrentChar: Char;
     function PeekChar(const Offset: Integer = 1): Char;
@@ -47,13 +48,19 @@ type
     function IsIdentifierPart(const Ch: Char): Boolean;
     function IsDigit(const Ch: Char): Boolean;
     function IsLineTerminator(const Ch: Char): Boolean;
+    function IsWhiteSpace(const Ch: Char): Boolean;
     function IsHexDigit(const Ch: Char): Boolean;
     function IsOctalDigit(const Ch: Char): Boolean;
 
     function ParseHexNumber: Double;
     function ParseOctalNumber: Double;
+    function ReadDigits: string;
+    function ReadExponent: string;
     function ParseDecimalNumber: Double;
-    function ParseEscapeSequence: Char;
+    function IsLegacyOctalLiteral: Boolean;
+    function ParseEscapeSequence: string;
+    function ParseOctalEscape(const FirstDigit: Char): string;
+    function ParseLineContinuation(const Terminator: Char): string;
     function ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
     function ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
 
@@ -84,6 +91,10 @@ const
   TAB_CHAR = #9;
   LF_CHAR = #10;
   CR_CHAR = #13;
+  VERTICAL_TAB_CHAR = #11;
+  FORM_FEED_CHAR = #12;
+  NO_BREAK_SPACE = #$00A0;
+  BYTE_ORDER_MARK = #$FEFF;
   LINE_SEPARATOR_CHAR = #$2028;
   PARAGRAPH_SEPARATOR_CHAR = #$2029;
   ZERO_WIDTH_NON_JOINER = #$200C;
@@ -128,7 +139,9 @@ const
   ESCAPE_B = 'b';
   ESCAPE_F = 'f';
   ESCAPE_V = 'v';
-  ESCAPE_0 = '0';
+  NON_OCTAL_EIGHT = '8';
+  NON_OCTAL_NINE = '9';
+  MAX_THREE_DIGIT_OCTAL_START = '3';
   ESCAPE_U = 'u';
   ESCAPE_X = 'x';
 
@@ -141,6 +154,8 @@ const
   SEscapeInRegularExpressionFlags = 'Regular expression flags cannot contain escape sequences';
   SIdentifierAfterNumber = 'Identifier starts immediately after a numeric literal';
   SInvalidIdentifierEscape = 'Unicode escape is not a valid identifier character';
+  SMissingHexDigits = 'Hexadecimal literal has no digits';
+  SMissingExponentDigits = 'Numeric literal exponent has no digits';
 
 { TJSLexer }
 
@@ -187,14 +202,29 @@ end;
 
 function TJSLexer.IsLineTerminator(const Ch: Char): Boolean;
 begin
-  Result := (Ch = LF_CHAR) or (Ch = LINE_SEPARATOR_CHAR) or (Ch = PARAGRAPH_SEPARATOR_CHAR);
+  Result := (Ch = LF_CHAR) or (Ch = CR_CHAR) or (Ch = LINE_SEPARATOR_CHAR) or (Ch = PARAGRAPH_SEPARATOR_CHAR);
+end;
+
+function TJSLexer.IsWhiteSpace(const Ch: Char): Boolean;
+begin
+  case Ch of
+    SPACE_CHAR, TAB_CHAR, VERTICAL_TAB_CHAR, FORM_FEED_CHAR, NO_BREAK_SPACE, BYTE_ORDER_MARK:
+      Result := True;
+  else
+    Result := (Ch.GetUnicodeCategory = TUnicodeCategory.ucSpaceSeparator);
+  end;
 end;
 
 procedure TJSLexer.Advance;
 begin
   if not IsAtEnd then
   begin
-    if IsLineTerminator(CurrentChar) then
+    const IsCarriageReturnOfPair = (CurrentChar = CR_CHAR) and (PeekChar = LF_CHAR);
+    if IsCarriageReturnOfPair then
+    begin
+      Inc(FColumn);
+    end
+    else if IsLineTerminator(CurrentChar) then
     begin
       Inc(FLine);
       FLineStart := FPosition + 1;
@@ -213,22 +243,23 @@ begin
   begin
     const Ch = CurrentChar;
 
-    case Ch of
-      SPACE_CHAR, TAB_CHAR, CR_CHAR, LF_CHAR, LINE_SEPARATOR_CHAR, PARAGRAPH_SEPARATOR_CHAR:
-        Advance;
+    if IsWhiteSpace(Ch) or IsLineTerminator(Ch) then
+    begin
+      Advance;
+    end
+    else if Ch = FORWARD_SLASH then
+    begin
+      const NextCh = PeekChar;
 
-      FORWARD_SLASH:
-        begin
-          const NextCh = PeekChar;
-
-          if NextCh = FORWARD_SLASH then
-            SkipSingleLineComment
-          else if NextCh = ASTERISK then
-            SkipMultiLineComment
-          else
-            Break;
-        end;
+      if NextCh = FORWARD_SLASH then
+        SkipSingleLineComment
+      else if NextCh = ASTERISK then
+        SkipMultiLineComment
+      else
+        Break;
+    end
     else
+    begin
       Break;
     end;
   end;
@@ -272,7 +303,8 @@ begin
   if IsIdentifierStart(Ch) or (Ch = BACKSLASH) then
     Exit(ScanIdentifier);
 
-  if IsDigit(Ch) then
+  const StartsNumber = IsDigit(Ch) or ((Ch = DOT_CHAR) and IsDigit(PeekChar));
+  if StartsNumber then
     Exit(ScanNumber);
 
   if (Ch = SINGLE_QUOTE) or (Ch = DOUBLE_QUOTE) then
@@ -347,18 +379,34 @@ begin
     Exit;
   end;
 
-  if (CurrentChar = ZERO_CHAR) and IsOctalDigit(PeekChar) then
+  const HasLeadingZero = (CurrentChar = ZERO_CHAR) and IsDigit(PeekChar);
+  if HasLeadingZero and IsLegacyOctalLiteral then
   begin
     const NumberValue = ParseOctalNumber;
     Result := CreateToken(TJSTokenType.NumberLiteral, '');
     Result.NumberValue := NumberValue;
-    Result.IsOctal := True;
+    Result.IsLegacyLiteral := True;
     Exit;
   end;
 
   const NumberValue = ParseDecimalNumber;
   Result := TJSToken.Create(TJSTokenType.NumberLiteral, '', FLine, StartColumn);
   Result.NumberValue := NumberValue;
+  Result.IsLegacyLiteral := HasLeadingZero;
+end;
+
+function TJSLexer.IsLegacyOctalLiteral: Boolean;
+begin
+  var Offset := 1;
+  while IsDigit(PeekChar(Offset)) do
+  begin
+    if not IsOctalDigit(PeekChar(Offset)) then
+      Exit(False);
+
+    Inc(Offset);
+  end;
+
+  Result := True;
 end;
 
 procedure TJSLexer.RejectIdentifierAfterNumber;
@@ -374,6 +422,7 @@ begin
   Advance;
 
   var Value: Int64 := 0;
+  var DigitCount := 0;
 
   while (not IsAtEnd) and IsHexDigit(CurrentChar) do
   begin
@@ -388,8 +437,13 @@ begin
       Digit := 10 + Ord(Ch) - Ord('A');
 
     Value := Value * 16 + Digit;
+    Inc(DigitCount);
     Advance;
   end;
+
+  const HasNoDigits = (DigitCount = 0);
+  if HasNoDigits then
+    raise TJSErrorFactory.SyntaxError(SMissingHexDigits, FLine, FColumn);
 
   Result := Value;
 end;
@@ -410,45 +464,57 @@ begin
   Result := Value;
 end;
 
-function TJSLexer.ParseDecimalNumber: Double;
+function TJSLexer.ReadDigits: string;
 begin
-  var NumberStr := '';
+  Result := '';
 
   while (not IsAtEnd) and IsDigit(CurrentChar) do
   begin
-    NumberStr := NumberStr + CurrentChar;
+    Result := Result + CurrentChar;
     Advance;
   end;
+end;
 
-  if (CurrentChar = DOT_CHAR) and IsDigit(PeekChar) then
+function TJSLexer.ReadExponent: string;
+begin
+  Result := '';
+  if not CharInSet(CurrentChar, ['e', 'E']) then
+    Exit;
+
+  Result := CurrentChar;
+  Advance;
+
+  if CharInSet(CurrentChar, [PLUS_CHAR, MINUS_CHAR]) then
   begin
-    NumberStr := NumberStr + CurrentChar;
+    Result := Result + CurrentChar;
     Advance;
-
-    while (not IsAtEnd) and IsDigit(CurrentChar) do
-    begin
-      NumberStr := NumberStr + CurrentChar;
-      Advance;
-    end;
   end;
 
-  if CharInSet(CurrentChar, ['e', 'E']) then
+  const ExponentDigits = ReadDigits;
+  if ExponentDigits.IsEmpty then
+    raise TJSErrorFactory.SyntaxError(SMissingExponentDigits, FLine, FColumn);
+
+  Result := Result + ExponentDigits;
+end;
+
+function TJSLexer.ParseDecimalNumber: Double;
+begin
+  var IntegerDigits := ReadDigits;
+  if IntegerDigits.IsEmpty then
+    IntegerDigits := ZERO_CHAR;
+
+  var FractionDigits := '';
+  if CurrentChar = DOT_CHAR then
   begin
-    NumberStr := NumberStr + CurrentChar;
     Advance;
-
-    if CharInSet(CurrentChar, [PLUS_CHAR, MINUS_CHAR]) then
-    begin
-      NumberStr := NumberStr + CurrentChar;
-      Advance;
-    end;
-
-    while (not IsAtEnd) and IsDigit(CurrentChar) do
-    begin
-      NumberStr := NumberStr + CurrentChar;
-      Advance;
-    end;
+    FractionDigits := ReadDigits;
   end;
+
+  var NumberStr := IntegerDigits;
+  if not FractionDigits.IsEmpty then
+    NumberStr := NumberStr + DOT_CHAR + FractionDigits;
+
+  NumberStr := NumberStr + ReadExponent;
 
   Result := StrToFloat(NumberStr, TFormatSettings.Invariant);
 end;
@@ -457,10 +523,12 @@ function TJSLexer.ScanString(const Quote: Char): TJSToken;
 begin
   const StartColumn = FColumn;
   const StartLine = FLine;
+  const StartPosition = FPosition;
 
   Advance;
 
   var Value := '';
+  FStringHasLegacyEscape := False;
 
   while not IsAtEnd do
   begin
@@ -469,7 +537,12 @@ begin
     if Ch = Quote then
     begin
       Advance;
-      Exit(TJSToken.Create(TJSTokenType.StringLiteral, Value, StartLine, StartColumn));
+      const SourceLength = FPosition - StartPosition;
+      const QuoteCount = 2;
+      Result := TJSToken.Create(TJSTokenType.StringLiteral, Value, StartLine, StartColumn);
+      Result.IsLegacyLiteral := FStringHasLegacyEscape;
+      Result.HasEscape := (SourceLength <> Length(Value) + QuoteCount);
+      Exit;
     end;
 
     if Ch = BACKSLASH then
@@ -477,7 +550,7 @@ begin
       Advance;
       Value := Value + ParseEscapeSequence;
     end
-    else if Ch = LF_CHAR then
+    else if (Ch = LF_CHAR) or (Ch = CR_CHAR) then
     begin
       raise TJSErrorFactory.SyntaxError(SUnterminatedStringLiteral, FLine, FColumn);
     end
@@ -491,13 +564,64 @@ begin
   raise TJSErrorFactory.SyntaxError(SUnterminatedStringLiteral, StartLine, StartColumn);
 end;
 
-function TJSLexer.ParseEscapeSequence: Char;
+function TJSLexer.ParseLineContinuation(const Terminator: Char): string;
+begin
+  const IsCarriageReturnLineFeed = (Terminator = CR_CHAR) and (CurrentChar = LF_CHAR);
+  if IsCarriageReturnLineFeed then
+    Advance;
+
+  Result := '';
+end;
+
+function TJSLexer.ParseOctalEscape(const FirstDigit: Char): string;
+begin
+  const IsNullEscape = (FirstDigit = ZERO_CHAR) and (not IsDigit(CurrentChar));
+  if IsNullEscape then
+    Exit(NULL_CHAR);
+
+  FStringHasLegacyEscape := True;
+
+  var CodeUnit := Ord(FirstDigit) - Ord(ZERO_CHAR);
+  const AllowsThreeDigits = (FirstDigit <= MAX_THREE_DIGIT_OCTAL_START);
+  var RemainingDigits: Integer;
+  if AllowsThreeDigits then
+    RemainingDigits := 2
+  else
+    RemainingDigits := 1;
+
+  while (RemainingDigits > 0) and IsOctalDigit(CurrentChar) do
+  begin
+    CodeUnit := CodeUnit * 8 + Ord(CurrentChar) - Ord(ZERO_CHAR);
+    Dec(RemainingDigits);
+    Advance;
+  end;
+
+  Result := Char(CodeUnit);
+end;
+
+function TJSLexer.ParseEscapeSequence: string;
 begin
   if IsAtEnd then
     raise TJSErrorFactory.SyntaxError(SUnexpectedEndOfInput, FLine, FColumn);
 
   const Ch = CurrentChar;
   Advance;
+
+  if IsLineTerminator(Ch) then
+  begin
+    Result := ParseLineContinuation(Ch);
+    Exit;
+  end;
+
+  if IsOctalDigit(Ch) then
+  begin
+    Result := ParseOctalEscape(Ch);
+    Exit;
+  end;
+
+  const IsNonOctalDigit = (Ch = NON_OCTAL_EIGHT) or (Ch = NON_OCTAL_NINE);
+  if IsNonOctalDigit then
+    FStringHasLegacyEscape := True;
 
   case Ch of
     ESCAPE_N:
@@ -512,8 +636,6 @@ begin
       Result := #12;
     ESCAPE_V:
       Result := #11;
-    ESCAPE_0:
-      Result := NULL_CHAR;
     BACKSLASH:
       Result := BACKSLASH;
     SINGLE_QUOTE:
