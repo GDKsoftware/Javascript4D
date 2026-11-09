@@ -95,7 +95,12 @@ type
     function ParsePrimaryExpression: TJSExpression;
     function ParseArrayExpression: TJSArrayExpression;
     function ParseObjectExpression: TJSObjectExpression;
+    function StartsAccessorProperty: Boolean;
+    function ParsePropertyKey(out Computed: Boolean): TJSExpression;
+    function ParseAccessorProperty: TJSObjectProperty;
+    function ParseAccessorFunction(const Kind: TJSPropertyKind): TJSFunctionExpression;
     function ParseFunctionExpression: TJSFunctionExpression;
+    procedure ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
     function ParseArguments: TObjectList<TJSExpression>;
 
     function IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
@@ -108,6 +113,7 @@ type
     function IsStrictModeReservedWord(const Name: string): Boolean;
     procedure CheckStrictModeReservedWord(const Name: string);
     procedure CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
+    procedure CheckRestrictedParameterNames(const Params: TObjectList<TJSIdentifier>);
 
   public
     constructor Create(const Source: string); overload;
@@ -123,6 +129,10 @@ const
   TRUE_VALUE = 'true';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
+  KEYWORD_GET = 'get';
+  KEYWORD_SET = 'set';
+  ACCESSOR_PARAMETER_COUNT = 'Getter must not have parameters and setter must have exactly one';
+  RestrictedParameterNameMessage = 'Parameter name ''%s'' is not allowed in strict mode';
   UndefinedLabelMessage = 'Undefined label ''%s''';
   DuplicateLabelMessage = 'Label ''%s'' has already been declared';
   ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
@@ -1484,44 +1494,117 @@ begin
   try
     while not Check(TJSTokenType.RightBrace) do
     begin
-      var Key: TJSExpression;
-      var Computed := False;
-
-      if Check(TJSTokenType.StringLiteral) then
+      if StartsAccessorProperty then
       begin
-        Key := TJSLiteral.CreateString(CurrentToken.Value);
-        Advance;
-      end
-      else if Check(TJSTokenType.NumberLiteral) then
-      begin
-        Key := TJSLiteral.CreateNumber(CurrentToken.NumberValue);
-        Advance;
-      end
-      else if TJSKeywords.IsIdentifierName(CurrentToken.TokenType) then
-      begin
-        Key := ParseIdentifierName;
-      end
-      else if Check(TJSTokenType.LeftBracket) then
-      begin
-        Advance;
-        Key := ParseNestedAssignmentExpression;
-        Expect(TJSTokenType.RightBracket);
-        Computed := True;
+        const Accessor = ParseAccessorProperty;
+        Result.Properties.Add(Accessor);
       end
       else
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+      begin
+        var Computed: Boolean;
+        const Key = ParsePropertyKey(Computed);
+        try
+          Expect(TJSTokenType.Colon);
+        except
+          Key.Free;
+          raise;
+        end;
 
-      Expect(TJSTokenType.Colon);
-
-      const Value = ParseNestedAssignmentExpression;
-      const Prop = TJSObjectProperty.Create(Key, Value, Computed);
-      Result.Properties.Add(Prop);
+        const Value = ParseNestedAssignmentExpression;
+        const Prop = TJSObjectProperty.Create(Key, Value, Computed);
+        Result.Properties.Add(Prop);
+      end;
 
       if not Check(TJSTokenType.RightBrace) then
         Expect(TJSTokenType.Comma);
     end;
 
     Expect(TJSTokenType.RightBrace);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.StartsAccessorProperty: Boolean;
+begin
+  const IsGetOrSet = Check(TJSTokenType.Identifier) and (not CurrentToken.HasEscape) and
+                     ((CurrentToken.Value = KEYWORD_GET) or (CurrentToken.Value = KEYWORD_SET));
+  if not IsGetOrSet then
+    Exit(False);
+
+  const FollowingType = FLexer.PeekToken(1).TokenType;
+  Result := not (FollowingType in [TJSTokenType.Colon, TJSTokenType.LeftParen,
+                                   TJSTokenType.Comma, TJSTokenType.RightBrace]);
+end;
+
+function TJSParser.ParsePropertyKey(out Computed: Boolean): TJSExpression;
+begin
+  Computed := False;
+
+  if Check(TJSTokenType.StringLiteral) then
+  begin
+    Result := TJSLiteral.CreateString(CurrentToken.Value);
+    Advance;
+  end
+  else if Check(TJSTokenType.NumberLiteral) then
+  begin
+    Result := TJSLiteral.CreateNumber(CurrentToken.NumberValue);
+    Advance;
+  end
+  else if TJSKeywords.IsIdentifierName(CurrentToken.TokenType) then
+  begin
+    Result := ParseIdentifierName;
+  end
+  else if Check(TJSTokenType.LeftBracket) then
+  begin
+    Advance;
+    Result := ParseNestedAssignmentExpression;
+    Computed := True;
+    try
+      Expect(TJSTokenType.RightBracket);
+    except
+      Result.Free;
+      raise;
+    end;
+  end
+  else
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+end;
+
+function TJSParser.ParseAccessorProperty: TJSObjectProperty;
+begin
+  var Kind := TJSPropertyKind.Getter;
+  const IsSetter = (CurrentToken.Value = KEYWORD_SET);
+  if IsSetter then
+    Kind := TJSPropertyKind.Setter;
+  Advance;
+
+  var Computed: Boolean;
+  const Key = ParsePropertyKey(Computed);
+  try
+    const Func = ParseAccessorFunction(Kind);
+    Result := TJSObjectProperty.Create(Key, Func, Computed, Kind);
+  except
+    Key.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseAccessorFunction(const Kind: TJSPropertyKind): TJSFunctionExpression;
+begin
+  Result := TJSFunctionExpression.Create;
+
+  try
+    const AccessorLine = CurrentToken.Line;
+    const AccessorColumn = CurrentToken.Column;
+
+    ParseFunctionSignatureAndBody(Result);
+
+    const ExpectedParamCount = Ord(Kind = TJSPropertyKind.Setter);
+    const HasExpectedParams = (Result.Params.Count = ExpectedParamCount);
+    if not HasExpectedParams then
+      raise TJSErrorFactory.SyntaxError(ACCESSOR_PARAMETER_COUNT, AccessorLine, AccessorColumn);
   except
     Result.Free;
     raise;
@@ -1543,44 +1626,48 @@ begin
       Result.Id := TJSIdentifier.Create(FuncName);
     end;
 
-    Expect(TJSTokenType.LeftParen);
-
-    if not Check(TJSTokenType.RightParen) then
-    begin
-      repeat
-        if not Check(TJSTokenType.Identifier) then
-          raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-        const ParamName = CurrentToken.Value;
-        CheckStrictModeReservedWord(ParamName);
-        Advance;
-
-        const Param = TJSIdentifier.Create(ParamName);
-        Result.Params.Add(Param);
-      until not Match(TJSTokenType.Comma);
-    end;
-
-    Expect(TJSTokenType.RightParen);
-
-    const OldStrictMode = FStrictMode;
-    const Body = ParseFunctionBodyBlock;
-    Result.Body := Body;
-
-    if (Body.Body.Count > 0) and IsUseStrictDirective(Body.Body[0]) then
-    begin
-      Result.IsStrict := True;
-      FStrictMode := True;
-      CheckDuplicateParameters(Result.Params);
-      FStrictMode := OldStrictMode;
-    end
-    else
-    begin
-      CheckDuplicateParameters(Result.Params);
-    end;
+    ParseFunctionSignatureAndBody(Result);
   except
     Result.Free;
     raise;
   end;
+end;
+
+procedure TJSParser.ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
+begin
+  Expect(TJSTokenType.LeftParen);
+
+  if not Check(TJSTokenType.RightParen) then
+  begin
+    repeat
+      if not Check(TJSTokenType.Identifier) then
+        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+      const ParamName = CurrentToken.Value;
+      CheckStrictModeReservedWord(ParamName);
+      Advance;
+
+      const Param = TJSIdentifier.Create(ParamName);
+      Func.Params.Add(Param);
+    until not Match(TJSTokenType.Comma);
+  end;
+
+  Expect(TJSTokenType.RightParen);
+
+  const OldStrictMode = FStrictMode;
+  const Body = ParseFunctionBodyBlock;
+  Func.Body := Body;
+
+  const HasUseStrictDirective = (Body.Body.Count > 0) and IsUseStrictDirective(Body.Body[0]);
+  if HasUseStrictDirective then
+  begin
+    Func.IsStrict := True;
+    FStrictMode := True;
+  end;
+
+  CheckDuplicateParameters(Func.Params);
+  CheckRestrictedParameterNames(Func.Params);
+  FStrictMode := OldStrictMode;
 end;
 
 function TJSParser.ParseArguments: TObjectList<TJSExpression>;
@@ -1740,6 +1827,22 @@ begin
     end;
 
     ParamNames[I] := ParamName;
+  end;
+end;
+
+procedure TJSParser.CheckRestrictedParameterNames(const Params: TObjectList<TJSIdentifier>);
+begin
+  if not FStrictMode then
+    Exit;
+
+  for var Param in Params do
+  begin
+    const IsRestricted = (Param.Name = EVAL_NAME) or (Param.Name = ARGUMENTS_NAME);
+    if IsRestricted then
+    begin
+      const Message = Format(RestrictedParameterNameMessage, [Param.Name]);
+      raise TJSErrorFactory.SyntaxError(Message, Param.Line, Param.Column);
+    end;
   end;
 end;
 

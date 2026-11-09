@@ -189,6 +189,8 @@ type
     function VisitLiteral(const Node: TJSLiteral): TJSValue;
     function VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
     function VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
+    procedure DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
+    procedure DefineLiteralAccessor(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
     function VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
     function IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
@@ -1645,20 +1647,55 @@ begin
 
   for var Prop in Node.Properties do
   begin
-    var KeyName: string;
-
-    if Prop.Key is TJSIdentifier then
-      KeyName := TJSIdentifier(Prop.Key).Name
-    else if Prop.Key is TJSLiteral then
-      KeyName := VisitText(Prop.Key)
-    else
-      KeyName := VisitText(Prop.Key);
-
-    const Value = Visit(Prop.Value);
-    Obj.DefineProperty(KeyName, TJSPropertyDescriptor.Create(Value));
+    DefineLiteralProperty(Obj, Prop);
   end;
 
   Result := TJSValue.CreateObject(Obj);
+end;
+
+procedure TJSInterpreter.DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
+begin
+  var KeyName: string;
+
+  if Prop.Key is TJSIdentifier then
+    KeyName := TJSIdentifier(Prop.Key).Name
+  else
+    KeyName := VisitText(Prop.Key);
+
+  const IsAccessor = (Prop.Kind <> TJSPropertyKind.Data);
+  if IsAccessor then
+  begin
+    DefineLiteralAccessor(Target, KeyName, Prop);
+    Exit;
+  end;
+
+  const Value = Visit(Prop.Value);
+  Target.DefineProperty(KeyName, TJSPropertyDescriptor.Create(Value));
+end;
+
+procedure TJSInterpreter.DefineLiteralAccessor(const Target: IJSObject; const Name: string;
+                                               const Prop: TJSObjectProperty);
+begin
+  var Definition := Default(TJSPropertyDefinition);
+  Definition.HasEnumerable := True;
+  Definition.Enumerable := True;
+  Definition.HasConfigurable := True;
+  Definition.Configurable := True;
+
+  const Accessor = Visit(Prop.Value);
+  const IsGetter = (Prop.Kind = TJSPropertyKind.Getter);
+  if IsGetter then
+  begin
+    Definition.HasGetter := True;
+    Definition.Getter := Accessor;
+  end
+  else
+  begin
+    Definition.HasSetter := True;
+    Definition.Setter := Accessor;
+  end;
+
+  Target.DefineOwnProperty(Name, Definition);
 end;
 
 function TJSInterpreter.VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
@@ -2496,14 +2533,15 @@ end;
 
 function TJSInterpreter.CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
 begin
-  var ThisArg: IJSObject := nil;
-  const HasThisArg = TJSBuiltins.TakesCallbackThis(MethodName) and (Length(Args) > 1) and Args[1].IsObject;
+  const HasThisArg = TJSBuiltins.TakesCallbackThis(MethodName) and (Length(Args) > 1);
+  var ThisValue := TJSValue.CreateUndefined;
   if HasThisArg then
-    ThisArg := Args[1].ToObject;
+    ThisValue := Args[1];
 
   Result :=
     function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
     begin
+      const ThisArg = ThisObjectFor(Func, ThisValue);
       Result := CallFunction(Func, CallbackArgs, ThisArg);
     end;
 end;

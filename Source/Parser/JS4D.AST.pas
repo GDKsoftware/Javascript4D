@@ -146,19 +146,24 @@ type
     property Elements: TObjectList<TJSExpression> read FElements;
   end;
 
+  TJSPropertyKind = (Data, Getter, Setter);
+
   TJSObjectProperty = class(TJSASTNode)
   private
     FKey: TJSExpression;
     FValue: TJSExpression;
     FComputed: Boolean;
+    FKind: TJSPropertyKind;
 
   public
-    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False);
+    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
+                       const Kind: TJSPropertyKind = TJSPropertyKind.Data);
     destructor Destroy; override;
 
     property Key: TJSExpression read FKey;
     property Value: TJSExpression read FValue;
     property Computed: Boolean read FComputed;
+    property Kind: TJSPropertyKind read FKind;
   end;
 
   TJSObjectExpression = class(TJSExpression)
@@ -767,12 +772,14 @@ end;
 
 { TJSObjectProperty }
 
-constructor TJSObjectProperty.Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean);
+constructor TJSObjectProperty.Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean;
+                                     const Kind: TJSPropertyKind);
 begin
   inherited Create(TJSASTNodeType.ObjectProperty);
   FKey := Key;
   FValue := Value;
   FComputed := Computed;
+  FKind := Kind;
 end;
 
 destructor TJSObjectProperty.Destroy;

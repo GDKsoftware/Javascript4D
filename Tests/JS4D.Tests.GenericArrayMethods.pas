@@ -91,6 +91,17 @@ type
     procedure ForEach_ThisArgIsPassedToCallback;
 
     [Test]
+    [TestCase('forEach', 'forEach')]
+    [TestCase('map', 'map')]
+    [TestCase('filter', 'filter')]
+    [TestCase('some', 'some')]
+    [TestCase('every', 'every')]
+    procedure Callback_PrimitiveThisArgInSloppyCode_IsBoxed(const MethodName: string);
+
+    [Test]
+    procedure Callback_UndefinedThisArgInSloppyCode_IsGlobalObject;
+
+    [Test]
     procedure Delete_ArrayElement_ReadsAsUndefined;
 
     [Test]
@@ -327,6 +338,26 @@ begin
     'seen';
 
   Assert.AreEqual(5.0, EvaluateNumber(Script));
+end;
+
+procedure TGenericArrayMethodTests.Callback_PrimitiveThisArgInSloppyCode_IsBoxed(const MethodName: string);
+begin
+  const Script = Format(
+    'var boxed = false;' + sLineBreak +
+    '[1].%s(function () { boxed = (typeof this === "object") && (this.valueOf() === false); }, false);' + sLineBreak +
+    'boxed', [MethodName]);
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMethodTests.Callback_UndefinedThisArgInSloppyCode_IsGlobalObject;
+begin
+  const Script =
+    'var seenGlobal = false;' + sLineBreak +
+    '[1].forEach(function () { seenGlobal = (this === (function () { return this; })()); });' + sLineBreak +
+    'seenGlobal';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TGenericArrayMethodTests.Delete_ArrayElement_ReadsAsUndefined;

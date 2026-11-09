@@ -114,6 +114,7 @@ type
     FColumn: Integer;
     FSourcePosition: Integer;
     FIsOctal: Boolean;
+    FHasEscape: Boolean;
 
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
@@ -126,6 +127,7 @@ type
     property Column: Integer read FColumn;
     property SourcePosition: Integer read FSourcePosition write FSourcePosition;
     property IsOctal: Boolean read FIsOctal write FIsOctal;
+    property HasEscape: Boolean read FHasEscape write FHasEscape;
   end;
 
   TJSKeywords = class

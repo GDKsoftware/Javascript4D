@@ -309,6 +309,7 @@ begin
   end;
 
   Result := TJSToken.Create(IdentifierTokenType(Value, HasEscape), Value, FLine, StartColumn);
+  Result.HasEscape := HasEscape;
 end;
 
 function TJSLexer.IdentifierTokenType(const Name: string; const HasEscape: Boolean): TJSTokenType;
