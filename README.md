@@ -255,6 +255,21 @@ msbuild Demo/JS4D.Demo.dproj /p:Configuration=Release /p:Platform=Win64
 
 Run the compiled test executable `JS4D.Tests.exe` from your build output directory.
 
+## Conformance (test262)
+
+The `Conformance` folder holds a runner for [test262](https://github.com/tc39/test262), the ECMAScript conformance suite. It runs `test/language` and `test/built-ins` against JS4D and reports how many tests pass.
+
+```bash
+powershell -File Conformance/fetch-test262.ps1
+powershell -File Conformance/run-conformance.ps1
+```
+
+`fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
+
+Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
+
+Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
+
 ## License
 
 MIT License
