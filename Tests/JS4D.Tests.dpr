@@ -12,6 +12,7 @@ uses
   JS4D.Types in '..\Source\Core\JS4D.Types.pas',
   JS4D.Errors in '..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
+  JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
@@ -50,7 +51,8 @@ uses
   JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas',
   JS4D.Tests.RegExpSyntax in 'JS4D.Tests.RegExpSyntax.pas',
   JS4D.Tests.ObjectAccessors in 'JS4D.Tests.ObjectAccessors.pas',
-  JS4D.Tests.Operators in 'JS4D.Tests.Operators.pas';
+  JS4D.Tests.Operators in 'JS4D.Tests.Operators.pas',
+  JS4D.Tests.UriCoding in 'JS4D.Tests.UriCoding.pas';
 
 var
   Runner: ITestRunner;

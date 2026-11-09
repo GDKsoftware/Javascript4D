@@ -9,7 +9,6 @@ uses
   System.Math,
   System.JSON,
   System.DateUtils,
-  System.NetEncoding,
   System.Generics.Collections,
   JS4D.Types,
   JS4D.Lexer,
@@ -24,10 +23,12 @@ uses
   JS4D.BuiltinAttributes,
   JS4D.Json,
   JS4D.JsonSyntax,
+  JS4D.UriCoding,
   JS4D.Errors;
 
 type
   TConsoleOutputHandler = reference to procedure(const Output: string);
+  TUriTransform = reference to function(const Text: string): string;
 
   TJSEngine = class
   private
@@ -54,6 +55,7 @@ type
 
     function ParseProgram(const Source: string): TJSProgram;
     procedure RegisterBuiltInFunctions;
+    procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterConsole;
     procedure RegisterMath;
     procedure RegisterObject;
@@ -345,7 +347,15 @@ end;
 
 function TJSEngine.ToText(const Value: TJSValue): string;
 begin
-  Result := Value.ToLimitedString(FInterpreter.Limits);
+  const IsArray = (Value.ValueType = TJSValueType.Array_);
+  if IsArray then
+  begin
+    Result := Value.ToLimitedString(FInterpreter.Limits);
+    Exit;
+  end;
+
+  const Primitive = Value.ToPrimitive(True);
+  Result := Primitive.ToLimitedString(FInterpreter.Limits);
 end;
 
 function TJSEngine.GetStepBudget: Int64;
@@ -616,100 +626,10 @@ begin
   FInterpreter.SetGlobalVariable(BOOLEAN_FUNC_NAME, TJSValue.CreateObject(BooleanFunc));
   AttachPrototypeObject(BooleanFunc, BooleanPrototype);
 
-  FInterpreter.RegisterNativeFunction(ENCODE_URI_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    const
-      URIReserved = [';', ',', '/', '?', ':', '@', '&', '=', '+', '$', '#'];
-      URIUnescaped = ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '!', '~', '*', '''', '(', ')'];
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      var EncodedString := '';
-      var CharIndex := 1;
-
-      while CharIndex <= Length(Str) do
-      begin
-        const Ch = Str[CharIndex];
-
-        if CharInSet(Ch, URIReserved + URIUnescaped) then
-          EncodedString := EncodedString + Ch
-        else
-        begin
-          const Bytes = TEncoding.UTF8.GetBytes(Ch);
-          for var ByteValue in Bytes do
-            EncodedString := EncodedString + '%' + IntToHex(ByteValue, 2);
-        end;
-
-        Inc(CharIndex);
-      end;
-
-      Result := TJSValue.CreateString(EncodedString);
-    end);
-
-  FInterpreter.RegisterNativeFunction(DECODE_URI_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
-    end);
-
-  FInterpreter.RegisterNativeFunction(ENCODE_URI_COMPONENT_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    const
-      URIUnescaped = ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '!', '~', '*', '''', '(', ')'];
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      var EncodedString := '';
-      var CharIndex := 1;
-
-      while CharIndex <= Length(Str) do
-      begin
-        const Ch = Str[CharIndex];
-
-        if CharInSet(Ch, URIUnescaped) then
-          EncodedString := EncodedString + Ch
-        else
-        begin
-          const Bytes = TEncoding.UTF8.GetBytes(Ch);
-          for var ByteValue in Bytes do
-            EncodedString := EncodedString + '%' + IntToHex(ByteValue, 2);
-        end;
-
-        Inc(CharIndex);
-      end;
-
-      Result := TJSValue.CreateString(EncodedString);
-    end);
-
-  FInterpreter.RegisterNativeFunction(DECODE_URI_COMPONENT_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
-    end);
+  RegisterUriFunction(ENCODE_URI_NAME, TJSUriCoding.EncodeURI);
+  RegisterUriFunction(DECODE_URI_NAME, TJSUriCoding.DecodeURI);
+  RegisterUriFunction(ENCODE_URI_COMPONENT_NAME, TJSUriCoding.EncodeURIComponent);
+  RegisterUriFunction(DECODE_URI_COMPONENT_NAME, TJSUriCoding.DecodeURIComponent);
 
   RegisterConsole;
   RegisterMath;
@@ -725,6 +645,24 @@ begin
   ApplyBuiltinAttributes;
 end;
 
+procedure TJSEngine.RegisterUriFunction(const Name: string; const Transform: TUriTransform);
+begin
+  const UriFunction = TJSFunction.CreateNative(Name,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Argument := TJSValue.CreateUndefined;
+      if Length(Args) > 0 then
+        Argument := Args[0];
+
+      const Text = ToText(Argument);
+      const Transformed = Transform(Text);
+      Result := TJSValue.CreateString(Transformed);
+    end);
+
+  UriFunction.IsConstructor := False;
+  FInterpreter.RegisterFunction(UriFunction);
+  FInterpreter.SetGlobalVariable(Name, TJSValue.CreateObject(UriFunction));
+end;
 procedure TJSEngine.ApplyBuiltinAttributes;
 begin
   const Attributes = TJSBuiltinAttributes.Create(FInterpreter);
