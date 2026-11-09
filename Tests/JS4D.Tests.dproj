@@ -122,6 +122,7 @@
         <DCCReference Include="JS4D.Tests.IdentifierNames.pas"/>
         <DCCReference Include="JS4D.Tests.PrimitiveWrappers.pas"/>
         <DCCReference Include="JS4D.Tests.AssignmentTargets.pas"/>
+        <DCCReference Include="JS4D.Tests.StrictEarlyErrors.pas"/>
         <DCCReference Include="JS4D.Tests.WithStatement.pas"/>
         <DCCReference Include="JS4D.Tests.Date.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinAttributes.pas"/>

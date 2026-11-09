@@ -83,7 +83,7 @@ type
     property Value: TJSValue read FValue;
   end;
 
-  TJSProgramParser = reference to function(const Source: string): TJSProgram;
+  TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean): TJSProgram;
 
   TJSBoundFunction = record
     Target: IJSFunction;
@@ -947,12 +947,13 @@ end;
 
 function TJSInterpreter.EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
 begin
-  Result := EvaluateProgram(FProgramParser(Source), IsDirect);
+  const IsStrictContext = (IsDirect and FStrictMode);
+  Result := EvaluateProgram(FProgramParser(Source, IsStrictContext), IsDirect);
 end;
 
 function TJSInterpreter.CreateFunctionFromSource(const Source: string): TJSValue;
 begin
-  const Program_ = FProgramParser(Source);
+  const Program_ = FProgramParser(Source, False);
 
   const HasSingleStatement = (Program_.Body.Count = 1);
   const IsExpressionStatement = HasSingleStatement and (Program_.Body[0] is TJSExpressionStatement);

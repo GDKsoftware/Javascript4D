@@ -66,6 +66,7 @@ type
     function ParseSwitchStatement: TJSSwitchStatement;
     function ParseThrowStatement: TJSThrowStatement;
     function ParseTryStatement: TJSTryStatement;
+    function ParseCatchClause: TJSCatchClause;
     function ParseEmptyStatement: TJSEmptyStatement;
     function ParseDebuggerStatement: TJSDebuggerStatement;
 
@@ -112,6 +113,9 @@ type
     function IsUseStrictDirective(const Statement: TJSStatement): Boolean;
     function IsStrictModeReservedWord(const Name: string): Boolean;
     procedure CheckStrictModeReservedWord(const Name: string);
+    function IsRestrictedStrictName(const Name: string): Boolean;
+    procedure CheckRestrictedBindingName(const Name: string);
+    procedure CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>);
     procedure CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
     procedure CheckRestrictedParameterNames(const Params: TObjectList<TJSIdentifier>);
 
@@ -120,7 +124,8 @@ type
     constructor Create(const Lexer: TJSLexer); overload;
     destructor Destroy; override;
 
-    function Parse: TJSProgram;
+    function Parse: TJSProgram; overload;
+    function Parse(const IsStrictContext: Boolean): TJSProgram; overload;
   end;
 
 implementation
@@ -133,6 +138,8 @@ const
   KEYWORD_SET = 'set';
   ACCESSOR_PARAMETER_COUNT = 'Getter must not have parameters and setter must have exactly one';
   RestrictedParameterNameMessage = 'Parameter name ''%s'' is not allowed in strict mode';
+  RestrictedBindingNameMessage = '''%s'' cannot be declared in strict mode';
+  DeleteIdentifierMessage = 'Delete of an unqualified identifier in strict mode';
   UndefinedLabelMessage = 'Undefined label ''%s''';
   DuplicateLabelMessage = 'Label ''%s'' has already been declared';
   ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
@@ -228,6 +235,12 @@ end;
 
 function TJSParser.Parse: TJSProgram;
 begin
+  Result := ParseProgram;
+end;
+
+function TJSParser.Parse(const IsStrictContext: Boolean): TJSProgram;
+begin
+  FStrictMode := IsStrictContext;
   Result := ParseProgram;
 end;
 
@@ -331,6 +344,7 @@ begin
 
       const IdName = CurrentToken.Value;
       CheckStrictModeReservedWord(IdName);
+      CheckRestrictedBindingName(IdName);
       Advance;
 
       var InitExpr: TJSExpression := nil;
@@ -387,17 +401,15 @@ begin
     const OldStrictMode = FStrictMode;
     Result.Body := ParseFunctionBodyBlock;
 
-    if (Result.Body.Body.Count > 0) and IsUseStrictDirective(Result.Body.Body[0]) then
+    const HasUseStrictDirective = (Result.Body.Body.Count > 0) and IsUseStrictDirective(Result.Body.Body[0]);
+    if HasUseStrictDirective then
     begin
       Result.IsStrict := True;
       FStrictMode := True;
-      CheckDuplicateParameters(Result.Params);
-      FStrictMode := OldStrictMode;
-    end
-    else
-    begin
-      CheckDuplicateParameters(Result.Params);
     end;
+
+    CheckStrictFunctionHeader(FuncName, Result.Params);
+    FStrictMode := OldStrictMode;
   except
     Result.Free;
     raise;
@@ -876,31 +888,48 @@ begin
   var Handler: TJSCatchClause := nil;
   var Finalizer: TJSBlockStatement := nil;
 
-  if Match(TJSTokenType.KeywordCatch) then
-  begin
-    Expect(TJSTokenType.LeftParen);
+  try
+    if Match(TJSTokenType.KeywordCatch) then
+      Handler := ParseCatchClause;
 
-    if not Check(TJSTokenType.Identifier) then
-      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+    if Match(TJSTokenType.KeywordFinally) then
+      Finalizer := ParseBlockStatement;
 
-    const ParamName = CurrentToken.Value;
-    Advance;
-
-    const Param = TJSIdentifier.Create(ParamName);
-
-    Expect(TJSTokenType.RightParen);
-
-    const CatchBody = ParseBlockStatement;
-    Handler := TJSCatchClause.Create(Param, CatchBody);
+    if (Handler = nil) and (Finalizer = nil) then
+      raise TJSErrorFactory.SyntaxError('Missing catch or finally after try', CurrentToken.Line, CurrentToken.Column);
+  except
+    Block.Free;
+    Handler.Free;
+    Finalizer.Free;
+    raise;
   end;
 
-  if Match(TJSTokenType.KeywordFinally) then
-    Finalizer := ParseBlockStatement;
-
-  if (Handler = nil) and (Finalizer = nil) then
-    raise TJSErrorFactory.SyntaxError('Missing catch or finally after try', CurrentToken.Line, CurrentToken.Column);
-
   Result := TJSTryStatement.Create(Block, Handler, Finalizer);
+end;
+
+function TJSParser.ParseCatchClause: TJSCatchClause;
+begin
+  Expect(TJSTokenType.LeftParen);
+
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const ParamName = CurrentToken.Value;
+  CheckStrictModeReservedWord(ParamName);
+  CheckRestrictedBindingName(ParamName);
+  Advance;
+
+  const Param = TJSIdentifier.Create(ParamName);
+  var CatchBody: TJSBlockStatement;
+  try
+    Expect(TJSTokenType.RightParen);
+    CatchBody := ParseBlockStatement;
+  except
+    Param.Free;
+    raise;
+  end;
+
+  Result := TJSCatchClause.Create(Param, CatchBody);
 end;
 
 function TJSParser.ParseEmptyStatement: TJSEmptyStatement;
@@ -1222,6 +1251,14 @@ begin
     Advance;
 
     const Argument = ParseUnaryExpression;
+
+    const IsStrictIdentifierDelete = (Op = TJSUnaryOperator.Delete) and FStrictMode and
+                                     (Argument is TJSIdentifier);
+    if IsStrictIdentifierDelete then
+    begin
+      Argument.Free;
+      raise TJSErrorFactory.SyntaxError(DeleteIdentifierMessage, CurrentToken.Line, CurrentToken.Column);
+    end;
 
     Exit(TJSUnaryExpression.Create(Op, Argument, True));
   end;
@@ -1665,8 +1702,11 @@ begin
     FStrictMode := True;
   end;
 
-  CheckDuplicateParameters(Func.Params);
-  CheckRestrictedParameterNames(Func.Params);
+  var FuncName := '';
+  if Assigned(Func.Id) then
+    FuncName := Func.Id.Name;
+
+  CheckStrictFunctionHeader(FuncName, Func.Params);
   FStrictMode := OldStrictMode;
 end;
 
@@ -1726,10 +1766,14 @@ begin
   if IsCall then
     Exit(not FStrictMode);
 
-  Result := Target.NodeType in [
-    TJSASTNodeType.Identifier,
-    TJSASTNodeType.MemberExpression
-  ];
+  const IsIdentifier = (Target.NodeType = TJSASTNodeType.Identifier);
+  if IsIdentifier then
+  begin
+    const IdentifierName = TJSIdentifier(Target).Name;
+    Exit(not IsRestrictedStrictName(IdentifierName));
+  end;
+
+  Result := (Target.NodeType = TJSASTNodeType.MemberExpression);
 end;
 
 procedure TJSParser.EnsureAssignmentTarget(const Target: TJSExpression);
@@ -1805,6 +1849,38 @@ begin
   if FStrictMode and IsStrictModeReservedWord(Name) then
     raise TJSErrorFactory.SyntaxError('Use of future reserved word in strict mode: ' + Name,
       CurrentToken.Line, CurrentToken.Column);
+end;
+
+function TJSParser.IsRestrictedStrictName(const Name: string): Boolean;
+begin
+  const IsEvalOrArguments = (Name = EVAL_NAME) or (Name = ARGUMENTS_NAME);
+  Result := FStrictMode and IsEvalOrArguments;
+end;
+
+procedure TJSParser.CheckRestrictedBindingName(const Name: string);
+begin
+  if IsRestrictedStrictName(Name) then
+  begin
+    const Message = Format(RestrictedBindingNameMessage, [Name]);
+    raise TJSErrorFactory.SyntaxError(Message, CurrentToken.Line, CurrentToken.Column);
+  end;
+end;
+
+procedure TJSParser.CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>);
+begin
+  if not FStrictMode then
+    Exit;
+
+  CheckStrictModeReservedWord(FuncName);
+  CheckRestrictedBindingName(FuncName);
+
+  for var Param in Params do
+  begin
+    CheckStrictModeReservedWord(Param.Name);
+  end;
+
+  CheckDuplicateParameters(Params);
+  CheckRestrictedParameterNames(Params);
 end;
 
 procedure TJSParser.CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
