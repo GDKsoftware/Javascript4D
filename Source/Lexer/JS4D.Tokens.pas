@@ -18,6 +18,7 @@ type
     BooleanLiteral,
     NullLiteral,
     RegExpLiteral,
+    EscapedKeyword,
 
     LeftParen,
     RightParen,
@@ -130,13 +131,17 @@ type
   TJSKeywords = class
   private
     class var FKeywords: TDictionary<string, TJSTokenType>;
+    class var FFutureReservedWords: TList<string>;
     class procedure InitializeKeywords;
+    class procedure InitializeFutureReservedWords;
 
   public
     class constructor Create;
     class destructor Destroy;
 
     class function IsKeyword(const Identifier: string): Boolean;
+    class function IsReservedWord(const Identifier: string): Boolean;
+    class function IsIdentifierName(const TokenType: TJSTokenType): Boolean;
     class function GetKeywordType(const Identifier: string): TJSTokenType;
   end;
 
@@ -202,12 +207,20 @@ end;
 class constructor TJSKeywords.Create;
 begin
   FKeywords := TDictionary<string, TJSTokenType>.Create;
+  FFutureReservedWords := TList<string>.Create;
   InitializeKeywords;
+  InitializeFutureReservedWords;
 end;
 
 class destructor TJSKeywords.Destroy;
 begin
+  FFutureReservedWords.Free;
   FKeywords.Free;
+end;
+
+class procedure TJSKeywords.InitializeFutureReservedWords;
+begin
+  FFutureReservedWords.AddRange(['class', 'const', 'enum', 'export', 'extends', 'import', 'super']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -246,6 +259,22 @@ end;
 class function TJSKeywords.IsKeyword(const Identifier: string): Boolean;
 begin
   Result := FKeywords.ContainsKey(Identifier);
+end;
+
+class function TJSKeywords.IsReservedWord(const Identifier: string): Boolean;
+begin
+  Result := FKeywords.ContainsKey(Identifier) or FFutureReservedWords.Contains(Identifier);
+end;
+
+class function TJSKeywords.IsIdentifierName(const TokenType: TJSTokenType): Boolean;
+begin
+  const IsNameLikeLiteral = (TokenType in [TJSTokenType.Identifier,
+                                           TJSTokenType.EscapedKeyword,
+                                           TJSTokenType.BooleanLiteral,
+                                           TJSTokenType.NullLiteral]);
+  const IsKeywordToken = (TokenType >= TJSTokenType.KeywordVar);
+
+  Result := IsNameLikeLiteral or IsKeywordToken;
 end;
 
 class function TJSKeywords.GetKeywordType(const Identifier: string): TJSTokenType;

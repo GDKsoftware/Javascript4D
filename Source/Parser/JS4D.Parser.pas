@@ -64,6 +64,7 @@ type
     function ParseUnaryExpression: TJSExpression;
     function ParseUpdateExpression: TJSExpression;
     function ParseCallExpression: TJSExpression;
+    function ParseIdentifierName: TJSIdentifier;
     function ParseMemberExpression: TJSExpression;
     function ParseNewExpression: TJSExpression;
     function ParsePrimaryExpression: TJSExpression;
@@ -988,13 +989,7 @@ begin
     end
     else if Match(TJSTokenType.Dot) then
     begin
-      if not Check(TJSTokenType.Identifier) then
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-      const PropName = CurrentToken.Value;
-      Advance;
-
-      const Prop = TJSIdentifier.Create(PropName);
+      const Prop = ParseIdentifierName;
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
@@ -1008,6 +1003,15 @@ begin
   end;
 end;
 
+function TJSParser.ParseIdentifierName: TJSIdentifier;
+begin
+  if not TJSKeywords.IsIdentifierName(CurrentToken.TokenType) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  Result := TJSIdentifier.Create(CurrentToken.Value);
+  Advance;
+end;
+
 function TJSParser.ParseMemberExpression: TJSExpression;
 begin
   Result := ParsePrimaryExpression;
@@ -1016,13 +1020,7 @@ begin
   begin
     if Match(TJSTokenType.Dot) then
     begin
-      if not Check(TJSTokenType.Identifier) then
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-      const PropName = CurrentToken.Value;
-      Advance;
-
-      const Prop = TJSIdentifier.Create(PropName);
+      const Prop = ParseIdentifierName;
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
@@ -1198,10 +1196,9 @@ begin
         Key := TJSLiteral.CreateNumber(CurrentToken.NumberValue);
         Advance;
       end
-      else if Check(TJSTokenType.Identifier) then
+      else if TJSKeywords.IsIdentifierName(CurrentToken.TokenType) then
       begin
-        Key := TJSIdentifier.Create(CurrentToken.Value);
-        Advance;
+        Key := ParseIdentifierName;
       end
       else if Check(TJSTokenType.LeftBracket) then
       begin

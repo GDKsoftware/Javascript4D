@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</ProjectGuid>
@@ -112,6 +112,7 @@
         <DCCReference Include="JS4D.Tests.PropertyDescriptors.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMethods.pas"/>
         <DCCReference Include="JS4D.Tests.Eval.pas"/>
+        <DCCReference Include="JS4D.Tests.IdentifierNames.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

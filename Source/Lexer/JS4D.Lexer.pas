@@ -32,7 +32,10 @@ type
 
     function ScanToken: TJSToken;
     function ScanIdentifier: TJSToken;
+    function IdentifierTokenType(const Name: string; const HasEscape: Boolean): TJSTokenType;
     function ScanNumber: TJSToken;
+    function ScanNumberLiteral: TJSToken;
+    procedure RejectIdentifierAfterNumber;
     function ScanString(const Quote: Char): TJSToken;
     function ScanRegExp: TJSToken;
     function ScanOperator: TJSToken;
@@ -49,6 +52,8 @@ type
     function ParseOctalNumber: Double;
     function ParseDecimalNumber: Double;
     function ParseEscapeSequence: Char;
+    function ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
+    function ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
 
     function CreateToken(const TokenType: TJSTokenType; const Value: string): TJSToken;
 
@@ -76,6 +81,9 @@ const
   CR_CHAR = #13;
   LINE_SEPARATOR_CHAR = #$2028;
   PARAGRAPH_SEPARATOR_CHAR = #$2029;
+  ZERO_WIDTH_NON_JOINER = #$200C;
+  ZERO_WIDTH_JOINER = #$200D;
+  VERTICAL_TILDE = #$2E2F;
   SPACE_CHAR = ' ';
   SINGLE_QUOTE = '''';
   DOUBLE_QUOTE = '"';
@@ -125,6 +133,9 @@ const
   SUnexpectedEndOfInput = 'Unexpected end of input';
   SInvalidHexEscapeSequence = 'Invalid hexadecimal escape sequence';
   SInvalidUnicodeEscapeSequence = 'Invalid Unicode escape sequence';
+  SEscapeInRegularExpressionFlags = 'Regular expression flags cannot contain escape sequences';
+  SIdentifierAfterNumber = 'Identifier starts immediately after a numeric literal';
+  SInvalidIdentifierEscape = 'Unicode escape is not a valid identifier character';
 
 { TJSLexer }
 
@@ -253,7 +264,7 @@ begin
 
   const Ch = CurrentChar;
 
-  if IsIdentifierStart(Ch) then
+  if IsIdentifierStart(Ch) or (Ch = BACKSLASH) then
     Exit(ScanIdentifier);
 
   if IsDigit(Ch) then
@@ -274,18 +285,51 @@ function TJSLexer.ScanIdentifier: TJSToken;
 begin
   const StartColumn = FColumn;
   var Value := '';
+  var HasEscape := False;
 
-  while (not IsAtEnd) and IsIdentifierPart(CurrentChar) do
+  while not IsAtEnd do
   begin
-    Value := Value + CurrentChar;
-    Advance;
+    if CurrentChar = BACKSLASH then
+    begin
+      Value := Value + ParseIdentifierEscape(Value.IsEmpty);
+      HasEscape := True;
+    end
+    else if IsIdentifierPart(CurrentChar) then
+    begin
+      Value := Value + CurrentChar;
+      Advance;
+    end
+    else
+      Break;
   end;
 
-  const TokenType = TJSKeywords.GetKeywordType(Value);
-  Result := TJSToken.Create(TokenType, Value, FLine, StartColumn);
+  Result := TJSToken.Create(IdentifierTokenType(Value, HasEscape), Value, FLine, StartColumn);
+end;
+
+function TJSLexer.IdentifierTokenType(const Name: string; const HasEscape: Boolean): TJSTokenType;
+begin
+  if not HasEscape then
+    Exit(TJSKeywords.GetKeywordType(Name));
+
+  if TJSKeywords.IsReservedWord(Name) then
+    Result := TJSTokenType.EscapedKeyword
+  else
+    Result := TJSTokenType.Identifier;
 end;
 
 function TJSLexer.ScanNumber: TJSToken;
+begin
+  Result := ScanNumberLiteral;
+
+  try
+    RejectIdentifierAfterNumber;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSLexer.ScanNumberLiteral: TJSToken;
 begin
   const StartColumn = FColumn;
 
@@ -309,6 +353,13 @@ begin
   const NumberValue = ParseDecimalNumber;
   Result := TJSToken.Create(TJSTokenType.NumberLiteral, '', FLine, StartColumn);
   Result.NumberValue := NumberValue;
+end;
+
+procedure TJSLexer.RejectIdentifierAfterNumber;
+begin
+  const StartsIdentifier = (IsIdentifierStart(CurrentChar) or (CurrentChar = BACKSLASH) or IsDigit(CurrentChar));
+  if StartsIdentifier then
+    raise TJSErrorFactory.SyntaxError(SIdentifierAfterNumber, FLine, FColumn);
 end;
 
 function TJSLexer.ParseHexNumber: Double;
@@ -464,50 +515,50 @@ begin
     DOUBLE_QUOTE:
       Result := DOUBLE_QUOTE;
     ESCAPE_X:
-      begin
-        var HexValue := 0;
-        for var I := 1 to 2 do
-        begin
-          if not IsHexDigit(CurrentChar) then
-            raise TJSErrorFactory.SyntaxError(SInvalidHexEscapeSequence, FLine, FColumn);
-
-          const HexCh = CurrentChar;
-
-          if CharInSet(HexCh, ['0'..'9']) then
-            HexValue := HexValue * 16 + Ord(HexCh) - Ord('0')
-          else if CharInSet(HexCh, ['a'..'f']) then
-            HexValue := HexValue * 16 + 10 + Ord(HexCh) - Ord('a')
-          else
-            HexValue := HexValue * 16 + 10 + Ord(HexCh) - Ord('A');
-
-          Advance;
-        end;
-        Result := Char(HexValue);
-      end;
+      Result := Char(ParseHexDigits(2, SInvalidHexEscapeSequence));
     ESCAPE_U:
-      begin
-        var UnicodeValue := 0;
-        for var I := 1 to 4 do
-        begin
-          if not IsHexDigit(CurrentChar) then
-            raise TJSErrorFactory.SyntaxError(SInvalidUnicodeEscapeSequence, FLine, FColumn);
-
-          const HexCh = CurrentChar;
-
-          if CharInSet(HexCh, ['0'..'9']) then
-            UnicodeValue := UnicodeValue * 16 + Ord(HexCh) - Ord('0')
-          else if CharInSet(HexCh, ['a'..'f']) then
-            UnicodeValue := UnicodeValue * 16 + 10 + Ord(HexCh) - Ord('a')
-          else
-            UnicodeValue := UnicodeValue * 16 + 10 + Ord(HexCh) - Ord('A');
-
-          Advance;
-        end;
-        Result := Char(UnicodeValue);
-      end;
+      Result := Char(ParseHexDigits(4, SInvalidUnicodeEscapeSequence));
   else
     Result := Ch;
   end;
+end;
+
+function TJSLexer.ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
+begin
+  Result := 0;
+
+  for var I := 1 to DigitCount do
+  begin
+    const HexCh = CurrentChar;
+
+    if not IsHexDigit(HexCh) then
+      raise TJSErrorFactory.SyntaxError(ErrorMessage, FLine, FColumn);
+
+    if CharInSet(HexCh, ['0'..'9']) then
+      Result := Result * 16 + Ord(HexCh) - Ord('0')
+    else if CharInSet(HexCh, ['a'..'f']) then
+      Result := Result * 16 + 10 + Ord(HexCh) - Ord('a')
+    else
+      Result := Result * 16 + 10 + Ord(HexCh) - Ord('A');
+
+    Advance;
+  end;
+end;
+
+function TJSLexer.ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
+begin
+  Advance;
+
+  if CurrentChar <> ESCAPE_U then
+    raise TJSErrorFactory.SyntaxError(SInvalidUnicodeEscapeSequence, FLine, FColumn);
+
+  Advance;
+
+  Result := Char(ParseHexDigits(4, SInvalidUnicodeEscapeSequence));
+
+  const IsValidChar = (IsIdentifierStart(Result) or ((not IsFirstChar) and IsIdentifierPart(Result)));
+  if not IsValidChar then
+    raise TJSErrorFactory.SyntaxError(SInvalidIdentifierEscape, FLine, FColumn);
 end;
 
 function TJSLexer.ScanRegExp: TJSToken;
@@ -570,6 +621,9 @@ begin
     Flags := Flags + CurrentChar;
     Advance;
   end;
+
+  if CurrentChar = BACKSLASH then
+    raise TJSErrorFactory.SyntaxError(SEscapeInRegularExpressionFlags, FLine, FColumn);
 
   Result := TJSToken.Create(TJSTokenType.RegExpLiteral, Pattern + '/' + Flags, StartLine, StartColumn);
 end;
@@ -844,12 +898,20 @@ end;
 
 function TJSLexer.IsIdentifierStart(const Ch: Char): Boolean;
 begin
-  Result := Ch.IsLetter or (Ch = UNDERSCORE) or (Ch = DOLLAR_SIGN);
+  const IsLetterLike = Ch.IsLetter or (Ch.GetUnicodeCategory = TUnicodeCategory.ucLetterNumber);
+
+  Result := (IsLetterLike and (Ch <> VERTICAL_TILDE)) or (Ch = UNDERSCORE) or (Ch = DOLLAR_SIGN);
 end;
 
 function TJSLexer.IsIdentifierPart(const Ch: Char): Boolean;
 begin
-  Result := IsIdentifierStart(Ch) or IsDigit(Ch);
+  const IsCombiningOrConnector = (Ch.GetUnicodeCategory in [TUnicodeCategory.ucNonSpacingMark,
+                                                           TUnicodeCategory.ucCombiningMark,
+                                                           TUnicodeCategory.ucDecimalNumber,
+                                                           TUnicodeCategory.ucConnectPunctuation]);
+  const IsJoiner = (Ch = ZERO_WIDTH_NON_JOINER) or (Ch = ZERO_WIDTH_JOINER);
+
+  Result := IsIdentifierStart(Ch) or IsCombiningOrConnector or IsJoiner;
 end;
 
 function TJSLexer.IsDigit(const Ch: Char): Boolean;
