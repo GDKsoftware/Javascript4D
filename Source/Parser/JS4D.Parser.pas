@@ -17,6 +17,7 @@ type
   private
     FLexer: TJSLexer;
     FOwnsLexer: Boolean;
+    FPreviousTokenLine: Integer;
     FStrictMode: Boolean;
 
     function CurrentToken: TJSToken;
@@ -124,6 +125,7 @@ end;
 
 procedure TJSParser.Advance;
 begin
+  FPreviousTokenLine := CurrentToken.Line;
   FLexer.NextToken;
 end;
 
@@ -943,7 +945,9 @@ begin
 
   const Argument = ParseCallExpression;
 
-  if CheckAny([TJSTokenType.Increment, TJSTokenType.Decrement]) then
+  const IsUpdateToken = CheckAny([TJSTokenType.Increment, TJSTokenType.Decrement]);
+  const IsOnSameLine = (CurrentToken.Line = FPreviousTokenLine);
+  if IsUpdateToken and IsOnSameLine then
   begin
     var Op: TJSUpdateOperator;
 

@@ -41,6 +41,7 @@ type
     function IsIdentifierStart(const Ch: Char): Boolean;
     function IsIdentifierPart(const Ch: Char): Boolean;
     function IsDigit(const Ch: Char): Boolean;
+    function IsLineTerminator(const Ch: Char): Boolean;
     function IsHexDigit(const Ch: Char): Boolean;
     function IsOctalDigit(const Ch: Char): Boolean;
 
@@ -73,6 +74,8 @@ const
   TAB_CHAR = #9;
   LF_CHAR = #10;
   CR_CHAR = #13;
+  LINE_SEPARATOR_CHAR = #$2028;
+  PARAGRAPH_SEPARATOR_CHAR = #$2029;
   SPACE_CHAR = ' ';
   SINGLE_QUOTE = '''';
   DOUBLE_QUOTE = '"';
@@ -166,11 +169,16 @@ begin
   Result := FPosition > Length(FSource);
 end;
 
+function TJSLexer.IsLineTerminator(const Ch: Char): Boolean;
+begin
+  Result := (Ch = LF_CHAR) or (Ch = LINE_SEPARATOR_CHAR) or (Ch = PARAGRAPH_SEPARATOR_CHAR);
+end;
+
 procedure TJSLexer.Advance;
 begin
   if not IsAtEnd then
   begin
-    if CurrentChar = LF_CHAR then
+    if IsLineTerminator(CurrentChar) then
     begin
       Inc(FLine);
       FLineStart := FPosition + 1;
@@ -190,7 +198,7 @@ begin
     const Ch = CurrentChar;
 
     case Ch of
-      SPACE_CHAR, TAB_CHAR, CR_CHAR, LF_CHAR:
+      SPACE_CHAR, TAB_CHAR, CR_CHAR, LF_CHAR, LINE_SEPARATOR_CHAR, PARAGRAPH_SEPARATOR_CHAR:
         Advance;
 
       FORWARD_SLASH:
@@ -212,7 +220,7 @@ end;
 
 procedure TJSLexer.SkipSingleLineComment;
 begin
-  while (not IsAtEnd) and (CurrentChar <> LF_CHAR) do
+  while (not IsAtEnd) and (not IsLineTerminator(CurrentChar)) do
     Advance;
 end;
 

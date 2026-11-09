@@ -36,6 +36,9 @@ type
     procedure Parse_FunctionDeclaration_CreatesFunctionNode;
 
     [Test]
+    procedure Parse_IncrementOnNextLine_IsPrefixOfNextStatement;
+
+    [Test]
     procedure Parse_IfStatement_CreatesIfNode;
 
     [Test]
@@ -330,6 +333,18 @@ begin
 
   Assert.IsNotNull(SwitchStmt.Discriminant);
   Assert.AreEqual(2, Integer(SwitchStmt.Cases.Count));
+end;
+
+procedure TParserTests.Parse_IncrementOnNextLine_IsPrefixOfNextStatement;
+begin
+  FParser := TJSParser.Create('x' + sLineBreak + '++y;');
+  FProgram := FParser.Parse;
+
+  Assert.AreEqual(2, Integer(FProgram.Body.Count));
+
+  const Update = (FProgram.Body[1] as TJSExpressionStatement).Expression as TJSUpdateExpression;
+
+  Assert.IsTrue(Update.Prefix);
 end;
 
 initialization

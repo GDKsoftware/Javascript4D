@@ -44,6 +44,7 @@ type
     function GetMaxArrayLength: Integer;
     procedure SetMaxArrayLength(const Value: Integer);
 
+    function ParseProgram(const Source: string): TJSProgram;
     procedure RegisterBuiltInFunctions;
     procedure RegisterConsole;
     procedure RegisterMath;
@@ -271,6 +272,7 @@ begin
   FInterpreter := TJSInterpreter.Create;
   FPrograms := TList<TJSProgram>.Create;
   FOnConsoleOutput := nil;
+  FInterpreter.RegisterEval(ParseProgram);
   RegisterBuiltInFunctions;
 end;
 
@@ -286,16 +288,20 @@ begin
   inherited;
 end;
 
-function TJSEngine.Execute(const Source: string): TJSValue;
+function TJSEngine.ParseProgram(const Source: string): TJSProgram;
 begin
   const Parser = TJSParser.Create(Source);
   try
-    const Program_ = Parser.Parse;
-    FPrograms.Add(Program_);
-    Result := FInterpreter.Execute(Program_);
+    Result := Parser.Parse;
+    FPrograms.Add(Result);
   finally
     Parser.Free;
   end;
+end;
+
+function TJSEngine.Execute(const Source: string): TJSValue;
+begin
+  Result := FInterpreter.Execute(ParseProgram(Source));
 end;
 
 procedure TJSEngine.CollectGarbage;

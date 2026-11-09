@@ -65,6 +65,8 @@ type
     property Value: TJSValue read FValue;
   end;
 
+  TJSProgramParser = reference to function(const Source: string): TJSProgram;
+
   TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
@@ -88,6 +90,9 @@ type
     FStepsUntilCheck: Integer;
     FLimits: TJSLimits;
     FCallDepth: Integer;
+    FProgramParser: TJSProgramParser;
+    FEvalFunction: IJSFunction;
+    FDirectEvalCall: Boolean;
 
     procedure PushScope;
     procedure PopScope;
@@ -129,6 +134,11 @@ type
     function VisitContinueStatement(const Node: TJSContinueStatement): TJSValue;
     function VisitSwitchStatement(const Node: TJSSwitchStatement): TJSValue;
     function VisitThrowStatement(const Node: TJSThrowStatement): TJSValue;
+    function RunProgramBody(const Node: TJSProgram): TJSValue;
+    function EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
+    function CreateEvalScope(const IsDirect: Boolean; const IsStrictSource: Boolean): IJSScope;
+    function IsDirectEvalCall(const Callee: TJSExpression; const Func: IJSFunction): Boolean;
+    function CallDirectEval(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function VisitTryStatement(const Node: TJSTryStatement): TJSValue;
     function VisitCatchClause(const Handler: TJSCatchClause; const Thrown: TJSValue): TJSValue;
     procedure RunFinalizer(const Node: TJSTryStatement);
@@ -170,6 +180,7 @@ type
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
+    procedure RegisterEval(const ProgramParser: TJSProgramParser);
     procedure SetGlobalVariable(const Name: string; const Value: TJSValue);
     function GetGlobalVariable(const Name: string): TJSValue;
     procedure CollectGarbage;
@@ -204,6 +215,7 @@ const
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   ARGUMENTS_NAME = 'arguments';
+  EVAL_NAME = 'eval';
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
@@ -389,6 +401,8 @@ begin
   end;
   FScopeRegistry.Free;
   FFunctionPrograms.Free;
+  FEvalFunction := nil;
+  FProgramParser := nil;
 
   FCurrentScope := nil;
   FGlobalScope := nil;
@@ -660,6 +674,11 @@ end;
 function TJSInterpreter.VisitProgram(const Node: TJSProgram): TJSValue;
 begin
   FStrictMode := Node.IsStrict;
+  Result := RunProgramBody(Node);
+end;
+
+function TJSInterpreter.RunProgramBody(const Node: TJSProgram): TJSValue;
+begin
   Result := TJSValue.CreateUndefined;
 
   for var Statement in Node.Body do
@@ -670,6 +689,59 @@ begin
   for var Statement in Node.Body do
   begin
     Result := ExecuteStatement(Statement);
+  end;
+end;
+
+function TJSInterpreter.EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
+begin
+  const Program_ = FProgramParser(Source);
+  const IsStrictSource = (Program_.IsStrict or (IsDirect and FStrictMode));
+
+  const OldScope = FCurrentScope;
+  const OldThis = FThisValue;
+  const OldStrictMode = FStrictMode;
+  const OldProgram = FCurrentProgram;
+  FCurrentScope := CreateEvalScope(IsDirect, IsStrictSource);
+  FStrictMode := IsStrictSource;
+  FCurrentProgram := Program_;
+  if not IsDirect then
+    FThisValue := FGlobalObject;
+  try
+    Result := RunProgramBody(Program_);
+  finally
+    FCurrentProgram := OldProgram;
+    FStrictMode := OldStrictMode;
+    FThisValue := OldThis;
+    FCurrentScope := OldScope;
+  end;
+end;
+
+function TJSInterpreter.CreateEvalScope(const IsDirect: Boolean; const IsStrictSource: Boolean): IJSScope;
+begin
+  var OuterScope: IJSScope := FGlobalScope;
+  if IsDirect then
+    OuterScope := FCurrentScope;
+
+  if not IsStrictSource then
+    Exit(OuterScope);
+
+  Result := TJSScope.Create(OuterScope);
+  RegisterScope(Result);
+end;
+
+function TJSInterpreter.IsDirectEvalCall(const Callee: TJSExpression; const Func: IJSFunction): Boolean;
+begin
+  const IsNamedEval = (Callee is TJSIdentifier) and (TJSIdentifier(Callee).Name = EVAL_NAME);
+  Result := IsNamedEval and (Func = FEvalFunction);
+end;
+
+function TJSInterpreter.CallDirectEval(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+begin
+  FDirectEvalCall := True;
+  try
+    Result := CallFunction(Func, Args, nil);
+  finally
+    FDirectEvalCall := False;
   end;
 end;
 
@@ -1597,6 +1669,9 @@ begin
       NewValue := Right
     else
     begin
+      if not FCurrentScope.HasVariable(Identifier.Name) then
+        raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Node.Line, Node.Column);
+
       const Current = FCurrentScope.GetVariable(Identifier.Name);
 
       case Node.Operator of
@@ -1798,6 +1873,9 @@ begin
     for var Index := 0 to Node.Arguments.Count - 1 do
       Args[Index] := Visit(Node.Arguments[Index]);
   end;
+
+  if IsDirectEvalCall(Node.Callee, Func) then
+    Exit(CallDirectEval(Func, Args));
 
   Result := CallFunction(Func, Args, ThisObj);
 end;
@@ -2208,6 +2286,28 @@ begin
   const JSFunc: IJSFunction = TJSFunction.CreateNative(Name, Func);
   RegisterFunction(JSFunc);
   FGlobalScope.DeclareVariable(Name, TJSValue.CreateObject(JSFunc));
+end;
+
+procedure TJSInterpreter.RegisterEval(const ProgramParser: TJSProgramParser);
+begin
+  FProgramParser := ProgramParser;
+
+  RegisterNativeFunction(EVAL_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const IsDirect = FDirectEvalCall;
+      FDirectEvalCall := False;
+
+      const HasSource = (Length(Args) > 0) and Args[0].IsString;
+      if HasSource then
+        Result := EvaluateSource(Args[0].AsString, IsDirect)
+      else if Length(Args) > 0 then
+        Result := Args[0]
+      else
+        Result := TJSValue.CreateUndefined;
+    end);
+
+  Supports(FGlobalScope.GetVariable(EVAL_NAME).ToObject, IJSFunction, FEvalFunction);
 end;
 
 procedure TJSInterpreter.SetGlobalVariable(const Name: string; const Value: TJSValue);
