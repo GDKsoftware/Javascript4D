@@ -219,6 +219,8 @@ type
     procedure SetNativeFunction(const Value: TNativeFunction);
     function GetCallHandler: TJSCallHandler;
     procedure SetCallHandler(const Value: TJSCallHandler);
+    function GetIsConstructor: Boolean;
+    procedure SetIsConstructor(const Value: Boolean);
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -228,6 +230,7 @@ type
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
+    property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
   end;
 
   IJSError = interface(IJSObject)
@@ -307,6 +310,13 @@ type
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
+  IJSPrimitiveWrapper = interface(IJSObject)
+    ['{A7B8C9D0-E1F2-3456-ABCD-789012345678}']
+    function GetPrimitive: TJSValue;
+    function GetClassName: string;
+    property Primitive: TJSValue read GetPrimitive;
+  end;
+
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
     FProperties: TDictionary<string, TJSPropertyDescriptor>;
@@ -341,13 +351,13 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    function HasProperty(const Name: string): Boolean;
+    function HasProperty(const Name: string): Boolean; virtual;
     function GetProperty(const Name: string): TJSValue;
     procedure SetProperty(const Name: string; const Value: TJSValue);
     procedure SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
     procedure DeleteProperty(const Name: string);
     function IsPropertyConfigurable(const Name: string): Boolean;
-    function GetOwnPropertyNames: TArray<string>;
+    function GetOwnPropertyNames: TArray<string>; virtual;
 
     function IsFrozen: Boolean;
     function IsSealed: Boolean;
@@ -359,7 +369,7 @@ type
     function HasOwnProperty(const Name: string): Boolean; virtual;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
-    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
   end;
@@ -374,6 +384,7 @@ type
     FIsStrict: Boolean;
     FClosureScope: IJSScope;
     FCallHandler: TJSCallHandler;
+    FIsConstructor: Boolean;
 
   protected
     function GetName: string;
@@ -391,6 +402,8 @@ type
     procedure SetClosureScope(const Value: IJSScope);
     function GetCallHandler: TJSCallHandler;
     procedure SetCallHandler(const Value: TJSCallHandler);
+    function GetIsConstructor: Boolean;
+    procedure SetIsConstructor(const Value: Boolean);
 
   public
     constructor Create;
@@ -407,6 +420,7 @@ type
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
+    property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -564,12 +578,37 @@ type
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
+  TJSPrimitiveWrapperImpl = class(TJSObjectImpl, IJSPrimitiveWrapper)
+  private
+    FPrimitive: TJSValue;
+
+    function IsStringWrapper: Boolean;
+    function TryGetOwnStringDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+
+  protected
+    function GetPrimitive: TJSValue;
+    function GetClassName: string;
+
+  public
+    constructor Create(const Primitive: TJSValue);
+
+    function HasProperty(const Name: string): Boolean; override;
+    function GetOwnPropertyNames: TArray<string>; override;
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
+    function HasOwnProperty(const Name: string): Boolean; override;
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+
+    property Primitive: TJSValue read GetPrimitive;
+  end;
+
   TJSObject = TJSObjectImpl;
   TJSFunction = TJSFunctionImpl;
   TJSArray = TJSArrayImpl;
   TJSError = TJSErrorImpl;
   TJSDate = TJSDateImpl;
   TJSRegExp = TJSRegExpImpl;
+  TJSPrimitiveWrapper = TJSPrimitiveWrapperImpl;
 
 implementation
 
@@ -625,6 +664,9 @@ const
   FUNCTION_STRING = '[object Function]';
   ARRAY_SEPARATOR = ',';
   LENGTH_PROPERTY = 'length';
+  CLASS_NAME_STRING = 'String';
+  CLASS_NAME_NUMBER = 'Number';
+  CLASS_NAME_BOOLEAN = 'Boolean';
 
   PROP_NAME = 'name';
   PROP_MESSAGE = 'message';
@@ -873,8 +915,11 @@ begin
       begin
         // Date objects coerce to their timestamp (ms since epoch) per ES spec.
         var DateObj: IJSDate;
+        var Wrapper: IJSPrimitiveWrapper;
         if Supports(FObjectRef, IJSDate, DateObj) then
           Result := DateObj.GetTime
+        else if Supports(FObjectRef, IJSPrimitiveWrapper, Wrapper) then
+          Result := Wrapper.Primitive.ToNumber
         else
           Result := System.Math.NaN;
       end;
@@ -930,7 +975,13 @@ begin
     TJSValueType.String_:
       Result := FStringValue;
     TJSValueType.Object_:
-      Result := OBJECT_STRING;
+      begin
+        var Wrapper: IJSPrimitiveWrapper;
+        if Supports(FObjectRef, IJSPrimitiveWrapper, Wrapper) then
+          Result := Wrapper.Primitive.ToString
+        else
+          Result := OBJECT_STRING;
+      end;
     TJSValueType.Function_:
       Result := FUNCTION_STRING;
     TJSValueType.Array_:
@@ -1469,10 +1520,21 @@ begin
   FCallHandler := Value;
 end;
 
+function TJSFunctionImpl.GetIsConstructor: Boolean;
+begin
+  Result := FIsConstructor;
+end;
+
+procedure TJSFunctionImpl.SetIsConstructor(const Value: Boolean);
+begin
+  FIsConstructor := Value;
+end;
+
 constructor TJSFunctionImpl.Create;
 begin
   inherited Create;
   FIsNative := False;
+  FIsConstructor := True;
 end;
 
 constructor TJSFunctionImpl.CreateNative(const Name: string; const Func: TNativeFunction);
@@ -1481,6 +1543,7 @@ begin
   FName := Name;
   FNativeFunction := Func;
   FIsNative := True;
+  FIsConstructor := True;
 end;
 
 destructor TJSFunctionImpl.Destroy;
@@ -2273,6 +2336,124 @@ begin
     const Remainder = Copy(Str, LastEnd, Length(Str) - LastEnd + 1);
     Result.Push(TJSValue.CreateString(Remainder));
   end;
+end;
+
+{ TJSPrimitiveWrapperImpl }
+
+constructor TJSPrimitiveWrapperImpl.Create(const Primitive: TJSValue);
+begin
+  inherited Create;
+  FPrimitive := Primitive;
+end;
+
+function TJSPrimitiveWrapperImpl.GetPrimitive: TJSValue;
+begin
+  Result := FPrimitive;
+end;
+
+function TJSPrimitiveWrapperImpl.GetClassName: string;
+begin
+  if FPrimitive.IsString then
+    Result := CLASS_NAME_STRING
+  else if FPrimitive.IsNumber then
+    Result := CLASS_NAME_NUMBER
+  else
+    Result := CLASS_NAME_BOOLEAN;
+end;
+
+function TJSPrimitiveWrapperImpl.IsStringWrapper: Boolean;
+begin
+  Result := FPrimitive.IsString;
+end;
+
+function TJSPrimitiveWrapperImpl.TryGetOwnStringDescriptor(const Name: string;
+                                                           out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := False;
+
+  if not IsStringWrapper then
+    Exit;
+
+  const Text = FPrimitive.AsString;
+
+  if Name = LENGTH_PROPERTY then
+  begin
+    Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Text)));
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
+    Descriptor.Configurable := False;
+    Exit(True);
+  end;
+
+  var CharIndex: Integer;
+  const IsCanonicalIndex = TryStrToInt(Name, CharIndex) and (IntToStr(CharIndex) = Name);
+  const IsInRange = IsCanonicalIndex and (CharIndex >= 0) and (CharIndex < Length(Text));
+  if not IsInRange then
+    Exit;
+
+  Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateString(Text[CharIndex + 1]));
+  Descriptor.Writable := False;
+  Descriptor.Configurable := False;
+  Result := True;
+end;
+
+function TJSPrimitiveWrapperImpl.HasProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited HasProperty(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.GetOwnPropertyNames: TArray<string>;
+begin
+  const OrdinaryNames = inherited GetOwnPropertyNames;
+  if not IsStringWrapper then
+    Exit(OrdinaryNames);
+
+  const CharCount = Length(FPrimitive.AsString);
+  SetLength(Result, CharCount + 1 + Length(OrdinaryNames));
+
+  for var CharIndex := 0 to CharCount - 1 do
+  begin
+    Result[CharIndex] := IntToStr(CharIndex);
+  end;
+
+  Result[CharCount] := LENGTH_PROPERTY;
+
+  for var NameIndex := 0 to Length(OrdinaryNames) - 1 do
+  begin
+    Result[CharCount + 1 + NameIndex] := OrdinaryNames[NameIndex];
+  end;
+end;
+
+function TJSPrimitiveWrapperImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+begin
+  if not TryGetOwnStringDescriptor(Name, Result) then
+    Result := inherited GetOwnPropertyDescriptor(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.HasOwnProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited HasOwnProperty(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.DefineOwnProperty(const Name: string;
+                                                   const Definition: TJSPropertyDefinition): Boolean;
+var
+  Current: TJSPropertyDescriptor;
+begin
+  if TryGetOwnStringDescriptor(Name, Current) then
+    Exit(CanRedefine(Current, Definition));
+
+  Result := inherited DefineOwnProperty(Name, Definition);
+end;
+
+function TJSPrimitiveWrapperImpl.TryGetPropertyDescriptor(const Name: string;
+                                                          out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
 end.

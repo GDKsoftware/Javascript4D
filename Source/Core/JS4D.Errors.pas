@@ -88,6 +88,7 @@ type
     class function UnexpectedEndOfInput(const Line: Integer; const Column: Integer): EJSSyntaxError;
     class function InvalidLeftHandSide(const Line: Integer; const Column: Integer): EJSReferenceError;
     class function NotAFunction(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
+    class function NotAConstructor(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function UndefinedVariable(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSReferenceError;
     class function InvalidArrayLength(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
     class function InvalidRegExp(const Pattern: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
@@ -104,6 +105,7 @@ const
   UnexpectedEndMessage = 'Unexpected end of input';
   InvalidLhsMessage = 'Invalid left-hand side in assignment';
   NotAFunctionMessage = ' is not a function';
+  NotAConstructorMessage = ' is not a constructor';
   NotDefinedMessage = ' is not defined';
   InvalidArrayLengthMessage = 'Invalid array length';
   InvalidRegExpMessage = 'Invalid regular expression: ';
@@ -202,6 +204,11 @@ end;
 class function TJSErrorFactory.NotAFunction(const Name: string; const Line: Integer; const Column: Integer): EJSTypeError;
 begin
   Result := TypeError(Name + NotAFunctionMessage, Line, Column);
+end;
+
+class function TJSErrorFactory.NotAConstructor(const Name: string; const Line: Integer; const Column: Integer): EJSTypeError;
+begin
+  Result := TypeError(Name + NotAConstructorMessage, Line, Column);
 end;
 
 class function TJSErrorFactory.UndefinedVariable(const Name: string; const Line: Integer; const Column: Integer): EJSReferenceError;

@@ -78,6 +78,9 @@ type
     FArrayPrototype: IJSObject;
     FFunctionPrototype: IJSObject;
     FRegExpPrototype: IJSObject;
+    FStringPrototype: IJSObject;
+    FNumberPrototype: IJSObject;
+    FBooleanPrototype: IJSObject;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
@@ -102,6 +105,7 @@ type
     procedure DetachProperties(const Func: IJSFunction);
     function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
+    function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
 
     procedure BeginExecution;
     procedure ConsumeStep; inline;
@@ -188,12 +192,17 @@ type
     function ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function WrapPrimitive(const Value: TJSValue): IJSObject;
+    function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
     property GlobalScope: IJSScope read FGlobalScope;
     property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
     property ArrayPrototype: IJSObject read FArrayPrototype write FArrayPrototype;
     property FunctionPrototype: IJSObject read FFunctionPrototype write FFunctionPrototype;
     property RegExpPrototype: IJSObject read FRegExpPrototype write FRegExpPrototype;
+    property StringPrototype: IJSObject read FStringPrototype write FStringPrototype;
+    property NumberPrototype: IJSObject read FNumberPrototype write FNumberPrototype;
+    property BooleanPrototype: IJSObject read FBooleanPrototype write FBooleanPrototype;
     property Limits: TJSLimits read FLimits;
     property StepBudget: Int64 read FStepBudget write FStepBudget;
     property StepCount: Int64 read GetStepCount;
@@ -496,6 +505,37 @@ begin
     Result.Prototype := PrototypeValue.ToObject
   else
     Result.Prototype := FObjectPrototype;
+end;
+
+function TJSInterpreter.PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
+begin
+  if Value.IsString then
+    Result := FStringPrototype
+  else if Value.IsNumber then
+    Result := FNumberPrototype
+  else if Value.IsBoolean then
+    Result := FBooleanPrototype
+  else
+    Result := nil;
+end;
+
+function TJSInterpreter.WrapPrimitive(const Value: TJSValue): IJSObject;
+begin
+  Result := TJSPrimitiveWrapper.Create(Value);
+  Result.Prototype := PrimitivePrototypeFor(Value);
+end;
+
+function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
+begin
+  if ThisValue.IsObject then
+    Exit(ThisValue.ToObject);
+
+  const IsPrimitive = not ThisValue.IsNullOrUndefined;
+  const SeesObjectThis = Func.IsNative or (not Func.IsStrict);
+  if IsPrimitive and SeesObjectThis then
+    Exit(WrapPrimitive(ThisValue));
+
+  Result := nil;
 end;
 
 procedure TJSInterpreter.PushScope;
@@ -1811,6 +1851,7 @@ end;
 function TJSInterpreter.VisitCallExpression(const Node: TJSCallExpression): TJSValue;
 begin
   var ThisObj: IJSObject := nil;
+  var ThisValue := TJSValue.CreateUndefined;
   var Args: TArray<TJSValue>;
   var ArgsEvaluated := False;
 
@@ -1818,6 +1859,7 @@ begin
   begin
     const MemberExpr = TJSMemberExpression(Node.Callee);
     const ObjValue = Visit(MemberExpr.Object_);
+    ThisValue := ObjValue;
 
     var MethodName: string;
 
@@ -1837,12 +1879,6 @@ begin
       if Supports(ObjValue.ToObject, IJSArray, ArrIntf) then
         Exit(ExecuteArrayMethod(ArrIntf, MethodName, Args));
     end;
-
-    if ObjValue.IsString and TJSBuiltins.HasStringMethod(MethodName) then
-      Exit(TJSBuiltins.CallStringMethod(ObjValue.AsString, MethodName, Args, FLimits));
-
-    if ObjValue.IsNumber and TJSBuiltins.HasNumberMethod(MethodName) then
-      Exit(TJSBuiltins.CallNumberMethod(ObjValue.AsNumber, MethodName, Args));
 
     if ObjValue.IsFunction and TJSBuiltins.HasFunctionMethod(MethodName) then
     begin
@@ -1876,6 +1912,9 @@ begin
 
   if IsDirectEvalCall(Node.Callee, Func) then
     Exit(CallDirectEval(Func, Args));
+
+  if not Assigned(ThisObj) then
+    ThisObj := ThisObjectFor(Func, ThisValue);
 
   Result := CallFunction(Func, Args, ThisObj);
 end;
@@ -1940,6 +1979,13 @@ begin
     Exit;
   end;
 
+  const PrimitivePrototype = PrimitivePrototypeFor(ObjValue);
+  if Assigned(PrimitivePrototype) then
+  begin
+    Result := PrimitivePrototype.GetProperty(PropName);
+    Exit;
+  end;
+
   Result := TJSValue.CreateUndefined;
 end;
 
@@ -1953,6 +1999,9 @@ begin
   var Func: IJSFunction;
   if not Supports(CalleeValue.ToObject, IJSFunction, Func) then
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
+
+  if not Func.IsConstructor then
+    raise TJSErrorFactory.NotAConstructor(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
   const NewObj = CreateInstanceFor(Func);
 
@@ -2106,9 +2155,8 @@ begin
   if MethodName = METHOD_CALL then
   begin
     var ThisArg: IJSObject := nil;
-    const HasObjectArg = (Length(Args) > 0) and Args[0].IsObject;
-    if HasObjectArg then
-      ThisArg := Args[0].ToObject;
+    if Length(Args) > 0 then
+      ThisArg := ThisObjectFor(Func, Args[0]);
 
     var FuncArgs: TArray<TJSValue>;
     if Length(Args) > 1 then
@@ -2126,9 +2174,8 @@ begin
   if MethodName = METHOD_APPLY then
   begin
     var ThisArg: IJSObject := nil;
-    const HasObjectArg = (Length(Args) > 0) and Args[0].IsObject;
-    if HasObjectArg then
-      ThisArg := Args[0].ToObject;
+    if Length(Args) > 0 then
+      ThisArg := ThisObjectFor(Func, Args[0]);
 
     var FuncArgs: TArray<TJSValue>;
     const HasArgsArray = (Length(Args) > 1) and Args[1].IsArray;
@@ -2151,9 +2198,8 @@ begin
   if MethodName = METHOD_BIND then
   begin
     var BoundThis: IJSObject := nil;
-    const HasObjectArg = (Length(Args) > 0) and Args[0].IsObject;
-    if HasObjectArg then
-      BoundThis := Args[0].ToObject;
+    if Length(Args) > 0 then
+      BoundThis := ThisObjectFor(Func, Args[0]);
 
     var BoundArgs: TArray<TJSValue>;
     if Length(Args) > 1 then

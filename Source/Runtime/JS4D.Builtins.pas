@@ -90,6 +90,8 @@ type
     class function HasObjectMethod(const MethodName: string): Boolean; static;
 
     class function ArrayMethodNames: TArray<string>; static;
+    class function StringMethodNames: TArray<string>; static;
+    class function NumberMethodNames: TArray<string>; static;
     class function ObjectMethodNames: TArray<string>; static;
 
     class function CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -1534,7 +1536,7 @@ begin
   if Length(Args) > 0 then
     Digits := Max(0, Min(100, Trunc(Args[0].ToNumber)));
 
-  Result := TJSValue.CreateString(FormatFloat('0.' + System.StringOfChar('0', Digits), Num));
+  Result := TJSValue.CreateString(FormatFloat('0.' + System.StringOfChar('0', Digits), Num, TFormatSettings.Invariant));
 end;
 
 class function TJSBuiltins.NumberToPrecision(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
@@ -1555,7 +1557,7 @@ begin
     FormatStr := FormatStr + '.' + DecimalPart;
   end;
 
-  Result := TJSValue.CreateString(FormatFloat(FormatStr, Num));
+  Result := TJSValue.CreateString(FormatFloat(FormatStr, Num, TFormatSettings.Invariant));
 end;
 
 class function TJSBuiltins.NumberToExponential(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
@@ -1782,44 +1784,40 @@ begin
             (MethodName = METHOD_FIND_INDEX);
 end;
 
+class function TJSBuiltins.StringMethodNames: TArray<string>;
+begin
+  Result := [METHOD_CHAR_AT, METHOD_CHAR_CODE_AT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF, METHOD_SUBSTRING,
+             METHOD_SUBSTR, METHOD_SLICE, METHOD_SPLIT, METHOD_TO_LOWER_CASE, METHOD_TO_UPPER_CASE, METHOD_TRIM,
+             METHOD_TRIM_START, METHOD_TRIM_LEFT, METHOD_TRIM_END, METHOD_TRIM_RIGHT, METHOD_REPLACE,
+             METHOD_MATCH, METHOD_SEARCH, METHOD_CONCAT, METHOD_REPEAT, METHOD_STARTS_WITH, METHOD_ENDS_WITH,
+             METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF];
+end;
+
+class function TJSBuiltins.NumberMethodNames: TArray<string>;
+begin
+  Result := [METHOD_TO_STRING, METHOD_TO_FIXED, METHOD_TO_PRECISION, METHOD_TO_EXPONENTIAL, METHOD_VALUE_OF];
+end;
+
 class function TJSBuiltins.HasStringMethod(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_CHAR_AT) or
-            (MethodName = METHOD_CHAR_CODE_AT) or
-            (MethodName = METHOD_INDEX_OF) or
-            (MethodName = METHOD_LAST_INDEX_OF) or
-            (MethodName = METHOD_SUBSTRING) or
-            (MethodName = METHOD_SUBSTR) or
-            (MethodName = METHOD_SLICE) or
-            (MethodName = METHOD_SPLIT) or
-            (MethodName = METHOD_TO_LOWER_CASE) or
-            (MethodName = METHOD_TO_UPPER_CASE) or
-            (MethodName = METHOD_TRIM) or
-            (MethodName = METHOD_TRIM_START) or
-            (MethodName = METHOD_TRIM_LEFT) or
-            (MethodName = METHOD_TRIM_END) or
-            (MethodName = METHOD_TRIM_RIGHT) or
-            (MethodName = METHOD_REPLACE) or
-            (MethodName = METHOD_MATCH) or
-            (MethodName = METHOD_SEARCH) or
-            (MethodName = METHOD_CONCAT) or
-            (MethodName = METHOD_REPEAT) or
-            (MethodName = METHOD_STARTS_WITH) or
-            (MethodName = METHOD_ENDS_WITH) or
-            (MethodName = METHOD_INCLUDES) or
-            (MethodName = METHOD_PAD_START) or
-            (MethodName = METHOD_PAD_END) or
-            (MethodName = METHOD_TO_STRING) or
-            (MethodName = METHOD_VALUE_OF);
+  Result := False;
+
+  for var StringMethodName in StringMethodNames do
+  begin
+    if StringMethodName = MethodName then
+      Exit(True);
+  end;
 end;
 
 class function TJSBuiltins.HasNumberMethod(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_TO_STRING) or
-            (MethodName = METHOD_TO_FIXED) or
-            (MethodName = METHOD_TO_PRECISION) or
-            (MethodName = METHOD_TO_EXPONENTIAL) or
-            (MethodName = METHOD_VALUE_OF);
+  Result := False;
+
+  for var NumberMethodName in NumberMethodNames do
+  begin
+    if NumberMethodName = MethodName then
+      Exit(True);
+  end;
 end;
 
 class function TJSBuiltins.HasFunctionMethod(const MethodName: string): Boolean;

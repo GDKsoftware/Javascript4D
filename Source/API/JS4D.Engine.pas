@@ -19,6 +19,7 @@ uses
   JS4D.Builtins,
   JS4D.ArrayIteration,
   JS4D.PropertyDescriptors,
+  JS4D.PrototypeMethods,
   JS4D.Json,
   JS4D.Errors;
 
@@ -28,6 +29,7 @@ type
   TJSEngine = class
   private
     FInterpreter: TJSInterpreter;
+    FPrototypeMethods: TJSPrototypeMethods;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
 
@@ -55,6 +57,7 @@ type
     procedure RegisterErrors;
     procedure RegisterRegExp;
     procedure RegisterFunctionObject;
+    procedure RegisterPrototypeMethods;
     procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
     function GlobalPrototype(const ConstructorName: string): IJSObject;
     procedure LinkIntrinsicPrototypes;
@@ -270,6 +273,7 @@ constructor TJSEngine.Create;
 begin
   inherited Create;
   FInterpreter := TJSInterpreter.Create;
+  FPrototypeMethods := TJSPrototypeMethods.Create(FInterpreter);
   FPrograms := TList<TJSProgram>.Create;
   FOnConsoleOutput := nil;
   FInterpreter.RegisterEval(ParseProgram);
@@ -285,6 +289,7 @@ begin
 
   FPrograms.Free;
   FInterpreter.Free;
+  FPrototypeMethods.Free;
   inherited;
 end;
 
@@ -527,16 +532,23 @@ begin
       Result := TJSValue.CreateBoolean((not System.Math.IsNaN(Num)) and (not System.Math.IsInfinite(Num)));
     end);
 
+  const NumberPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateNumber(0));
+
   const NumberFunc = TJSFunction.CreateNative(NUMBER_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      var NumberValue := TJSValue.CreateNumber(0);
+
+      if Length(Args) > 0 then
+        NumberValue := TJSValue.CreateNumber(Args[0].ToNumber);
+
+      if TJSPrototypeMethods.IsConstructCall(This, NumberPrototype) then
       begin
-        Result := TJSValue.CreateNumber(0);
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(NumberValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      Result := TJSValue.CreateNumber(Args[0].ToNumber);
+      Result := NumberValue;
     end);
 
   NumberFunc.SetProperty('MAX_VALUE', TJSValue.CreateNumber(1.7976931348623157e+308));
@@ -546,20 +558,25 @@ begin
   NumberFunc.SetProperty('NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
 
   FInterpreter.SetGlobalVariable(NUMBER_NAME, TJSValue.CreateObject(NumberFunc));
-  AttachPrototypeObject(NumberFunc, TJSObject.Create);
+  AttachPrototypeObject(NumberFunc, NumberPrototype);
+
+  const StringPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateString(''));
 
   const StringFunc = TJSFunction.CreateNative(STRING_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      var StringValue := TJSValue.CreateString('');
+
+      if Length(Args) > 0 then
+        StringValue := TJSValue.CreateString(ToText(Args[0]));
+
+      if TJSPrototypeMethods.IsConstructCall(This, StringPrototype) then
       begin
-        Result := TJSValue.CreateString('');
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(StringValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      const Text = ToText(Args[0]);
-
-      Result := TJSValue.CreateString(Text);
+      Result := StringValue;
     end);
 
   StringFunc.SetProperty('fromCharCode', TJSValue.CreateObject(TJSFunction.CreateNative('fromCharCode',
@@ -577,23 +594,26 @@ begin
     end)));
 
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
-  AttachPrototypeObject(StringFunc, TJSObject.Create);
+  AttachPrototypeObject(StringFunc, StringPrototype);
 
-  FInterpreter.RegisterNativeFunction(BOOLEAN_FUNC_NAME,
+  const BooleanPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateBoolean(False));
+
+  const BooleanFunc = TJSFunction.CreateNative(BOOLEAN_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      const BooleanValue = TJSValue.CreateBoolean((Length(Args) > 0) and Args[0].ToBoolean);
+
+      if TJSPrototypeMethods.IsConstructCall(This, BooleanPrototype) then
       begin
-        Result := TJSValue.CreateBoolean(False);
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(BooleanValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      Result := TJSValue.CreateBoolean(Args[0].ToBoolean);
+      Result := BooleanValue;
     end);
 
-  var BooleanFunc: IJSFunction;
-  if Supports(FInterpreter.GetGlobalVariable(BOOLEAN_FUNC_NAME).ToObject, IJSFunction, BooleanFunc) then
-    AttachPrototypeObject(BooleanFunc, TJSObject.Create);
+  FInterpreter.SetGlobalVariable(BOOLEAN_FUNC_NAME, TJSValue.CreateObject(BooleanFunc));
+  AttachPrototypeObject(BooleanFunc, BooleanPrototype);
 
   FInterpreter.RegisterNativeFunction(ENCODE_URI_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -699,6 +719,7 @@ begin
   RegisterErrors;
   RegisterRegExp;
   RegisterFunctionObject;
+  RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
 end;
 
@@ -1662,6 +1683,13 @@ begin
   if HasObjectArgument then
     Exit(Args[0]);
 
+  const HasPrimitiveArgument = (Length(Args) > 0) and (not Args[0].IsNullOrUndefined);
+  if HasPrimitiveArgument then
+  begin
+    const Wrapper = FInterpreter.WrapPrimitive(Args[0]);
+    Exit(TJSValue.CreateObject(Wrapper));
+  end;
+
   const NewObj = TJSObject.Create;
   NewObj.Prototype := PrototypeObj;
 
@@ -2160,6 +2188,24 @@ begin
 
   FInterpreter.SetGlobalVariable(REGEXP_NAME, TJSValue.CreateObject(RegExpFunc));
   AttachPrototypeObject(RegExpFunc, PrototypeObj);
+end;
+
+procedure TJSEngine.RegisterPrototypeMethods;
+begin
+  const MathObject = FInterpreter.GetGlobalVariable(MATH_NAME).ToObject;
+  const JSONObject = FInterpreter.GetGlobalVariable(JSON_NAME).ToObject;
+
+  FPrototypeMethods.RegisterObjectMethods(GlobalPrototype(OBJECT_NAME), MathObject, JSONObject);
+  FPrototypeMethods.RegisterStringMethods(GlobalPrototype(STRING_FUNC_NAME));
+  FPrototypeMethods.RegisterNumberMethods(GlobalPrototype(NUMBER_NAME));
+  FPrototypeMethods.RegisterBooleanMethods(GlobalPrototype(BOOLEAN_FUNC_NAME));
+  FPrototypeMethods.RegisterErrorMethods(GlobalPrototype(ERROR_NAME));
+  FPrototypeMethods.RegisterRegExpMethods(GlobalPrototype(REGEXP_NAME));
+  FPrototypeMethods.RegisterFunctionMethods(GlobalPrototype(FUNCTION_NAME));
+
+  FInterpreter.StringPrototype := GlobalPrototype(STRING_FUNC_NAME);
+  FInterpreter.NumberPrototype := GlobalPrototype(NUMBER_NAME);
+  FInterpreter.BooleanPrototype := GlobalPrototype(BOOLEAN_FUNC_NAME);
 end;
 
 function TJSEngine.GlobalPrototype(const ConstructorName: string): IJSObject;
