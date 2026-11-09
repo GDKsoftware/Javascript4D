@@ -56,6 +56,9 @@ type
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
+    function ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+    function ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+    function IsValidArrayLength(const Value: Double): Boolean;
 
   public
     constructor Create;
@@ -1050,7 +1053,13 @@ end;
 
 procedure TJSEngine.RegisterObject;
 begin
-  const ObjectObj = TJSObject.Create;
+  const PrototypeObj = TJSObject.Create;
+
+  const ObjectObj = TJSFunction.CreateNative(OBJECT_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructObject(Args, PrototypeObj);
+    end);
 
   ObjectObj.SetProperty(OBJECT_KEYS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_KEYS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1358,8 +1367,6 @@ begin
       Result := TJSValue.CreateObject(Obj);
     end)));
 
-  const PrototypeObj = TJSObject.Create;
-
   for var MethodName in TJSBuiltins.ObjectMethodNames do
   begin
     const Method = CreateObjectPrototypeMethod(MethodName);
@@ -1437,7 +1444,13 @@ end;
 
 procedure TJSEngine.RegisterArray;
 begin
-  const ArrayObj = TJSObject.Create;
+  const PrototypeObj = TJSObject.Create;
+
+  const ArrayObj = TJSFunction.CreateNative(ARRAY_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructArray(Args, PrototypeObj);
+    end);
 
   ArrayObj.SetProperty(ARRAY_IS_ARRAY, TJSValue.CreateObject(TJSFunction.CreateNative(ARRAY_IS_ARRAY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1509,8 +1522,6 @@ begin
       Result := TJSValue.CreateObject(ResultArr);
     end)));
 
-  const PrototypeObj = TJSObject.Create;
-
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
@@ -1581,6 +1592,54 @@ begin
 
       Result := TJSBuiltins.CallObjectMethod(This, MethodName, Args, FInterpreter.Limits);
     end);
+end;
+
+function TJSEngine.ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+begin
+  const ResultArr: IJSArray = TJSArray.Create;
+  ResultArr.Prototype := PrototypeObj;
+
+  const IsLengthForm = (Length(Args) = 1) and Args[0].IsNumber;
+  if IsLengthForm then
+  begin
+    const RequestedLength = Args[0].AsNumber;
+    if not IsValidArrayLength(RequestedLength) then
+      raise TJSErrorFactory.InvalidArrayLength;
+
+    const ElementCount = Trunc(RequestedLength);
+    FInterpreter.Limits.EnsureArrayLength(ElementCount);
+
+    for var Index := 1 to ElementCount do
+      ResultArr.Push(TJSValue.CreateUndefined);
+  end
+  else
+  begin
+    for var Arg in Args do
+      ResultArr.Push(Arg);
+  end;
+
+  Result := TJSValue.CreateObject(ResultArr);
+end;
+
+function TJSEngine.ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+begin
+  const HasObjectArgument = (Length(Args) > 0) and Args[0].IsObject;
+  if HasObjectArgument then
+    Exit(Args[0]);
+
+  const NewObj = TJSObject.Create;
+  NewObj.Prototype := PrototypeObj;
+
+  Result := TJSValue.CreateObject(NewObj);
+end;
+
+function TJSEngine.IsValidArrayLength(const Value: Double): Boolean;
+const
+  MAX_ARRAY_LENGTH = 4294967295.0;
+begin
+  const IsWholeNumber = (not System.Math.IsNaN(Value)) and (Frac(Value) = 0);
+
+  Result := IsWholeNumber and (Value >= 0) and (Value <= MAX_ARRAY_LENGTH);
 end;
 
 procedure TJSEngine.RegisterDate;
