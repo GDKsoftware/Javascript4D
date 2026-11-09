@@ -89,6 +89,7 @@ type
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterScope(const Scope: IJSScope);
     procedure AttachPrototype(const Func: IJSFunction);
+    function CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
     procedure DetachProperties(const Func: IJSFunction);
     function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
@@ -185,6 +186,7 @@ const
   LENGTH_PROPERTY = 'length';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
+  ARGUMENTS_NAME = 'arguments';
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
@@ -403,6 +405,20 @@ begin
   PrototypeDescriptor.Enumerable := False;
   PrototypeDescriptor.Configurable := False;
   Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
+end;
+
+function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>): IJSObject;
+begin
+  Result := TJSObject.Create;
+
+  for var Index := 0 to Length(Args) - 1 do
+  begin
+    Result.SetProperty(IntToStr(Index), Args[Index]);
+  end;
+
+  var LengthDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Args)));
+  LengthDescriptor.Enumerable := False;
+  Result.DefineProperty(LENGTH_PROPERTY, LengthDescriptor);
 end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
@@ -1473,7 +1489,7 @@ begin
 
     if FStrictMode then
     begin
-      if (Identifier.Name = 'eval') or (Identifier.Name = 'arguments') then
+      if (Identifier.Name = 'eval') or (Identifier.Name = ARGUMENTS_NAME) then
         raise TJSErrorFactory.SyntaxError('Assignment to ' + Identifier.Name + ' in strict mode',
           Node.Line, Node.Column);
 
@@ -1855,6 +1871,8 @@ begin
   RegisterScope(FCurrentScope);
   Inc(FCallDepth);
   try
+    FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args)));
+
     for var Index := 0 to Length(Func.Parameters) - 1 do
     begin
       if Index < Length(Args) then
