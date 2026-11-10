@@ -2044,6 +2044,9 @@ procedure TJSArrayImpl.SetProperty(const Name: string; const Value: TJSValue);
 begin
   if Name = LENGTH_PROPERTY then
   begin
+    if not GetLengthDescriptor.Writable then
+      Exit;
+
     var Definition := Default(TJSPropertyDefinition);
     Definition.HasValue := True;
     Definition.Value := Value;
@@ -2101,21 +2104,24 @@ end;
 
 function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
 begin
+  var NewLength := 0.0;
+
+  if Definition.HasValue then
+  begin
+    NewLength := Definition.Value.ToNumber;
+    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
+                          (NewLength <= MaxInt);
+    if not IsValidLength then
+      raise TJSErrorFactory.InvalidArrayLength;
+  end;
+
   const Current = GetLengthDescriptor;
   Result := CanRedefine(Current, Definition);
   if not Result then
     Exit;
 
   if Definition.HasValue then
-  begin
-    const NewLength = Definition.Value.ToNumber;
-    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
-                          (NewLength <= MaxInt);
-    if not IsValidLength then
-      raise TJSErrorFactory.InvalidArrayLength;
-
     Result := ResizeTo(Trunc(NewLength));
-  end;
 
   if Definition.HasWritable then
     FLengthWritable := Definition.Writable;

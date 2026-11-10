@@ -81,6 +81,18 @@ type
     procedure Eval_CreatedClosure_OutlivesEval;
 
     [Test]
+    procedure Eval_VarArgumentsInParameterInitializer_ThrowsSyntaxError;
+
+    [Test]
+    procedure Eval_VarArgumentsInParameterInitializerOfMethod_ThrowsSyntaxError;
+
+    [Test]
+    procedure Eval_VarArgumentsInFunctionBody_AssignsTheBinding;
+
+    [Test]
+    procedure Eval_OtherVarInParameterInitializer_IsAllowed;
+
+    [Test]
     procedure Eval_Nested_EvaluatesInnerSource;
 
     [Test]
@@ -242,6 +254,46 @@ begin
   const Source = 'eval("var p = 1' + #$2028 + 'var q = 2' + #$2029 + 'p + q")';
 
   Assert.AreEqual(3.0, FEngine.Evaluate(Source).AsNumber);
+end;
+
+procedure TEvalTests.Eval_VarArgumentsInParameterInitializer_ThrowsSyntaxError;
+begin
+  const Script =
+    'var thrown = false;' + sLineBreak +
+    'function f(p = eval("var arguments")) {}' + sLineBreak +
+    'try { f(); } catch (e) { thrown = e instanceof SyntaxError; }' + sLineBreak +
+    'thrown && !("arguments" in this)';
+
+  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+end;
+
+procedure TEvalTests.Eval_VarArgumentsInParameterInitializerOfMethod_ThrowsSyntaxError;
+begin
+  const Script =
+    'var thrown = false;' + sLineBreak +
+    'var o = { m(p = eval("var arguments = 1"), arguments) {} };' + sLineBreak +
+    'try { o.m(); } catch (e) { thrown = e instanceof SyntaxError; }' + sLineBreak +
+    'thrown';
+
+  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+end;
+
+procedure TEvalTests.Eval_VarArgumentsInFunctionBody_AssignsTheBinding;
+begin
+  const Script =
+    'function f(p = 1) { eval("var arguments = 2"); return arguments; }' + sLineBreak +
+    'f()';
+
+  Assert.AreEqual(2.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TEvalTests.Eval_OtherVarInParameterInitializer_IsAllowed;
+begin
+  const Script =
+    'function f(p = eval("var local = 5")) { return p; }' + sLineBreak +
+    'f()';
+
+  Assert.IsTrue(FEngine.Evaluate(Script).IsUndefined);
 end;
 
 end.

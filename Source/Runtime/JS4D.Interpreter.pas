@@ -178,6 +178,7 @@ type
     FEvalVariableScope: IJSScope;
     FVarScope: IJSScope;
     FEvalCallerScope: IJSScope;
+    FParameterInitScope: IJSScope;
     FLoopLabels: TArray<string>;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
@@ -996,7 +997,16 @@ begin
   if Info.NeedsParameterScope then
     DeclareParameterBindings(Func, Info);
 
-  InitializeParameterBindings(Func, Args, Info);
+  const OuterInitScope = FParameterInitScope;
+  if Func.IsArrow then
+    FParameterInitScope := nil
+  else
+    FParameterInitScope := FCurrentScope;
+  try
+    InitializeParameterBindings(Func, Args, Info);
+  finally
+    FParameterInitScope := OuterInitScope;
+  end;
 
   if not Info.NeedsParameterScope then
     Exit;
@@ -1744,6 +1754,10 @@ begin
   const IsSloppyDirectEval = Assigned(FEvalCallerScope) and (FVarScope = FEvalVariableScope);
   if not IsSloppyDirectEval then
     Exit;
+
+  const IsParameterInitializer = Assigned(FParameterInitScope) and (FEvalCallerScope = FParameterInitScope);
+  if IsParameterInitializer and (Name = ARGUMENTS_NAME) then
+    raise TJSErrorFactory.SyntaxError(Format(REDECLARED_IDENTIFIER, [Name]));
 
   var Scope := FEvalCallerScope;
 
@@ -4340,6 +4354,15 @@ end;
 
 procedure TJSInterpreter.AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
 begin
+  const LengthIsWritable = Target.GetOwnPropertyDescriptor(LENGTH_PROPERTY).Writable;
+  if not LengthIsWritable then
+  begin
+    if FStrictMode then
+      raise TJSErrorFactory.TypeError(READ_ONLY_LENGTH);
+
+    Exit;
+  end;
+
   var Definition := Default(TJSPropertyDefinition);
   Definition.HasValue := True;
   Definition.Value := Value;

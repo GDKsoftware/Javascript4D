@@ -44,6 +44,9 @@ type
 
 implementation
 
+uses
+  JS4D.ArrayLike;
+
 class function TJSPropertyDescriptors.ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean;
 begin
   Result := Source.HasProperty(Name);
@@ -122,7 +125,7 @@ begin
   if not SetsArrayLength then
     Exit;
 
-  const RequestedLength = Definition.Value.ToNumber;
+  const RequestedLength = TJSArrayLike.ToNumber(Definition.Value);
   Result.Value := TJSValue.CreateNumber(RequestedLength);
 
   const IsStorableLength = (not IsNaN(RequestedLength)) and (RequestedLength >= 0) and (RequestedLength <= MaxInt);

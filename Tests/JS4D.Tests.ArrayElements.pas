@@ -98,6 +98,21 @@ type
 
     [Test]
     procedure Map_SkipsHolesOfNewArray;
+
+    [Test]
+    procedure AssignLength_ObjectWithValueOf_UsesTheConvertedNumber;
+
+    [Test]
+    procedure AssignLength_ObjectWithOnlyToString_UsesTheConvertedNumber;
+
+    [Test]
+    procedure DefineProperty_LengthObjectWithValueOf_UsesTheConvertedNumber;
+
+    [Test]
+    procedure DefineProperty_LengthObjectWithoutPrimitive_ThrowsTypeErrorAfterTryingBothConversions;
+
+    [Test]
+    procedure DefineProperty_InvalidLengthOnReadOnlyLength_ThrowsRangeError;
   end;
 
 implementation
@@ -365,6 +380,62 @@ begin
     'source[1] = undefined;' + sLineBreak +
     'var result = source.map(function () { calls++; return 1; });' + sLineBreak +
     'result.length === 10 && calls === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.AssignLength_ObjectWithValueOf_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'arr.length = { valueOf: function () { return 2; }, toString: function () { return 1; } };' + sLineBreak +
+    'arr.length === 2';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.AssignLength_ObjectWithOnlyToString_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'arr.length = { toString: function () { return 3; } };' + sLineBreak +
+    'arr.length === 3';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_LengthObjectWithValueOf_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'Object.defineProperty(arr, "length", { value: { valueOf: function () { return 4; } } });' + sLineBreak +
+    'arr.length === 4';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_LengthObjectWithoutPrimitive_ThrowsTypeErrorAfterTryingBothConversions;
+begin
+  const Script =
+    'var valueOfCalled = false, toStringCalled = false, thrown = false;' + sLineBreak +
+    'try {' + sLineBreak +
+    '  Object.defineProperty([], "length", { value: {' + sLineBreak +
+    '    valueOf: function () { valueOfCalled = true; return {}; },' + sLineBreak +
+    '    toString: function () { toStringCalled = true; return {}; } } });' + sLineBreak +
+    '} catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
+    'thrown && valueOfCalled && toStringCalled';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_InvalidLengthOnReadOnlyLength_ThrowsRangeError;
+begin
+  const Script =
+    'var arr = []; var thrown = false;' + sLineBreak +
+    'Object.defineProperty(arr, "length", { writable: false });' + sLineBreak +
+    'try { Object.defineProperty(arr, "length", { value: -1, writable: true }); }' + sLineBreak +
+    'catch (e) { thrown = (e instanceof RangeError); }' + sLineBreak +
+    'thrown';
 
   Assert.IsTrue(EvaluateBoolean(Script));
 end;
