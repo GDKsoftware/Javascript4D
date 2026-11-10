@@ -75,10 +75,30 @@ type
 
   TJSStatement = class(TJSASTNode);
 
+  TJSDeclarationKind = (
+    Var_,
+    Let,
+    Const_
+  );
+
+  TJSScopeInfo = class
+  private
+    FDeclarations: TList<TJSStatement>;
+    FMayCaptureScope: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Declarations: TList<TJSStatement> read FDeclarations;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
+  end;
+
   TJSProgram = class(TJSASTNode)
   private
     FBody: TObjectList<TJSStatement>;
     FIsStrict: Boolean;
+    FScopeInfo: TJSScopeInfo;
 
   public
     constructor Create;
@@ -86,6 +106,7 @@ type
 
     property Body: TObjectList<TJSStatement> read FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSBindingCache = record
@@ -410,6 +431,8 @@ type
     FBody: TObjectList<TJSStatement>;
     FReferencesArguments: Boolean;
     FDeclaresStrictMode: Boolean;
+    FIsFunctionBody: Boolean;
+    FScopeInfo: TJSScopeInfo;
 
   public
     constructor Create;
@@ -418,6 +441,8 @@ type
     property Body: TObjectList<TJSStatement> read FBody;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
+    property IsFunctionBody: Boolean read FIsFunctionBody write FIsFunctionBody;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSVariableDeclarator = class(TJSASTNode)
@@ -436,12 +461,14 @@ type
   TJSVariableDeclaration = class(TJSStatement)
   private
     FDeclarations: TObjectList<TJSVariableDeclarator>;
+    FKind: TJSDeclarationKind;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Declarations: TObjectList<TJSVariableDeclarator> read FDeclarations;
+    property Kind: TJSDeclarationKind read FKind write FKind;
   end;
 
   TJSFunctionDeclaration = class(TJSStatement)
@@ -450,6 +477,7 @@ type
     FParams: TObjectList<TJSIdentifier>;
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
+    FHoistsToVar: Boolean;
 
   public
     constructor Create(const Id: TJSIdentifier);
@@ -459,6 +487,7 @@ type
     property Params: TObjectList<TJSIdentifier> read FParams;
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
   end;
 
   TJSExpressionStatement = class(TJSStatement)
@@ -532,6 +561,7 @@ type
     FTest: TJSExpression;
     FUpdate: TJSExpression;
     FBody: TJSStatement;
+    FMayCaptureScope: Boolean;
 
   public
     constructor Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression; const Body: TJSStatement);
@@ -541,6 +571,7 @@ type
     property Test: TJSExpression read FTest;
     property Update: TJSExpression read FUpdate;
     property Body: TJSStatement read FBody;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
   end;
 
   TJSForInStatement = class(TJSStatement)
@@ -548,6 +579,7 @@ type
     FLeft: TJSASTNode;
     FRight: TJSExpression;
     FBody: TJSStatement;
+    FMayCaptureScope: Boolean;
 
   public
     constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
@@ -556,6 +588,7 @@ type
     property Left: TJSASTNode read FLeft;
     property Right: TJSExpression read FRight;
     property Body: TJSStatement read FBody;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
   end;
 
   TJSReturnStatement = class(TJSStatement)
@@ -608,6 +641,7 @@ type
   private
     FDiscriminant: TJSExpression;
     FCases: TObjectList<TJSSwitchCase>;
+    FScopeInfo: TJSScopeInfo;
 
   public
     constructor Create(const Discriminant: TJSExpression);
@@ -615,6 +649,7 @@ type
 
     property Discriminant: TJSExpression read FDiscriminant;
     property Cases: TObjectList<TJSSwitchCase> read FCases;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSThrowStatement = class(TJSStatement)
@@ -689,6 +724,20 @@ begin
   FNodeType := NodeType;
 end;
 
+{ TJSScopeInfo }
+
+constructor TJSScopeInfo.Create;
+begin
+  inherited Create;
+  FDeclarations := TList<TJSStatement>.Create;
+end;
+
+destructor TJSScopeInfo.Destroy;
+begin
+  FDeclarations.Free;
+  inherited;
+end;
+
 { TJSProgram }
 
 constructor TJSProgram.Create;
@@ -699,6 +748,7 @@ end;
 
 destructor TJSProgram.Destroy;
 begin
+  FScopeInfo.Free;
   FBody.Free;
   inherited;
 end;
@@ -999,6 +1049,7 @@ end;
 
 destructor TJSBlockStatement.Destroy;
 begin
+  FScopeInfo.Free;
   FBody.Free;
   inherited;
 end;
@@ -1237,6 +1288,7 @@ end;
 
 destructor TJSSwitchStatement.Destroy;
 begin
+  FScopeInfo.Free;
   FDiscriminant.Free;
   FCases.Free;
   inherited;

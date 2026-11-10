@@ -10,6 +10,7 @@ uses
   JS4D.Tokens,
   JS4D.Lexer,
   JS4D.AST,
+  JS4D.ParserScope,
   JS4D.Errors,
   JS4D.RegExpSyntax;
 
@@ -31,6 +32,9 @@ type
     FLoopDepth: Integer;
     FSwitchDepth: Integer;
     FFunctionDepth: Integer;
+    FScopes: TJSScopeTracker;
+    FClosureCount: Integer;
+    FAllowLabelledFunction: Boolean;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -43,8 +47,21 @@ type
 
     function ParseProgram: TJSProgram;
     function ParseStatement: TJSStatement;
+    function ParseStatementListItem: TJSStatement;
     function ParseBlockStatement: TJSBlockStatement;
+    function ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                              const CatchParameter: string): TJSBlockStatement;
     function ParseVariableDeclaration: TJSVariableDeclaration;
+    function ParseLexicalDeclaration: TJSVariableDeclaration;
+    procedure ParseLexicalBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean;
+                                  const RequireInitializer: Boolean);
+    function ParseLexicalForStatement: TJSStatement;
+    function ParseLexicalForHeadAndBody(const Declaration: TJSVariableDeclaration): TJSStatement;
+    function ParseIfBranch: TJSStatement;
+    function StartsLetDeclaration(const AllowLineBreak: Boolean): Boolean;
+    procedure DeclareVarName(const Name: string);
+    procedure DeclareLexicalName(const Name: string; const IsFunction: Boolean; const AllowFunctionDuplicate: Boolean);
+    procedure CheckLexicalBindingName(const Name: string);
     function ParseFunctionDeclaration: TJSFunctionDeclaration;
     function ParseExpressionStatement: TJSExpressionStatement;
     function ParseIfStatement: TJSIfStatement;
@@ -53,14 +70,14 @@ type
     function ParseLoopBody(const Owned: array of TObject): TJSStatement;
     procedure RejectFunctionDeclarationBody(const Owned: array of TObject);
     procedure FreeOwned(const Owned: array of TObject);
-    function ParseLabeledStatement: TJSLabeledStatement;
+    function ParseLabeledStatement(const AllowFunction: Boolean): TJSLabeledStatement;
     function LabelsIterationStatement: Boolean;
     function FindActiveLabel(const LabelName: string): Integer;
     function ParseJumpLabel(const KeywordToken: TJSToken): string;
     function ParseWithStatement: TJSWithStatement;
     function ParseWithBody: TJSStatement;
     function StartsWithDeclaration: Boolean;
-    function ParseFunctionBodyBlock: TJSBlockStatement;
+    function ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>): TJSBlockStatement;
     function PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
     procedure RejectLegacyLiteralInStrictMode(const Token: TJSToken);
     function ParseForStatement: TJSStatement;
@@ -79,7 +96,7 @@ type
     function ParseExpressionWithoutIn: TJSExpression;
     function ParseNestedExpression: TJSExpression;
     function ParseNestedAssignmentExpression: TJSExpression;
-    function ParseNestedBlockStatement: TJSBlockStatement;
+    function ParseNestedBlockStatement(const Parameters: TArray<string>): TJSBlockStatement;
     function ParseConditionalExpression: TJSExpression;
     function ParseLogicalOrExpression: TJSExpression;
     function ParseLogicalAndExpression: TJSExpression;
@@ -152,6 +169,12 @@ const
   IllegalThrowNewlineMessage = 'Illegal newline after throw';
   DuplicateDefaultMessage = 'More than one default clause in switch statement';
   FunctionDeclarationBodyMessage = 'Function declaration is not allowed as the body of a statement';
+  LexicalDeclarationBodyMessage = 'Lexical declaration cannot appear in a single-statement context';
+  RedeclarationMessage = 'Identifier ''%s'' has already been declared';
+  MissingConstInitializerMessage = 'Missing initializer in const declaration';
+  LetBindingNameMessage = 'let is disallowed as a lexically bound name';
+  ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
+  LET_NAME = 'let';
 
 { TJSParser }
 
@@ -163,6 +186,7 @@ begin
   FLexer.Tokenize;
   FInOperatorAllowed := True;
   FActiveLabels := TList<TJSLabelInfo>.Create;
+  FScopes := TJSScopeTracker.Create;
 end;
 
 constructor TJSParser.Create(const Lexer: TJSLexer);
@@ -172,10 +196,12 @@ begin
   FOwnsLexer := False;
   FInOperatorAllowed := True;
   FActiveLabels := TList<TJSLabelInfo>.Create;
+  FScopes := TJSScopeTracker.Create;
 end;
 
 destructor TJSParser.Destroy;
 begin
+  FScopes.Free;
   FActiveLabels.Free;
 
   if FOwnsLexer then
@@ -256,6 +282,8 @@ end;
 function TJSParser.ParseProgram: TJSProgram;
 begin
   Result := TJSProgram.Create;
+  FScopes.Enter(TJSParserScopeKind.Function_, nil);
+  const ClosureMark = FClosureCount;
 
   try
     if PrologueDeclaresStrictMode(0) then
@@ -266,21 +294,45 @@ begin
 
     while not IsAtEnd do
     begin
-      const Statement = ParseStatement;
+      const Statement = ParseStatementListItem;
       Result.Body.Add(Statement);
     end;
+
+    Result.ScopeInfo := FScopes.Leave;
   except
     Result.Free;
     raise;
   end;
+
+  if Assigned(Result.ScopeInfo) then
+    Result.ScopeInfo.MayCaptureScope := (FClosureCount <> ClosureMark);
+end;
+
+function TJSParser.ParseStatementListItem: TJSStatement;
+begin
+  if Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(True) then
+    Exit(ParseLexicalDeclaration);
+
+  FAllowLabelledFunction := True;
+  Result := ParseStatement;
 end;
 
 function TJSParser.ParseStatement: TJSStatement;
 begin
+  const AllowLabelledFunction = FAllowLabelledFunction;
+  FAllowLabelledFunction := False;
+
+  const StartsLexicalDeclaration = (Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(False));
+  if StartsLexicalDeclaration then
+    raise TJSErrorFactory.SyntaxError(LexicalDeclarationBodyMessage, CurrentToken.Line, CurrentToken.Column);
+
   const StartsLabel = (Check(TJSTokenType.Identifier) and
                        (FLexer.PeekToken(1).TokenType = TJSTokenType.Colon));
   if StartsLabel then
-    Exit(ParseLabeledStatement);
+  begin
+    Result := ParseLabeledStatement(AllowLabelledFunction);
+    Exit;
+  end;
 
   case CurrentToken.TokenType of
     TJSTokenType.LeftBrace:
@@ -322,22 +374,130 @@ end;
 
 function TJSParser.ParseBlockStatement: TJSBlockStatement;
 begin
+  Result := ParseScopedBlock(TJSParserScopeKind.Block, nil, '');
+end;
+
+function TJSParser.ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                                    const CatchParameter: string): TJSBlockStatement;
+begin
   Expect(TJSTokenType.LeftBrace);
 
   Result := TJSBlockStatement.Create;
+  Result.IsFunctionBody := (Kind = TJSParserScopeKind.Function_);
+  FScopes.Enter(Kind, Parameters);
+  FScopes.SetCatchParameter(CatchParameter);
+  const ClosureMark = FClosureCount;
 
   try
     while (not Check(TJSTokenType.RightBrace)) and (not IsAtEnd) do
     begin
-      const Statement = ParseStatement;
+      const Statement = ParseStatementListItem;
       Result.Body.Add(Statement);
     end;
 
     Expect(TJSTokenType.RightBrace);
+    Result.ScopeInfo := FScopes.Leave;
   except
     Result.Free;
     raise;
   end;
+
+  if Assigned(Result.ScopeInfo) then
+    Result.ScopeInfo.MayCaptureScope := (FClosureCount <> ClosureMark);
+end;
+
+procedure TJSParser.DeclareVarName(const Name: string);
+begin
+  if not FScopes.TryDeclareVar(Name) then
+    raise TJSErrorFactory.SyntaxError(Format(RedeclarationMessage, [Name]), CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.DeclareLexicalName(const Name: string; const IsFunction: Boolean;
+                                       const AllowFunctionDuplicate: Boolean);
+begin
+  if not FScopes.TryDeclareLexical(Name, IsFunction, AllowFunctionDuplicate) then
+    raise TJSErrorFactory.SyntaxError(Format(RedeclarationMessage, [Name]), CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.CheckLexicalBindingName(const Name: string);
+begin
+  if Name = LET_NAME then
+    raise TJSErrorFactory.SyntaxError(LetBindingNameMessage, CurrentToken.Line, CurrentToken.Column);
+
+  CheckStrictModeReservedWord(Name);
+  CheckRestrictedBindingName(Name);
+end;
+
+function TJSParser.StartsLetDeclaration(const AllowLineBreak: Boolean): Boolean;
+begin
+  const IsLetWord = (Check(TJSTokenType.Identifier) and (CurrentToken.Value = LET_NAME) and
+                     (not CurrentToken.HasEscape));
+  if not IsLetWord then
+    Exit(False);
+
+  const FollowingToken = FLexer.PeekToken(1);
+  const IsAllowedPosition = (AllowLineBreak or (FollowingToken.Line = CurrentToken.Line));
+  const FollowedByBinding = (FollowingToken.TokenType in [TJSTokenType.Identifier, TJSTokenType.LeftBrace]);
+  const FollowedByPattern = (FollowingToken.TokenType = TJSTokenType.LeftBracket);
+
+  Result := FollowedByPattern or (FollowedByBinding and IsAllowedPosition);
+end;
+
+function TJSParser.ParseLexicalDeclaration: TJSVariableDeclaration;
+begin
+  Result := TJSVariableDeclaration.Create;
+
+  try
+    if Check(TJSTokenType.KeywordConst) then
+      Result.Kind := TJSDeclarationKind.Const_
+    else
+      Result.Kind := TJSDeclarationKind.Let;
+
+    Advance;
+
+    repeat
+      ParseLexicalBinding(Result, True, Result.Kind = TJSDeclarationKind.Const_);
+    until not Match(TJSTokenType.Comma);
+
+    ExpectSemicolon;
+    FScopes.AddDeclaration(Result);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.ParseLexicalBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean;
+                                        const RequireInitializer: Boolean);
+begin
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const BindingName = CurrentToken.Value;
+  CheckLexicalBindingName(BindingName);
+  DeclareLexicalName(BindingName, False, False);
+  Advance;
+
+  var InitExpr: TJSExpression := nil;
+
+  if Match(TJSTokenType.Assign) then
+  begin
+    const PreviousAllowed = FInOperatorAllowed;
+    FInOperatorAllowed := AllowIn;
+    try
+      InitExpr := ParseAssignmentExpression;
+    finally
+      FInOperatorAllowed := PreviousAllowed;
+    end;
+  end
+  else if RequireInitializer then
+  begin
+    raise TJSErrorFactory.SyntaxError(MissingConstInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
+
+  const Identifier = TJSIdentifier.Create(BindingName);
+  const Declarator = TJSVariableDeclarator.Create(Identifier, InitExpr);
+  Declaration.Declarations.Add(Declarator);
 end;
 
 function TJSParser.ParseVariableDeclaration: TJSVariableDeclaration;
@@ -354,6 +514,7 @@ begin
       const IdName = CurrentToken.Value;
       CheckStrictModeReservedWord(IdName);
       CheckRestrictedBindingName(IdName);
+      DeclareVarName(IdName);
       Advance;
 
       var InitExpr: TJSExpression := nil;
@@ -382,7 +543,16 @@ begin
 
   const FuncName = CurrentToken.Value;
   CheckStrictModeReservedWord(FuncName);
+
+  const IsStrictContext = FStrictMode;
+  const IsFunctionLevel = FScopes.IsFunctionLevel;
+  if IsFunctionLevel then
+    DeclareVarName(FuncName)
+  else
+    DeclareLexicalName(FuncName, True, not IsStrictContext);
+
   Advance;
+  Inc(FClosureCount);
 
   const Identifier = TJSIdentifier.Create(FuncName);
   Result := TJSFunctionDeclaration.Create(Identifier);
@@ -408,7 +578,7 @@ begin
     Expect(TJSTokenType.RightParen);
 
     const OldStrictMode = FStrictMode;
-    Result.Body := ParseFunctionBodyBlock;
+    Result.Body := ParseFunctionBodyBlock(Result.Params);
 
     if Result.Body.DeclaresStrictMode then
     begin
@@ -421,6 +591,14 @@ begin
   except
     Result.Free;
     raise;
+  end;
+
+  if not IsFunctionLevel then
+  begin
+    FScopes.AddDeclaration(Result);
+
+    if not IsStrictContext then
+      FScopes.AddFunctionCandidate(Result);
   end;
 end;
 
@@ -452,14 +630,14 @@ begin
     if FStrictMode then
       RejectFunctionDeclarationBody([]);
 
-    Consequent := ParseStatement;
+    Consequent := ParseIfBranch;
 
     if Match(TJSTokenType.KeywordElse) then
     begin
       if FStrictMode then
         RejectFunctionDeclarationBody([]);
 
-      Alternate := ParseStatement;
+      Alternate := ParseIfBranch;
     end;
   except
     FreeOwned([Test, Consequent, Alternate]);
@@ -467,6 +645,26 @@ begin
   end;
 
   Result := TJSIfStatement.Create(Test, Consequent, Alternate);
+end;
+
+function TJSParser.ParseIfBranch: TJSStatement;
+begin
+  if not Check(TJSTokenType.KeywordFunction) then
+    Exit(ParseStatement);
+
+  const Block = TJSBlockStatement.Create;
+  FScopes.Enter(TJSParserScopeKind.Block, nil);
+
+  try
+    Block.Body.Add(ParseFunctionDeclaration);
+    Block.ScopeInfo := FScopes.Leave;
+  except
+    Block.Free;
+    raise;
+  end;
+
+  Block.ScopeInfo.MayCaptureScope := True;
+  Result := Block;
 end;
 
 function TJSParser.ParseWhileStatement: TJSWhileStatement;
@@ -517,23 +715,18 @@ end;
 
 function TJSParser.StartsWithDeclaration: Boolean;
 begin
-  if Check(TJSTokenType.KeywordFunction) then
+  if Check(TJSTokenType.KeywordFunction) or Check(TJSTokenType.KeywordConst) then
     Exit(True);
 
   if not Check(TJSTokenType.Identifier) then
     Exit(False);
 
-  const Word = CurrentToken.Value;
-  const FollowingToken = FLexer.PeekToken(1);
-  const IsOnSameLine = (FollowingToken.Line = CurrentToken.Line);
-  const FollowedByName = (FollowingToken.TokenType = TJSTokenType.Identifier);
+  if StartsLetDeclaration(False) then
+    Exit(True);
 
-  const IsLetDeclaration = ((Word = 'let') and
-                            ((FollowingToken.TokenType = TJSTokenType.LeftBracket) or
-                             (IsOnSameLine and (FollowedByName or (FollowingToken.TokenType = TJSTokenType.LeftBrace)))));
-  const IsConstOrClassDeclaration = (((Word = 'const') or (Word = 'class')) and FollowedByName);
+  const FollowedByName = (FLexer.PeekToken(1).TokenType = TJSTokenType.Identifier);
 
-  Result := IsLetDeclaration or IsConstOrClassDeclaration;
+  Result := (CurrentToken.Value = 'class') and FollowedByName;
 end;
 
 function TJSParser.PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
@@ -579,8 +772,16 @@ begin
     raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage, Token.Line, Token.Column);
 end;
 
-function TJSParser.ParseFunctionBodyBlock: TJSBlockStatement;
+function TJSParser.ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>): TJSBlockStatement;
 begin
+  var ParameterNames: TArray<string>;
+  SetLength(ParameterNames, Params.Count);
+
+  for var Index := 0 to Params.Count - 1 do
+  begin
+    ParameterNames[Index] := Params[Index].Name;
+  end;
+
   const OldStrictMode = FStrictMode;
   const OuterLabelScopeStart = FLabelScopeStart;
   const OuterLoopDepth = FLoopDepth;
@@ -597,7 +798,7 @@ begin
   FSwitchDepth := 0;
   try
     const StartPosition = FLexer.Position;
-    Result := ParseNestedBlockStatement;
+    Result := ParseNestedBlockStatement(ParameterNames);
     Result.DeclaresStrictMode := DeclaresStrictMode;
     Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
                                                               [ARGUMENTS_NAME, EVAL_NAME]);
@@ -632,6 +833,10 @@ begin
   Expect(TJSTokenType.KeywordFor);
   Expect(TJSTokenType.LeftParen);
 
+  const IsLexicalHead = (Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(True));
+  if IsLexicalHead then
+    Exit(ParseLexicalForStatement);
+
   var Init: TJSASTNode := nil;
 
   if Check(TJSTokenType.KeywordVar) then
@@ -644,6 +849,7 @@ begin
     const VarName = CurrentToken.Value;
     CheckStrictModeReservedWord(VarName);
     CheckRestrictedBindingName(VarName);
+    DeclareVarName(VarName);
     Advance;
 
     if Match(TJSTokenType.KeywordIn) then
@@ -679,6 +885,7 @@ begin
       const NextVarName = CurrentToken.Value;
       CheckStrictModeReservedWord(NextVarName);
       CheckRestrictedBindingName(NextVarName);
+      DeclareVarName(NextVarName);
       Advance;
 
       const NextVarId = TJSIdentifier.Create(NextVarName);
@@ -695,13 +902,6 @@ begin
   end
   else if not Check(TJSTokenType.Semicolon) then
   begin
-    const IsDeclarationKeyword = (Check(TJSTokenType.Identifier) and
-                                  ((CurrentToken.Value = 'let') or (CurrentToken.Value = 'const')));
-    const NextToken = FLexer.PeekToken(1);
-    const StartsWithBindingPattern = (IsDeclarationKeyword and (NextToken.TokenType = TJSTokenType.LeftBracket));
-    if StartsWithBindingPattern then
-      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
     const Expr = ParseExpressionWithoutIn;
 
     if Match(TJSTokenType.KeywordIn) then
@@ -736,6 +936,97 @@ begin
   const Body = ParseLoopBody([Init, Test, Update]);
 
   Result := TJSForStatement.Create(Init, Test, Update, Body);
+end;
+
+function TJSParser.ParseLexicalForStatement: TJSStatement;
+begin
+  FScopes.Enter(TJSParserScopeKind.Block, nil);
+  const ClosureMark = FClosureCount;
+
+  const Declaration = TJSVariableDeclaration.Create;
+  if Check(TJSTokenType.KeywordConst) then
+    Declaration.Kind := TJSDeclarationKind.Const_
+  else
+    Declaration.Kind := TJSDeclarationKind.Let;
+
+  Advance;
+
+  try
+    Result := ParseLexicalForHeadAndBody(Declaration);
+  except
+    const AbandonedScopeInfo = FScopes.Leave;
+    AbandonedScopeInfo.Free;
+    raise;
+  end;
+
+  const ForScopeInfo = FScopes.Leave;
+  ForScopeInfo.Free;
+
+  const MayCaptureScope = (FClosureCount <> ClosureMark);
+  if Result is TJSForInStatement then
+    TJSForInStatement(Result).MayCaptureScope := MayCaptureScope
+  else
+    TJSForStatement(Result).MayCaptureScope := MayCaptureScope;
+end;
+
+function TJSParser.ParseLexicalForHeadAndBody(const Declaration: TJSVariableDeclaration): TJSStatement;
+begin
+  var Right: TJSExpression := nil;
+  var Test: TJSExpression := nil;
+  var Update: TJSExpression := nil;
+
+  try
+    ParseLexicalBinding(Declaration, False, False);
+
+    if Match(TJSTokenType.KeywordIn) then
+    begin
+      if Assigned(Declaration.Declarations[0].Init) then
+        raise TJSErrorFactory.SyntaxError(ForInInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+
+      Right := ParseExpression;
+    end
+    else
+    begin
+      while Match(TJSTokenType.Comma) do
+      begin
+        ParseLexicalBinding(Declaration, False, False);
+      end;
+
+      for var Declarator in Declaration.Declarations do
+      begin
+        const IsMissingConstInitializer = (Declaration.Kind = TJSDeclarationKind.Const_) and (Declarator.Init = nil);
+        if IsMissingConstInitializer then
+          raise TJSErrorFactory.SyntaxError(MissingConstInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+      end;
+
+      Expect(TJSTokenType.Semicolon);
+
+      if not Check(TJSTokenType.Semicolon) then
+        Test := ParseExpression;
+
+      Expect(TJSTokenType.Semicolon);
+
+      if not Check(TJSTokenType.RightParen) then
+        Update := ParseExpression;
+    end;
+
+    Expect(TJSTokenType.RightParen);
+  except
+    FreeOwned([Declaration, Right, Test, Update]);
+    raise;
+  end;
+
+  const IsForIn = Assigned(Right);
+  if IsForIn then
+  begin
+    const ForInBody = ParseLoopBody([Declaration, Right]);
+    Result := TJSForInStatement.Create(Declaration, Right, ForInBody);
+  end
+  else
+  begin
+    const ForBody = ParseLoopBody([Declaration, Test, Update]);
+    Result := TJSForStatement.Create(Declaration, Test, Update, ForBody);
+  end;
 end;
 
 function TJSParser.ParseReturnStatement: TJSReturnStatement;
@@ -857,7 +1148,7 @@ begin
                                                    TJSTokenType.KeywordDo]);
 end;
 
-function TJSParser.ParseLabeledStatement: TJSLabeledStatement;
+function TJSParser.ParseLabeledStatement(const AllowFunction: Boolean): TJSLabeledStatement;
 begin
   const LabelToken = CurrentToken;
   CheckStrictModeReservedWord(LabelToken.Value);
@@ -874,12 +1165,14 @@ begin
   Advance;
   Expect(TJSTokenType.Colon);
 
-  if StartsWithDeclaration then
+  const IsAllowedFunction = (AllowFunction and Check(TJSTokenType.KeywordFunction) and (not FStrictMode));
+  if StartsWithDeclaration and (not IsAllowedFunction) then
     raise TJSErrorFactory.SyntaxError('Declaration is not allowed as the body of a labelled statement',
       CurrentToken.Line, CurrentToken.Column);
 
   FActiveLabels.Add(Info);
   try
+    FAllowLabelledFunction := AllowFunction;
     const Body = ParseStatement;
     Result := TJSLabeledStatement.Create(Info.Name, Body);
   finally
@@ -936,6 +1229,9 @@ begin
 
   var HasDefaultClause := False;
 
+  FScopes.Enter(TJSParserScopeKind.Block, nil);
+  const ClosureMark = FClosureCount;
+
   Inc(FSwitchDepth);
   try
     while (not Check(TJSTokenType.RightBrace)) and (not IsAtEnd) do
@@ -965,18 +1261,22 @@ begin
             (not Check(TJSTokenType.RightBrace)) and
             (not IsAtEnd) do
       begin
-        const Statement = ParseStatement;
+        const Statement = ParseStatementListItem;
         SwitchCase.Consequent.Add(Statement);
       end;
     end;
 
     Expect(TJSTokenType.RightBrace);
+    Result.ScopeInfo := FScopes.Leave;
     Dec(FSwitchDepth);
   except
     Dec(FSwitchDepth);
     Result.Free;
     raise;
   end;
+
+  if Assigned(Result.ScopeInfo) then
+    Result.ScopeInfo.MayCaptureScope := (FClosureCount <> ClosureMark);
 end;
 
 function TJSParser.ParseThrowStatement: TJSThrowStatement;
@@ -1040,7 +1340,7 @@ begin
   var CatchBody: TJSBlockStatement;
   try
     Expect(TJSTokenType.RightParen);
-    CatchBody := ParseBlockStatement;
+    CatchBody := ParseScopedBlock(TJSParserScopeKind.Block, nil, ParamName);
   except
     Param.Free;
     raise;
@@ -1116,12 +1416,12 @@ begin
   end;
 end;
 
-function TJSParser.ParseNestedBlockStatement: TJSBlockStatement;
+function TJSParser.ParseNestedBlockStatement(const Parameters: TArray<string>): TJSBlockStatement;
 begin
   const PreviousAllowed = FInOperatorAllowed;
   FInOperatorAllowed := True;
   try
-    Result := ParseBlockStatement;
+    Result := ParseScopedBlock(TJSParserScopeKind.Function_, Parameters, '');
   finally
     FInOperatorAllowed := PreviousAllowed;
   end;
@@ -1522,6 +1822,10 @@ begin
       begin
         const Name = CurrentToken.Value;
         CheckStrictModeReservedWord(Name);
+
+        if Name = EVAL_NAME then
+          Inc(FClosureCount);
+
         Advance;
         Exit(TJSIdentifier.Create(Name));
       end;
@@ -1802,8 +2106,10 @@ begin
 
   Expect(TJSTokenType.RightParen);
 
+  Inc(FClosureCount);
+
   const OldStrictMode = FStrictMode;
-  const Body = ParseFunctionBodyBlock;
+  const Body = ParseFunctionBodyBlock(Func.Params);
   Func.Body := Body;
 
   if Body.DeclaresStrictMode then

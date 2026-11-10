@@ -18,6 +18,7 @@ uses
   JS4D.ArgumentsObject,
   JS4D.GlobalScope,
   JS4D.PropertyDescriptors,
+  JS4D.LexicalStates,
   JS4D.ArrayIteration,
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
@@ -28,6 +29,9 @@ type
   private
     FVariables: TDictionary<string, TJSValue>;
     FParent: IJSScope;
+    FLexicalStates: TJSLexicalStates;
+
+    function HasLexicalState(const Name: string): Boolean;
 
   protected
     function GetParent: IJSScope;
@@ -42,6 +46,11 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
+    procedure InitializeLexical(const Name: string; const Value: TJSValue);
+    function CloneForIteration: TJSScope;
+    function IsLexicalBinding(const Name: string): Boolean;
     function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     procedure Clear;
@@ -136,6 +145,8 @@ type
     FEvalFunction: IJSFunction;
     FDirectEvalCall: Boolean;
     FEvalVariableScope: IJSScope;
+    FVarScope: IJSScope;
+    FEvalCallerScope: IJSScope;
     FLoopLabels: TArray<string>;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
@@ -172,7 +183,30 @@ type
     function Visit(const Node: TJSASTNode): TJSValue;
 
     function VisitProgram(const Node: TJSProgram): TJSValue;
-    procedure HoistDeclarations(const Node: TJSASTNode);
+    procedure InstantiateTopLevel(const Statements: TObjectList<TJSStatement>; const ScopeInfo: TJSScopeInfo);
+    procedure DeclareTopLevelLexicals(const ScopeInfo: TJSScopeInfo);
+    procedure DeclareLexicalNames(const Declaration: TJSVariableDeclaration);
+    procedure EnsureGlobalLexicalAvailable(const Name: string);
+    procedure EnsureNoGlobalLexicalConflict(const Name: string);
+    procedure HoistStatement(const Node: TJSStatement);
+    procedure HoistVarNames(const Node: TJSASTNode);
+    procedure HoistVariable(const Name: string);
+    procedure EnsureNoEvalLexicalConflict(const Name: string);
+    procedure EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
+    function VisitScopedBlock(const Node: TJSBlockStatement): TJSValue;
+    function CreateFunctionObject(const Node: TJSFunctionDeclaration): IJSFunction;
+    function VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
+    function IsLexicalDeclaration(const Node: TJSASTNode): Boolean;
+    function VisitLexicalForStatement(const Node: TJSForStatement; const OwnLabels: TArray<string>): TJSValue;
+    function RunForLoop(const Node: TJSForStatement; const OwnLabels: TArray<string>;
+                        const CopiesIterationScope: Boolean): TJSValue;
+    procedure AdvanceForLoop(const Node: TJSForStatement; const CopiesIterationScope: Boolean);
+    procedure CopyIterationScope;
+    function EvaluateForInSubject(const Node: TJSForInStatement): TJSValue;
+    procedure AssignForInVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const PropName: string);
+    procedure BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
+                                      const OuterScope: IJSScope; const Value: TJSValue);
+    function ExecuteSwitchCases(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): TJSValue;
     function VisitBlockStatement(const Node: TJSBlockStatement): TJSValue;
     function VisitVariableDeclaration(const Node: TJSVariableDeclaration): TJSValue;
     procedure DeclareFunction(const Node: TJSFunctionDeclaration);
@@ -342,6 +376,10 @@ const
   CONSTRUCTOR_DATE = 'Date';
 
   STEP_CHECK_INTERVAL = 1024;
+  EMPTY_COMPLETION_NODES = [TJSASTNodeType.VariableDeclaration,
+                            TJSASTNodeType.FunctionDeclaration,
+                            TJSASTNodeType.EmptyStatement];
+  REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
 
 { TJSScope }
 
@@ -361,6 +399,7 @@ destructor TJSScope.Destroy;
 begin
   Clear;
   FVariables.Free;
+  FLexicalStates.Free;
   inherited;
 end;
 
@@ -394,12 +433,21 @@ end;
 procedure TJSScope.ReleaseReferences;
 begin
   FVariables.Clear;
+
+  if Assigned(FLexicalStates) then
+    FLexicalStates.Clear;
+
   FParent := nil;
+end;
+
+function TJSScope.HasLexicalState(const Name: string): Boolean;
+begin
+  Result := Assigned(FLexicalStates) and FLexicalStates.Contains(Name);
 end;
 
 function TJSScope.HasVariable(const Name: string): Boolean;
 begin
-  Result := FVariables.ContainsKey(Name);
+  Result := FVariables.ContainsKey(Name) or HasLexicalState(Name);
 
   if (not Result) and Assigned(FParent) then
     Result := FParent.HasVariable(Name);
@@ -410,6 +458,9 @@ begin
   if FVariables.TryGetValue(Name, Result) then
     Exit;
 
+  if Assigned(FLexicalStates) then
+    FLexicalStates.EnsureInitialized(Name);
+
   if Assigned(FParent) then
     Exit(FParent.GetVariable(Name));
 
@@ -419,8 +470,13 @@ end;
 function TJSScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
 begin
   Result := FVariables.TryGetValue(Name, Value);
+  if Result then
+    Exit;
 
-  if (not Result) and Assigned(FParent) then
+  if Assigned(FLexicalStates) then
+    FLexicalStates.EnsureInitialized(Name);
+
+  if Assigned(FParent) then
     Result := FParent.TryGetVariable(Name, Value);
 end;
 
@@ -429,7 +485,7 @@ begin
   const ResolvedScope = Resolve(Name);
 
   if Assigned(ResolvedScope) then
-    ResolvedScope.DeclareVariable(Name, Value)
+    ResolvedScope.AssignVariable(Name, Value)
   else if Assigned(FParent) then
     FParent.SetVariable(Name, Value)
   else
@@ -446,14 +502,59 @@ begin
   DeclareVariable(Name, Value);
 end;
 
+procedure TJSScope.AssignVariable(const Name: string; const Value: TJSValue);
+begin
+  if Assigned(FLexicalStates) then
+    FLexicalStates.EnsureAssignable(Name);
+
+  FVariables.AddOrSetValue(Name, Value);
+end;
+
+procedure TJSScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
+begin
+  if not Assigned(FLexicalStates) then
+    FLexicalStates := TJSLexicalStates.Create;
+
+  FLexicalStates.Declare(Name, IsConstant);
+end;
+
+procedure TJSScope.InitializeLexical(const Name: string; const Value: TJSValue);
+begin
+  FVariables.AddOrSetValue(Name, Value);
+
+  if Assigned(FLexicalStates) then
+    FLexicalStates.MarkInitialized(Name);
+end;
+
+function TJSScope.CloneForIteration: TJSScope;
+begin
+  Result := TJSScope.Create(FParent);
+
+  for var Pair in FVariables do
+  begin
+    Result.FVariables.Add(Pair.Key, Pair.Value);
+  end;
+
+  if Assigned(FLexicalStates) then
+  begin
+    Result.FLexicalStates := TJSLexicalStates.Create;
+    Result.FLexicalStates.CopyFrom(FLexicalStates);
+  end;
+end;
+
+function TJSScope.IsLexicalBinding(const Name: string): Boolean;
+begin
+  Result := HasLexicalState(Name);
+end;
+
 function TJSScope.DeleteVariable(const Name: string): Boolean;
 begin
-  Result := not FVariables.ContainsKey(Name);
+  Result := (not FVariables.ContainsKey(Name)) and (not HasLexicalState(Name));
 end;
 
 function TJSScope.Resolve(const Name: string): IJSScope;
 begin
-  if FVariables.ContainsKey(Name) then
+  if FVariables.ContainsKey(Name) or HasLexicalState(Name) then
     Exit(Self);
 
   if Assigned(FParent) then
@@ -529,6 +630,7 @@ begin
   FGlobalScope := FGlobalBindings;
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
+  FVarScope := FGlobalScope;
   FThisValue := nil;
 end;
 
@@ -559,6 +661,8 @@ begin
   FProgramParser := nil;
 
   FCurrentScope := nil;
+  FVarScope := nil;
+  FEvalCallerScope := nil;
   FGlobalBindings := nil;
   FGlobalScope := nil;
   FGlobalObject := nil;
@@ -850,11 +954,23 @@ begin
   if FExecutionDepth = 0 then
     BeginExecution;
 
+  const OuterScope = FCurrentScope;
+  const OuterVarScope = FVarScope;
+  const OuterThis = FThisValue;
+  const OuterStrictMode = FStrictMode;
+
   Inc(FExecutionDepth);
+  FCurrentScope := FGlobalScope;
+  FVarScope := FGlobalScope;
+  FThisValue := nil;
   try
     FCurrentProgram := Program_;
     Result := Visit(Program_);
   finally
+    FCurrentScope := OuterScope;
+    FVarScope := OuterVarScope;
+    FThisValue := OuterThis;
+    FStrictMode := OuterStrictMode;
     Dec(FExecutionDepth);
   end;
 end;
@@ -881,7 +997,7 @@ begin
     TJSASTNodeType.VariableDeclaration:
       Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
     TJSASTNodeType.FunctionDeclaration:
-      Result := TJSValue.CreateUndefined;
+      Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
     TJSASTNodeType.ExpressionStatement:
       Result := VisitExpressionStatement(TJSExpressionStatement(Node));
     TJSASTNodeType.IfStatement:
@@ -991,15 +1107,14 @@ begin
   Result := TJSValue.CreateUndefined;
 
   GuardGlobalFunctionDeclarations(Node);
+  InstantiateTopLevel(Node.Body, Node.ScopeInfo);
 
   for var Statement in Node.Body do
   begin
-    HoistDeclarations(Statement);
-  end;
-
-  for var Statement in Node.Body do
-  begin
-    Result := ExecuteStatement(Statement);
+    if Statement.NodeType in EMPTY_COMPLETION_NODES then
+      ExecuteStatement(Statement)
+    else
+      Result := ExecuteStatement(Statement);
   end;
 end;
 
@@ -1032,8 +1147,30 @@ begin
   const OldStrictMode = FStrictMode;
   const OldProgram = FCurrentProgram;
   const OldEvalVariableScope = FEvalVariableScope;
+  const OldVarScope = FVarScope;
+  const OldEvalCallerScope = FEvalCallerScope;
+  FEvalCallerScope := nil;
+  if IsDirect and (not IsStrictSource) then
+    FEvalCallerScope := FCurrentScope;
+
   FCurrentScope := CreateEvalScope(IsDirect, IsStrictSource);
-  FEvalVariableScope := FCurrentScope;
+
+  if IsStrictSource then
+    FVarScope := FCurrentScope
+  else if not IsDirect then
+    FVarScope := FGlobalScope;
+
+  FEvalVariableScope := FVarScope;
+
+  const NeedsLexicalScope = Assigned(Program_.ScopeInfo) and (not IsStrictSource);
+  if NeedsLexicalScope then
+  begin
+    FCurrentScope := TJSScope.Create(FCurrentScope);
+
+    if Program_.ScopeInfo.MayCaptureScope then
+      RegisterScope(FCurrentScope);
+  end;
+
   FStrictMode := IsStrictSource;
   FCurrentProgram := Program_;
   if not IsDirect then
@@ -1043,6 +1180,8 @@ begin
   finally
     FCurrentProgram := OldProgram;
     FEvalVariableScope := OldEvalVariableScope;
+    FVarScope := OldVarScope;
+    FEvalCallerScope := OldEvalCallerScope;
     FStrictMode := OldStrictMode;
     FThisValue := OldThis;
     FCurrentScope := OldScope;
@@ -1078,91 +1217,266 @@ begin
   end;
 end;
 
-procedure TJSInterpreter.HoistDeclarations(const Node: TJSASTNode);
+procedure TJSInterpreter.InstantiateTopLevel(const Statements: TObjectList<TJSStatement>; const ScopeInfo: TJSScopeInfo);
+begin
+  if Assigned(ScopeInfo) then
+    DeclareTopLevelLexicals(ScopeInfo);
+
+  for var Statement in Statements do
+  begin
+    HoistStatement(Statement);
+  end;
+end;
+
+procedure TJSInterpreter.DeclareTopLevelLexicals(const ScopeInfo: TJSScopeInfo);
+begin
+  for var Declaration in ScopeInfo.Declarations do
+  begin
+    if not (Declaration is TJSVariableDeclaration) then
+      Continue;
+
+    for var Declarator in TJSVariableDeclaration(Declaration).Declarations do
+    begin
+      EnsureGlobalLexicalAvailable(Declarator.Id.Name);
+    end;
+  end;
+
+  for var Declaration in ScopeInfo.Declarations do
+  begin
+    if Declaration is TJSVariableDeclaration then
+      DeclareLexicalNames(TJSVariableDeclaration(Declaration));
+  end;
+end;
+
+procedure TJSInterpreter.DeclareLexicalNames(const Declaration: TJSVariableDeclaration);
+begin
+  const IsConstant = (Declaration.Kind = TJSDeclarationKind.Const_);
+
+  for var Declarator in Declaration.Declarations do
+  begin
+    FCurrentScope.DeclareLexical(Declarator.Id.Name, IsConstant);
+  end;
+end;
+
+procedure TJSInterpreter.EnsureGlobalLexicalAvailable(const Name: string);
+begin
+  if FCurrentScope <> FGlobalScope then
+    Exit;
+
+  const IsRedeclared = FGlobalBindings.HasLexical(Name);
+  const IsRestricted = FGlobalObject.HasOwnProperty(Name) and (not FGlobalObject.IsPropertyConfigurable(Name));
+  if IsRedeclared or IsRestricted then
+    raise TJSErrorFactory.SyntaxError(Format(REDECLARED_IDENTIFIER, [Name]));
+end;
+
+procedure TJSInterpreter.EnsureNoGlobalLexicalConflict(const Name: string);
+begin
+  const IsGlobalVariable = (FVarScope = FGlobalScope);
+  if IsGlobalVariable and FGlobalBindings.HasLexicals and FGlobalBindings.HasLexical(Name) then
+    raise TJSErrorFactory.SyntaxError(Format(REDECLARED_IDENTIFIER, [Name]));
+end;
+
+procedure TJSInterpreter.HoistStatement(const Node: TJSStatement);
+begin
+  var Target := Node;
+
+  while Target.NodeType = TJSASTNodeType.LabeledStatement do
+  begin
+    Target := TJSLabeledStatement(Target).Body;
+  end;
+
+  if Target.NodeType = TJSASTNodeType.FunctionDeclaration then
+    DeclareFunction(TJSFunctionDeclaration(Target))
+  else
+    HoistVarNames(Node);
+end;
+
+procedure TJSInterpreter.EnsureNoEvalLexicalConflict(const Name: string);
+begin
+  const IsSloppyDirectEval = Assigned(FEvalCallerScope) and (FVarScope = FEvalVariableScope);
+  if not IsSloppyDirectEval then
+    Exit;
+
+  var Scope := FEvalCallerScope;
+
+  while Assigned(Scope) do
+  begin
+    const Candidate = Scope as TObject;
+    if (Candidate is TJSScope) and TJSScope(Candidate).IsLexicalBinding(Name) then
+      raise TJSErrorFactory.SyntaxError(Format(REDECLARED_IDENTIFIER, [Name]));
+
+    if Scope = FVarScope then
+      Break;
+
+    Scope := Scope.Parent;
+  end;
+end;
+
+procedure TJSInterpreter.HoistVariable(const Name: string);
+begin
+  EnsureNoGlobalLexicalConflict(Name);
+  EnsureNoEvalLexicalConflict(Name);
+
+  if FVarScope.Resolve(Name) <> FVarScope then
+    DeclareBinding(Name, TJSValue.CreateUndefined);
+end;
+
+procedure TJSInterpreter.HoistVarNames(const Node: TJSASTNode);
 begin
   if Node = nil then
     Exit;
 
   case Node.NodeType of
     TJSASTNodeType.VariableDeclaration:
-      for var Declarator in TJSVariableDeclaration(Node).Declarations do
+      if TJSVariableDeclaration(Node).Kind = TJSDeclarationKind.Var_ then
       begin
-        if FCurrentScope.Resolve(Declarator.Id.Name) <> FCurrentScope then
-          DeclareBinding(Declarator.Id.Name, TJSValue.CreateUndefined);
+        for var Declarator in TJSVariableDeclaration(Node).Declarations do
+        begin
+          HoistVariable(Declarator.Id.Name);
+        end;
       end;
     TJSASTNodeType.FunctionDeclaration:
-      DeclareFunction(TJSFunctionDeclaration(Node));
+      if TJSFunctionDeclaration(Node).HoistsToVar then
+        HoistVariable(TJSFunctionDeclaration(Node).Id.Name);
     TJSASTNodeType.BlockStatement:
       for var Statement in TJSBlockStatement(Node).Body do
       begin
-        HoistDeclarations(Statement);
+        HoistVarNames(Statement);
       end;
     TJSASTNodeType.IfStatement:
       begin
-        HoistDeclarations(TJSIfStatement(Node).Consequent);
-        HoistDeclarations(TJSIfStatement(Node).Alternate);
+        HoistVarNames(TJSIfStatement(Node).Consequent);
+        HoistVarNames(TJSIfStatement(Node).Alternate);
       end;
     TJSASTNodeType.WhileStatement:
-      HoistDeclarations(TJSWhileStatement(Node).Body);
+      HoistVarNames(TJSWhileStatement(Node).Body);
     TJSASTNodeType.DoWhileStatement:
-      HoistDeclarations(TJSDoWhileStatement(Node).Body);
+      HoistVarNames(TJSDoWhileStatement(Node).Body);
     TJSASTNodeType.WithStatement:
-      HoistDeclarations(TJSWithStatement(Node).Body);
+      HoistVarNames(TJSWithStatement(Node).Body);
     TJSASTNodeType.LabeledStatement:
-      HoistDeclarations(TJSLabeledStatement(Node).Body);
+      HoistVarNames(TJSLabeledStatement(Node).Body);
     TJSASTNodeType.ForStatement:
       begin
-        HoistDeclarations(TJSForStatement(Node).Init);
-        HoistDeclarations(TJSForStatement(Node).Body);
+        HoistVarNames(TJSForStatement(Node).Init);
+        HoistVarNames(TJSForStatement(Node).Body);
       end;
     TJSASTNodeType.ForInStatement:
       begin
-        HoistDeclarations(TJSForInStatement(Node).Left);
-        HoistDeclarations(TJSForInStatement(Node).Body);
+        HoistVarNames(TJSForInStatement(Node).Left);
+        HoistVarNames(TJSForInStatement(Node).Body);
       end;
     TJSASTNodeType.TryStatement:
       begin
         const TryNode = TJSTryStatement(Node);
-        HoistDeclarations(TryNode.Block);
+        HoistVarNames(TryNode.Block);
 
         if Assigned(TryNode.Handler) then
-          HoistDeclarations(TryNode.Handler.Body);
+          HoistVarNames(TryNode.Handler.Body);
 
-        HoistDeclarations(TryNode.Finalizer);
+        HoistVarNames(TryNode.Finalizer);
       end;
     TJSASTNodeType.SwitchStatement:
       for var SwitchCase in TJSSwitchStatement(Node).Cases do
       begin
         for var Statement in SwitchCase.Consequent do
         begin
-          HoistDeclarations(Statement);
+          HoistVarNames(Statement);
         end;
       end;
   end;
 end;
 
+procedure TJSInterpreter.EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
+begin
+  FCurrentScope := TJSScope.Create(FCurrentScope);
+
+  if ScopeInfo.MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  for var Declaration in ScopeInfo.Declarations do
+  begin
+    if Declaration is TJSVariableDeclaration then
+      DeclareLexicalNames(TJSVariableDeclaration(Declaration));
+  end;
+
+  for var Declaration in ScopeInfo.Declarations do
+  begin
+    if Declaration is TJSFunctionDeclaration then
+    begin
+      const FunctionNode = TJSFunctionDeclaration(Declaration);
+      FCurrentScope.DeclareLexical(FunctionNode.Id.Name, False);
+      FCurrentScope.InitializeLexical(FunctionNode.Id.Name, TJSValue.CreateObject(CreateFunctionObject(FunctionNode)));
+    end;
+  end;
+end;
+
 function TJSInterpreter.VisitBlockStatement(const Node: TJSBlockStatement): TJSValue;
 begin
+  const NeedsScope = Assigned(Node.ScopeInfo) and (not Node.IsFunctionBody);
+  if NeedsScope then
+  begin
+    Result := VisitScopedBlock(Node);
+    Exit;
+  end;
+
   Result := TJSValue.CreateUndefined;
 
   for var Statement in Node.Body do
   begin
-    Result := ExecuteStatement(Statement);
+    if Statement.NodeType in EMPTY_COMPLETION_NODES then
+      ExecuteStatement(Statement)
+    else
+      Result := ExecuteStatement(Statement);
+  end;
+end;
+
+function TJSInterpreter.VisitScopedBlock(const Node: TJSBlockStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const OuterScope = FCurrentScope;
+  EnterLexicalScope(Node.ScopeInfo);
+  try
+    for var Statement in Node.Body do
+    begin
+      if Statement.NodeType in EMPTY_COMPLETION_NODES then
+        ExecuteStatement(Statement)
+      else
+        Result := ExecuteStatement(Statement);
+    end;
+  finally
+    FCurrentScope := OuterScope;
   end;
 end;
 
 function TJSInterpreter.VisitVariableDeclaration(const Node: TJSVariableDeclaration): TJSValue;
 begin
+  Result := TJSValue.CreateUndefined;
+
+  if Node.Kind <> TJSDeclarationKind.Var_ then
+  begin
+    for var Declarator in Node.Declarations do
+    begin
+      var InitialValue := TJSValue.CreateUndefined;
+
+      if Assigned(Declarator.Init) then
+        InitialValue := Visit(Declarator.Init);
+
+      FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
+    end;
+
+    Exit;
+  end;
+
   for var Declarator in Node.Declarations do
   begin
     if Assigned(Declarator.Init) then
       FCurrentScope.SetVariable(Declarator.Id.Name, Visit(Declarator.Init));
   end;
-
-  Result := TJSValue.CreateUndefined;
 end;
 
-procedure TJSInterpreter.DeclareFunction(const Node: TJSFunctionDeclaration);
+function TJSInterpreter.CreateFunctionObject(const Node: TJSFunctionDeclaration): IJSFunction;
 begin
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
@@ -1183,7 +1497,20 @@ begin
   RegisterFunction(Func);
   AttachPrototype(Func);
 
-  DeclareBinding(Node.Id.Name, TJSValue.CreateObject(Func));
+  Result := Func;
+end;
+
+procedure TJSInterpreter.DeclareFunction(const Node: TJSFunctionDeclaration);
+begin
+  DeclareBinding(Node.Id.Name, TJSValue.CreateObject(CreateFunctionObject(Node)));
+end;
+
+function TJSInterpreter.VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  if Node.HoistsToVar then
+    FVarScope.AssignVariable(Node.Id.Name, FCurrentScope.GetVariable(Node.Id.Name));
 end;
 
 function TJSInterpreter.VisitExpressionStatement(const Node: TJSExpressionStatement): TJSValue;
@@ -1341,13 +1668,53 @@ begin
   until not Visit(Node.Test).ToBoolean;
 end;
 
+function TJSInterpreter.IsLexicalDeclaration(const Node: TJSASTNode): Boolean;
+begin
+  Result := (Node is TJSVariableDeclaration) and (TJSVariableDeclaration(Node).Kind <> TJSDeclarationKind.Var_);
+end;
+
 function TJSInterpreter.VisitForStatement(const Node: TJSForStatement): TJSValue;
 begin
   const OwnLabels = TakeLoopLabels;
-  Result := TJSValue.CreateUndefined;
+
+  if IsLexicalDeclaration(Node.Init) then
+  begin
+    Result := VisitLexicalForStatement(Node, OwnLabels);
+    Exit;
+  end;
 
   if Assigned(Node.Init) then
     Visit(Node.Init);
+
+  Result := RunForLoop(Node, OwnLabels, False);
+end;
+
+function TJSInterpreter.VisitLexicalForStatement(const Node: TJSForStatement; const OwnLabels: TArray<string>): TJSValue;
+begin
+  const OuterScope = FCurrentScope;
+  const Declaration = TJSVariableDeclaration(Node.Init);
+
+  FCurrentScope := TJSScope.Create(OuterScope);
+  if Node.MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  try
+    DeclareLexicalNames(Declaration);
+    Visit(Declaration);
+
+    if Node.MayCaptureScope then
+      CopyIterationScope;
+
+    Result := RunForLoop(Node, OwnLabels, Node.MayCaptureScope);
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
+
+function TJSInterpreter.RunForLoop(const Node: TJSForStatement; const OwnLabels: TArray<string>;
+                                   const CopiesIterationScope: Boolean): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
 
   while True do
   begin
@@ -1374,15 +1741,86 @@ begin
         if not Signal.AppliesTo(OwnLabels) then
           raise;
 
-        if Assigned(Node.Update) then
-          Visit(Node.Update);
-
+        AdvanceForLoop(Node, CopiesIterationScope);
         Continue;
       end;
     end;
 
-    if Assigned(Node.Update) then
-      Visit(Node.Update);
+    AdvanceForLoop(Node, CopiesIterationScope);
+  end;
+end;
+
+procedure TJSInterpreter.AdvanceForLoop(const Node: TJSForStatement; const CopiesIterationScope: Boolean);
+begin
+  if CopiesIterationScope then
+    CopyIterationScope;
+
+  if Assigned(Node.Update) then
+    Visit(Node.Update);
+end;
+
+procedure TJSInterpreter.CopyIterationScope;
+begin
+  const Source = (FCurrentScope as TObject) as TJSScope;
+
+  FCurrentScope := Source.CloneForIteration;
+  RegisterScope(FCurrentScope);
+end;
+
+function TJSInterpreter.EvaluateForInSubject(const Node: TJSForInStatement): TJSValue;
+begin
+  if not IsLexicalDeclaration(Node.Left) then
+  begin
+    Result := Visit(TJSExpression(Node.Right));
+    Exit;
+  end;
+
+  const OuterScope = FCurrentScope;
+
+  FCurrentScope := TJSScope.Create(OuterScope);
+  if Node.MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  try
+    DeclareLexicalNames(TJSVariableDeclaration(Node.Left));
+    Result := Visit(TJSExpression(Node.Right));
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
+
+procedure TJSInterpreter.BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
+                                                 const OuterScope: IJSScope; const Value: TJSValue);
+begin
+  const BindingName = Declaration.Declarations[0].Id.Name;
+
+  FCurrentScope := TJSScope.Create(OuterScope);
+  if Node.MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  FCurrentScope.DeclareLexical(BindingName, Declaration.Kind = TJSDeclarationKind.Const_);
+  FCurrentScope.InitializeLexical(BindingName, Value);
+end;
+
+procedure TJSInterpreter.AssignForInVariable(const Node: TJSForInStatement; const OuterScope: IJSScope;
+                                             const PropName: string);
+begin
+  const Value = TJSValue.CreateString(PropName);
+
+  if Node.Left is TJSVariableDeclaration then
+  begin
+    const Declaration = TJSVariableDeclaration(Node.Left);
+    if Declaration.Declarations.Count = 0 then
+      Exit;
+
+    if Declaration.Kind = TJSDeclarationKind.Var_ then
+      FCurrentScope.SetVariable(Declaration.Declarations[0].Id.Name, Value)
+    else
+      BindLexicalLoopVariable(Node, Declaration, OuterScope, Value);
+  end
+  else if Node.Left is TJSIdentifier then
+  begin
+    FCurrentScope.SetVariable(TJSIdentifier(Node.Left).Name, Value);
   end;
 end;
 
@@ -1391,51 +1829,45 @@ begin
   const OwnLabels = TakeLoopLabels;
   Result := TJSValue.CreateUndefined;
 
-  const RightValue = Visit(TJSExpression(Node.Right));
+  const OuterScope = FCurrentScope;
+  try
+    const RightValue = EvaluateForInSubject(Node);
 
-  if not RightValue.IsObject then
-    Exit;
+    if not RightValue.IsObject then
+      Exit;
 
-  const Obj = RightValue.ToObject;
-  const PropertyNames = Obj.GetOwnPropertyNames;
+    const Obj = RightValue.ToObject;
+    const PropertyNames = Obj.GetOwnPropertyNames;
 
-  for var PropName in PropertyNames do
-  begin
-    const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-    if not Descriptor.Enumerable then
-      Continue;
-
-    if Node.Left is TJSVariableDeclaration then
+    for var PropName in PropertyNames do
     begin
-      const VarDecl = TJSVariableDeclaration(Node.Left);
-
-      if VarDecl.Declarations.Count > 0 then
-        FCurrentScope.SetVariable(VarDecl.Declarations[0].Id.Name, TJSValue.CreateString(PropName));
-    end
-    else if Node.Left is TJSIdentifier then
-    begin
-      const Identifier = TJSIdentifier(Node.Left);
-      FCurrentScope.SetVariable(Identifier.Name, TJSValue.CreateString(PropName));
-    end;
-
-    try
-      Result := ExecuteStatement(Node.Body);
-    except
-      on Signal: TJSBreakSignal do
-      begin
-        if Signal.IsLabelled then
-          raise;
-
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
+      const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
+      if not Descriptor.Enumerable then
         Continue;
+
+      AssignForInVariable(Node, OuterScope, PropName);
+
+      try
+        Result := ExecuteStatement(Node.Body);
+      except
+        on Signal: TJSBreakSignal do
+        begin
+          if Signal.IsLabelled then
+            raise;
+
+          Break;
+        end;
+        on Signal: TJSContinueSignal do
+        begin
+          if not Signal.AppliesTo(OwnLabels) then
+            raise;
+
+          Continue;
+        end;
       end;
     end;
+  finally
+    FCurrentScope := OuterScope;
   end;
 end;
 
@@ -1471,9 +1903,26 @@ end;
 
 function TJSInterpreter.VisitSwitchStatement(const Node: TJSSwitchStatement): TJSValue;
 begin
+  const DiscriminantValue = Visit(Node.Discriminant);
+  if not Assigned(Node.ScopeInfo) then
+  begin
+    Result := ExecuteSwitchCases(Node, DiscriminantValue);
+    Exit;
+  end;
+
+  const OuterScope = FCurrentScope;
+  EnterLexicalScope(Node.ScopeInfo);
+  try
+    Result := ExecuteSwitchCases(Node, DiscriminantValue);
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
+
+function TJSInterpreter.ExecuteSwitchCases(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): TJSValue;
+begin
   Result := TJSValue.CreateUndefined;
 
-  const DiscriminantValue = Visit(Node.Discriminant);
   var Matched := False;
   var DefaultCaseIndex := -1;
 
@@ -1902,11 +2351,14 @@ end;
 
 procedure TJSInterpreter.DeclareBinding(const Name: string; const Value: TJSValue);
 begin
-  const IsEvalDeclaration = Assigned(FEvalVariableScope) and (FCurrentScope = FEvalVariableScope);
+  EnsureNoGlobalLexicalConflict(Name);
+  EnsureNoEvalLexicalConflict(Name);
+
+  const IsEvalDeclaration = Assigned(FEvalVariableScope) and (FVarScope = FEvalVariableScope);
   if IsEvalDeclaration then
-    FCurrentScope.DeclareDeletableVariable(Name, Value)
+    FVarScope.DeclareDeletableVariable(Name, Value)
   else
-    FCurrentScope.DeclareVariable(Name, Value);
+    FVarScope.DeclareVariable(Name, Value);
 end;
 
 function TJSInterpreter.DeleteIdentifier(const Name: string): Boolean;
@@ -2142,6 +2594,9 @@ begin
   if FCurrentScope <> FGlobalScope then
     Exit;
 
+  if FGlobalBindings.HasLexicals and FGlobalBindings.HasLexical(Identifier.Name) then
+    Exit;
+
   const Slot = FGlobalBindings.FindOwnSlot(Identifier.BindingCache, Identifier.Name);
   if Assigned(Slot) and (not Slot.IsAccessor) then
     Result := Slot;
@@ -2220,7 +2675,7 @@ begin
     Exit;
   end;
 
-  Binding.DeclareVariable(Name, Value);
+  Binding.AssignVariable(Name, Value);
 end;
 
 function TJSInterpreter.AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
@@ -2640,6 +3095,7 @@ begin
   const OldThis = FThisValue;
   const OldStrictMode = FStrictMode;
   const OldScope = FCurrentScope;
+  const OldVarScope = FVarScope;
   FThisValue := ThisObj;
   FStrictMode := Func.IsStrict;
 
@@ -2650,6 +3106,7 @@ begin
     ParentScope := FGlobalScope;
 
   FCurrentScope := TJSScope.Create(ParentScope);
+  FVarScope := FCurrentScope;
   RegisterScope(FCurrentScope);
   Inc(FCallDepth);
   try
@@ -2666,7 +3123,8 @@ begin
         FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
     end;
 
-    HoistDeclarations(TJSASTNode(Func.BodyNode));
+    const FunctionBody = TJSBlockStatement(Func.BodyNode);
+    InstantiateTopLevel(FunctionBody.Body, FunctionBody.ScopeInfo);
 
     try
       Visit(TJSASTNode(Func.BodyNode));
@@ -2678,6 +3136,7 @@ begin
   finally
     Dec(FCallDepth);
     FCurrentScope := OldScope;
+    FVarScope := OldVarScope;
     FThisValue := OldThis;
     FStrictMode := OldStrictMode;
   end;
@@ -3078,6 +3537,7 @@ begin
   try
     GCMark(FGlobalScope, Live, Work);
     GCMark(FCurrentScope, Live, Work);
+    GCMark(FVarScope, Live, Work);
     GCMark(FThisValue, Live, Work);
     GCMark(FGlobalObject, Live, Work);
     for var Func in FFunctionRegistry do

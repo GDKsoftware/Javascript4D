@@ -97,6 +97,7 @@
         <DCCReference Include="..\..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.Parser.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Builtins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PatternOperations.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.JsonReader.pas"/>
@@ -116,6 +117,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.DateParser.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.DateText.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.GlobalScope.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.LexicalStates.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.MathFunctions.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectKeys.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectScope.pas"/>

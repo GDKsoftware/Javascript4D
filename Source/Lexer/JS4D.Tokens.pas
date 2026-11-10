@@ -103,7 +103,8 @@ type
     KeywordFinally,
     KeywordThrow,
     KeywordWith,
-    KeywordDebugger
+    KeywordDebugger,
+    KeywordConst
   );
 
   TJSToken = class
@@ -184,6 +185,7 @@ const
   KeywordThrow = 'throw';
   KeywordWith = 'with';
   KeywordDebugger = 'debugger';
+  KeywordConst = 'const';
   KeywordTrue = 'true';
   KeywordFalse = 'false';
   KeywordNull = 'null';
@@ -230,7 +232,7 @@ end;
 
 class procedure TJSKeywords.InitializeFutureReservedWords;
 begin
-  FFutureReservedWords.AddRange(['class', 'const', 'enum', 'export', 'extends', 'import', 'super']);
+  FFutureReservedWords.AddRange(['class', 'enum', 'export', 'extends', 'import', 'super']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -261,6 +263,7 @@ begin
   FKeywords.Add(KeywordThrow, TJSTokenType.KeywordThrow);
   FKeywords.Add(KeywordWith, TJSTokenType.KeywordWith);
   FKeywords.Add(KeywordDebugger, TJSTokenType.KeywordDebugger);
+  FKeywords.Add(KeywordConst, TJSTokenType.KeywordConst);
   FKeywords.Add(KeywordTrue, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordFalse, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordNull, TJSTokenType.NullLiteral);

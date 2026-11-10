@@ -30,6 +30,9 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
+    procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
@@ -108,6 +111,20 @@ begin
 end;
 
 procedure TJSObjectScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+begin
+  DeclareVariable(Name, Value);
+end;
+
+procedure TJSObjectScope.AssignVariable(const Name: string; const Value: TJSValue);
+begin
+  DeclareVariable(Name, Value);
+end;
+
+procedure TJSObjectScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
+begin
+end;
+
+procedure TJSObjectScope.InitializeLexical(const Name: string; const Value: TJSValue);
 begin
   DeclareVariable(Name, Value);
 end;

@@ -3,7 +3,6 @@
 # Implementing a feature means removing its directory from this list.
 
 # Language features introduced after ES5.1
-language/block-scope/
 language/computed-property-names/
 language/destructuring/
 language/export/
@@ -33,15 +32,12 @@ language/statements/async-function/
 language/statements/async-generator/
 language/statements/await-using/
 language/statements/class/
-language/statements/const/
 language/statements/for-await-of/
 language/statements/for-of/
 language/statements/generators/
-language/statements/let/
 language/statements/using/
 language/statements/switch/scope-lex-async-
 language/statements/switch/scope-lex-class.js
-language/statements/switch/scope-lex-const.js
 language/statements/switch/scope-lex-generator.js
 
 # Built-ins introduced after ES5.1

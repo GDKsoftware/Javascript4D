@@ -75,7 +75,8 @@ type
     [TestCase('LabelCrossesFunction', 'a: for (;;) { (function () { break a; }); }')]
     [TestCase('BreakInsideFunctionInLoop', 'for (;;) { (function () { break; }); }')]
     [TestCase('ReservedWordAsLabel', 'if: ;')]
-    [TestCase('FunctionDeclarationAsBody', 'a: function f() {}')]
+    [TestCase('FunctionDeclarationAsBodyInStrictMode', '''use strict''; a: function f() {}')]
+    [TestCase('FunctionDeclarationAsLoopBodyLabel', 'while (false) a: function f() {}')]
     [TestCase('ConstDeclarationAsBody', 'a: const x = 1;')]    procedure Eval_InvalidLabelUsage_IsSyntaxError(const Source: string);
   end;
 

@@ -19,7 +19,6 @@ class-static-fields-public
 class-static-methods-private
 coalesce-expression
 computed-property-names
-const
 decorators
 default-parameters
 destructuring-assignment
@@ -40,7 +39,6 @@ import-text
 import.meta
 json-modules
 json-superset
-let
 logical-assignment-operators
 new.target
 numeric-separator-literal

@@ -270,18 +270,18 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2468 | 2222 | 90.0% |
-| built-ins/Date | 492 | 445 | 90.4% |
-| built-ins/Function | 413 | 366 | 88.6% |
+| built-ins/Array | 2468 | 2223 | 90.1% |
+| built-ins/Date | 492 | 453 | 92.1% |
+| built-ins/Function | 413 | 367 | 88.9% |
 | built-ins/JSON | 108 | 102 | 94.4% |
-| built-ins/Math | 276 | 189 | 68.5% |
-| built-ins/Number | 280 | 232 | 82.9% |
-| built-ins/Object | 3077 | 2897 | 94.2% |
+| built-ins/Math | 276 | 190 | 68.8% |
+| built-ins/Number | 280 | 233 | 83.2% |
+| built-ins/Object | 3077 | 2898 | 94.2% |
 | built-ins/RegExp | 581 | 495 | 85.2% |
-| built-ins/String | 904 | 803 | 88.8% |
-| language/expressions | 2285 | 2049 | 89.7% |
-| language/statements | 1018 | 957 | 94.0% |
-| **Total** | 14024 | 12548 | 89.5% |
+| built-ins/String | 904 | 804 | 88.9% |
+| language/expressions | 2291 | 2055 | 89.7% |
+| language/statements | 1125 | 1075 | 95.6% |
+| **Total** | 14251 | 12829 | 90.0% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 
