@@ -325,6 +325,7 @@ type
     function UpdateGlobalVariable(const Node: TJSUpdateExpression; const Identifier: TJSIdentifier): TJSValue;
     function AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
     procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
+    procedure GuardBindingStillExists(const StillExists: Boolean; const Name: string);
     function AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
     function VisitUpdateExpression(const Node: TJSUpdateExpression): TJSValue;
     function UpdateIdentifier(const Node: TJSUpdateExpression): TJSValue;
@@ -3513,11 +3514,24 @@ begin
   var ObjectScope: IJSObjectScope;
   if Supports(Binding, IJSObjectScope, ObjectScope) then
   begin
+    if FStrictMode then
+      GuardBindingStillExists(ObjectScope.BindingObject.HasProperty(Name), Name);
+
     ObjectScope.BindingObject.SetProperty(Name, Value);
     Exit;
   end;
 
+  const IsGlobalBinding = (Binding = FGlobalScope);
+  if FStrictMode and IsGlobalBinding then
+    GuardBindingStillExists(FGlobalBindings.HasVariable(Name), Name);
+
   Binding.AssignVariable(Name, Value);
+end;
+
+procedure TJSInterpreter.GuardBindingStillExists(const StillExists: Boolean; const Name: string);
+begin
+  if not StillExists then
+    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + Name);
 end;
 
 function TJSInterpreter.AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
