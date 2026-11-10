@@ -186,6 +186,24 @@ const
   EMPTY_STRING: string = '';
   SPACE_CHAR: string = ' ';
 
+  ARRAY_METHOD_NAMES: array[0..25] of string = (
+    METHOD_PUSH, METHOD_POP, METHOD_SHIFT, METHOD_UNSHIFT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF,
+    METHOD_JOIN, METHOD_SLICE, METHOD_SPLICE, METHOD_CONCAT, METHOD_REVERSE, METHOD_INCLUDES,
+    METHOD_FILL, METHOD_COPY_WITHIN, METHOD_TO_STRING, METHOD_FLAT, METHOD_MAP, METHOD_FILTER,
+    METHOD_FOR_EACH, METHOD_REDUCE, METHOD_REDUCE_RIGHT, METHOD_SOME, METHOD_EVERY, METHOD_FIND,
+    METHOD_FIND_INDEX, METHOD_SORT);
+
+  STRING_METHOD_NAMES: array[0..29] of string = (
+    METHOD_CHAR_AT, METHOD_CHAR_CODE_AT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF, METHOD_SUBSTRING,
+    METHOD_SUBSTR, METHOD_SLICE, METHOD_SPLIT, METHOD_TO_LOWER_CASE, METHOD_TO_UPPER_CASE, METHOD_TRIM,
+    METHOD_TRIM_START, METHOD_TRIM_LEFT, METHOD_TRIM_END, METHOD_TRIM_RIGHT, METHOD_REPLACE,
+    METHOD_MATCH, METHOD_SEARCH, METHOD_CONCAT, METHOD_REPEAT, METHOD_STARTS_WITH, METHOD_ENDS_WITH,
+    METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF,
+    METHOD_TO_LOCALE_LOWER_CASE, METHOD_TO_LOCALE_UPPER_CASE, METHOD_LOCALE_COMPARE);
+
+  NUMBER_METHOD_NAMES: array[0..4] of string = (
+    METHOD_TO_STRING, METHOD_TO_FIXED, METHOD_TO_PRECISION, METHOD_TO_EXPONENTIAL, METHOD_VALUE_OF);
+
 class function TJSBuiltins.ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const ArgsLength = Length(Args);
@@ -1764,18 +1782,18 @@ end;
 
 class function TJSBuiltins.ArrayMethodNames: TArray<string>;
 begin
-  Result := [METHOD_PUSH, METHOD_POP, METHOD_SHIFT, METHOD_UNSHIFT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF,
-             METHOD_JOIN, METHOD_SLICE, METHOD_SPLICE, METHOD_CONCAT, METHOD_REVERSE, METHOD_INCLUDES,
-             METHOD_FILL, METHOD_COPY_WITHIN, METHOD_TO_STRING, METHOD_FLAT, METHOD_MAP, METHOD_FILTER,
-             METHOD_FOR_EACH, METHOD_REDUCE, METHOD_REDUCE_RIGHT, METHOD_SOME, METHOD_EVERY, METHOD_FIND,
-             METHOD_FIND_INDEX, METHOD_SORT];
+  SetLength(Result, Length(ARRAY_METHOD_NAMES));
+  for var Index := 0 to High(ARRAY_METHOD_NAMES) do
+  begin
+    Result[Index] := ARRAY_METHOD_NAMES[Index];
+  end;
 end;
 
 class function TJSBuiltins.HasArrayMethod(const MethodName: string): Boolean;
 begin
   Result := False;
 
-  for var ArrayMethodName in ArrayMethodNames do
+  for var ArrayMethodName in ARRAY_METHOD_NAMES do
   begin
     if ArrayMethodName = MethodName then
       Exit(True);
@@ -1809,24 +1827,27 @@ end;
 
 class function TJSBuiltins.StringMethodNames: TArray<string>;
 begin
-  Result := [METHOD_CHAR_AT, METHOD_CHAR_CODE_AT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF, METHOD_SUBSTRING,
-             METHOD_SUBSTR, METHOD_SLICE, METHOD_SPLIT, METHOD_TO_LOWER_CASE, METHOD_TO_UPPER_CASE, METHOD_TRIM,
-             METHOD_TRIM_START, METHOD_TRIM_LEFT, METHOD_TRIM_END, METHOD_TRIM_RIGHT, METHOD_REPLACE,
-             METHOD_MATCH, METHOD_SEARCH, METHOD_CONCAT, METHOD_REPEAT, METHOD_STARTS_WITH, METHOD_ENDS_WITH,
-             METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF,
-             METHOD_TO_LOCALE_LOWER_CASE, METHOD_TO_LOCALE_UPPER_CASE, METHOD_LOCALE_COMPARE];
+  SetLength(Result, Length(STRING_METHOD_NAMES));
+  for var Index := 0 to High(STRING_METHOD_NAMES) do
+  begin
+    Result[Index] := STRING_METHOD_NAMES[Index];
+  end;
 end;
 
 class function TJSBuiltins.NumberMethodNames: TArray<string>;
 begin
-  Result := [METHOD_TO_STRING, METHOD_TO_FIXED, METHOD_TO_PRECISION, METHOD_TO_EXPONENTIAL, METHOD_VALUE_OF];
+  SetLength(Result, Length(NUMBER_METHOD_NAMES));
+  for var Index := 0 to High(NUMBER_METHOD_NAMES) do
+  begin
+    Result[Index] := NUMBER_METHOD_NAMES[Index];
+  end;
 end;
 
 class function TJSBuiltins.HasStringMethod(const MethodName: string): Boolean;
 begin
   Result := False;
 
-  for var StringMethodName in StringMethodNames do
+  for var StringMethodName in STRING_METHOD_NAMES do
   begin
     if StringMethodName = MethodName then
       Exit(True);
@@ -1837,7 +1858,7 @@ class function TJSBuiltins.HasNumberMethod(const MethodName: string): Boolean;
 begin
   Result := False;
 
-  for var NumberMethodName in NumberMethodNames do
+  for var NumberMethodName in NUMBER_METHOD_NAMES do
   begin
     if NumberMethodName = MethodName then
       Exit(True);

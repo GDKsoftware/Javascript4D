@@ -342,6 +342,8 @@ type
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
     function GetPropertyLayoutVersion: Cardinal;
+    function GetPropertyThroughDescriptor(const Name: string): TJSValue;
+    function HasStandardPropertyLookup: Boolean; virtual;
 
     procedure StoreOwnValue(const Name: string; const Value: TJSValue);
 
@@ -461,6 +463,7 @@ type
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 
   protected
+    function HasStandardPropertyLookup: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     function GetLength: Integer;
@@ -581,6 +584,7 @@ type
     function TryGetOwnStringDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
 
   protected
+    function HasStandardPropertyLookup: Boolean; override;
     function GetPrimitive: TJSValue;
     function GetClassName: string;
 
@@ -1284,7 +1288,25 @@ begin
     Func.Call(Self, [Value]);
 end;
 
+function TJSObjectImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := True;
+end;
+
 function TJSObjectImpl.GetProperty(const Name: string): TJSValue;
+begin
+  if HasStandardPropertyLookup then
+  begin
+    var Slot: PJSPropertyDescriptor;
+    const IsOwnDataProperty = FProperties.TryGetSlot(Name, Slot) and (not Slot.IsAccessor);
+    if IsOwnDataProperty then
+      Exit(Slot.Value);
+  end;
+
+  Result := GetPropertyThroughDescriptor(Name);
+end;
+
+function TJSObjectImpl.GetPropertyThroughDescriptor(const Name: string): TJSValue;
 var
   Descriptor: TJSPropertyDescriptor;
 begin
@@ -1951,6 +1973,11 @@ var
   Descriptor: TJSPropertyDescriptor;
 begin
   Result := TryGetElementDescriptor(Name, Descriptor) or inherited HasProperty(Name);
+end;
+
+function TJSArrayImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := False;
 end;
 
 function TJSArrayImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
@@ -2632,6 +2659,11 @@ begin
     Exit(CanRedefine(Current, Definition));
 
   Result := inherited DefineOwnProperty(Name, Definition);
+end;
+
+function TJSPrimitiveWrapperImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := False;
 end;
 
 function TJSPrimitiveWrapperImpl.TryGetPropertyDescriptor(const Name: string;

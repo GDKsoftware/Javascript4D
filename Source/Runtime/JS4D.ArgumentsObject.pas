@@ -33,6 +33,7 @@ type
     procedure ApplyDefinitionToParameter(const PropertyName: string; const Definition: TJSPropertyDefinition);
 
   protected
+    function HasStandardPropertyLookup: Boolean; override;
     function GetMappedScope: IJSScope;
 
   public
@@ -152,6 +153,11 @@ begin
   var ParameterName: string;
   if TryGetMappedName(Name, ParameterName) then
     Result.Value := FScope.GetVariable(ParameterName);
+end;
+
+function TJSArgumentsObject.HasStandardPropertyLookup: Boolean;
+begin
+  Result := False;
 end;
 
 function TJSArgumentsObject.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
