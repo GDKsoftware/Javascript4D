@@ -228,6 +228,7 @@ type
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
+    function IsDenseAndMutable: Boolean;
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
@@ -498,6 +499,7 @@ type
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
+    function IsDenseAndMutable: Boolean;
 
     procedure SetProperty(const Name: string; const Value: TJSValue); override;
     procedure DeleteProperty(const Name: string); override;
@@ -2260,6 +2262,14 @@ function TJSArrayImpl.HasElement(const Index: Integer): Boolean;
 begin
   const InRange = (Index >= 0) and (Index < FElements.Count);
   Result := InRange and ((not Assigned(FHoles)) or (not FHoles.ContainsKey(Index)));
+end;
+
+function TJSArrayImpl.IsDenseAndMutable: Boolean;
+begin
+  const HasHoles = Assigned(FHoles) and (FHoles.Count > 0);
+  const IsLocked = FFrozen or FSealed or (not FExtensible) or (not FLengthWritable);
+
+  Result := not (HasHoles or IsLocked);
 end;
 
 procedure TJSArrayImpl.DeleteElement(const Index: Integer);

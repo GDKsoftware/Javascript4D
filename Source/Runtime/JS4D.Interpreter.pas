@@ -4076,6 +4076,10 @@ begin
   if TJSArrayIteration.Handles(MethodName) then
     Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
 
+  const NeedsPropertyLevelSemantics = (not Arr.IsDenseAndMutable) and TJSArrayGeneric.Handles(MethodName);
+  if NeedsPropertyLevelSemantics then
+    Exit(ExecuteGenericArrayMethod(Arr, MethodName, Args));
+
   if not TJSBuiltins.RequiresCallback(MethodName) then
     Exit(WithArrayPrototype(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits)));
 

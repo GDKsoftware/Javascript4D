@@ -97,6 +97,67 @@ type
     procedure ToString_OnBooleanPrimitive_UsesObjectToString;
 
     [Test]
+    [TestCase('Push', 'push(1)')]
+    [TestCase('Pop', 'pop()')]
+    [TestCase('Shift', 'shift()')]
+    [TestCase('Unshift', 'unshift(1)')]
+    procedure Mutator_OnFrozenArray_ThrowsTypeError(const Call: string);
+
+    [Test]
+    [TestCase('Push', 'push(1)')]
+    [TestCase('Pop', 'pop()')]
+    [TestCase('Shift', 'shift()')]
+    [TestCase('Unshift', 'unshift(1)')]
+    procedure Mutator_OnEmptyFrozenArray_ThrowsTypeError(const Call: string);
+
+    [Test]
+    [TestCase('Push', 'push(1)')]
+    [TestCase('Pop', 'pop()')]
+    [TestCase('Shift', 'shift()')]
+    [TestCase('Unshift', 'unshift(1)')]
+    procedure Mutator_OnArrayWithNonWritableLength_ThrowsTypeError(const Call: string);
+
+    [Test]
+    procedure Pop_GetterFreezesArrayWithHole_ThrowsTypeError;
+
+    [Test]
+    procedure Pop_HoleInheritedFromPrototype_ReturnsInheritedElement;
+
+    [Test]
+    procedure Shift_HoleInheritedFromPrototype_MovesInheritedElement;
+
+    [Test]
+    procedure Unshift_HoleInheritedFromPrototype_MovesInheritedElement;
+
+    [Test]
+    procedure Reverse_HoleInheritedFromPrototype_SwapsInheritedElement;
+
+    [Test]
+    procedure Slice_HoleInheritedFromPrototype_CopiesInheritedElement;
+
+    [Test]
+    procedure Splice_HoleInheritedFromPrototype_RemovesInheritedElement;
+
+    [Test]
+    procedure Join_HoleInheritedFromPrototype_UsesInheritedElement;
+
+    [Test]
+    procedure Push_PlainArray_StillAppends;
+
+    [Test]
+    [TestCase('UndefinedEnd', 'x.slice(3, undefined).length|2', '|')]
+    [TestCase('InfiniteStart', 'x.slice(Infinity, 3).length|0', '|')]
+    [TestCase('InfiniteEnd', 'x.slice(0, Infinity).length|5', '|')]
+    [TestCase('NegativeInfiniteStart', 'x.slice(-Infinity).length|5', '|')]
+    [TestCase('ObjectEnd', 'x.slice(0, { valueOf: function () { return 3; } }).length|3', '|')]
+    [TestCase('NaNStart', 'x.slice(NaN).length|5', '|')]
+    [TestCase('SpliceInfiniteStart', 'x.splice(Infinity, 3).length|0', '|')]
+    [TestCase('SpliceInfiniteCount', 'x.splice(0, Infinity).length|5', '|')]
+    [TestCase('SpliceObjectCount', 'x.splice(0, { valueOf: function () { return 3; } }).length|3', '|')]
+    [TestCase('SpliceNaNCount', 'x.splice(0, NaN).length|0', '|')]
+    procedure SliceAndSplice_WithIrregularArguments_ConvertLikeToInteger(const Expression: string;
+                                                                         const Expected: Integer);
+    [Test]
     procedure ToString_OnObjectWithJoin_CallsJoin;
 
     [Test]
@@ -408,6 +469,112 @@ begin
     'thrown', [MethodName]);
 
   Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Mutator_OnFrozenArray_ThrowsTypeError(const Call: string);
+begin
+  Assert.IsTrue(ThrowsTypeError(Format('Object.freeze([1, 2]).%s;', [Call])));
+end;
+
+procedure TGenericArrayMutatorTests.Mutator_OnEmptyFrozenArray_ThrowsTypeError(const Call: string);
+begin
+  Assert.IsTrue(ThrowsTypeError(Format('Object.freeze([]).%s;', [Call])));
+end;
+
+procedure TGenericArrayMutatorTests.Mutator_OnArrayWithNonWritableLength_ThrowsTypeError(const Call: string);
+begin
+  const Statement =
+    'var a = [];' +
+    'Object.defineProperty(a, "length", { writable: false });' +
+    Format('a.%s;', [Call]);
+
+  Assert.IsTrue(ThrowsTypeError(Statement));
+end;
+
+procedure TGenericArrayMutatorTests.Pop_GetterFreezesArrayWithHole_ThrowsTypeError;
+begin
+  const Statement =
+    'var a = new Array(1);' +
+    'Object.defineProperty(Array.prototype, "0", { get: function () { Object.freeze(a); }, configurable: true });' +
+    'a.pop();';
+
+  Assert.IsTrue(ThrowsTypeError(Statement));
+end;
+
+procedure TGenericArrayMutatorTests.Pop_HoleInheritedFromPrototype_ReturnsInheritedElement;
+begin
+  const Script =
+    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    'x.pop() === 1 && x.length === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Shift_HoleInheritedFromPrototype_MovesInheritedElement;
+begin
+  const Script =
+    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    'x.shift(); x[0] === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Unshift_HoleInheritedFromPrototype_MovesInheritedElement;
+begin
+  const Script =
+    'Array.prototype[0] = 1; var x = []; x.length = 1;' + sLineBreak +
+    'x.unshift(0); x[1] === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Reverse_HoleInheritedFromPrototype_SwapsInheritedElement;
+begin
+  const Script =
+    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    'x.reverse(); x[0] === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Slice_HoleInheritedFromPrototype_CopiesInheritedElement;
+begin
+  const Script =
+    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    'var copy = x.slice(); copy[1] === 1 && copy.hasOwnProperty("1")';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Splice_HoleInheritedFromPrototype_RemovesInheritedElement;
+begin
+  const Script =
+    'Array.prototype[0] = -1; var x = []; x.length = 1;' + sLineBreak +
+    'x.splice(0, 1)[0] === -1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Join_HoleInheritedFromPrototype_UsesInheritedElement;
+begin
+  const Script =
+    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    'x.join() === "0,1" && x.toString() === "0,1"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Push_PlainArray_StillAppends;
+begin
+  Assert.IsTrue(EvaluateBoolean('var a = [1]; a.push(2, 3) === 3 && a.join() === "1,2,3"'));
+end;
+
+procedure TGenericArrayMutatorTests.SliceAndSplice_WithIrregularArguments_ConvertLikeToInteger(const Expression: string;
+                                                                                               const Expected: Integer);
+begin
+  const Script = Format('var x = [0, 1, 2, 3, 4]; %s', [Expression]);
+
+  Assert.AreEqual(Double(Expected), FEngine.Evaluate(Script).AsNumber);
 end;
 
 end.

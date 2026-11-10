@@ -11,6 +11,7 @@ uses
   System.Generics.Defaults,
   System.RegularExpressions,
   JS4D.Types,
+  JS4D.ArrayLike,
   JS4D.PatternOperations;
 
 type
@@ -308,31 +309,13 @@ class function TJSBuiltins.ArraySlice(const Arr: IJSArray; const Args: TArray<TJ
 begin
   const NewArr: IJSArray = TJSArray.Create;
 
-  var StartIndex := 0;
-  var EndIndex := Arr.Length;
-
-  if Length(Args) > 0 then
-  begin
-    StartIndex := Trunc(Args[0].ToNumber);
-
-    if StartIndex < 0 then
-      StartIndex := Max(0, Arr.Length + StartIndex);
-  end;
-
-  if Length(Args) > 1 then
-  begin
-    EndIndex := Trunc(Args[1].ToNumber);
-
-    if EndIndex < 0 then
-      EndIndex := Max(0, Arr.Length + EndIndex);
-  end;
-
-  StartIndex := Min(StartIndex, Arr.Length);
-  EndIndex := Min(EndIndex, Arr.Length);
+  const Count = Int64(Arr.Length);
+  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
+  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, Count);
 
   for var Index := StartIndex to EndIndex - 1 do
   begin
-    NewArr.Push(Arr[Index]);
+    NewArr.Push(Arr[Integer(Index)]);
   end;
 
   Result := TJSValue.CreateObject(NewArr);
@@ -348,19 +331,15 @@ begin
     Exit;
   end;
 
-  var StartIndex := Trunc(Args[0].ToNumber);
-
-  if StartIndex < 0 then
-    StartIndex := Max(0, Arr.Length + StartIndex);
-
-  StartIndex := Min(StartIndex, Arr.Length);
+  const StartIndex = Integer(TJSArrayLike.RelativeIndex(Args[0], Arr.Length, 0));
 
   var DeleteCount := Arr.Length - StartIndex;
 
   if Length(Args) > 1 then
-    DeleteCount := Min(Trunc(Args[1].ToNumber), Arr.Length - StartIndex);
-
-  DeleteCount := Max(0, DeleteCount);
+  begin
+    const Requested = TJSArrayLike.ToInteger(Args[1]);
+    DeleteCount := Trunc(Min(Max(Requested, 0), DeleteCount));
+  end;
 
   for var Index := 0 to DeleteCount - 1 do
   begin
