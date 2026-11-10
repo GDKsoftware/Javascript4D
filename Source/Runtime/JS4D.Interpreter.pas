@@ -15,6 +15,7 @@ uses
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ObjectScope,
+  JS4D.ArgumentsObject,
   JS4D.GlobalScope,
   JS4D.PropertyDescriptors,
   JS4D.ArrayIteration,
@@ -645,7 +646,11 @@ end;
 
 function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
 begin
-  Result := TJSObject.Create;
+  if Func.IsStrict then
+    Result := TJSObject.Create
+  else
+    Result := TJSArgumentsObject.Create(FCurrentScope, Func.Parameters, Length(Args));
+
   Result.Prototype := FObjectPrototype;
 
   for var Index := 0 to Length(Args) - 1 do
@@ -658,7 +663,16 @@ begin
   Result.DefineProperty(LENGTH_PROPERTY, LengthDescriptor);
 
   if Func.IsStrict then
+  begin
     Result.DefineProperty(CALLEE_PROPERTY, CreateCalleeDescriptor);
+  end
+  else
+  begin
+    const CalleeValue = TJSValue.CreateObject(Func);
+    var CalleeDescriptor := TJSPropertyDescriptor.Create(CalleeValue);
+    CalleeDescriptor.Enumerable := False;
+    Result.DefineProperty(CALLEE_PROPERTY, CalleeDescriptor);
+  end;
 end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
@@ -3013,6 +3027,10 @@ begin
       end
       else if Supports(Item, IJSObject, Obj) then
       begin
+        var ArgumentsScope: IJSArgumentsScope;
+        if Supports(Obj, IJSArgumentsScope, ArgumentsScope) then
+          GCMark(ArgumentsScope.MappedScope, Live, Work);
+
         GCMark(Obj.Prototype, Live, Work);
         GCMarkOwnProperties(Obj, Live, Work);
       end;

@@ -112,6 +112,7 @@
         <DCCReference Include="JS4D.Tests.Prototypes.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinPrototypes.pas"/>
         <DCCReference Include="JS4D.Tests.Arguments.pas"/>
+        <DCCReference Include="JS4D.Tests.MappedArguments.pas"/>
         <DCCReference Include="JS4D.Tests.Constructors.pas"/>
         <DCCReference Include="JS4D.Tests.TryStatement.pas"/>
         <DCCReference Include="JS4D.Tests.PropertyDescriptors.pas"/>

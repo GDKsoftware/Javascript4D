@@ -318,6 +318,8 @@ type
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
 
+    procedure StoreOwnValue(const Name: string; const Value: TJSValue);
+
     // Releasing a very deeply nested chain of arrays and objects would recurse through one destructor
     // per level and overflow the stack. A destructor calls ReleaseNested first, which empties the nested
     // objects it holds the last reference to one at a time.
@@ -340,7 +342,7 @@ type
     function IsFrozen: Boolean;
     function IsSealed: Boolean;
     function IsExtensible: Boolean;
-    procedure Freeze;
+    procedure Freeze; virtual;
     procedure Seal;
     procedure PreventExtensions;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
@@ -1248,6 +1250,16 @@ begin
   Descriptor := TJSPropertyDescriptor.Create(Value);
   FProperties.Add(Name, Descriptor);
   FOrderedKeys.Add(Name);
+end;
+
+procedure TJSObjectImpl.StoreOwnValue(const Name: string; const Value: TJSValue);
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  if not FProperties.TryGetValue(Name, Descriptor) then
+    Exit;
+
+  Descriptor.Value := Value;
+  FProperties[Name] := Descriptor;
 end;
 
 procedure TJSObjectImpl.SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
