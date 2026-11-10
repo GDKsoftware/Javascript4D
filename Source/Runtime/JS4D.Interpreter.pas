@@ -245,7 +245,16 @@ type
     function VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
     function VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
     procedure DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
+    function LiteralPropertyName(const Prop: TJSObjectProperty): string;
+    procedure DefineLiteralData(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
+    procedure DefineLiteralMethod(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
     procedure DefineLiteralAccessor(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
+    procedure AssignLiteralPrototype(const Target: IJSObject; const Prop: TJSObjectProperty);
+    function VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
+    function VisitAssigned(const Value: TJSExpression; const Target: TJSIdentifier): TJSValue;
+    function IsAnonymousFunctionDefinition(const Node: TJSExpression): Boolean;
+    function CreateMethodFunction(const Node: TJSFunctionExpression; const Name: string): IJSFunction;
+    function CreateOrdinaryFunction(const Node: TJSFunctionExpression): IJSFunction;
     function VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
     function VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
@@ -352,6 +361,8 @@ const
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
   LENGTH_PROPERTY = 'length';
+  GETTER_NAME_FORMAT = 'get %s';
+  SETTER_NAME_FORMAT = 'set %s';
   RAW_PROPERTY = 'raw';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
@@ -1472,7 +1483,7 @@ begin
       var InitialValue := TJSValue.CreateUndefined;
 
       if Assigned(Declarator.Init) then
-        InitialValue := Visit(Declarator.Init);
+        InitialValue := VisitNamed(Declarator.Init, Declarator.Id.Name);
 
       FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
     end;
@@ -1483,7 +1494,7 @@ begin
   for var Declarator in Node.Declarations do
   begin
     if Assigned(Declarator.Init) then
-      FCurrentScope.SetVariable(Declarator.Id.Name, Visit(Declarator.Init));
+      FCurrentScope.SetVariable(Declarator.Id.Name, VisitNamed(Declarator.Init, Declarator.Id.Name));
   end;
 end;
 
@@ -2163,7 +2174,7 @@ end;
 
 function TJSInterpreter.VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
 begin
-  const Obj = TJSObject.Create;
+  const Obj: IJSObject = TJSObject.Create;
   Obj.Prototype := FObjectPrototype;
 
   for var Prop in Node.Properties do
@@ -2176,22 +2187,80 @@ end;
 
 procedure TJSInterpreter.DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
 begin
-  var KeyName: string;
+  const KeyName = LiteralPropertyName(Prop);
 
-  if Prop.Key is TJSIdentifier then
-    KeyName := TJSIdentifier(Prop.Key).Name
+  case Prop.Kind of
+    TJSPropertyKind.Getter,
+    TJSPropertyKind.Setter : DefineLiteralAccessor(Target, KeyName, Prop);
+    TJSPropertyKind.Method : DefineLiteralMethod(Target, KeyName, Prop);
   else
-    KeyName := VisitText(Prop.Key);
+    if Prop.SetsPrototype then
+      AssignLiteralPrototype(Target, Prop)
+    else
+      DefineLiteralData(Target, KeyName, Prop);
+  end;
+end;
 
-  const IsAccessor = (Prop.Kind <> TJSPropertyKind.Data);
-  if IsAccessor then
+function TJSInterpreter.LiteralPropertyName(const Prop: TJSObjectProperty): string;
+begin
+  if Prop.Computed then
   begin
-    DefineLiteralAccessor(Target, KeyName, Prop);
-    Exit;
+    const KeyValue = Visit(Prop.Key);
+    Exit(ToPropertyKey(KeyValue));
   end;
 
+  if Prop.Key is TJSIdentifier then
+    Exit(TJSIdentifier(Prop.Key).Name);
+
+  Result := VisitText(Prop.Key);
+end;
+
+procedure TJSInterpreter.DefineLiteralData(const Target: IJSObject; const Name: string;
+                                           const Prop: TJSObjectProperty);
+begin
+  const Value = VisitNamed(Prop.Value, Name);
+  Target.DefineProperty(Name, TJSPropertyDescriptor.Create(Value));
+end;
+
+procedure TJSInterpreter.DefineLiteralMethod(const Target: IJSObject; const Name: string;
+                                             const Prop: TJSObjectProperty);
+begin
+  const Method = CreateMethodFunction(TJSFunctionExpression(Prop.Value), Name);
+  Target.DefineProperty(Name, TJSPropertyDescriptor.Create(TJSValue.CreateObject(Method)));
+end;
+
+procedure TJSInterpreter.AssignLiteralPrototype(const Target: IJSObject; const Prop: TJSObjectProperty);
+begin
   const Value = Visit(Prop.Value);
-  Target.DefineProperty(KeyName, TJSPropertyDescriptor.Create(Value));
+
+  if Value.IsNull then
+    Target.Prototype := nil
+  else if Value.IsObject then
+    Target.Prototype := Value.ToObject;
+end;
+
+function TJSInterpreter.IsAnonymousFunctionDefinition(const Node: TJSExpression): Boolean;
+begin
+  Result := (Node is TJSFunctionExpression) and (not Assigned(TJSFunctionExpression(Node).Id));
+end;
+
+function TJSInterpreter.VisitAssigned(const Value: TJSExpression; const Target: TJSIdentifier): TJSValue;
+begin
+  if Target.IsParenthesized then
+    Result := Visit(Value)
+  else
+    Result := VisitNamed(Value, Target.Name);
+end;
+
+function TJSInterpreter.VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
+begin
+  Result := Visit(Node);
+
+  if IsAnonymousFunctionDefinition(Node) then
+  begin
+    const Func = Result.ToObject as IJSFunction;
+    Func.Name := Name;
+  end;
 end;
 
 procedure TJSInterpreter.DefineLiteralAccessor(const Target: IJSObject; const Name: string;
@@ -2203,8 +2272,12 @@ begin
   Definition.HasConfigurable := True;
   Definition.Configurable := True;
 
-  const Accessor = Visit(Prop.Value);
   const IsGetter = (Prop.Kind = TJSPropertyKind.Getter);
+  const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
+  const AccessorName = Format(NameFormat, [Name]);
+  const AccessorFunction = CreateMethodFunction(TJSFunctionExpression(Prop.Value), AccessorName);
+  const Accessor = TJSValue.CreateObject(AccessorFunction);
+
   if IsGetter then
   begin
     Definition.HasGetter := True;
@@ -2264,6 +2337,14 @@ begin
     Exit(TJSValue.CreateObject(ArrowFunction));
   end;
 
+  const Func = CreateOrdinaryFunction(Node);
+  AttachPrototype(Func);
+
+  Result := TJSValue.CreateObject(Func);
+end;
+
+function TJSInterpreter.CreateOrdinaryFunction(const Node: TJSFunctionExpression): IJSFunction;
+begin
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
 
@@ -2284,9 +2365,15 @@ begin
 
   Func.Parameters := Params;
   RegisterFunction(Func);
-  AttachPrototype(Func);
 
-  Result := TJSValue.CreateObject(Func);
+  Result := Func;
+end;
+
+function TJSInterpreter.CreateMethodFunction(const Node: TJSFunctionExpression; const Name: string): IJSFunction;
+begin
+  Result := CreateOrdinaryFunction(Node);
+  Result.IsConstructor := False;
+  Result.Name := Name;
 end;
 
 function TJSInterpreter.VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
@@ -2671,7 +2758,7 @@ function TJSInterpreter.AssignToGlobalVariable(const Node: TJSAssignmentExpressi
 begin
   if Node.Operator = TJSAssignmentOperator.Assign then
   begin
-    Result := Visit(Node.Right);
+    Result := VisitAssigned(Node.Right, Identifier);
   end
   else
   begin
@@ -2697,7 +2784,7 @@ begin
   var NewValue: TJSValue;
   if Node.Operator = TJSAssignmentOperator.Assign then
   begin
-    NewValue := Visit(Node.Right);
+    NewValue := VisitAssigned(Node.Right, Identifier);
   end
   else
   begin

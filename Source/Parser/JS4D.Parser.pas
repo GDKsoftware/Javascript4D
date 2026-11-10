@@ -123,6 +123,9 @@ type
     function ParsePrimaryExpression: TJSExpression;
     function ParseArrayExpression: TJSArrayExpression;
     function ParseObjectExpression: TJSObjectExpression;
+    function ParseObjectMember: TJSObjectProperty;
+    function ParseShorthandProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
+    function ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean): TJSObjectProperty;
     function StartsAccessorProperty: Boolean;
     function ParsePropertyKey(out Computed: Boolean): TJSExpression;
     function ParseAccessorProperty: TJSObjectProperty;
@@ -150,6 +153,7 @@ type
     procedure CheckRestrictedBindingName(const Name: string);
     procedure CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>);
     procedure CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
+    procedure RejectDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
     procedure CheckRestrictedParameterNames(const Params: TObjectList<TJSIdentifier>);
 
   public
@@ -169,9 +173,11 @@ const
   LegacyLiteralInStrictModeMessage = 'Octal literals and escape sequences are not allowed in strict mode';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
+  SUPER_NAME = 'super';
   KEYWORD_GET = 'get';
   KEYWORD_SET = 'set';
   ACCESSOR_PARAMETER_COUNT = 'Getter must not have parameters and setter must have exactly one';
+  DUPLICATE_PROTOTYPE_MESSAGE = 'Duplicate __proto__ fields are not allowed in object literals';
   RestrictedParameterNameMessage = 'Parameter name ''%s'' is not allowed in strict mode';
   RestrictedBindingNameMessage = '''%s'' cannot be declared in strict mode';
   DeleteIdentifierMessage = 'Delete of an unqualified identifier in strict mode';
@@ -1923,6 +1929,9 @@ begin
         const Name = CurrentToken.Value;
         CheckStrictModeReservedWord(Name);
 
+        if Name = SUPER_NAME then
+          raise TJSErrorFactory.UnexpectedToken(Name, CurrentToken.Line, CurrentToken.Column);
+
         if Name = EVAL_NAME then
           Inc(FClosureCount);
 
@@ -1995,6 +2004,10 @@ begin
         Advance;
         const Expr = ParseNestedExpression;
         Expect(TJSTokenType.RightParen);
+
+        if Expr is TJSIdentifier then
+          TJSIdentifier(Expr).IsParenthesized := True;
+
         Exit(Expr);
       end;
 
@@ -2050,28 +2063,18 @@ begin
   Result := TJSObjectExpression.Create;
 
   try
+    var HasPrototypeSetter := False;
+
     while not Check(TJSTokenType.RightBrace) do
     begin
-      if StartsAccessorProperty then
-      begin
-        const Accessor = ParseAccessorProperty;
-        Result.Properties.Add(Accessor);
-      end
-      else
-      begin
-        var Computed: Boolean;
-        const Key = ParsePropertyKey(Computed);
-        try
-          Expect(TJSTokenType.Colon);
-        except
-          Key.Free;
-          raise;
-        end;
+      const Member = ParseObjectMember;
+      Result.Properties.Add(Member);
 
-        const Value = ParseNestedAssignmentExpression;
-        const Prop = TJSObjectProperty.Create(Key, Value, Computed);
-        Result.Properties.Add(Prop);
-      end;
+      const IsDuplicatePrototype = Member.SetsPrototype and HasPrototypeSetter;
+      if IsDuplicatePrototype then
+        raise TJSErrorFactory.SyntaxError(DUPLICATE_PROTOTYPE_MESSAGE, CurrentToken.Line, CurrentToken.Column);
+
+      HasPrototypeSetter := HasPrototypeSetter or Member.SetsPrototype;
 
       if not Check(TJSTokenType.RightBrace) then
         Expect(TJSTokenType.Comma);
@@ -2082,6 +2085,71 @@ begin
     Result.Free;
     raise;
   end;
+end;
+
+function TJSParser.ParseObjectMember: TJSObjectProperty;
+begin
+  if StartsAccessorProperty then
+    Exit(ParseAccessorProperty);
+
+  const KeyIsIdentifier = Check(TJSTokenType.Identifier);
+  const KeyText = CurrentToken.Value;
+
+  var Computed: Boolean;
+  const Key = ParsePropertyKey(Computed);
+  try
+    if Match(TJSTokenType.Colon) then
+    begin
+      const Value = ParseNestedAssignmentExpression;
+      Result := TJSObjectProperty.Create(Key, Value, Computed);
+      Exit;
+    end;
+
+    if Check(TJSTokenType.LeftParen) then
+    begin
+      Result := ParseMethodProperty(Key, Computed);
+      Exit;
+    end;
+
+    const EndsMember = Check(TJSTokenType.Comma) or Check(TJSTokenType.RightBrace);
+    const IsShorthand = KeyIsIdentifier and (not Computed) and EndsMember;
+    if IsShorthand then
+    begin
+      Result := ParseShorthandProperty(Key, KeyText);
+      Exit;
+    end;
+
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+  except
+    Key.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseShorthandProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
+begin
+  CheckStrictModeReservedWord(Name);
+
+  const IsEval = (Name = EVAL_NAME);
+  if IsEval then
+    Inc(FClosureCount);
+
+  const Value = TJSIdentifier.Create(Name);
+  Result := TJSObjectProperty.Create(Key, Value, False, TJSPropertyKind.Shorthand);
+end;
+
+function TJSParser.ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean): TJSObjectProperty;
+begin
+  const Func = TJSFunctionExpression.Create;
+  try
+    ParseFunctionSignatureAndBody(Func);
+    RejectDuplicateParameters(Func.Params);
+  except
+    Func.Free;
+    raise;
+  end;
+
+  Result := TJSObjectProperty.Create(Key, Func, Computed, TJSPropertyKind.Method);
 end;
 
 function TJSParser.StartsAccessorProperty: Boolean;
@@ -2529,9 +2597,12 @@ end;
 
 procedure TJSParser.CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
 begin
-  if not FStrictMode then
-    Exit;
+  if FStrictMode then
+    RejectDuplicateParameters(Params);
+end;
 
+procedure TJSParser.RejectDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
+begin
   var ParamNames: TArray<string>;
   SetLength(ParamNames, Params.Count);
 

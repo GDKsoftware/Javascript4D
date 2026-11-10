@@ -120,6 +120,7 @@ type
   TJSIdentifier = class(TJSExpression)
   private
     FName: string;
+    FIsParenthesized: Boolean;
 
   public
     BindingCache: TJSBindingCache;
@@ -127,6 +128,7 @@ type
     constructor Create(const Name: string);
 
     property Name: string read FName;
+    property IsParenthesized: Boolean read FIsParenthesized write FIsParenthesized;
   end;
 
   TJSLiteralType = (
@@ -174,7 +176,7 @@ type
     property Elements: TObjectList<TJSExpression> read FElements;
   end;
 
-  TJSPropertyKind = (Data, Getter, Setter);
+  TJSPropertyKind = (Data, Getter, Setter, Method, Shorthand);
 
   TJSObjectProperty = class(TJSASTNode)
   private
@@ -182,6 +184,9 @@ type
     FValue: TJSExpression;
     FComputed: Boolean;
     FKind: TJSPropertyKind;
+    FSetsPrototype: Boolean;
+
+    function IsPrototypeKey: Boolean;
 
   public
     constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
@@ -192,6 +197,7 @@ type
     property Value: TJSExpression read FValue;
     property Computed: Boolean read FComputed;
     property Kind: TJSPropertyKind read FKind;
+    property SetsPrototype: Boolean read FSetsPrototype;
   end;
 
   TJSObjectExpression = class(TJSExpression)
@@ -754,6 +760,9 @@ type
 
 implementation
 
+const
+  PROTOTYPE_ACCESSOR_KEY = '__proto__';
+
 { TJSASTNode }
 
 constructor TJSASTNode.Create(const NodeType: TJSASTNodeType);
@@ -866,6 +875,16 @@ begin
   FValue := Value;
   FComputed := Computed;
   FKind := Kind;
+  FSetsPrototype := (Kind = TJSPropertyKind.Data) and (not Computed) and IsPrototypeKey;
+end;
+
+function TJSObjectProperty.IsPrototypeKey: Boolean;
+begin
+  if FKey is TJSIdentifier then
+    Exit(TJSIdentifier(FKey).Name = PROTOTYPE_ACCESSOR_KEY);
+
+  const IsStringKey = (FKey is TJSLiteral) and (TJSLiteral(FKey).LiteralType = TJSLiteralType.String_);
+  Result := IsStringKey and (TJSLiteral(FKey).StringValue = PROTOTYPE_ACCESSOR_KEY);
 end;
 
 destructor TJSObjectProperty.Destroy;

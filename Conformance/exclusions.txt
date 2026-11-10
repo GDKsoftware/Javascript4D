@@ -17,7 +17,6 @@ class-static-fields-private
 class-static-fields-public
 class-static-methods-private
 coalesce-expression
-computed-property-names
 decorators
 default-parameters
 destructuring-assignment

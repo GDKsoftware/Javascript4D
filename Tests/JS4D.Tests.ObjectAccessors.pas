@@ -61,7 +61,7 @@ type
     [TestCase('GetterWithParameter', '({ get x(a) { return 1; } })')]
     [TestCase('SetterWithoutParameter', '({ set x() { } })')]
     [TestCase('SetterWithTwoParameters', '({ set x(a, b) { } })', ';')]
-    [TestCase('GetterWithoutName', '({ get () { } })')]
+    [TestCase('GetterWithoutBody', '({ get x })')]
     [TestCase('EscapedGetKeyword', '({ \\u0067et x() { } })')]
     [TestCase('EscapedSetKeyword', '({ s\\u0065t x(v) { } })')]
     [TestCase('SetterParameterEvalInStrictCode', '''use strict''; ({ set x(eval) { } })')]
