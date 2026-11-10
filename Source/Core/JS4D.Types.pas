@@ -256,6 +256,8 @@ type
     procedure SetIsArrow(const Value: Boolean);
     function GetLexicalThis: IJSObject;
     procedure SetLexicalThis(const Value: IJSObject);
+    function GetSourceText: string;
+    procedure SetSourceText(const Value: string);
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -268,6 +270,7 @@ type
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
     property IsArrow: Boolean read GetIsArrow write SetIsArrow;
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
+    property SourceText: string read GetSourceText write SetSourceText;
   end;
 
   IJSError = interface(IJSObject)
@@ -413,6 +416,7 @@ type
     FIsConstructor: Boolean;
     FIsArrow: Boolean;
     FLexicalThis: IJSObject;
+    FSourceText: string;
 
   protected
     function GetName: string;
@@ -436,6 +440,8 @@ type
     procedure SetIsArrow(const Value: Boolean);
     function GetLexicalThis: IJSObject;
     procedure SetLexicalThis(const Value: IJSObject);
+    function GetSourceText: string;
+    procedure SetSourceText(const Value: string);
 
   public
     constructor Create;
@@ -459,6 +465,7 @@ type
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
     property IsArrow: Boolean read GetIsArrow write SetIsArrow;
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
+    property SourceText: string read GetSourceText write SetSourceText;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -1704,6 +1711,16 @@ end;
 procedure TJSFunctionImpl.SetLexicalThis(const Value: IJSObject);
 begin
   FLexicalThis := Value;
+end;
+
+function TJSFunctionImpl.GetSourceText: string;
+begin
+  Result := FSourceText;
+end;
+
+procedure TJSFunctionImpl.SetSourceText(const Value: string);
+begin
+  FSourceText := Value;
 end;
 
 constructor TJSFunctionImpl.Create;

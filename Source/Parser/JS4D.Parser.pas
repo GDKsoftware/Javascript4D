@@ -145,14 +145,16 @@ type
     function ParseObjectMember: TJSObjectProperty;
     function ParseShorthandProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
     function ParseCoverInitializedProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
-    function ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean): TJSObjectProperty;
+    function ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean;
+                                 const SourceStart: Integer): TJSObjectProperty;
     function StartsAccessorProperty: Boolean;
     function ParsePropertyKey(out Computed: Boolean): TJSExpression;
     function ParseAccessorProperty: TJSObjectProperty;
-    function ParseAccessorFunction(const Kind: TJSPropertyKind): TJSFunctionExpression;
+    function ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer): TJSFunctionExpression;
     function ParseFunctionExpression: TJSFunctionExpression;
     procedure ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
     function StartsArrowFunction: Boolean;
+    function SourceTextFrom(const StartOffset: Integer): string;
     function ParseArrowFunction: TJSFunctionExpression;
     procedure ParseArrowParameters(const Func: TJSFunctionExpression);
     procedure ParseArrowParameter(const Func: TJSFunctionExpression);
@@ -701,8 +703,15 @@ begin
   end;
 end;
 
+function TJSParser.SourceTextFrom(const StartOffset: Integer): string;
+begin
+  const LastConsumed = FLexer.PeekToken(-1);
+  Result := FLexer.SourceSlice(StartOffset, LastConsumed.EndOffset);
+end;
+
 function TJSParser.ParseFunctionDeclaration: TJSFunctionDeclaration;
 begin
+  const SourceStart = CurrentToken.StartOffset;
   Expect(TJSTokenType.KeywordFunction);
 
   if not Check(TJSTokenType.Identifier) then
@@ -738,6 +747,7 @@ begin
 
     CheckStrictFunctionHeader(FuncName, Result.Params, Result.ParameterInfo);
     FStrictMode := OldStrictMode;
+    Result.SourceText := SourceTextFrom(SourceStart);
   except
     Result.Free;
     raise;
@@ -2402,6 +2412,7 @@ begin
   if StartsAccessorProperty then
     Exit(ParseAccessorProperty);
 
+  const MemberStart = CurrentToken.StartOffset;
   const KeyIsIdentifier = Check(TJSTokenType.Identifier);
   const KeyText = CurrentToken.Value;
 
@@ -2418,7 +2429,7 @@ begin
 
     if Check(TJSTokenType.LeftParen) then
     begin
-      Result := ParseMethodProperty(Key, Computed);
+      Result := ParseMethodProperty(Key, Computed, MemberStart);
       Exit;
     end;
 
@@ -2469,12 +2480,14 @@ begin
   Result := TJSObjectProperty.Create(Key, Value, False, TJSPropertyKind.Shorthand);
 end;
 
-function TJSParser.ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean): TJSObjectProperty;
+function TJSParser.ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean;
+                                       const SourceStart: Integer): TJSObjectProperty;
 begin
   const Func = TJSFunctionExpression.Create;
   try
     ParseFunctionSignatureAndBody(Func);
     RejectDuplicateParameters(Func.Params);
+    Func.SourceText := SourceTextFrom(SourceStart);
   except
     Func.Free;
     raise;
@@ -2533,6 +2546,7 @@ end;
 
 function TJSParser.ParseAccessorProperty: TJSObjectProperty;
 begin
+  const SourceStart = CurrentToken.StartOffset;
   var Kind := TJSPropertyKind.Getter;
   const IsSetter = (CurrentToken.Value = KEYWORD_SET);
   if IsSetter then
@@ -2542,7 +2556,7 @@ begin
   var Computed: Boolean;
   const Key = ParsePropertyKey(Computed);
   try
-    const Func = ParseAccessorFunction(Kind);
+    const Func = ParseAccessorFunction(Kind, SourceStart);
     Result := TJSObjectProperty.Create(Key, Func, Computed, Kind);
   except
     Key.Free;
@@ -2550,7 +2564,7 @@ begin
   end;
 end;
 
-function TJSParser.ParseAccessorFunction(const Kind: TJSPropertyKind): TJSFunctionExpression;
+function TJSParser.ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer): TJSFunctionExpression;
 begin
   Result := TJSFunctionExpression.Create;
 
@@ -2565,6 +2579,8 @@ begin
     const HasExpectedParams = (Result.Params.Count = ExpectedParamCount) and (not HasRest);
     if not HasExpectedParams then
       raise TJSErrorFactory.SyntaxError(ACCESSOR_PARAMETER_COUNT, AccessorLine, AccessorColumn);
+
+    Result.SourceText := SourceTextFrom(SourceStart);
   except
     Result.Free;
     raise;
@@ -2573,6 +2589,7 @@ end;
 
 function TJSParser.ParseFunctionExpression: TJSFunctionExpression;
 begin
+  const SourceStart = CurrentToken.StartOffset;
   Expect(TJSTokenType.KeywordFunction);
 
   Result := TJSFunctionExpression.Create;
@@ -2587,6 +2604,7 @@ begin
     end;
 
     ParseFunctionSignatureAndBody(Result);
+    Result.SourceText := SourceTextFrom(SourceStart);
   except
     Result.Free;
     raise;
@@ -2845,6 +2863,7 @@ end;
 
 function TJSParser.ParseArrowFunction: TJSFunctionExpression;
 begin
+  const SourceStart = CurrentToken.StartOffset;
   Result := TJSFunctionExpression.Create;
   Result.IsArrow := True;
 
@@ -2859,6 +2878,7 @@ begin
     Inc(FClosureCount);
 
     ParseArrowBody(Result);
+    Result.SourceText := SourceTextFrom(SourceStart);
   except
     Result.Free;
     raise;

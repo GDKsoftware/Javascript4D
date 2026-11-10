@@ -91,7 +91,8 @@ uses
   JS4D.Tests.GenericEs2015ArrayMethods in 'JS4D.Tests.GenericEs2015ArrayMethods.pas',
   JS4D.Tests.ArrayStatics in 'JS4D.Tests.ArrayStatics.pas',
   JS4D.Tests.ArrayIterators in 'JS4D.Tests.ArrayIterators.pas',
-  JS4D.Tests.StringArgumentConversion in 'JS4D.Tests.StringArgumentConversion.pas';
+  JS4D.Tests.StringArgumentConversion in 'JS4D.Tests.StringArgumentConversion.pas',
+  JS4D.Tests.FunctionSourceText in 'JS4D.Tests.FunctionSourceText.pas';
 
 var
   Runner: ITestRunner;

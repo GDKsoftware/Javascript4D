@@ -104,6 +104,7 @@ type
     function PeekToken(const Offset: Integer = 0): TJSToken;
     function CurrentToken: TJSToken;
     function IsEndOfTokens: Boolean;
+    function SourceSlice(const StartOffset: Integer; const EndOffset: Integer): string;
     function HasIdentifierBetween(const FromPosition: Integer; const ToPosition: Integer;
                                   const Names: array of string): Boolean;
 
@@ -1477,8 +1478,11 @@ begin
     const LineBeforeWhitespace = FLine;
     SkipWhitespace;
     const CrossedLineTerminator = (FLine > LineBeforeWhitespace);
+    const StartOffset = FPosition;
 
     const Token = ScanToken;
+    Token.StartOffset := StartOffset;
+    Token.EndOffset := FPosition;
     Token.LineTerminatorBefore := CrossedLineTerminator;
     FTokens.Add(Token);
     FSlashContext.Observe(Token);
@@ -1520,6 +1524,11 @@ end;
 function TJSLexer.IsEndOfTokens: Boolean;
 begin
   Result := FCurrentIndex >= FTokens.Count;
+end;
+
+function TJSLexer.SourceSlice(const StartOffset: Integer; const EndOffset: Integer): string;
+begin
+  Result := Copy(FSource, StartOffset, EndOffset - StartOffset);
 end;
 
 function TJSLexer.HasIdentifierBetween(const FromPosition: Integer; const ToPosition: Integer;

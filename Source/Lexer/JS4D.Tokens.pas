@@ -118,6 +118,8 @@ type
     FLine: Integer;
     FColumn: Integer;
     FSourcePosition: Integer;
+    FStartOffset: Integer;
+    FEndOffset: Integer;
     FIsLegacyLiteral: Boolean;
     FHasEscape: Boolean;
     FLineTerminatorBefore: Boolean;
@@ -136,6 +138,8 @@ type
     property Line: Integer read FLine;
     property Column: Integer read FColumn;
     property SourcePosition: Integer read FSourcePosition write FSourcePosition;
+    property StartOffset: Integer read FStartOffset write FStartOffset;
+    property EndOffset: Integer read FEndOffset write FEndOffset;
     property IsLegacyLiteral: Boolean read FIsLegacyLiteral write FIsLegacyLiteral;
     property HasEscape: Boolean read FHasEscape write FHasEscape;
     property LineTerminatorBefore: Boolean read FLineTerminatorBefore write FLineTerminatorBefore;

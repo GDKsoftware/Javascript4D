@@ -322,6 +322,7 @@ type
     FBody: TJSStatement;
     FIsStrict: Boolean;
     FIsArrow: Boolean;
+    FSourceText: string;
 
   public
     constructor Create;
@@ -333,6 +334,7 @@ type
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property IsArrow: Boolean read FIsArrow write FIsArrow;
+    property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSUnaryOperator = (
@@ -643,6 +645,7 @@ type
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
     FHoistsToVar: Boolean;
+    FSourceText: string;
 
   public
     constructor Create(const Id: TJSIdentifier);
@@ -654,6 +657,7 @@ type
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
+    property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSExpressionStatement = class(TJSStatement)

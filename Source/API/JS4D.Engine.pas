@@ -94,7 +94,7 @@ type
     procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
-    function BuildFunctionSource(const Args: TArray<TJSValue>): string;
+    function CreateDynamicFunction(const Args: TArray<TJSValue>): TJSValue;
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayStaticMethod(const MethodName: string): IJSFunction;
@@ -187,6 +187,8 @@ const
   FUNCTION_CALLER = 'caller';
   FUNCTION_ARGUMENTS = 'arguments';
   FUNCTION_SOURCE_FORMAT = '(function (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
+  FUNCTION_TEXT_FORMAT = 'function anonymous(%s'#10') {'#10'%s'#10'}';
+  DYNAMIC_FUNCTION_NAME = 'anonymous';
   NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
   NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
   NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
@@ -1397,7 +1399,7 @@ begin
   const FunctionObj = TJSFunction.CreateNative(FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := FInterpreter.CreateFunctionFromSource(BuildFunctionSource(Args));
+      Result := CreateDynamicFunction(Args);
     end);
 
   const PrototypeObj: IJSFunction = TJSFunction.CreateNative(ANONYMOUS_NAME,
@@ -1420,7 +1422,7 @@ begin
   FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
 end;
 
-function TJSEngine.BuildFunctionSource(const Args: TArray<TJSValue>): string;
+function TJSEngine.CreateDynamicFunction(const Args: TArray<TJSValue>): TJSValue;
 begin
   var Body := '';
   var Parameters := '';
@@ -1439,7 +1441,16 @@ begin
     Body := ToText(Args[High(Args)]);
   end;
 
-  Result := Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
+  const ParsedSource = Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
+  Result := FInterpreter.CreateFunctionFromSource(ParsedSource);
+
+  var Func: IJSFunction;
+  const IsFunction = Supports(Result.ToObject, IJSFunction, Func);
+  if IsFunction then
+  begin
+    Func.Name := DYNAMIC_FUNCTION_NAME;
+    Func.SourceText := Format(FUNCTION_TEXT_FORMAT, [Parameters, Body]);
+  end;
 end;
 
 function TJSEngine.CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;

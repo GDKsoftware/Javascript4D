@@ -1974,6 +1974,7 @@ begin
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
   Func.Name := Node.Id.Name;
+  Func.SourceText := Node.SourceText;
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
   Func.ClosureScope := FCurrentScope;
@@ -2848,6 +2849,7 @@ function TJSInterpreter.CreateArrowFunction(const Node: TJSFunctionExpression): 
 begin
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
+  Func.SourceText := Node.SourceText;
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
   Func.ClosureScope := FCurrentScope;
@@ -2895,6 +2897,7 @@ begin
   if Assigned(Node.Id) then
     Func.Name := Node.Id.Name;
 
+  Func.SourceText := Node.SourceText;
   Func.BodyNode := Node.Body;
   Func.IsStrict := FStrictMode or Node.IsStrict;
   Func.ClosureScope := FCurrentScope;

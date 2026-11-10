@@ -549,7 +549,10 @@ begin
   if not Supports(This, IJSFunction, Func) then
     raise TJSErrorFactory.TypeError(NOT_A_FUNCTION);
 
-  const SourceText = Format(NATIVE_FUNCTION_FORMAT, [Func.Name]);
+  var SourceText := Func.SourceText;
+  const HasSourceText = not SourceText.IsEmpty;
+  if not HasSourceText then
+    SourceText := Format(NATIVE_FUNCTION_FORMAT, [Func.Name]);
 
   Result := TJSValue.CreateString(SourceText);
 end;
