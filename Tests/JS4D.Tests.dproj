@@ -101,6 +101,7 @@
         <DCCReference Include="..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
+        <DCCReference Include="..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.ParserScope.pas"/>
@@ -138,6 +139,7 @@
         <DCCReference Include="JS4D.Tests.ArrowFunctions.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionParameters.pas"/>
         <DCCReference Include="JS4D.Tests.TemplateLiterals.pas"/>
+        <DCCReference Include="JS4D.Tests.SlashContext.pas"/>
         <DCCReference Include="JS4D.Tests.Date.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinAttributes.pas"/>
         <DCCReference Include="JS4D.Tests.LabelledStatements.pas"/>

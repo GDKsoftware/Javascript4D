@@ -11,6 +11,7 @@ uses
   System.StrUtils,
   System.Generics.Collections,
   JS4D.Tokens,
+  JS4D.SlashContext,
   JS4D.Errors;
 
 type
@@ -26,6 +27,7 @@ type
     FStringHasLegacyEscape: Boolean;
     FBraceDepth: Integer;
     FSubstitutionDepths: TList<Integer>;
+    FSlashContext: TJSSlashContext;
     FTemplateCooked: string;
     FTemplateRaw: string;
     FTemplateHasInvalidEscape: Boolean;
@@ -206,11 +208,13 @@ begin
   FLineStart := 1;
   FTokens := TObjectList<TJSToken>.Create(True);
   FSubstitutionDepths := TList<Integer>.Create;
+  FSlashContext := TJSSlashContext.Create;
   FCurrentIndex := 0;
 end;
 
 destructor TJSLexer.Destroy;
 begin
+  FSlashContext.Free;
   FSubstitutionDepths.Free;
   FTokens.Free;
   inherited;
@@ -1126,30 +1130,7 @@ begin
 
     FORWARD_SLASH:
       begin
-        var IsDivisionContext := False;
-        if FTokens.Count > 0 then
-        begin
-          const PrevToken = FTokens.Last;
-          IsDivisionContext := PrevToken.TokenType in [
-            TJSTokenType.Identifier,
-            TJSTokenType.NumberLiteral,
-            TJSTokenType.StringLiteral,
-            TJSTokenType.BooleanLiteral,
-            TJSTokenType.NullLiteral,
-            TJSTokenType.RegExpLiteral,
-            TJSTokenType.RightParen,
-            TJSTokenType.RightBracket,
-            TJSTokenType.RightBrace,
-            TJSTokenType.Increment,
-            TJSTokenType.Decrement,
-            TJSTokenType.KeywordThis
-          ];
-
-          const EndsTemplate = (PrevToken.TokenType = TJSTokenType.TemplateChunk) and PrevToken.IsTemplateTail;
-          IsDivisionContext := IsDivisionContext or EndsTemplate;
-        end;
-
-        if IsDivisionContext then
+        if FSlashContext.IsDivisionNext then
         begin
           Advance;
           if CurrentChar = EQUAL_CHAR then
@@ -1461,6 +1442,7 @@ begin
   FCurrentIndex := 0;
   FBraceDepth := 0;
   FSubstitutionDepths.Clear;
+  FSlashContext.Reset;
 
   while not IsAtEnd do
   begin
@@ -1471,6 +1453,7 @@ begin
     const Token = ScanToken;
     Token.LineTerminatorBefore := CrossedLineTerminator;
     FTokens.Add(Token);
+    FSlashContext.Observe(Token);
 
     if Token.TokenType = TJSTokenType.EndOfFile then
       Break;

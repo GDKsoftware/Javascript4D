@@ -13,6 +13,7 @@ uses
   JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
+  JS4D.SlashContext in '..\Source\Lexer\JS4D.SlashContext.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
