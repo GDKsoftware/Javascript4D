@@ -3,7 +3,6 @@
 # Implementing a feature means removing its directory from this list.
 
 # Language features introduced after ES5.1
-language/destructuring/
 language/export/
 language/import/
 language/module-code/

@@ -279,9 +279,9 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 | built-ins/Object | 3080 | 2916 | 94.7% |
 | built-ins/RegExp | 581 | 495 | 85.2% |
 | built-ins/String | 905 | 828 | 91.5% |
-| language/expressions | 2531 | 2414 | 95.4% |
-| language/statements | 1140 | 1112 | 97.5% |
-| **Total** | 14582 | 13377 | 91.7% |
+| language/expressions | 3330 | 3208 | 96.3% |
+| language/statements | 1807 | 1774 | 98.2% |
+| **Total** | 16065 | 14853 | 92.5% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

@@ -20,17 +20,20 @@ type
     FKind: TJSParserScopeKind;
     FParameters: TArray<string>;
     FCatchParameter: string;
+    FCatchPatternNames: TArray<string>;
     FLexicalNames: TDictionary<string, Boolean>;
     FVarNames: TDictionary<string, Boolean>;
     FScopeInfo: TJSScopeInfo;
 
     function IsParameter(const Name: string): Boolean;
+    function IsCatchPatternName(const Name: string): Boolean;
 
   public
     constructor Create(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
     destructor Destroy; override;
 
     function DeclaresLexical(const Name: string): Boolean;
+    function ConflictsWithVar(const Name: string): Boolean;
     function BlocksFunctionHoisting(const Name: string): Boolean;
     function TryAddLexical(const Name: string; const IsFunction: Boolean; const AllowFunctionDuplicate: Boolean): Boolean;
     procedure AddVar(const Name: string);
@@ -40,6 +43,7 @@ type
 
     property Kind: TJSParserScopeKind read FKind;
     property CatchParameter: string read FCatchParameter write FCatchParameter;
+    property CatchPatternNames: TArray<string> read FCatchPatternNames write FCatchPatternNames;
   end;
 
   TJSScopeTracker = class
@@ -62,6 +66,7 @@ type
 
     procedure Enter(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
     procedure SetCatchParameter(const Name: string);
+    procedure SetCatchPatternNames(const Names: TArray<string>);
     function Leave: TJSScopeInfo;
     function IsFunctionLevel: Boolean;
 
@@ -101,9 +106,25 @@ begin
   Result := False;
 end;
 
+function TJSParserScope.IsCatchPatternName(const Name: string): Boolean;
+begin
+  for var PatternName in FCatchPatternNames do
+  begin
+    if PatternName = Name then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function TJSParserScope.DeclaresLexical(const Name: string): Boolean;
 begin
   Result := Assigned(FLexicalNames) and FLexicalNames.ContainsKey(Name);
+end;
+
+function TJSParserScope.ConflictsWithVar(const Name: string): Boolean;
+begin
+  Result := DeclaresLexical(Name) or IsCatchPatternName(Name);
 end;
 
 function TJSParserScope.BlocksFunctionHoisting(const Name: string): Boolean;
@@ -121,7 +142,8 @@ begin
 
   const ClashesWithVar = HasVar(Name);
   const ClashesWithParameter = (FKind = TJSParserScopeKind.Function_) and IsParameter(Name);
-  const ClashesWithCatchParameter = (not FCatchParameter.IsEmpty) and (Name = FCatchParameter);
+  const ClashesWithCatchParameter = ((not FCatchParameter.IsEmpty) and (Name = FCatchParameter)) or
+                                    IsCatchPatternName(Name);
   if ClashesWithVar or ClashesWithParameter or ClashesWithCatchParameter then
     Exit(False);
 
@@ -185,6 +207,11 @@ begin
   FScopes.Last.CatchParameter := Name;
 end;
 
+procedure TJSScopeTracker.SetCatchPatternNames(const Names: TArray<string>);
+begin
+  FScopes.Last.CatchPatternNames := Names;
+end;
+
 function TJSScopeTracker.Leave: TJSScopeInfo;
 begin
   const Depth = FScopes.Count - 1;
@@ -231,7 +258,7 @@ begin
   for var Index := FScopes.Count - 1 downto 0 do
   begin
     const Scope = FScopes[Index];
-    if Scope.DeclaresLexical(Name) then
+    if Scope.ConflictsWithVar(Name) then
       Exit(False);
 
     Scope.AddVar(Name);

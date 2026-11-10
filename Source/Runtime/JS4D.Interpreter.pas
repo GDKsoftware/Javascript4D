@@ -112,6 +112,24 @@ type
     HasKeyText: Boolean;
   end;
 
+  TJSBindingMode = (Assign, Variable, Lexical);
+
+  TJSPatternTarget = record
+    Target: TJSExpression;
+    Default: TJSExpression;
+    Binding: IJSScope;
+    Reference: TJSMemberReference;
+  end;
+
+  TJSArraySource = record
+    Elements: IJSArray;
+    Items: TArray<TJSValue>;
+    Position: Integer;
+
+    function Next: TJSValue;
+    function Remaining: TArray<TJSValue>;
+  end;
+
   TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
@@ -169,6 +187,18 @@ type
     procedure CopyParametersToBodyScope(const Func: IJSFunction; const ParameterScope: IJSScope;
                                         const Info: TJSParameterInfo);
     procedure CopyParameterToBodyScope(const Name: string; const ParameterScope: IJSScope);
+    procedure BindTarget(const Target: TJSExpression; const Value: TJSValue; const Mode: TJSBindingMode);
+    function ResolvePatternTarget(const Element: TJSExpression; const Mode: TJSBindingMode): TJSPatternTarget;
+    procedure StorePatternTarget(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
+    procedure StoreIdentifier(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
+    procedure BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue; const Mode: TJSBindingMode);
+    procedure BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue; const Mode: TJSBindingMode);
+    function OpenArraySource(const Value: TJSValue): TJSArraySource;
+    function CopyRestProperties(const Source: TJSValue; const Excluded: TList<string>): TJSValue;
+    procedure CopyDataProperties(const Target: IJSObject; const Source: TJSValue; const Excluded: TList<string>);
+    function AssignToPattern(const Node: TJSAssignmentExpression): TJSValue;
+    procedure DeclareLexicalBinding(const Declarator: TJSVariableDeclarator; const IsConstant: Boolean);
+    procedure HoistDeclarator(const Declarator: TJSVariableDeclarator);
     function VisitArrayWithSpread(const Node: TJSArrayExpression): TJSValue;
     function EvaluateArguments(const Nodes: TObjectList<TJSExpression>; const HasSpread: Boolean): TArray<TJSValue>;
     function EvaluateSpreadArguments(const Nodes: TObjectList<TJSExpression>): TArray<TJSValue>;
@@ -418,6 +448,8 @@ const
                             TJSASTNodeType.EmptyStatement];
   REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
   NOT_ITERABLE = 'Spread syntax requires an iterable value';
+  PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
+  CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
   HIGH_SURROGATE_FIRST = $D800;
   HIGH_SURROGATE_LAST = $DBFF;
   LOW_SURROGATE_FIRST = $DC00;
@@ -649,6 +681,51 @@ begin
   FValue := Value;
 end;
 
+{ TJSArraySource }
+
+function TJSArraySource.Next: TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  if Assigned(Elements) then
+  begin
+    const IsReadable = (Position < Elements.Length) and Elements.HasElement(Position);
+    if IsReadable then
+      Result := Elements.GetElement(Position);
+  end
+  else if Position < Length(Items) then
+  begin
+    Result := Items[Position];
+  end;
+
+  Inc(Position);
+end;
+
+function TJSArraySource.Remaining: TArray<TJSValue>;
+begin
+  const Values = TList<TJSValue>.Create;
+  try
+    if Assigned(Elements) then
+    begin
+      while Position < Elements.Length do
+      begin
+        Values.Add(Next);
+      end;
+    end
+    else
+    begin
+      while Position < Length(Items) do
+      begin
+        Values.Add(Next);
+      end;
+    end;
+
+    Result := Values.ToArray;
+  finally
+    Values.Free;
+  end;
+end;
+
 { TJSInterpreter }
 
 constructor TJSInterpreter.Create;
@@ -870,12 +947,12 @@ function TJSInterpreter.BindParametersWithExpressions(const Func: IJSFunction; c
 begin
   Result := nil;
 
-  if Info.HasDefaults then
+  if Info.NeedsParameterScope then
     DeclareParameterBindings(Func, Info);
 
   InitializeParameterBindings(Func, Args, Info);
 
-  if not Info.HasDefaults then
+  if not Info.NeedsParameterScope then
     Exit;
 
   Result := FCurrentScope;
@@ -886,13 +963,10 @@ end;
 
 procedure TJSInterpreter.DeclareParameterBindings(const Func: IJSFunction; const Info: TJSParameterInfo);
 begin
-  for var Name in Func.Parameters do
+  for var Name in Info.BoundNames do
   begin
     FCurrentScope.DeclareLexical(Name, False);
   end;
-
-  if Assigned(Info.Rest) then
-    FCurrentScope.DeclareLexical(Info.Rest.Name, False);
 end;
 
 procedure TJSInterpreter.InitializeParameterBindings(const Func: IJSFunction; const Args: TArray<TJSValue>;
@@ -907,15 +981,27 @@ begin
       Value := Args[Index];
 
     const DefaultNode = Info.Defaults[Index];
+    const Pattern = Info.Patterns[Index];
     const UsesDefault = Value.IsUndefined and Assigned(DefaultNode);
-    if UsesDefault then
+    if UsesDefault and Assigned(Pattern) then
+      Value := Visit(DefaultNode)
+    else if UsesDefault then
       Value := VisitNamed(DefaultNode, Parameters[Index]);
 
-    StoreParameter(Parameters[Index], Value, Info.HasDefaults);
+    if Assigned(Pattern) then
+      BindTarget(Pattern, Value, TJSBindingMode.Lexical)
+    else
+      StoreParameter(Parameters[Index], Value, Info.NeedsParameterScope);
   end;
 
-  if Assigned(Info.Rest) then
-    StoreParameter(Info.Rest.Name, CreateRestArray(Args, Length(Parameters)), Info.HasDefaults);
+  if not Assigned(Info.Rest) then
+    Exit;
+
+  const RestArray = CreateRestArray(Args, Length(Parameters));
+  if Assigned(Info.RestPattern) then
+    BindTarget(Info.RestPattern, RestArray, TJSBindingMode.Lexical)
+  else
+    StoreParameter(Info.Rest.Name, RestArray, Info.NeedsParameterScope);
 end;
 
 procedure TJSInterpreter.StoreParameter(const Name: string; const Value: TJSValue; const IsLexical: Boolean);
@@ -942,13 +1028,10 @@ end;
 procedure TJSInterpreter.CopyParametersToBodyScope(const Func: IJSFunction; const ParameterScope: IJSScope;
                                                    const Info: TJSParameterInfo);
 begin
-  for var Name in Func.Parameters do
+  for var Name in Info.BoundNames do
   begin
     CopyParameterToBodyScope(Name, ParameterScope);
   end;
-
-  if Assigned(Info.Rest) then
-    CopyParameterToBodyScope(Info.Rest.Name, ParameterScope);
 end;
 
 procedure TJSInterpreter.CopyParameterToBodyScope(const Name: string; const ParameterScope: IJSScope);
@@ -1526,7 +1609,10 @@ begin
 
     for var Declarator in TJSVariableDeclaration(Declaration).Declarations do
     begin
-      EnsureGlobalLexicalAvailable(Declarator.Id.Name);
+      for var Name in Declarator.BoundNames do
+      begin
+        EnsureGlobalLexicalAvailable(Name);
+      end;
     end;
   end;
 
@@ -1543,7 +1629,35 @@ begin
 
   for var Declarator in Declaration.Declarations do
   begin
+    DeclareLexicalBinding(Declarator, IsConstant);
+  end;
+end;
+
+procedure TJSInterpreter.DeclareLexicalBinding(const Declarator: TJSVariableDeclarator; const IsConstant: Boolean);
+begin
+  if Assigned(Declarator.Id) then
+  begin
     FCurrentScope.DeclareLexical(Declarator.Id.Name, IsConstant);
+    Exit;
+  end;
+
+  for var Name in Declarator.BoundNames do
+  begin
+    FCurrentScope.DeclareLexical(Name, IsConstant);
+  end;
+end;
+
+procedure TJSInterpreter.HoistDeclarator(const Declarator: TJSVariableDeclarator);
+begin
+  if Assigned(Declarator.Id) then
+  begin
+    HoistVariable(Declarator.Id.Name);
+    Exit;
+  end;
+
+  for var Name in Declarator.BoundNames do
+  begin
+    HoistVariable(Name);
   end;
 end;
 
@@ -1621,7 +1735,7 @@ begin
       begin
         for var Declarator in TJSVariableDeclaration(Node).Declarations do
         begin
-          HoistVariable(Declarator.Id.Name);
+          HoistDeclarator(Declarator);
         end;
       end;
     TJSASTNodeType.FunctionDeclaration:
@@ -1747,6 +1861,13 @@ begin
   begin
     for var Declarator in Node.Declarations do
     begin
+      if Assigned(Declarator.Pattern) then
+      begin
+        const BoundValue = Visit(Declarator.Init);
+        BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Lexical);
+        Continue;
+      end;
+
       var InitialValue := TJSValue.CreateUndefined;
 
       if Assigned(Declarator.Init) then
@@ -1760,7 +1881,15 @@ begin
 
   for var Declarator in Node.Declarations do
   begin
-    if Assigned(Declarator.Init) then
+    if not Assigned(Declarator.Init) then
+      Continue;
+
+    if Assigned(Declarator.Pattern) then
+    begin
+      const BoundValue = Visit(Declarator.Init);
+      BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Variable);
+    end
+    else
       FCurrentScope.SetVariable(Declarator.Id.Name, VisitNamed(Declarator.Init, Declarator.Id.Name));
   end;
 end;
@@ -2073,14 +2202,18 @@ end;
 procedure TJSInterpreter.BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
                                                  const OuterScope: IJSScope; const Value: TJSValue);
 begin
-  const BindingName = Declaration.Declarations[0].Id.Name;
+  const Declarator = Declaration.Declarations[0];
 
   FCurrentScope := TJSScope.Create(OuterScope);
   if Node.MayCaptureScope then
     RegisterScope(FCurrentScope);
 
-  FCurrentScope.DeclareLexical(BindingName, Declaration.Kind = TJSDeclarationKind.Const_);
-  FCurrentScope.InitializeLexical(BindingName, Value);
+  DeclareLexicalBinding(Declarator, Declaration.Kind = TJSDeclarationKind.Const_);
+
+  if Assigned(Declarator.Pattern) then
+    BindTarget(Declarator.Pattern, Value, TJSBindingMode.Lexical)
+  else
+    FCurrentScope.InitializeLexical(Declarator.Id.Name, Value);
 end;
 
 procedure TJSInterpreter.AssignForInVariable(const Node: TJSForInStatement; const OuterScope: IJSScope;
@@ -2094,14 +2227,21 @@ begin
     if Declaration.Declarations.Count = 0 then
       Exit;
 
-    if Declaration.Kind = TJSDeclarationKind.Var_ then
-      FCurrentScope.SetVariable(Declaration.Declarations[0].Id.Name, Value)
+    const Declarator = Declaration.Declarations[0];
+    if Declaration.Kind <> TJSDeclarationKind.Var_ then
+      BindLexicalLoopVariable(Node, Declaration, OuterScope, Value)
+    else if Assigned(Declarator.Pattern) then
+      BindTarget(Declarator.Pattern, Value, TJSBindingMode.Variable)
     else
-      BindLexicalLoopVariable(Node, Declaration, OuterScope, Value);
+      FCurrentScope.SetVariable(Declarator.Id.Name, Value);
   end
   else if Node.Left is TJSIdentifier then
   begin
     FCurrentScope.SetVariable(TJSIdentifier(Node.Left).Name, Value);
+  end
+  else if Node.Left is TJSExpression then
+  begin
+    BindTarget(TJSExpression(Node.Left), Value, TJSBindingMode.Assign);
   end;
 end;
 
@@ -2361,7 +2501,20 @@ function TJSInterpreter.VisitCatchClause(const Handler: TJSCatchClause; const Th
 begin
   PushScope;
   try
-    FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
+    if Assigned(Handler.Pattern) then
+    begin
+      for var Name in TJSPatternNames.Of_(Handler.Pattern) do
+      begin
+        FCurrentScope.DeclareLexical(Name, False);
+      end;
+
+      BindTarget(Handler.Pattern, Thrown, TJSBindingMode.Lexical);
+    end
+    else
+    begin
+      FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
+    end;
+
     Result := Visit(Handler.Body);
   finally
     PopScope;
@@ -2449,6 +2602,13 @@ end;
 
 procedure TJSInterpreter.DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
 begin
+  if Prop.Kind = TJSPropertyKind.Spread then
+  begin
+    const SpreadSource = Visit(Prop.Value);
+    CopyDataProperties(Target, SpreadSource, nil);
+    Exit;
+  end;
+
   const KeyName = LiteralPropertyName(Prop);
 
   case Prop.Kind of
@@ -2971,7 +3131,227 @@ begin
     Exit;
   end;
 
+  const IsPattern = (Node.Left is TJSArrayPattern) or (Node.Left is TJSObjectPattern);
+  if IsPattern then
+  begin
+    Result := AssignToPattern(Node);
+    Exit;
+  end;
+
   raise TJSErrorFactory.InvalidLeftHandSide(Node.Line, Node.Column);
+end;
+
+function TJSInterpreter.AssignToPattern(const Node: TJSAssignmentExpression): TJSValue;
+begin
+  Result := Visit(Node.Right);
+  BindTarget(Node.Left, Result, TJSBindingMode.Assign);
+end;
+
+procedure TJSInterpreter.BindTarget(const Target: TJSExpression; const Value: TJSValue; const Mode: TJSBindingMode);
+begin
+  const Resolved = ResolvePatternTarget(Target, Mode);
+  StorePatternTarget(Resolved, Value, Mode);
+end;
+
+function TJSInterpreter.ResolvePatternTarget(const Element: TJSExpression;
+                                             const Mode: TJSBindingMode): TJSPatternTarget;
+begin
+  Result := Default(TJSPatternTarget);
+  Result.Target := Element;
+
+  if Element is TJSAssignmentPattern then
+  begin
+    Result.Target := TJSAssignmentPattern(Element).Target;
+    Result.Default := TJSAssignmentPattern(Element).Default;
+  end;
+
+  if Mode <> TJSBindingMode.Assign then
+    Exit;
+
+  if Result.Target is TJSIdentifier then
+    Result.Binding := FCurrentScope.Resolve(TJSIdentifier(Result.Target).Name)
+  else if Result.Target is TJSMemberExpression then
+    Result.Reference := ResolveMemberReference(TJSMemberExpression(Result.Target));
+end;
+
+procedure TJSInterpreter.StorePatternTarget(const Target: TJSPatternTarget; const Value: TJSValue;
+                                            const Mode: TJSBindingMode);
+begin
+  var StoredValue := Value;
+
+  const UsesDefault = Value.IsUndefined and Assigned(Target.Default);
+  if UsesDefault then
+  begin
+    const IsNamedTarget = (Target.Target is TJSIdentifier) and (not TJSIdentifier(Target.Target).IsParenthesized);
+    if IsNamedTarget then
+      StoredValue := VisitNamed(Target.Default, TJSIdentifier(Target.Target).Name)
+    else
+      StoredValue := Visit(Target.Default);
+  end;
+
+  case Target.Target.NodeType of
+    TJSASTNodeType.Identifier:
+      StoreIdentifier(Target, StoredValue, Mode);
+    TJSASTNodeType.MemberExpression:
+      begin
+        var Reference := Target.Reference;
+        PutReferenceValue(Reference, StoredValue);
+      end;
+    TJSASTNodeType.ArrayPattern:
+      BindArrayPattern(TJSArrayPattern(Target.Target), StoredValue, Mode);
+    TJSASTNodeType.ObjectPattern:
+      BindObjectPattern(TJSObjectPattern(Target.Target), StoredValue, Mode);
+  else
+    raise TJSErrorFactory.InvalidLeftHandSide(Target.Target.Line, Target.Target.Column);
+  end;
+end;
+
+procedure TJSInterpreter.StoreIdentifier(const Target: TJSPatternTarget; const Value: TJSValue;
+                                         const Mode: TJSBindingMode);
+begin
+  const Identifier = TJSIdentifier(Target.Target);
+
+  case Mode of
+    TJSBindingMode.Variable:
+      FCurrentScope.SetVariable(Identifier.Name, Value);
+    TJSBindingMode.Lexical:
+      FCurrentScope.InitializeLexical(Identifier.Name, Value);
+  else
+    const IsUndeclared = FStrictMode and (not FCurrentScope.HasVariable(Identifier.Name));
+    if IsUndeclared then
+      raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Identifier.Line, Identifier.Column);
+
+    PutIdentifierValue(Target.Binding, Identifier.Name, Value);
+  end;
+end;
+
+procedure TJSInterpreter.BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
+                                          const Mode: TJSBindingMode);
+begin
+  var Source := OpenArraySource(Value);
+
+  for var Element in Pattern.Elements do
+  begin
+    const IsHole = (Element = nil);
+    if IsHole then
+    begin
+      Source.Next;
+      Continue;
+    end;
+
+    if Element is TJSSpreadElement then
+    begin
+      const RestTarget = ResolvePatternTarget(TJSSpreadElement(Element).Argument, Mode);
+      const RemainingValues = Source.Remaining;
+      const RestArray = CreateRestArray(RemainingValues, 0);
+      StorePatternTarget(RestTarget, RestArray, Mode);
+      Break;
+    end;
+
+    const Resolved = ResolvePatternTarget(Element, Mode);
+    const NextValue = Source.Next;
+    StorePatternTarget(Resolved, NextValue, Mode);
+  end;
+end;
+
+function TJSInterpreter.OpenArraySource(const Value: TJSValue): TJSArraySource;
+begin
+  Result := Default(TJSArraySource);
+
+  var SourceArray: IJSArray;
+  const IsArray = Value.IsArray and Supports(Value.ToObject, IJSArray, SourceArray);
+  if IsArray then
+  begin
+    Result.Elements := SourceArray;
+    Exit;
+  end;
+
+  if not Value.IsString then
+    raise TJSErrorFactory.TypeError(PATTERN_NOT_ITERABLE);
+
+  const Items = TList<TJSValue>.Create;
+  try
+    AppendStringValues(Value.ToString, Items);
+    Result.Items := Items.ToArray;
+  finally
+    Items.Free;
+  end;
+end;
+
+procedure TJSInterpreter.BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue;
+                                           const Mode: TJSBindingMode);
+begin
+  if Value.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError(Format(CANNOT_DESTRUCTURE, [ToText(Value)]));
+
+  var Excluded: TList<string> := nil;
+  try
+    if Assigned(Pattern.Rest) then
+      Excluded := TList<string>.Create;
+
+    for var Prop in Pattern.Properties do
+    begin
+      const KeyName = LiteralPropertyName(Prop);
+      if Assigned(Excluded) then
+        Excluded.Add(KeyName);
+
+      const Resolved = ResolvePatternTarget(Prop.Value, Mode);
+      const PropertyValue = ReadMember(Value, KeyName);
+      StorePatternTarget(Resolved, PropertyValue, Mode);
+    end;
+
+    if Assigned(Pattern.Rest) then
+    begin
+      const RestTarget = ResolvePatternTarget(Pattern.Rest, Mode);
+      const RestObject = CopyRestProperties(Value, Excluded);
+      StorePatternTarget(RestTarget, RestObject, Mode);
+    end;
+  finally
+    Excluded.Free;
+  end;
+end;
+
+function TJSInterpreter.CopyRestProperties(const Source: TJSValue; const Excluded: TList<string>): TJSValue;
+begin
+  const Rest: IJSObject = TJSObject.Create;
+  Rest.Prototype := FObjectPrototype;
+
+  CopyDataProperties(Rest, Source, Excluded);
+
+  Result := TJSValue.CreateObject(Rest);
+end;
+
+procedure TJSInterpreter.CopyDataProperties(const Target: IJSObject; const Source: TJSValue;
+                                            const Excluded: TList<string>);
+begin
+  if Source.IsString then
+  begin
+    const Text = Source.ToString;
+
+    for var Index := 1 to Length(Text) do
+    begin
+      const PropName = IntToStr(Index - 1);
+      const IsCopied = (not Assigned(Excluded)) or (not Excluded.Contains(PropName));
+      if IsCopied then
+        Target.DefineProperty(PropName, TJSPropertyDescriptor.Create(TJSValue.CreateString(Text[Index])));
+    end;
+
+    Exit;
+  end;
+
+  if not Source.IsObject then
+    Exit;
+
+  const Obj = Source.ToObject;
+
+  for var PropName in Obj.GetOwnPropertyNames do
+  begin
+    const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName);
+    if IsExcluded or (not Obj.GetOwnPropertyDescriptor(PropName).Enumerable) then
+      Continue;
+
+    Target.DefineProperty(PropName, TJSPropertyDescriptor.Create(Obj.GetProperty(PropName)));
+  end;
 end;
 
 function TJSInterpreter.GlobalDataSlot(const Identifier: TJSIdentifier): PJSPropertyDescriptor;

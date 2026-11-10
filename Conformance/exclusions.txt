@@ -18,8 +18,6 @@ class-static-fields-public
 class-static-methods-private
 coalesce-expression
 decorators
-destructuring-assignment
-destructuring-binding
 dynamic-import
 explicit-resource-management
 exponentiation
@@ -39,8 +37,6 @@ json-superset
 logical-assignment-operators
 new.target
 numeric-separator-literal
-object-rest
-object-spread
 optional-catch-binding
 optional-chaining
 super

@@ -15,6 +15,8 @@ uses
   JS4D.RegExpSyntax;
 
 type
+  TJSBindingKind = (Var_, Lexical, Parameter, Catch);
+
   TJSLabelInfo = record
     Name: string;
     LabelsIteration: Boolean;
@@ -35,6 +37,8 @@ type
     FScopes: TJSScopeTracker;
     FClosureCount: Integer;
     FAllowLabelledFunction: Boolean;
+    FInLiteralElement: Boolean;
+    FCoverInitializerCount: Integer;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -50,8 +54,17 @@ type
     function ParseStatementListItem: TJSStatement;
     function ParseBlockStatement: TJSBlockStatement;
     function ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
-                              const CatchParameter: string): TJSBlockStatement;
+                              const CatchParameter: string;
+                              const CatchPatternNames: TArray<string> = nil): TJSBlockStatement;
     function ParseVariableDeclaration: TJSVariableDeclaration;
+    procedure ParseVarDeclarator(const Declaration: TJSVariableDeclaration);
+    procedure ParseVarPatternDeclarator(const Declaration: TJSVariableDeclaration);
+    procedure ParseLexicalPatternBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean);
+    procedure RejectMissingPatternInitializers(const Declaration: TJSVariableDeclaration);
+    function ParseForVarDeclarations: TJSVariableDeclaration;
+    function ParseForInStatementRest(const Left: TJSASTNode): TJSStatement;
+    function ConvertForInTarget(const Target: TJSExpression): TJSExpression;
+    procedure RejectCoverInitializers(const CoverMark: Integer; const Node: TJSASTNode);
     function ParseLexicalDeclaration: TJSVariableDeclaration;
     procedure ParseLexicalBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean;
                                   const RequireInitializer: Boolean);
@@ -126,6 +139,7 @@ type
     function ParseObjectExpression: TJSObjectExpression;
     function ParseObjectMember: TJSObjectProperty;
     function ParseShorthandProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
+    function ParseCoverInitializedProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
     function ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean): TJSObjectProperty;
     function StartsAccessorProperty: Boolean;
     function ParsePropertyKey(out Computed: Boolean): TJSExpression;
@@ -140,12 +154,31 @@ type
     function ParseFormalParameters(const Params: TObjectList<TJSIdentifier>): TJSParameterInfo;
     procedure ParseFormalParameter(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
     procedure ParseRestParameter(const Info: TJSParameterInfo);
-    procedure RejectDuplicateNonSimpleParameters(const Params: TObjectList<TJSIdentifier>;
-                                                 const Info: TJSParameterInfo);
+    procedure RejectDuplicateNonSimpleParameters(const Info: TJSParameterInfo);
     function StartsParameterExpression(const Offset: Integer): Boolean;
     function FindClosingParenthesisOffset: Integer;
     function StartsArrowAfterParenthesis: Boolean;
     function ParseSpreadOrAssignmentExpression: TJSExpression;
+
+    function IsPatternStart: Boolean;
+    procedure CheckBindingName(const Name: string; const Kind: TJSBindingKind);
+    function ParseBindingIdentifier(const Kind: TJSBindingKind): TJSIdentifier;
+    function ParseBindingTarget(const Kind: TJSBindingKind): TJSExpression;
+    function ParseBindingElement(const Kind: TJSBindingKind): TJSExpression;
+    function ParseArrayBindingPattern(const Kind: TJSBindingKind): TJSArrayPattern;
+    function ParseObjectBindingPattern(const Kind: TJSBindingKind): TJSObjectPattern;
+    function ParseBindingProperty(const Kind: TJSBindingKind): TJSObjectProperty;
+    function ConvertToAssignmentPattern(const Node: TJSExpression): TJSExpression;
+    procedure ValidateDestructuringTarget(const Node: TJSExpression);
+    procedure ValidateDestructuringElement(const Node: TJSExpression);
+    procedure ValidateArrayPattern(const Source: TJSArrayExpression);
+    procedure ValidateObjectPattern(const Source: TJSObjectExpression);
+    function BuildDestructuringTarget(const Node: TJSExpression): TJSExpression;
+    function BuildDestructuringElement(const Node: TJSExpression): TJSExpression;
+    function BuildArrayPattern(const Source: TJSArrayExpression): TJSArrayPattern;
+    function BuildObjectPattern(const Source: TJSObjectExpression): TJSObjectPattern;
+    function ParseCatchPattern: TJSCatchClause;
+    procedure CollectBoundNames(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
     procedure ParseArrowBody(const Func: TJSFunctionExpression);
     function ParseConciseBody: TJSBlockStatement;
     procedure RejectDuplicateArrowParameters(const Params: TObjectList<TJSIdentifier>);
@@ -210,6 +243,13 @@ const
   RestParameterNotLastMessage = 'Rest parameter must be last formal parameter';
   InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
+  PATTERN_PARAMETER_FORMAT = '(pattern %d)';
+  REST_PATTERN_NAME = '(rest pattern)';
+  InvalidDestructuringTargetMessage = 'Invalid destructuring assignment target';
+  MissingPatternInitializerMessage = 'Missing initializer in destructuring declaration';
+  RestElementLastMessage = 'Rest element must be last element';
+  CoverInitializerMessage = 'Invalid shorthand property initializer';
+  DuplicateBindingMessage = 'Duplicate binding ''%s'' in a pattern';
 
 { TJSParser }
 
@@ -413,7 +453,8 @@ begin
 end;
 
 function TJSParser.ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
-                                    const CatchParameter: string): TJSBlockStatement;
+                                    const CatchParameter: string;
+                                    const CatchPatternNames: TArray<string>): TJSBlockStatement;
 begin
   Expect(TJSTokenType.LeftBrace);
 
@@ -421,6 +462,7 @@ begin
   Result.IsFunctionBody := (Kind = TJSParserScopeKind.Function_);
   FScopes.Enter(Kind, Parameters);
   FScopes.SetCatchParameter(CatchParameter);
+  FScopes.SetCatchPatternNames(CatchPatternNames);
   const ClosureMark = FClosureCount;
 
   try
@@ -494,6 +536,7 @@ begin
       ParseLexicalBinding(Result, True, Result.Kind = TJSDeclarationKind.Const_);
     until not Match(TJSTokenType.Comma);
 
+    RejectMissingPatternInitializers(Result);
     ExpectSemicolon;
     FScopes.AddDeclaration(Result);
   except
@@ -505,6 +548,12 @@ end;
 procedure TJSParser.ParseLexicalBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean;
                                         const RequireInitializer: Boolean);
 begin
+  if IsPatternStart then
+  begin
+    ParseLexicalPatternBinding(Declaration, AllowIn);
+    Exit;
+  end;
+
   if not Check(TJSTokenType.Identifier) then
     raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
@@ -543,29 +592,103 @@ begin
 
   try
     repeat
-      if not Check(TJSTokenType.Identifier) then
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-      const IdName = CurrentToken.Value;
-      CheckStrictModeReservedWord(IdName);
-      CheckRestrictedBindingName(IdName);
-      DeclareVarName(IdName);
-      Advance;
-
-      var InitExpr: TJSExpression := nil;
-
-      if Match(TJSTokenType.Assign) then
-        InitExpr := ParseAssignmentExpression;
-
-      const Identifier = TJSIdentifier.Create(IdName);
-      const Declarator = TJSVariableDeclarator.Create(Identifier, InitExpr);
-      Result.Declarations.Add(Declarator);
+      ParseVarDeclarator(Result);
     until not Match(TJSTokenType.Comma);
 
+    RejectMissingPatternInitializers(Result);
     ExpectSemicolon;
   except
     Result.Free;
     raise;
+  end;
+end;
+
+procedure TJSParser.ParseVarDeclarator(const Declaration: TJSVariableDeclaration);
+begin
+  if IsPatternStart then
+  begin
+    ParseVarPatternDeclarator(Declaration);
+    Exit;
+  end;
+
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const IdName = CurrentToken.Value;
+  CheckStrictModeReservedWord(IdName);
+  CheckRestrictedBindingName(IdName);
+  DeclareVarName(IdName);
+  Advance;
+
+  var InitExpr: TJSExpression := nil;
+
+  if Match(TJSTokenType.Assign) then
+    InitExpr := ParseAssignmentExpression;
+
+  const Identifier = TJSIdentifier.Create(IdName);
+  const Declarator = TJSVariableDeclarator.Create(Identifier, InitExpr);
+  Declaration.Declarations.Add(Declarator);
+end;
+
+procedure TJSParser.ParseVarPatternDeclarator(const Declaration: TJSVariableDeclaration);
+begin
+  const Pattern = ParseBindingTarget(TJSBindingKind.Var_);
+  var InitExpr: TJSExpression := nil;
+
+  try
+    for var Name in TJSPatternNames.Of_(Pattern) do
+    begin
+      DeclareVarName(Name);
+    end;
+
+    if Match(TJSTokenType.Assign) then
+      InitExpr := ParseAssignmentExpression;
+  except
+    Pattern.Free;
+    raise;
+  end;
+
+  const Declarator = TJSVariableDeclarator.CreateWithPattern(Pattern, InitExpr);
+  Declaration.Declarations.Add(Declarator);
+end;
+
+procedure TJSParser.ParseLexicalPatternBinding(const Declaration: TJSVariableDeclaration; const AllowIn: Boolean);
+begin
+  const Pattern = ParseBindingTarget(TJSBindingKind.Lexical);
+  var InitExpr: TJSExpression := nil;
+
+  try
+    for var Name in TJSPatternNames.Of_(Pattern) do
+    begin
+      DeclareLexicalName(Name, False, False);
+    end;
+
+    if Match(TJSTokenType.Assign) then
+    begin
+      const PreviousAllowed = FInOperatorAllowed;
+      FInOperatorAllowed := AllowIn;
+      try
+        InitExpr := ParseAssignmentExpression;
+      finally
+        FInOperatorAllowed := PreviousAllowed;
+      end;
+    end;
+  except
+    Pattern.Free;
+    raise;
+  end;
+
+  const Declarator = TJSVariableDeclarator.CreateWithPattern(Pattern, InitExpr);
+  Declaration.Declarations.Add(Declarator);
+end;
+
+procedure TJSParser.RejectMissingPatternInitializers(const Declaration: TJSVariableDeclaration);
+begin
+  for var Declarator in Declaration.Declarations do
+  begin
+    const IsMissingInitializer = Assigned(Declarator.Pattern) and (not Assigned(Declarator.Init));
+    if IsMissingInitializer then
+      raise TJSErrorFactory.SyntaxError(MissingPatternInitializerMessage, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
 
@@ -793,18 +916,20 @@ end;
 function TJSParser.ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>;
                                           const ParameterInfo: TJSParameterInfo): TJSBlockStatement;
 begin
-  const HasRest = Assigned(ParameterInfo) and Assigned(ParameterInfo.Rest);
-
   var ParameterNames: TArray<string>;
-  SetLength(ParameterNames, Params.Count + Ord(HasRest));
-
-  for var Index := 0 to Params.Count - 1 do
+  if Assigned(ParameterInfo) then
   begin
-    ParameterNames[Index] := Params[Index].Name;
-  end;
+    ParameterNames := ParameterInfo.BoundNames;
+  end
+  else
+  begin
+    SetLength(ParameterNames, Params.Count);
 
-  if HasRest then
-    ParameterNames[Params.Count] := ParameterInfo.Rest.Name;
+    for var Index := 0 to Params.Count - 1 do
+    begin
+      ParameterNames[Index] := Params[Index].Name;
+    end;
+  end;
 
   const OldStrictMode = FStrictMode;
   const OuterLabelScopeStart = FLabelScopeStart;
@@ -870,101 +995,106 @@ begin
 
   if Check(TJSTokenType.KeywordVar) then
   begin
-    Expect(TJSTokenType.KeywordVar);
-
-    if not Check(TJSTokenType.Identifier) then
-      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-    const VarName = CurrentToken.Value;
-    CheckStrictModeReservedWord(VarName);
-    CheckRestrictedBindingName(VarName);
-    DeclareVarName(VarName);
     Advance;
+    const Declaration = ParseForVarDeclarations;
 
     if Match(TJSTokenType.KeywordIn) then
-    begin
-      const VarId = TJSIdentifier.Create(VarName);
-      const VarDecl = TJSVariableDeclaration.Create;
-      const Declarator = TJSVariableDeclarator.Create(VarId, nil);
-      VarDecl.Declarations.Add(Declarator);
+      Exit(ParseForInStatementRest(Declaration));
 
-      const Right = ParseExpression;
-      Expect(TJSTokenType.RightParen);
-
-      const Body = ParseLoopBody([VarDecl, Right]);
-
-      Exit(TJSForInStatement.Create(VarDecl, Right, Body));
-    end;
-
-    const VarDecl = TJSVariableDeclaration.Create;
-    const VarId = TJSIdentifier.Create(VarName);
-    var InitExpr: TJSExpression := nil;
-
-    if Match(TJSTokenType.Assign) then
-      InitExpr := ParseAssignmentExpression;
-
-    const Declarator = TJSVariableDeclarator.Create(VarId, InitExpr);
-    VarDecl.Declarations.Add(Declarator);
-
-    while Match(TJSTokenType.Comma) do
-    begin
-      if not Check(TJSTokenType.Identifier) then
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-      const NextVarName = CurrentToken.Value;
-      CheckStrictModeReservedWord(NextVarName);
-      CheckRestrictedBindingName(NextVarName);
-      DeclareVarName(NextVarName);
-      Advance;
-
-      const NextVarId = TJSIdentifier.Create(NextVarName);
-      var NextInitExpr: TJSExpression := nil;
-
-      if Match(TJSTokenType.Assign) then
-        NextInitExpr := ParseAssignmentExpression;
-
-      const NextDeclarator = TJSVariableDeclarator.Create(NextVarId, NextInitExpr);
-      VarDecl.Declarations.Add(NextDeclarator);
-    end;
-
-    Init := VarDecl;
+    Init := Declaration;
   end
   else if not Check(TJSTokenType.Semicolon) then
   begin
-    const Expr = ParseExpressionWithoutIn;
+    const CoverMark = FCoverInitializerCount;
+    FInLiteralElement := True;
+    var Expr := ParseExpressionWithoutIn;
 
     if Match(TJSTokenType.KeywordIn) then
     begin
-      EnsureAssignmentTarget(Expr);
-
-      const Right = ParseExpression;
-      Expect(TJSTokenType.RightParen);
-
-      const Body = ParseLoopBody([Expr, Right]);
-
-      Exit(TJSForInStatement.Create(Expr, Right, Body));
+      Expr := ConvertForInTarget(Expr);
+      RejectCoverInitializers(CoverMark, Expr);
+      Exit(ParseForInStatementRest(Expr));
     end;
 
+    RejectCoverInitializers(CoverMark, Expr);
     Init := TJSExpressionStatement.Create(Expr);
   end;
 
-  Expect(TJSTokenType.Semicolon);
-
   var Test: TJSExpression := nil;
-  if not Check(TJSTokenType.Semicolon) then
-    Test := ParseExpression;
-
-  Expect(TJSTokenType.Semicolon);
-
   var Update: TJSExpression := nil;
-  if not Check(TJSTokenType.RightParen) then
-    Update := ParseExpression;
 
-  Expect(TJSTokenType.RightParen);
+  try
+    Expect(TJSTokenType.Semicolon);
+
+    if not Check(TJSTokenType.Semicolon) then
+      Test := ParseExpression;
+
+    Expect(TJSTokenType.Semicolon);
+
+    if not Check(TJSTokenType.RightParen) then
+      Update := ParseExpression;
+
+    Expect(TJSTokenType.RightParen);
+  except
+    FreeOwned([Init, Test, Update]);
+    raise;
+  end;
 
   const Body = ParseLoopBody([Init, Test, Update]);
 
   Result := TJSForStatement.Create(Init, Test, Update, Body);
+end;
+
+function TJSParser.ParseForVarDeclarations: TJSVariableDeclaration;
+begin
+  Result := TJSVariableDeclaration.Create;
+
+  try
+    ParseVarDeclarator(Result);
+
+    if Check(TJSTokenType.KeywordIn) then
+      Exit;
+
+    while Match(TJSTokenType.Comma) do
+    begin
+      ParseVarDeclarator(Result);
+    end;
+
+    RejectMissingPatternInitializers(Result);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseForInStatementRest(const Left: TJSASTNode): TJSStatement;
+begin
+  const Right = ParseExpression;
+  Expect(TJSTokenType.RightParen);
+
+  const Body = ParseLoopBody([Left, Right]);
+
+  Result := TJSForInStatement.Create(Left, Right, Body);
+end;
+
+function TJSParser.ConvertForInTarget(const Target: TJSExpression): TJSExpression;
+begin
+  const IsLiteral = ((Target is TJSArrayExpression) or (Target is TJSObjectExpression)) and
+                    (not Target.IsParenthesized);
+  if IsLiteral then
+    Exit(ConvertToAssignmentPattern(Target));
+
+  EnsureAssignmentTarget(Target);
+  Result := Target;
+end;
+
+procedure TJSParser.RejectCoverInitializers(const CoverMark: Integer; const Node: TJSASTNode);
+begin
+  if FCoverInitializerCount = CoverMark then
+    Exit;
+
+  Node.Free;
+  raise TJSErrorFactory.SyntaxError(CoverInitializerMessage, CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.ParseLexicalForStatement: TJSStatement;
@@ -1028,6 +1158,7 @@ begin
           raise TJSErrorFactory.SyntaxError(MissingConstInitializerMessage, CurrentToken.Line, CurrentToken.Column);
       end;
 
+      RejectMissingPatternInitializers(Declaration);
       Expect(TJSTokenType.Semicolon);
 
       if not Check(TJSTokenType.Semicolon) then
@@ -1357,6 +1488,9 @@ function TJSParser.ParseCatchClause: TJSCatchClause;
 begin
   Expect(TJSTokenType.LeftParen);
 
+  if IsPatternStart then
+    Exit(ParseCatchPattern);
+
   if not Check(TJSTokenType.Identifier) then
     raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
@@ -1376,6 +1510,34 @@ begin
   end;
 
   Result := TJSCatchClause.Create(Param, CatchBody);
+end;
+
+function TJSParser.ParseCatchPattern: TJSCatchClause;
+begin
+  const Pattern = ParseBindingTarget(TJSBindingKind.Catch);
+  var CatchBody: TJSBlockStatement;
+
+  try
+    const Names = TJSPatternNames.Of_(Pattern);
+    for var Index := 0 to Length(Names) - 1 do
+    begin
+      for var EarlierIndex := 0 to Index - 1 do
+      begin
+        const IsDuplicate = (Names[EarlierIndex] = Names[Index]);
+        if IsDuplicate then
+          raise TJSErrorFactory.SyntaxError(Format(DuplicateBindingMessage, [Names[Index]]),
+                                            CurrentToken.Line, CurrentToken.Column);
+      end;
+    end;
+
+    Expect(TJSTokenType.RightParen);
+    CatchBody := ParseScopedBlock(TJSParserScopeKind.Block, nil, '', Names);
+  except
+    Pattern.Free;
+    raise;
+  end;
+
+  Result := TJSCatchClause.CreateWithPattern(Pattern, CatchBody);
 end;
 
 function TJSParser.ParseEmptyStatement: TJSEmptyStatement;
@@ -1463,24 +1625,49 @@ end;
 
 function TJSParser.ParseAssignmentExpression: TJSExpression;
 begin
+  const IsLiteralElement = FInLiteralElement;
+  FInLiteralElement := False;
+  const CoverMark = FCoverInitializerCount;
+
   if StartsArrowFunction then
     Exit(ParseArrowFunction);
 
-  const Left = ParseConditionalExpression;
+  var Left := ParseConditionalExpression;
 
   if IsAssignmentOperator(CurrentToken.TokenType) then
   begin
-    EnsureAssignmentTarget(Left);
+    const IsLiteral = ((Left is TJSArrayExpression) or (Left is TJSObjectExpression)) and
+                      (not Left.IsParenthesized);
+    const IsPatternAssignment = IsLiteral and Check(TJSTokenType.Assign);
+    if IsPatternAssignment then
+      Left := ConvertToAssignmentPattern(Left)
+    else
+      EnsureAssignmentTarget(Left);
 
     const Op = TokenToAssignmentOperator(CurrentToken.TokenType);
     Advance;
 
-    const Right = ParseAssignmentExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseAssignmentExpression;
+    except
+      Left.Free;
+      raise;
+    end;
 
-    Exit(TJSAssignmentExpression.Create(Op, Left, Right));
+    Result := TJSAssignmentExpression.Create(Op, Left, Right);
+  end
+  else
+  begin
+    Result := Left;
   end;
 
-  Result := Left;
+  const HasStrayCoverInitializer = (not IsLiteralElement) and (FCoverInitializerCount <> CoverMark);
+  if HasStrayCoverInitializer then
+  begin
+    Result.Free;
+    raise TJSErrorFactory.SyntaxError(CoverInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
 end;
 
 function TJSParser.ParseConditionalExpression: TJSExpression;
@@ -1489,9 +1676,16 @@ begin
 
   if Match(TJSTokenType.Question) then
   begin
-    const Consequent = ParseNestedAssignmentExpression;
-    Expect(TJSTokenType.Colon);
-    const Alternate = ParseAssignmentExpression;
+    var Consequent: TJSExpression := nil;
+    var Alternate: TJSExpression := nil;
+    try
+      Consequent := ParseNestedAssignmentExpression;
+      Expect(TJSTokenType.Colon);
+      Alternate := ParseAssignmentExpression;
+    except
+      FreeOwned([Test, Consequent, Alternate]);
+      raise;
+    end;
 
     Exit(TJSConditionalExpression.Create(Test, Consequent, Alternate));
   end;
@@ -2011,8 +2205,7 @@ begin
         const Expr = ParseNestedExpression;
         Expect(TJSTokenType.RightParen);
 
-        if Expr is TJSIdentifier then
-          TJSIdentifier(Expr).IsParenthesized := True;
+        Expr.IsParenthesized := True;
 
         Exit(Expr);
       end;
@@ -2047,9 +2240,14 @@ begin
       end
       else
       begin
+        FInLiteralElement := True;
         const Element = ParseSpreadOrAssignmentExpression;
         Result.Elements.Add(Element);
-        Result.HasSpread := Result.HasSpread or (Element is TJSSpreadElement);
+
+        const IsSpread = (Element is TJSSpreadElement);
+        Result.HasSpread := Result.HasSpread or IsSpread;
+        if IsSpread and Check(TJSTokenType.Comma) then
+          Result.SpreadFollowedByComma := True;
 
         if not Check(TJSTokenType.RightBracket) then
           Expect(TJSTokenType.Comma);
@@ -2078,10 +2276,16 @@ begin
       Result.Properties.Add(Member);
 
       const IsDuplicatePrototype = Member.SetsPrototype and HasPrototypeSetter;
-      if IsDuplicatePrototype then
-        raise TJSErrorFactory.SyntaxError(DUPLICATE_PROTOTYPE_MESSAGE, CurrentToken.Line, CurrentToken.Column);
+      if IsDuplicatePrototype and (not Result.HasDuplicatePrototype) then
+      begin
+        Result.HasDuplicatePrototype := True;
+        Inc(FCoverInitializerCount);
+      end;
 
       HasPrototypeSetter := HasPrototypeSetter or Member.SetsPrototype;
+
+      if (Member.Kind = TJSPropertyKind.Spread) and Check(TJSTokenType.Comma) then
+        Result.SpreadFollowedByComma := True;
 
       if not Check(TJSTokenType.RightBrace) then
         Expect(TJSTokenType.Comma);
@@ -2096,6 +2300,12 @@ end;
 
 function TJSParser.ParseObjectMember: TJSObjectProperty;
 begin
+  if Match(TJSTokenType.Ellipsis) then
+  begin
+    const SpreadValue = ParseNestedAssignmentExpression;
+    Exit(TJSObjectProperty.Create(nil, SpreadValue, False, TJSPropertyKind.Spread));
+  end;
+
   if StartsAccessorProperty then
     Exit(ParseAccessorProperty);
 
@@ -2107,6 +2317,7 @@ begin
   try
     if Match(TJSTokenType.Colon) then
     begin
+      FInLiteralElement := True;
       const Value = ParseNestedAssignmentExpression;
       Result := TJSObjectProperty.Create(Key, Value, Computed);
       Exit;
@@ -2126,6 +2337,13 @@ begin
       Exit;
     end;
 
+    const IsCoverInitializer = KeyIsIdentifier and (not Computed) and Check(TJSTokenType.Assign);
+    if IsCoverInitializer then
+    begin
+      Result := ParseCoverInitializedProperty(Key, KeyText);
+      Exit;
+    end;
+
     raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
   except
     Key.Free;
@@ -2142,6 +2360,19 @@ begin
     Inc(FClosureCount);
 
   const Value = TJSIdentifier.Create(Name);
+  Result := TJSObjectProperty.Create(Key, Value, False, TJSPropertyKind.Shorthand);
+end;
+
+function TJSParser.ParseCoverInitializedProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
+begin
+  CheckStrictModeReservedWord(Name);
+  Expect(TJSTokenType.Assign);
+
+  const Default = ParseNestedAssignmentExpression;
+  const Target = TJSIdentifier.Create(Name);
+  const Value = TJSAssignmentPattern.Create(Target, Default);
+
+  Inc(FCoverInitializerCount);
   Result := TJSObjectProperty.Create(Key, Value, False, TJSPropertyKind.Shorthand);
 end;
 
@@ -2167,8 +2398,8 @@ begin
     Exit(False);
 
   const FollowingType = FLexer.PeekToken(1).TokenType;
-  Result := not (FollowingType in [TJSTokenType.Colon, TJSTokenType.LeftParen,
-                                   TJSTokenType.Comma, TJSTokenType.RightBrace]);
+  Result := not (FollowingType in [TJSTokenType.Colon, TJSTokenType.LeftParen, TJSTokenType.Comma,
+                                   TJSTokenType.RightBrace, TJSTokenType.Assign]);
 end;
 
 function TJSParser.ParsePropertyKey(out Computed: Boolean): TJSExpression;
@@ -2316,14 +2547,15 @@ begin
 
     Expect(TJSTokenType.RightParen);
 
-    const IsSimple = (not Info.HasDefaults) and (not Assigned(Info.Rest));
+    const IsSimple = (not Info.HasDefaults) and (not Info.HasPatterns) and (not Assigned(Info.Rest));
     if IsSimple then
     begin
       Info.Free;
       Exit(nil);
     end;
 
-    RejectDuplicateNonSimpleParameters(Params, Info);
+    CollectBoundNames(Params, Info);
+    RejectDuplicateNonSimpleParameters(Info);
     Info.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
                                                             [ARGUMENTS_NAME, EVAL_NAME]);
     Result := Info;
@@ -2335,14 +2567,27 @@ end;
 
 procedure TJSParser.ParseFormalParameter(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
 begin
-  if not Check(TJSTokenType.Identifier) then
-    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+  if IsPatternStart then
+  begin
+    const Pattern = ParseBindingTarget(TJSBindingKind.Parameter);
+    Info.Patterns.Add(Pattern);
+    Info.HasPatterns := True;
 
-  const ParamName = CurrentToken.Value;
-  CheckStrictModeReservedWord(ParamName);
-  Advance;
+    const PlaceholderName = Format(PATTERN_PARAMETER_FORMAT, [Params.Count]);
+    Params.Add(TJSIdentifier.Create(PlaceholderName));
+  end
+  else
+  begin
+    if not Check(TJSTokenType.Identifier) then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
-  Params.Add(TJSIdentifier.Create(ParamName));
+    const ParamName = CurrentToken.Value;
+    CheckStrictModeReservedWord(ParamName);
+    Advance;
+
+    Info.Patterns.Add(nil);
+    Params.Add(TJSIdentifier.Create(ParamName));
+  end;
 
   const HasDefault = Match(TJSTokenType.Assign);
   if not HasDefault then
@@ -2361,35 +2606,65 @@ procedure TJSParser.ParseRestParameter(const Info: TJSParameterInfo);
 begin
   Expect(TJSTokenType.Ellipsis);
 
-  if not Check(TJSTokenType.Identifier) then
-    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+  if IsPatternStart then
+  begin
+    Info.RestPattern := ParseBindingTarget(TJSBindingKind.Parameter);
+    Info.HasPatterns := True;
+    Info.Rest := TJSIdentifier.Create(REST_PATTERN_NAME);
+  end
+  else
+  begin
+    if not Check(TJSTokenType.Identifier) then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
-  const ParamName = CurrentToken.Value;
-  CheckStrictModeReservedWord(ParamName);
-  Advance;
+    const ParamName = CurrentToken.Value;
+    CheckStrictModeReservedWord(ParamName);
+    Advance;
 
-  Info.Rest := TJSIdentifier.Create(ParamName);
+    Info.Rest := TJSIdentifier.Create(ParamName);
+  end;
 
   const ClosesParameters = Check(TJSTokenType.RightParen);
   if not ClosesParameters then
     raise TJSErrorFactory.SyntaxError(RestParameterNotLastMessage, CurrentToken.Line, CurrentToken.Column);
 end;
 
-procedure TJSParser.RejectDuplicateNonSimpleParameters(const Params: TObjectList<TJSIdentifier>;
-                                                       const Info: TJSParameterInfo);
+procedure TJSParser.CollectBoundNames(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
 begin
-  for var Index := 0 to Params.Count - 1 do
+  const Names = TList<string>.Create;
+  try
+    for var Index := 0 to Params.Count - 1 do
+    begin
+      const Pattern = Info.Patterns[Index];
+      if Assigned(Pattern) then
+        TJSPatternNames.Collect(Pattern, Names)
+      else
+        Names.Add(Params[Index].Name);
+    end;
+
+    if Assigned(Info.RestPattern) then
+      TJSPatternNames.Collect(Info.RestPattern, Names)
+    else if Assigned(Info.Rest) then
+      Names.Add(Info.Rest.Name);
+
+    Info.BoundNames := Names.ToArray;
+  finally
+    Names.Free;
+  end;
+end;
+
+procedure TJSParser.RejectDuplicateNonSimpleParameters(const Info: TJSParameterInfo);
+begin
+  const Names = Info.BoundNames;
+
+  for var Index := 1 to Length(Names) - 1 do
   begin
     for var EarlierIndex := 0 to Index - 1 do
     begin
-      const IsDuplicate = (Params[EarlierIndex].Name = Params[Index].Name);
+      const IsDuplicate = (Names[EarlierIndex] = Names[Index]);
       if IsDuplicate then
         raise TJSErrorFactory.SyntaxError(DuplicateNonSimpleParameterMessage, CurrentToken.Line, CurrentToken.Column);
     end;
-
-    const IsRestDuplicate = Assigned(Info.Rest) and (Info.Rest.Name = Params[Index].Name);
-    if IsRestDuplicate then
-      raise TJSErrorFactory.SyntaxError(DuplicateNonSimpleParameterMessage, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
 
@@ -2454,6 +2729,10 @@ begin
 
   const IsRestParameter = (FLexer.PeekToken(Offset).TokenType = TJSTokenType.Ellipsis);
   if IsRestParameter then
+    Exit(StartsArrowAfterParenthesis);
+
+  const IsPatternParameter = (FLexer.PeekToken(Offset).TokenType in [TJSTokenType.LeftBracket, TJSTokenType.LeftBrace]);
+  if IsPatternParameter then
     Exit(StartsArrowAfterParenthesis);
 
   const ClosingToken = FLexer.PeekToken(Offset);
@@ -2602,6 +2881,375 @@ begin
     Exit(ParseNestedAssignmentExpression);
 
   Result := TJSSpreadElement.Create(ParseNestedAssignmentExpression);
+end;
+
+function TJSParser.IsPatternStart: Boolean;
+begin
+  Result := CheckAny([TJSTokenType.LeftBracket, TJSTokenType.LeftBrace]);
+end;
+
+procedure TJSParser.CheckBindingName(const Name: string; const Kind: TJSBindingKind);
+begin
+  if Kind = TJSBindingKind.Lexical then
+  begin
+    CheckLexicalBindingName(Name);
+    Exit;
+  end;
+
+  CheckStrictModeReservedWord(Name);
+  CheckRestrictedBindingName(Name);
+end;
+
+function TJSParser.ParseBindingIdentifier(const Kind: TJSBindingKind): TJSIdentifier;
+begin
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const Name = CurrentToken.Value;
+  CheckBindingName(Name, Kind);
+  Advance;
+
+  Result := TJSIdentifier.Create(Name);
+end;
+
+function TJSParser.ParseBindingTarget(const Kind: TJSBindingKind): TJSExpression;
+begin
+  if Check(TJSTokenType.LeftBracket) then
+    Exit(ParseArrayBindingPattern(Kind));
+
+  if Check(TJSTokenType.LeftBrace) then
+    Exit(ParseObjectBindingPattern(Kind));
+
+  Result := ParseBindingIdentifier(Kind);
+end;
+
+function TJSParser.ParseBindingElement(const Kind: TJSBindingKind): TJSExpression;
+begin
+  const Target = ParseBindingTarget(Kind);
+  if not Check(TJSTokenType.Assign) then
+    Exit(Target);
+
+  try
+    Advance;
+    const Default = ParseNestedAssignmentExpression;
+    Result := TJSAssignmentPattern.Create(Target, Default);
+  except
+    Target.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseArrayBindingPattern(const Kind: TJSBindingKind): TJSArrayPattern;
+begin
+  Expect(TJSTokenType.LeftBracket);
+
+  Result := TJSArrayPattern.Create;
+
+  try
+    while not Check(TJSTokenType.RightBracket) do
+    begin
+      if Check(TJSTokenType.Comma) then
+      begin
+        Result.Elements.Add(nil);
+        Advance;
+        Continue;
+      end;
+
+      if Match(TJSTokenType.Ellipsis) then
+      begin
+        const RestTarget = ParseBindingTarget(Kind);
+        const RestElement = TJSSpreadElement.Create(RestTarget);
+        Result.Elements.Add(RestElement);
+
+        if not Check(TJSTokenType.RightBracket) then
+          raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+
+        Break;
+      end;
+
+      const Element = ParseBindingElement(Kind);
+      Result.Elements.Add(Element);
+
+      if not Check(TJSTokenType.RightBracket) then
+        Expect(TJSTokenType.Comma);
+    end;
+
+    Expect(TJSTokenType.RightBracket);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseObjectBindingPattern(const Kind: TJSBindingKind): TJSObjectPattern;
+begin
+  Expect(TJSTokenType.LeftBrace);
+
+  Result := TJSObjectPattern.Create;
+
+  try
+    while not Check(TJSTokenType.RightBrace) do
+    begin
+      if Match(TJSTokenType.Ellipsis) then
+      begin
+        Result.Rest := ParseBindingIdentifier(Kind);
+
+        if not Check(TJSTokenType.RightBrace) then
+          raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+
+        Break;
+      end;
+
+      const Member = ParseBindingProperty(Kind);
+      Result.Properties.Add(Member);
+
+      if not Check(TJSTokenType.RightBrace) then
+        Expect(TJSTokenType.Comma);
+    end;
+
+    Expect(TJSTokenType.RightBrace);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseBindingProperty(const Kind: TJSBindingKind): TJSObjectProperty;
+begin
+  const KeyIsIdentifier = Check(TJSTokenType.Identifier);
+  const KeyText = CurrentToken.Value;
+
+  var Computed: Boolean;
+  const Key = ParsePropertyKey(Computed);
+  try
+    if Match(TJSTokenType.Colon) then
+    begin
+      const Value = ParseBindingElement(Kind);
+      Result := TJSObjectProperty.Create(Key, Value, Computed);
+      Exit;
+    end;
+
+    const IsShorthand = KeyIsIdentifier and (not Computed);
+    if not IsShorthand then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+    CheckBindingName(KeyText, Kind);
+
+    var Value: TJSExpression := TJSIdentifier.Create(KeyText);
+    if Match(TJSTokenType.Assign) then
+    begin
+      try
+        const Default = ParseNestedAssignmentExpression;
+        Value := TJSAssignmentPattern.Create(Value, Default);
+      except
+        Value.Free;
+        raise;
+      end;
+    end;
+
+    Result := TJSObjectProperty.Create(Key, Value, False, TJSPropertyKind.Shorthand);
+  except
+    Key.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ConvertToAssignmentPattern(const Node: TJSExpression): TJSExpression;
+begin
+  try
+    ValidateDestructuringTarget(Node);
+  except
+    Node.Free;
+    raise;
+  end;
+
+  Result := BuildDestructuringTarget(Node);
+end;
+
+procedure TJSParser.ValidateDestructuringTarget(const Node: TJSExpression);
+begin
+  case Node.NodeType of
+    TJSASTNodeType.ArrayExpression:
+      begin
+        if Node.IsParenthesized then
+          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+
+        ValidateArrayPattern(TJSArrayExpression(Node));
+      end;
+    TJSASTNodeType.ObjectExpression:
+      begin
+        if Node.IsParenthesized then
+          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+
+        ValidateObjectPattern(TJSObjectExpression(Node));
+      end;
+    TJSASTNodeType.ArrayPattern,
+    TJSASTNodeType.ObjectPattern,
+    TJSASTNodeType.MemberExpression:
+      Exit;
+    TJSASTNodeType.Identifier:
+      begin
+        const IsRestricted = IsRestrictedStrictName(TJSIdentifier(Node).Name);
+        if IsRestricted then
+          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+      end;
+  else
+    raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
+end;
+
+procedure TJSParser.ValidateDestructuringElement(const Node: TJSExpression);
+begin
+  const IsDefaultedTarget = (Node.NodeType = TJSASTNodeType.AssignmentExpression) and
+                            (TJSAssignmentExpression(Node).Operator = TJSAssignmentOperator.Assign) and
+                            (not Node.IsParenthesized);
+  if IsDefaultedTarget then
+    ValidateDestructuringTarget(TJSAssignmentExpression(Node).Left)
+  else
+    ValidateDestructuringTarget(Node);
+end;
+
+procedure TJSParser.ValidateArrayPattern(const Source: TJSArrayExpression);
+begin
+  for var Element in Source.Elements do
+  begin
+    if Element = nil then
+      Continue;
+
+    if Element is TJSSpreadElement then
+    begin
+      if Source.SpreadFollowedByComma then
+        raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+
+      ValidateDestructuringTarget(TJSSpreadElement(Element).Argument);
+    end
+    else
+    begin
+      ValidateDestructuringElement(Element);
+    end;
+  end;
+end;
+
+procedure TJSParser.ValidateObjectPattern(const Source: TJSObjectExpression);
+begin
+  for var Prop in Source.Properties do
+  begin
+    case Prop.Kind of
+      TJSPropertyKind.Data:
+        ValidateDestructuringElement(Prop.Value);
+      TJSPropertyKind.Spread:
+        begin
+          const IsLiteralTarget = (Prop.Value is TJSArrayExpression) or (Prop.Value is TJSObjectExpression);
+          if Source.SpreadFollowedByComma or IsLiteralTarget then
+            raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+
+          ValidateDestructuringTarget(Prop.Value);
+        end;
+      TJSPropertyKind.Shorthand:
+        begin
+          const IsCoverInitializer = (Prop.Value is TJSAssignmentPattern);
+          if IsCoverInitializer then
+            ValidateDestructuringTarget(TJSAssignmentPattern(Prop.Value).Target)
+          else
+            ValidateDestructuringTarget(Prop.Value);
+        end;
+    else
+      raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+    end;
+  end;
+end;
+
+function TJSParser.BuildDestructuringTarget(const Node: TJSExpression): TJSExpression;
+begin
+  case Node.NodeType of
+    TJSASTNodeType.ArrayExpression:
+      Result := BuildArrayPattern(TJSArrayExpression(Node));
+    TJSASTNodeType.ObjectExpression:
+      Result := BuildObjectPattern(TJSObjectExpression(Node));
+  else
+    Result := Node;
+  end;
+end;
+
+function TJSParser.BuildDestructuringElement(const Node: TJSExpression): TJSExpression;
+begin
+  const IsDefaultedTarget = (Node.NodeType = TJSASTNodeType.AssignmentExpression) and
+                            (TJSAssignmentExpression(Node).Operator = TJSAssignmentOperator.Assign) and
+                            (not Node.IsParenthesized);
+  if not IsDefaultedTarget then
+    Exit(BuildDestructuringTarget(Node));
+
+  const Assignment = TJSAssignmentExpression(Node);
+  const Target = Assignment.TakeLeft;
+  const Default = Assignment.TakeRight;
+  Assignment.Free;
+
+  Result := TJSAssignmentPattern.Create(Target, Default);
+end;
+
+function TJSParser.BuildArrayPattern(const Source: TJSArrayExpression): TJSArrayPattern;
+begin
+  Result := TJSArrayPattern.Create;
+  Result.Line := Source.Line;
+  Result.Column := Source.Column;
+
+  Source.Elements.OwnsObjects := False;
+
+  for var Element in Source.Elements do
+  begin
+    if Element = nil then
+    begin
+      Result.Elements.Add(nil);
+    end
+    else if Element is TJSSpreadElement then
+    begin
+      const Rest = TJSSpreadElement(Element);
+      Rest.Argument := BuildDestructuringTarget(Rest.Argument);
+      Result.Elements.Add(Rest);
+    end
+    else
+    begin
+      const Built = BuildDestructuringElement(Element);
+      Result.Elements.Add(Built);
+    end;
+  end;
+
+  Source.Elements.Clear;
+  Source.Free;
+end;
+
+function TJSParser.BuildObjectPattern(const Source: TJSObjectExpression): TJSObjectPattern;
+begin
+  Result := TJSObjectPattern.Create;
+  Result.Line := Source.Line;
+  Result.Column := Source.Column;
+
+  Source.Properties.OwnsObjects := False;
+
+  if Source.HasDuplicatePrototype then
+    Dec(FCoverInitializerCount);
+
+  for var Prop in Source.Properties do
+  begin
+    if Prop.Kind = TJSPropertyKind.Spread then
+    begin
+      Result.Rest := Prop.Value;
+      Prop.Value := nil;
+      Prop.Free;
+      Continue;
+    end;
+
+    const IsCoverInitializer = (Prop.Value is TJSAssignmentPattern);
+    if IsCoverInitializer then
+      Dec(FCoverInitializerCount)
+    else
+      Prop.Value := BuildDestructuringElement(Prop.Value);
+
+    Result.Properties.Add(Prop);
+  end;
+
+  Source.Properties.Clear;
+  Source.Free;
 end;
 
 function TJSParser.IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
