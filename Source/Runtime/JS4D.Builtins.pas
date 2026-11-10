@@ -39,6 +39,10 @@ type
                                    const Comparer: IJSFunction; const Executor: TJSCallbackExecutor; const Limits: TJSLimits); static;
     class function ArrayFlat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
+    class function IntegerArgument(const Args: TArray<TJSValue>; const Index: Integer): Double; static;
+    class function ClampPosition(const Position: Double; const Count: Integer): Integer; static;
+    class function RelativePosition(const Position: Double; const Count: Integer): Integer; static;
+    class function EndPosition(const Args: TArray<TJSValue>; const Index: Integer; const Count: Integer): Double; static;
     class function StringCharAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringCharCodeAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -90,6 +94,7 @@ type
 
     class function HasArrayMethod(const MethodName: string): Boolean; static;
     class function HasStringMethod(const MethodName: string): Boolean; static;
+    class function IsNumericStringArgument(const MethodName: string; const Index: Integer): Boolean; static;
     class function HasNumberMethod(const MethodName: string): Boolean; static;
     class function HasFunctionMethod(const MethodName: string): Boolean; static;
     class function HasObjectMethod(const MethodName: string): Boolean; static;
@@ -700,48 +705,71 @@ begin
   Result := TJSValue.CreateObject(ResultArr);
 end;
 
+class function TJSBuiltins.IntegerArgument(const Args: TArray<TJSValue>; const Index: Integer): Double;
+begin
+  Result := 0;
+
+  if Index >= Length(Args) then
+    Exit;
+
+  const Number = Args[Index].ToNumber;
+  if not IsNaN(Number) then
+    Result := Int(Number);
+end;
+
+class function TJSBuiltins.ClampPosition(const Position: Double; const Count: Integer): Integer;
+begin
+  Result := Trunc(EnsureRange(Position, 0, Count));
+end;
+
+class function TJSBuiltins.RelativePosition(const Position: Double; const Count: Integer): Integer;
+begin
+  if Position < 0 then
+    Result := Trunc(Max(Count + Position, 0))
+  else
+    Result := Trunc(Min(Position, Count));
+end;
+
+class function TJSBuiltins.EndPosition(const Args: TArray<TJSValue>; const Index: Integer; const Count: Integer): Double;
+begin
+  const IsEndGiven = (Index < Length(Args)) and (not Args[Index].IsUndefined);
+  if IsEndGiven then
+    Result := IntegerArgument(Args, Index)
+  else
+    Result := Count;
+end;
+
 class function TJSBuiltins.StringCharAt(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Index := 0;
+  const Position = IntegerArgument(Args, 0);
 
-  if Length(Args) > 0 then
-    Index := Trunc(Args[0].ToNumber);
-
-  if (Index >= 0) and (Index < Length(Str)) then
-    Result := TJSValue.CreateString(Str[Index + 1])
+  const IsInRange = (Position >= 0) and (Position < Length(Str));
+  if IsInRange then
+    Result := TJSValue.CreateString(Str[Trunc(Position) + 1])
   else
     Result := TJSValue.CreateString(EMPTY_STRING);
 end;
 
 class function TJSBuiltins.StringCharCodeAt(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Index := 0;
+  const Position = IntegerArgument(Args, 0);
 
-  if Length(Args) > 0 then
-    Index := Trunc(Args[0].ToNumber);
-
-  if (Index >= 0) and (Index < Length(Str)) then
-    Result := TJSValue.CreateNumber(Ord(Str[Index + 1]))
+  const IsInRange = (Position >= 0) and (Position < Length(Str));
+  if IsInRange then
+    Result := TJSValue.CreateNumber(Ord(Str[Trunc(Position) + 1]))
   else
     Result := TJSValue.CreateNaN;
 end;
 
 class function TJSBuiltins.StringIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
+  const SearchStr = ArgumentOrUndefined(Args, 0).ToLimitedString(Limits);
+  const FromIndex = ClampPosition(IntegerArgument(Args, 1), Length(Str));
 
-  const SearchStr = Args[0].ToLimitedString(Limits);
+  if SearchStr = EMPTY_STRING then
+    Exit(TJSValue.CreateNumber(FromIndex));
 
-  var FromIndex := 1;
-
-  if Length(Args) > 1 then
-    FromIndex := Max(1, Trunc(Args[1].ToNumber) + 1);
-
-  const Position = Pos(SearchStr, Str, FromIndex);
+  const Position = Pos(SearchStr, Str, FromIndex + 1);
 
   if Position > 0 then
     Result := TJSValue.CreateNumber(Position - 1)
@@ -751,25 +779,17 @@ end;
 
 class function TJSBuiltins.StringLastIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
+  const SearchStr = ArgumentOrUndefined(Args, 0).ToLimitedString(Limits);
 
-  const SearchStr = Args[0].ToLimitedString(Limits);
+  var StartIndex := Length(Str);
+  const PositionNumber = ArgumentOrUndefined(Args, 1).ToNumber;
+  if not IsNaN(PositionNumber) then
+    StartIndex := ClampPosition(Int(PositionNumber), Length(Str));
 
-  var MaxIndex := Length(Str);
+  if SearchStr = EMPTY_STRING then
+    Exit(TJSValue.CreateNumber(StartIndex));
 
-  if Length(Args) > 1 then
-  begin
-    const ArgValue = Args[1].ToNumber;
-
-    if not IsNaN(ArgValue) then
-      MaxIndex := Min(Trunc(ArgValue) + Length(SearchStr), Length(Str));
-  end;
-
-  const SearchIn = Copy(Str, 1, MaxIndex);
+  const SearchIn = Copy(Str, 1, Min(StartIndex + Length(SearchStr), Length(Str)));
   var LastPos := 0;
   var CurrentPos := 1;
 
@@ -792,24 +812,8 @@ end;
 
 class function TJSBuiltins.StringSubstring(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var StartIndex := 0;
-  var EndIndex := Length(Str);
-
-  if Length(Args) > 0 then
-  begin
-    const StartArg = Args[0].ToNumber;
-
-    if not IsNaN(StartArg) then
-      StartIndex := Max(0, Trunc(StartArg));
-  end;
-
-  if Length(Args) > 1 then
-  begin
-    const EndArg = Args[1].ToNumber;
-
-    if not IsNaN(EndArg) then
-      EndIndex := Max(0, Trunc(EndArg));
-  end;
+  var StartIndex := ClampPosition(IntegerArgument(Args, 0), Length(Str));
+  var EndIndex := ClampPosition(EndPosition(Args, 1, Length(Str)), Length(Str));
 
   if StartIndex > EndIndex then
   begin
@@ -818,57 +822,21 @@ begin
     EndIndex := Temp;
   end;
 
-  StartIndex := Min(StartIndex, Length(Str));
-  EndIndex := Min(EndIndex, Length(Str));
-
   Result := TJSValue.CreateString(Copy(Str, StartIndex + 1, EndIndex - StartIndex));
 end;
 
 class function TJSBuiltins.StringSubstr(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var StartIndex := 0;
-  var CharCount := Length(Str);
-
-  if Length(Args) > 0 then
-  begin
-    StartIndex := Trunc(Args[0].ToNumber);
-
-    if StartIndex < 0 then
-      StartIndex := Max(0, Length(Str) + StartIndex);
-  end;
-
-  if Length(Args) > 1 then
-    CharCount := Max(0, Trunc(Args[1].ToNumber));
-
-  StartIndex := Min(StartIndex, Length(Str));
-  CharCount := Min(CharCount, Length(Str) - StartIndex);
+  const StartIndex = RelativePosition(IntegerArgument(Args, 0), Length(Str));
+  const CharCount = ClampPosition(EndPosition(Args, 1, Length(Str)), Length(Str) - StartIndex);
 
   Result := TJSValue.CreateString(Copy(Str, StartIndex + 1, CharCount));
 end;
 
 class function TJSBuiltins.StringSlice(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var StartIndex := 0;
-  var EndIndex := Length(Str);
-
-  if Length(Args) > 0 then
-  begin
-    StartIndex := Trunc(Args[0].ToNumber);
-
-    if StartIndex < 0 then
-      StartIndex := Max(0, Length(Str) + StartIndex);
-  end;
-
-  if Length(Args) > 1 then
-  begin
-    EndIndex := Trunc(Args[1].ToNumber);
-
-    if EndIndex < 0 then
-      EndIndex := Max(0, Length(Str) + EndIndex);
-  end;
-
-  StartIndex := Min(StartIndex, Length(Str));
-  EndIndex := Min(EndIndex, Length(Str));
+  const StartIndex = RelativePosition(IntegerArgument(Args, 0), Length(Str));
+  const EndIndex = RelativePosition(EndPosition(Args, 1, Length(Str)), Length(Str));
 
   if StartIndex >= EndIndex then
     Result := TJSValue.CreateString(EMPTY_STRING)
@@ -1645,6 +1613,33 @@ begin
   begin
     if StringMethodName = MethodName then
       Exit(True);
+  end;
+end;
+
+class function TJSBuiltins.IsNumericStringArgument(const MethodName: string; const Index: Integer): Boolean;
+begin
+  const IsFirstNumeric = (MethodName = METHOD_CHAR_AT) or
+                         (MethodName = METHOD_CHAR_CODE_AT) or
+                         (MethodName = METHOD_REPEAT) or
+                         (MethodName = METHOD_PAD_START) or
+                         (MethodName = METHOD_PAD_END);
+
+  const IsSecondNumeric = (MethodName = METHOD_INDEX_OF) or
+                          (MethodName = METHOD_LAST_INDEX_OF) or
+                          (MethodName = METHOD_SPLIT) or
+                          (MethodName = METHOD_STARTS_WITH) or
+                          (MethodName = METHOD_ENDS_WITH) or
+                          (MethodName = METHOD_INCLUDES);
+
+  const IsBothNumeric = (MethodName = METHOD_SUBSTRING) or
+                        (MethodName = METHOD_SUBSTR) or
+                        (MethodName = METHOD_SLICE);
+
+  case Index of
+    0 : Result := IsFirstNumeric or IsBothNumeric;
+    1 : Result := IsSecondNumeric or IsBothNumeric;
+  else
+    Result := False;
   end;
 end;
 

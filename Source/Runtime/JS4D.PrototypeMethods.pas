@@ -25,7 +25,10 @@ type
     function ObjectToText(const Source: IJSObject): string;
     function ValueToText(const Value: TJSValue): string;
     function PropertyToText(const Source: IJSObject; const PropertyName: string; const DefaultText: string): string;
+    function ConvertArgumentToPrimitive(const Arg: TJSValue; const PreferString: Boolean): TJSValue;
     function ConvertArgumentsToPrimitives(const Args: TArray<TJSValue>; const PreferString: Boolean): TArray<TJSValue>;
+    function ConvertStringArgument(const MethodName: string; const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
+    function ConvertStringArguments(const MethodName: string; const Args: TArray<TJSValue>): TArray<TJSValue>;
     function ThisToText(const This: IJSObject; const MethodName: string): string;
     function ThisToPrimitive(const This: IJSObject; const TypeName: string; const MethodName: string): TJSValue;
     function ClassTagOf(const Source: IJSObject): string;
@@ -83,6 +86,7 @@ const
   METHOD_IS_PROTOTYPE_OF = 'isPrototypeOf';
   METHOD_EXEC = 'exec';
   METHOD_TEST = 'test';
+  METHOD_SPLIT = 'split';
   TYPE_NAME_STRING = 'String';
   TYPE_NAME_NUMBER = 'Number';
   TYPE_NAME_BOOLEAN = 'Boolean';
@@ -219,6 +223,16 @@ begin
     Result := ValueToText(PropertyValue);
 end;
 
+function TJSPrototypeMethods.ConvertArgumentToPrimitive(const Arg: TJSValue; const PreferString: Boolean): TJSValue;
+begin
+  const IsRegExp = Arg.IsObject and Supports(Arg.ToObject, IJSRegExp);
+  const KeepsIdentity = (not Arg.IsObject) or Arg.IsArray or Arg.IsFunction or IsRegExp;
+  if KeepsIdentity then
+    Result := Arg
+  else
+    Result := ObjectToPrimitive(Arg.ToObject, PreferString);
+end;
+
 function TJSPrototypeMethods.ConvertArgumentsToPrimitives(const Args: TArray<TJSValue>;
                                                           const PreferString: Boolean): TArray<TJSValue>;
 begin
@@ -226,14 +240,39 @@ begin
 
   for var Index := 0 to Length(Args) - 1 do
   begin
-    const Arg = Args[Index];
+    Result[Index] := ConvertArgumentToPrimitive(Args[Index], PreferString);
+  end;
+end;
 
-    const IsRegExp = Arg.IsObject and Supports(Arg.ToObject, IJSRegExp);
-    const KeepsIdentity = (not Arg.IsObject) or Arg.IsArray or Arg.IsFunction or IsRegExp;
-    if KeepsIdentity then
-      Result[Index] := Arg
-    else
-      Result[Index] := ObjectToPrimitive(Arg.ToObject, PreferString);
+function TJSPrototypeMethods.ConvertStringArgument(const MethodName: string; const Args: TArray<TJSValue>;
+                                                   const Index: Integer): TJSValue;
+begin
+  const Arg = Args[Index];
+
+  const IsNumber = Arg.IsObject and TJSBuiltins.IsNumericStringArgument(MethodName, Index);
+  if IsNumber then
+  begin
+    const Primitive = ObjectToPrimitive(Arg.ToObject, False);
+    Result := TJSValue.CreateNumber(Primitive.ToNumber);
+  end
+  else
+    Result := ConvertArgumentToPrimitive(Arg, True);
+end;
+
+function TJSPrototypeMethods.ConvertStringArguments(const MethodName: string;
+                                                    const Args: TArray<TJSValue>): TArray<TJSValue>;
+begin
+  SetLength(Result, Length(Args));
+
+  const IsLimitFirst = (MethodName = METHOD_SPLIT) and (Length(Args) > 1);
+  if IsLimitFirst then
+    Result[1] := ConvertStringArgument(MethodName, Args, 1);
+
+  for var Index := 0 to Length(Args) - 1 do
+  begin
+    const IsConverted = IsLimitFirst and (Index = 1);
+    if not IsConverted then
+      Result[Index] := ConvertStringArgument(MethodName, Args, Index);
   end;
 end;
 
@@ -524,7 +563,7 @@ begin
 
   const Text = ThisToText(This, MethodName);
 
-  const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, True);
+  const PrimitiveArgs = ConvertStringArguments(MethodName, Args);
 
   const Executor: TJSCallbackExecutor =
     function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
