@@ -133,6 +133,7 @@
         <DCCReference Include="JS4D.Tests.DeleteIdentifier.pas"/>
         <DCCReference Include="JS4D.Tests.WithStatement.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrowFunctions.pas"/>
         <DCCReference Include="JS4D.Tests.Date.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinAttributes.pas"/>
         <DCCReference Include="JS4D.Tests.LabelledStatements.pas"/>

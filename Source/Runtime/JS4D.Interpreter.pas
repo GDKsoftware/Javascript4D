@@ -284,6 +284,8 @@ type
     function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
+    function CurrentThisObject: IJSObject;
+    function CreateArrowFunction(const Node: TJSFunctionExpression): IJSFunction;
 
     function ToText(const Value: TJSValue): string;
     function VisitText(const Node: TJSASTNode): string;
@@ -2208,8 +2210,51 @@ begin
   Target.DefineOwnProperty(Name, Definition);
 end;
 
+function TJSInterpreter.CurrentThisObject: IJSObject;
+begin
+  if Assigned(FThisValue) then
+    Exit(FThisValue);
+
+  const IsThisUndefined = (FStrictMode and (FCallDepth > 0));
+  if IsThisUndefined then
+    Exit(nil);
+
+  Result := FGlobalObject;
+end;
+
+function TJSInterpreter.CreateArrowFunction(const Node: TJSFunctionExpression): IJSFunction;
+begin
+  const Func = TJSFunction.Create;
+  Func.Prototype := FFunctionPrototype;
+  Func.BodyNode := Node.Body;
+  Func.IsStrict := FStrictMode or Node.IsStrict;
+  Func.ClosureScope := FCurrentScope;
+  Func.IsArrow := True;
+  Func.IsConstructor := False;
+  Func.LexicalThis := CurrentThisObject;
+
+  var Params: TArray<string>;
+  SetLength(Params, Node.Params.Count);
+
+  for var Index := 0 to Node.Params.Count - 1 do
+  begin
+    Params[Index] := Node.Params[Index].Name;
+  end;
+
+  Func.Parameters := Params;
+  RegisterFunction(Func);
+
+  Result := Func;
+end;
+
 function TJSInterpreter.VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
 begin
+  if Node.IsArrow then
+  begin
+    const ArrowFunction = CreateArrowFunction(Node);
+    Exit(TJSValue.CreateObject(ArrowFunction));
+  end;
+
   const Func = TJSFunction.Create;
   Func.Prototype := FFunctionPrototype;
 
@@ -3096,7 +3141,11 @@ begin
   const OldStrictMode = FStrictMode;
   const OldScope = FCurrentScope;
   const OldVarScope = FVarScope;
-  FThisValue := ThisObj;
+  const IsArrow = Func.IsArrow;
+  if IsArrow then
+    FThisValue := Func.LexicalThis
+  else
+    FThisValue := ThisObj;
   FStrictMode := Func.IsStrict;
 
   var ParentScope: IJSScope;
@@ -3110,7 +3159,7 @@ begin
   RegisterScope(FCurrentScope);
   Inc(FCallDepth);
   try
-    if ReferencesArguments(Func) then
+    if (not IsArrow) and ReferencesArguments(Func) then
     begin
       FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args, Func)));
     end;
@@ -3563,6 +3612,7 @@ begin
       else if Supports(Item, IJSFunction, Func) then
       begin
         GCMark(Func.ClosureScope, Live, Work);
+        GCMark(Func.LexicalThis, Live, Work);
         GCMark(Func.Prototype, Live, Work);
         GCMarkOwnProperties(Func, Live, Work);
       end
@@ -3591,6 +3641,7 @@ begin
       begin
         FFunctionPrograms.Remove(Pointer(Func as IInterface));
         Func.ClosureScope := nil;
+        Func.LexicalThis := nil;
         Func.NativeFunction := nil;
         DetachProperties(Func);
         FFunctionRegistry.Delete(Index);

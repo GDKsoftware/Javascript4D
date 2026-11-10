@@ -251,6 +251,10 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetIsArrow: Boolean;
+    procedure SetIsArrow(const Value: Boolean);
+    function GetLexicalThis: IJSObject;
+    procedure SetLexicalThis(const Value: IJSObject);
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -261,6 +265,8 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property IsArrow: Boolean read GetIsArrow write SetIsArrow;
+    property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
   end;
 
   IJSError = interface(IJSObject)
@@ -398,6 +404,8 @@ type
     FClosureScope: IJSScope;
     FCallHandler: TJSCallHandler;
     FIsConstructor: Boolean;
+    FIsArrow: Boolean;
+    FLexicalThis: IJSObject;
 
   protected
     function GetName: string;
@@ -417,6 +425,10 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetIsArrow: Boolean;
+    procedure SetIsArrow(const Value: Boolean);
+    function GetLexicalThis: IJSObject;
+    procedure SetLexicalThis(const Value: IJSObject);
 
   public
     constructor Create;
@@ -437,6 +449,8 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property IsArrow: Boolean read GetIsArrow write SetIsArrow;
+    property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -1660,6 +1674,26 @@ begin
   FIsConstructor := Value;
 end;
 
+function TJSFunctionImpl.GetIsArrow: Boolean;
+begin
+  Result := FIsArrow;
+end;
+
+procedure TJSFunctionImpl.SetIsArrow(const Value: Boolean);
+begin
+  FIsArrow := Value;
+end;
+
+function TJSFunctionImpl.GetLexicalThis: IJSObject;
+begin
+  Result := FLexicalThis;
+end;
+
+procedure TJSFunctionImpl.SetLexicalThis(const Value: IJSObject);
+begin
+  FLexicalThis := Value;
+end;
+
 constructor TJSFunctionImpl.Create;
 begin
   inherited Create;
@@ -1681,6 +1715,7 @@ end;
 destructor TJSFunctionImpl.Destroy;
 begin
   FClosureScope := nil;
+  FLexicalThis := nil;
   FNativeFunction := nil;
   inherited;
 end;

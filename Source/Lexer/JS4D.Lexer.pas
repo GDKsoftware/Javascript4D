@@ -876,6 +876,11 @@ begin
           end;
           Exit(TJSToken.Create(TJSTokenType.Equal, '==', FLine, StartColumn));
         end;
+        if CurrentChar = GREATER_THAN then
+        begin
+          Advance;
+          Exit(TJSToken.Create(TJSTokenType.Arrow, '=>', FLine, StartColumn));
+        end;
         Exit(TJSToken.Create(TJSTokenType.Assign, '=', FLine, StartColumn));
       end;
 

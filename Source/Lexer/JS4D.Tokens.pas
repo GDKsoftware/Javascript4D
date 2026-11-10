@@ -39,6 +39,7 @@ type
     Modulo,
 
     Assign,
+    Arrow,
     PlusAssign,
     MinusAssign,
     MultiplyAssign,

@@ -123,6 +123,13 @@ type
     function ParseAccessorFunction(const Kind: TJSPropertyKind): TJSFunctionExpression;
     function ParseFunctionExpression: TJSFunctionExpression;
     procedure ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
+    function StartsArrowFunction: Boolean;
+    function ParseArrowFunction: TJSFunctionExpression;
+    procedure ParseArrowParameters(const Func: TJSFunctionExpression);
+    procedure ParseArrowParameter(const Func: TJSFunctionExpression);
+    procedure ParseArrowBody(const Func: TJSFunctionExpression);
+    function ParseConciseBody: TJSBlockStatement;
+    procedure RejectDuplicateArrowParameters(const Params: TObjectList<TJSIdentifier>);
     function ParseArguments: TObjectList<TJSExpression>;
 
     function IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
@@ -174,6 +181,7 @@ const
   MissingConstInitializerMessage = 'Missing initializer in const declaration';
   LetBindingNameMessage = 'let is disallowed as a lexically bound name';
   ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
+  DuplicateArrowParameterMessage = 'Duplicate parameter name not allowed in arrow functions';
   LET_NAME = 'let';
 
 { TJSParser }
@@ -1371,10 +1379,15 @@ begin
     const SeqExpr = TJSSequenceExpression.Create;
     SeqExpr.Expressions.Add(Expr);
 
-    while Match(TJSTokenType.Comma) do
-    begin
-      const NextExpr = ParseAssignmentExpression;
-      SeqExpr.Expressions.Add(NextExpr);
+    try
+      while Match(TJSTokenType.Comma) do
+      begin
+        const NextExpr = ParseAssignmentExpression;
+        SeqExpr.Expressions.Add(NextExpr);
+      end;
+    except
+      SeqExpr.Free;
+      raise;
     end;
 
     Exit(SeqExpr);
@@ -1429,6 +1442,9 @@ end;
 
 function TJSParser.ParseAssignmentExpression: TJSExpression;
 begin
+  if StartsArrowFunction then
+    Exit(ParseArrowFunction);
+
   const Left = ParseConditionalExpression;
 
   if IsAssignmentOperator(CurrentToken.TokenType) then
@@ -2124,6 +2140,143 @@ begin
 
   CheckStrictFunctionHeader(FuncName, Func.Params);
   FStrictMode := OldStrictMode;
+end;
+
+function TJSParser.StartsArrowFunction: Boolean;
+begin
+  if Check(TJSTokenType.Identifier) then
+  begin
+    const NextToken = FLexer.PeekToken(1);
+    Exit(NextToken.TokenType = TJSTokenType.Arrow);
+  end;
+
+  if not Check(TJSTokenType.LeftParen) then
+    Exit(False);
+
+  var Offset := 1;
+  while FLexer.PeekToken(Offset).TokenType = TJSTokenType.Identifier do
+  begin
+    Inc(Offset);
+
+    const SeparatorToken = FLexer.PeekToken(Offset);
+    const HasMoreParameters = (SeparatorToken.TokenType = TJSTokenType.Comma);
+    if not HasMoreParameters then
+      Break;
+
+    Inc(Offset);
+  end;
+
+  const ClosingToken = FLexer.PeekToken(Offset);
+  const TokenAfterClosing = FLexer.PeekToken(Offset + 1);
+  const ClosesParameters = (ClosingToken.TokenType = TJSTokenType.RightParen);
+  Result := ClosesParameters and (TokenAfterClosing.TokenType = TJSTokenType.Arrow);
+end;
+
+function TJSParser.ParseArrowFunction: TJSFunctionExpression;
+begin
+  Result := TJSFunctionExpression.Create;
+  Result.IsArrow := True;
+
+  try
+    ParseArrowParameters(Result);
+
+    const HasLineBreakBeforeArrow = CurrentToken.LineTerminatorBefore;
+    if HasLineBreakBeforeArrow then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+    Expect(TJSTokenType.Arrow);
+    Inc(FClosureCount);
+
+    ParseArrowBody(Result);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.ParseArrowParameters(const Func: TJSFunctionExpression);
+begin
+  const IsParenthesized = Match(TJSTokenType.LeftParen);
+  if not IsParenthesized then
+  begin
+    ParseArrowParameter(Func);
+    Exit;
+  end;
+
+  if not Check(TJSTokenType.RightParen) then
+  begin
+    repeat
+      ParseArrowParameter(Func);
+    until (not Match(TJSTokenType.Comma)) or Check(TJSTokenType.RightParen);
+  end;
+
+  Expect(TJSTokenType.RightParen);
+  RejectDuplicateArrowParameters(Func.Params);
+end;
+
+procedure TJSParser.ParseArrowParameter(const Func: TJSFunctionExpression);
+begin
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const ParamName = CurrentToken.Value;
+  CheckStrictModeReservedWord(ParamName);
+  Advance;
+
+  const Parameter = TJSIdentifier.Create(ParamName);
+  Func.Params.Add(Parameter);
+end;
+
+procedure TJSParser.ParseArrowBody(const Func: TJSFunctionExpression);
+begin
+  const OldStrictMode = FStrictMode;
+
+  if Check(TJSTokenType.LeftBrace) then
+  begin
+    const Body = ParseFunctionBodyBlock(Func.Params);
+    Func.Body := Body;
+
+    if Body.DeclaresStrictMode then
+    begin
+      Func.IsStrict := True;
+      FStrictMode := True;
+    end;
+  end
+  else
+  begin
+    Func.Body := ParseConciseBody;
+  end;
+
+  CheckStrictFunctionHeader('', Func.Params);
+  FStrictMode := OldStrictMode;
+end;
+
+function TJSParser.ParseConciseBody: TJSBlockStatement;
+begin
+  Result := TJSBlockStatement.Create;
+  Result.IsFunctionBody := True;
+
+  try
+    const Argument = ParseAssignmentExpression;
+    const ReturnStatement = TJSReturnStatement.Create(Argument);
+    Result.Body.Add(ReturnStatement);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.RejectDuplicateArrowParameters(const Params: TObjectList<TJSIdentifier>);
+begin
+  for var Index := 1 to Params.Count - 1 do
+  begin
+    for var EarlierIndex := 0 to Index - 1 do
+    begin
+      const IsDuplicate = (Params[EarlierIndex].Name = Params[Index].Name);
+      if IsDuplicate then
+        raise TJSErrorFactory.SyntaxError(DuplicateArrowParameterMessage, Params[Index].Line, Params[Index].Column);
+    end;
+  end;
 end;
 
 function TJSParser.ParseArguments: TObjectList<TJSExpression>;

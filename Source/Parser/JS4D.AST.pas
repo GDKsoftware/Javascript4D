@@ -209,6 +209,7 @@ type
     FParams: TObjectList<TJSIdentifier>;
     FBody: TJSStatement;
     FIsStrict: Boolean;
+    FIsArrow: Boolean;
 
   public
     constructor Create;
@@ -218,6 +219,7 @@ type
     property Params: TObjectList<TJSIdentifier> read FParams;
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property IsArrow: Boolean read FIsArrow write FIsArrow;
   end;
 
   TJSUnaryOperator = (

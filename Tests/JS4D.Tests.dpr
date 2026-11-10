@@ -54,6 +54,7 @@ uses
   JS4D.Tests.DeleteIdentifier in 'JS4D.Tests.DeleteIdentifier.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',
+  JS4D.Tests.ArrowFunctions in 'JS4D.Tests.ArrowFunctions.pas',
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
   JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas',
