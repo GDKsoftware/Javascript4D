@@ -98,6 +98,16 @@ type
     property Value: TJSValue read FValue;
   end;
 
+  TJSStrictThis = class(TJSObjectImpl)
+  private
+    FValue: TJSValue;
+
+  public
+    constructor Create(const Value: TJSValue);
+
+    property Value: TJSValue read FValue;
+  end;
+
   TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean): TJSProgram;
 
   TJSBoundFunction = record
@@ -138,6 +148,7 @@ type
     FGlobalBindings: TJSGlobalScope;
     FCurrentScope: IJSScope;
     FThisValue: IJSObject;
+    FThisPrimitive: TJSStrictThis;
     FStrictMode: Boolean;
     FGlobalObject: IJSObject;
     FObjectPrototype: IJSObject;
@@ -341,6 +352,9 @@ type
     function GetReferenceValue(var Reference: TJSMemberReference): TJSValue;
     procedure PutReferenceValue(var Reference: TJSMemberReference; const Value: TJSValue);
     function ReadMember(const Base: TJSValue; const PropName: string): TJSValue;
+    function ReadPrimitiveMember(const Base: TJSValue; const PrimitivePrototype: IJSObject;
+                                 const PropName: string): TJSValue;
+    function StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;
     procedure WriteMember(const Base: TJSValue; const PropName: string; const Value: TJSValue);
     procedure WriteArrayMember(const Target: IJSArray; const PropName: string; const Value: TJSValue;
                                out IsHandled: Boolean);
@@ -668,6 +682,14 @@ end;
 constructor TJSReturnSignal.Create(const Value: TJSValue);
 begin
   inherited Create('');
+  FValue := Value;
+end;
+
+{ TJSStrictThis }
+
+constructor TJSStrictThis.Create(const Value: TJSValue);
+begin
+  inherited Create;
   FValue := Value;
 end;
 
@@ -1235,12 +1257,20 @@ begin
   if ThisValue.IsObject then
     Exit(ThisValue.ToObject);
 
-  const IsPrimitive = not ThisValue.IsNullOrUndefined;
   const SeesObjectThis = Func.IsNative or (not Func.IsStrict);
-  if IsPrimitive and SeesObjectThis then
-    Exit(WrapPrimitive(ThisValue));
+  if SeesObjectThis then
+  begin
+    const IsPrimitive = not ThisValue.IsNullOrUndefined;
+    if IsPrimitive then
+      Exit(WrapPrimitive(ThisValue));
 
-  Result := nil;
+    Exit(nil);
+  end;
+
+  if ThisValue.IsUndefined then
+    Exit(nil);
+
+  Result := TJSStrictThis.Create(ThisValue);
 end;
 
 procedure TJSInterpreter.PushScope;
@@ -1322,12 +1352,14 @@ begin
   const OuterScope = FCurrentScope;
   const OuterVarScope = FVarScope;
   const OuterThis = FThisValue;
+  const OuterThisPrimitive = FThisPrimitive;
   const OuterStrictMode = FStrictMode;
 
   Inc(FExecutionDepth);
   FCurrentScope := FGlobalScope;
   FVarScope := FGlobalScope;
   FThisValue := nil;
+  FThisPrimitive := nil;
   try
     FCurrentProgram := Program_;
     Result := Visit(Program_);
@@ -1335,6 +1367,7 @@ begin
     FCurrentScope := OuterScope;
     FVarScope := OuterVarScope;
     FThisValue := OuterThis;
+    FThisPrimitive := OuterThisPrimitive;
     FStrictMode := OuterStrictMode;
     Dec(FExecutionDepth);
   end;
@@ -1515,6 +1548,7 @@ begin
 
   const OldScope = FCurrentScope;
   const OldThis = FThisValue;
+  const OldThisPrimitive = FThisPrimitive;
   const OldStrictMode = FStrictMode;
   const OldProgram = FCurrentProgram;
   const OldEvalVariableScope = FEvalVariableScope;
@@ -1545,7 +1579,10 @@ begin
   FStrictMode := IsStrictSource;
   FCurrentProgram := Program_;
   if not IsDirect then
+  begin
     FThisValue := FGlobalObject;
+    FThisPrimitive := nil;
+  end;
   try
     Result := RunProgramBody(Program_);
   finally
@@ -1555,6 +1592,7 @@ begin
     FEvalCallerScope := OldEvalCallerScope;
     FStrictMode := OldStrictMode;
     FThisValue := OldThis;
+    FThisPrimitive := OldThisPrimitive;
     FCurrentScope := OldScope;
   end;
 end;
@@ -3839,11 +3877,30 @@ begin
   const PrimitivePrototype = PrimitivePrototypeFor(Base);
   if Assigned(PrimitivePrototype) then
   begin
-    Result := PrimitivePrototype.GetProperty(PropName);
+    Result := ReadPrimitiveMember(Base, PrimitivePrototype, PropName);
     Exit;
   end;
 
   Result := TJSValue.CreateUndefined;
+end;
+
+function TJSInterpreter.ReadPrimitiveMember(const Base: TJSValue; const PrimitivePrototype: IJSObject;
+                                            const PropName: string): TJSValue;
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  if not PrimitivePrototype.TryGetPropertyDescriptor(PropName, Descriptor) then
+    Exit(TJSValue.CreateUndefined);
+
+  if not Descriptor.IsAccessor then
+    Exit(Descriptor.Value);
+
+  var Getter: IJSFunction;
+  const HasGetter = Descriptor.Getter.IsFunction and Supports(Descriptor.Getter.ToObject, IJSFunction, Getter);
+  if not HasGetter then
+    Exit(TJSValue.CreateUndefined);
+
+  const Receiver = ThisObjectFor(Getter, Base);
+  Result := CallFunction(Getter, nil, Receiver);
 end;
 
 function TJSInterpreter.VisitNewExpression(const Node: TJSNewExpression): TJSValue;
@@ -3891,7 +3948,9 @@ end;
 
 function TJSInterpreter.VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 begin
-  if Assigned(FThisValue) then
+  if Assigned(FThisPrimitive) then
+    Result := FThisPrimitive.Value
+  else if Assigned(FThisValue) then
     Result := TJSValue.CreateObject(FThisValue)
   else if FStrictMode and (FCallDepth > 0) then
     Result := TJSValue.CreateUndefined
@@ -4004,6 +4063,7 @@ begin
     raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
 
   const OldThis = FThisValue;
+  const OldThisPrimitive = FThisPrimitive;
   const OldStrictMode = FStrictMode;
   const OldScope = FCurrentScope;
   const OldVarScope = FVarScope;
@@ -4013,6 +4073,7 @@ begin
   else
     FThisValue := ThisObj;
   FStrictMode := Func.IsStrict;
+  FThisPrimitive := StrictPrimitiveThis(FThisValue, Func.IsStrict);
 
   var ParentScope: IJSScope;
   if Assigned(Func.ClosureScope) then
@@ -4066,8 +4127,18 @@ begin
     FCurrentScope := OldScope;
     FVarScope := OldVarScope;
     FThisValue := OldThis;
+    FThisPrimitive := OldThisPrimitive;
     FStrictMode := OldStrictMode;
   end;
+end;
+
+function TJSInterpreter.StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;
+begin
+  Result := nil;
+
+  const CanHoldPrimitive = IsStrict and Assigned(ThisObj);
+  if CanHoldPrimitive and (ThisObj is TJSStrictThis) then
+    Result := ThisObj as TJSStrictThis;
 end;
 
 function TJSInterpreter.CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
