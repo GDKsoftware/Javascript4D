@@ -27,12 +27,8 @@ type
     class function ArrayConcat(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function ArrayReverse(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayIncludes(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayFill(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
-    class function ArrayCopyWithin(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue; static;
     class function ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
-    class function ArrayFind(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
-    class function ArrayFindIndex(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue; static;
     class function ArraySort(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue; static;
     class function CompareSortValues(const Left, Right: TJSValue; const Comparer: IJSFunction;
                                      const Executor: TJSCallbackExecutor; const Limits: TJSLimits): Double; static;
@@ -522,176 +518,9 @@ begin
   Result := TJSValue.CreateBoolean(False);
 end;
 
-class function TJSBuiltins.ArrayFill(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
-begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateObject(Arr);
-    Exit;
-  end;
-
-  const FillValue = Args[0];
-
-  var StartIndex := 0;
-  var EndIndex := Arr.Length;
-
-  if Length(Args) > 1 then
-  begin
-    StartIndex := Trunc(Args[1].ToNumber);
-    if StartIndex < 0 then
-      StartIndex := Max(0, Arr.Length + StartIndex);
-  end;
-
-  if Length(Args) > 2 then
-  begin
-    EndIndex := Trunc(Args[2].ToNumber);
-    if EndIndex < 0 then
-      EndIndex := Max(0, Arr.Length + EndIndex);
-  end;
-
-  StartIndex := Min(StartIndex, Arr.Length);
-  EndIndex := Min(EndIndex, Arr.Length);
-
-  for var Index := StartIndex to EndIndex - 1 do
-  begin
-    Arr[Index] := FillValue;
-  end;
-
-  Result := TJSValue.CreateObject(Arr);
-end;
-
-class function TJSBuiltins.ArrayCopyWithin(const Arr: IJSArray; const Args: TArray<TJSValue>): TJSValue;
-begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateObject(Arr);
-    Exit;
-  end;
-
-  var Target := Trunc(Args[0].ToNumber);
-  if Target < 0 then
-    Target := Max(0, Arr.Length + Target);
-  Target := Min(Target, Arr.Length);
-
-  var StartIndex := 0;
-  if Length(Args) > 1 then
-  begin
-    StartIndex := Trunc(Args[1].ToNumber);
-    if StartIndex < 0 then
-      StartIndex := Max(0, Arr.Length + StartIndex);
-  end;
-
-  var EndIndex := Arr.Length;
-  if Length(Args) > 2 then
-  begin
-    EndIndex := Trunc(Args[2].ToNumber);
-    if EndIndex < 0 then
-      EndIndex := Max(0, Arr.Length + EndIndex);
-  end;
-
-  const Count = Min(EndIndex - StartIndex, Arr.Length - Target);
-
-  var TempArr: TArray<TJSValue>;
-  var IsPresent: TArray<Boolean>;
-  SetLength(TempArr, Count);
-  SetLength(IsPresent, Count);
-
-  for var Index := 0 to Count - 1 do
-  begin
-    TempArr[Index] := Arr[StartIndex + Index];
-    IsPresent[Index] := Arr.HasElement(StartIndex + Index);
-  end;
-
-  for var Index := 0 to Count - 1 do
-  begin
-    if IsPresent[Index] then
-      Arr[Target + Index] := TempArr[Index]
-    else
-      Arr.DeleteElement(Target + Index);
-  end;
-
-  Result := TJSValue.CreateObject(Arr);
-end;
-
 class function TJSBuiltins.ArrayToString(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   Result := ArrayJoin(Arr, [], Limits);
-end;
-
-class function TJSBuiltins.ArrayFind(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue;
-begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateUndefined;
-    Exit;
-  end;
-
-  if not Args[0].IsFunction then
-  begin
-    Result := TJSValue.CreateUndefined;
-    Exit;
-  end;
-
-  var Callback: IJSFunction;
-  if not Supports(Args[0].ToObject, IJSFunction, Callback) then
-  begin
-    Result := TJSValue.CreateUndefined;
-    Exit;
-  end;
-  const ArrValue = TJSValue.CreateObject(Arr);
-
-  for var Index := 0 to Arr.Length - 1 do
-  begin
-    const Element = Arr[Index];
-    const CallbackArgs: TArray<TJSValue> = [Element, TJSValue.CreateNumber(Index), ArrValue];
-    const Predicate = Executor(Callback, CallbackArgs);
-
-    if Predicate.ToBoolean then
-    begin
-      Result := Element;
-      Exit;
-    end;
-  end;
-
-  Result := TJSValue.CreateUndefined;
-end;
-
-class function TJSBuiltins.ArrayFindIndex(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor): TJSValue;
-begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
-
-  if not Args[0].IsFunction then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
-
-  var Callback: IJSFunction;
-  if not Supports(Args[0].ToObject, IJSFunction, Callback) then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
-  const ArrValue = TJSValue.CreateObject(Arr);
-
-  for var Index := 0 to Arr.Length - 1 do
-  begin
-    const Element = Arr[Index];
-    const CallbackArgs: TArray<TJSValue> = [Element, TJSValue.CreateNumber(Index), ArrValue];
-    const Predicate = Executor(Callback, CallbackArgs);
-
-    if Predicate.ToBoolean then
-    begin
-      Result := TJSValue.CreateNumber(Index);
-      Exit;
-    end;
-  end;
-
-  Result := TJSValue.CreateNumber(-1);
 end;
 
 class function TJSBuiltins.CompareSortValues(const Left, Right: TJSValue; const Comparer: IJSFunction;
@@ -1626,12 +1455,6 @@ begin
   if MethodName = METHOD_INCLUDES then
     Exit(ArrayIncludes(Arr, Args));
 
-  if MethodName = METHOD_FILL then
-    Exit(ArrayFill(Arr, Args));
-
-  if MethodName = METHOD_COPY_WITHIN then
-    Exit(ArrayCopyWithin(Arr, Args));
-
   if MethodName = METHOD_TO_STRING then
     Exit(ArrayToString(Arr, Args, Limits));
 
@@ -1643,12 +1466,6 @@ end;
 
 class function TJSBuiltins.CallArrayMethodWithCallback(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue;
 begin
-  if MethodName = METHOD_FIND then
-    Exit(ArrayFind(Arr, Args, Executor));
-
-  if MethodName = METHOD_FIND_INDEX then
-    Exit(ArrayFindIndex(Arr, Args, Executor));
-
   if MethodName = METHOD_SORT then
     Exit(ArraySort(Arr, Args, Executor, Limits));
 
@@ -1788,8 +1605,6 @@ begin
             (MethodName = METHOD_REDUCE_RIGHT) or
             (MethodName = METHOD_SOME) or
             (MethodName = METHOD_EVERY) or
-            (MethodName = METHOD_FIND) or
-            (MethodName = METHOD_FIND_INDEX) or
             (MethodName = METHOD_SORT);
 end;
 

@@ -4145,7 +4145,8 @@ begin
   if TJSArrayIteration.Handles(MethodName) then
     Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
 
-  const NeedsPropertyLevelSemantics = (not Arr.IsDenseAndMutable) and TJSArrayGeneric.Handles(MethodName);
+  const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName);
+  const NeedsPropertyLevelSemantics = UsesPropertySemantics and TJSArrayGeneric.Handles(MethodName);
   if NeedsPropertyLevelSemantics then
     Exit(ExecuteGenericArrayMethod(Arr, MethodName, Args));
 

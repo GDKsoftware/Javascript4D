@@ -86,7 +86,8 @@ uses
   JS4D.Tests.MathFunctions in 'JS4D.Tests.MathFunctions.pas',
   JS4D.Tests.Es2015Library in 'JS4D.Tests.Es2015Library.pas',
   JS4D.Tests.ErrorObjects in 'JS4D.Tests.ErrorObjects.pas',
-  JS4D.Tests.StrictThis in 'JS4D.Tests.StrictThis.pas';
+  JS4D.Tests.StrictThis in 'JS4D.Tests.StrictThis.pas',
+  JS4D.Tests.GenericEs2015ArrayMethods in 'JS4D.Tests.GenericEs2015ArrayMethods.pas';
 
 var
   Runner: ITestRunner;
