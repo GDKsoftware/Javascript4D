@@ -67,6 +67,13 @@ type
     procedure RegisterArray;
     procedure RegisterDate;
     procedure RegisterErrors;
+    function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
+    function ConstructError(const ErrorType: TJSErrorType; const PrototypeObj: IJSObject;
+                            const Args: TArray<TJSValue>): TJSValue;
+    class procedure DefineHiddenProperty(const Target: IJSObject; const Name: string;
+                                         const Value: TJSValue); static;
+    class procedure DefineConstant(const Target: IJSObject; const Name: string;
+                                   const Value: TJSValue); static;
     procedure RegisterRegExp;
     procedure RegisterFunctionObject;
     procedure RegisterPrototypeMethods;
@@ -464,13 +471,14 @@ begin
       Result := NumberValue;
     end);
 
-  NumberFunc.SetProperty('MAX_VALUE', TJSValue.CreateNumber(1.7976931348623157e+308));
-  NumberFunc.SetProperty('MIN_VALUE', TJSValue.CreateNumber(5e-324));
-  NumberFunc.SetProperty('NaN', TJSValue.CreateNaN);
-  NumberFunc.SetProperty('POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
-  NumberFunc.SetProperty('NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
-
   FInterpreter.SetGlobalVariable(NUMBER_NAME, TJSValue.CreateObject(NumberFunc));
+
+  DefineConstant(NumberFunc, 'MAX_VALUE', TJSValue.CreateNumber(1.7976931348623157e+308));
+  DefineConstant(NumberFunc, 'MIN_VALUE', TJSValue.CreateNumber(5e-324));
+  DefineConstant(NumberFunc, 'NaN', TJSValue.CreateNaN);
+  DefineConstant(NumberFunc, 'POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
+  DefineConstant(NumberFunc, 'NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
+
   AttachPrototypeObject(NumberFunc, NumberPrototype);
 
   const StringPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateString(''));
@@ -611,16 +619,16 @@ end;
 
 procedure TJSEngine.RegisterMath;
 begin
-  const MathObj = TJSObject.Create;
+  const MathObj: IJSObject = TJSObject.Create;
 
-  MathObj.SetProperty(MATH_PI, TJSValue.CreateNumber(Pi));
-  MathObj.SetProperty(MATH_E, TJSValue.CreateNumber(Exp(1)));
-  MathObj.SetProperty(MATH_LN2, TJSValue.CreateNumber(Ln(2)));
-  MathObj.SetProperty(MATH_LN10, TJSValue.CreateNumber(Ln(10)));
-  MathObj.SetProperty(MATH_LOG2E, TJSValue.CreateNumber(1 / Ln(2)));
-  MathObj.SetProperty(MATH_LOG10E, TJSValue.CreateNumber(1 / Ln(10)));
-  MathObj.SetProperty(MATH_SQRT2, TJSValue.CreateNumber(Sqrt(2)));
-  MathObj.SetProperty(MATH_SQRT1_2, TJSValue.CreateNumber(Sqrt(0.5)));
+  DefineConstant(MathObj, MATH_PI, TJSValue.CreateNumber(Pi));
+  DefineConstant(MathObj, MATH_E, TJSValue.CreateNumber(Exp(1)));
+  DefineConstant(MathObj, MATH_LN2, TJSValue.CreateNumber(Ln(2)));
+  DefineConstant(MathObj, MATH_LN10, TJSValue.CreateNumber(Ln(10)));
+  DefineConstant(MathObj, MATH_LOG2E, TJSValue.CreateNumber(1 / Ln(2)));
+  DefineConstant(MathObj, MATH_LOG10E, TJSValue.CreateNumber(1 / Ln(10)));
+  DefineConstant(MathObj, MATH_SQRT2, TJSValue.CreateNumber(Sqrt(2)));
+  DefineConstant(MathObj, MATH_SQRT1_2, TJSValue.CreateNumber(Sqrt(0.5)));
 
   MathObj.SetProperty(MATH_ABS, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ABS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1561,47 +1569,62 @@ begin
   FInterpreter.RegisterFunction(Constructor_);
 end;
 
-procedure TJSEngine.RegisterErrors;
+class procedure TJSEngine.DefineHiddenProperty(const Target: IJSObject; const Name: string;
+                                               const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
 
-  function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
+class procedure TJSEngine.DefineConstant(const Target: IJSObject; const Name: string; const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
+
+function TJSEngine.ConstructError(const ErrorType: TJSErrorType; const PrototypeObj: IJSObject;
+                                  const Args: TArray<TJSValue>): TJSValue;
+begin
+  const HasMessage = (Length(Args) > 0) and (not Args[0].IsUndefined);
+
+  var MessageText := '';
+  if HasMessage then
+    MessageText := ToText(Args[0]);
+
+  const ErrorObj: IJSError = TJSError.Create(ErrorType, MessageText);
+  ErrorObj.Prototype := PrototypeObj;
+
+  if HasMessage then
   begin
-    const PrototypeObj: IJSObject = TJSObject.Create;
-
-    Result := TJSFunction.CreateNative(ErrorName,
-      function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-      begin
-        var Msg := '';
-
-        if Length(Args) > 0 then
-          Msg := ToText(Args[0]);
-
-        const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
-        ErrorObj.Prototype := PrototypeObj;
-
-        ErrorObj.SetProperty(ERROR_TO_STRING, TJSValue.CreateObject(TJSFunction.CreateNative(ERROR_TO_STRING,
-          function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
-          begin
-            var E: IJSError;
-            if Supports(This, IJSError, E) then
-            begin
-              const Name = E.GetErrorName;
-              const Msg = E.Message;
-
-              if Msg = '' then
-                Result := TJSValue.CreateString(Name)
-              else
-                Result := TJSValue.CreateString(Name + ': ' + Msg);
-            end
-            else
-              Result := TJSValue.CreateString('Error');
-          end)));
-
-        Result := TJSValue.CreateObject(ErrorObj);
-      end);
-
-    AttachPrototypeObject(Result, PrototypeObj);
+    const MessageValue = TJSValue.CreateString(MessageText);
+    DefineHiddenProperty(ErrorObj, ERROR_MESSAGE, MessageValue);
   end;
 
+  Result := TJSValue.CreateObject(ErrorObj);
+end;
+
+function TJSEngine.CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+  const NameValue = TJSValue.CreateString(ErrorName);
+  const EmptyMessage = TJSValue.CreateString('');
+  DefineHiddenProperty(PrototypeObj, ERROR_NAME_PROP, NameValue);
+  DefineHiddenProperty(PrototypeObj, ERROR_MESSAGE, EmptyMessage);
+
+  Result := TJSFunction.CreateNative(ErrorName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructError(ErrorType, PrototypeObj, Args);
+    end);
+
+  AttachPrototypeObject(Result, PrototypeObj);
+end;
+
+procedure TJSEngine.RegisterErrors;
 begin
   FInterpreter.SetGlobalVariable(ERROR_NAME, TJSValue.CreateObject(
     CreateErrorConstructor(TJSErrorType.Error, ERROR_NAME)));
@@ -1716,6 +1739,7 @@ procedure TJSEngine.LinkIntrinsicPrototypes;
 begin
   const ObjectPrototype = GlobalPrototype(OBJECT_NAME);
   const ErrorPrototype = GlobalPrototype(ERROR_NAME);
+  const ErrorConstructor = FInterpreter.GetGlobalVariable(ERROR_NAME).ToObject;
 
   for var ConstructorName in [ERROR_NAME, ARRAY_NAME, FUNCTION_NAME, DATE_NAME, REGEXP_NAME, NUMBER_NAME,
                               STRING_FUNC_NAME, BOOLEAN_FUNC_NAME] do
@@ -1729,6 +1753,9 @@ begin
   begin
     const Prototype = GlobalPrototype(ConstructorName);
     Prototype.Prototype := ErrorPrototype;
+
+    const NativeErrorConstructor = FInterpreter.GetGlobalVariable(ConstructorName).ToObject;
+    NativeErrorConstructor.Prototype := ErrorConstructor;
   end;
 
   for var GlobalName in [MATH_NAME, JSON_NAME] do

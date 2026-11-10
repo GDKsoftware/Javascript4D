@@ -467,6 +467,8 @@ type
     FMessage: string;
     FStack: string;
 
+    procedure DefineHiddenProperty(const Name: string; const Value: TJSValue);
+
   protected
     function GetErrorType: TJSErrorType;
     function GetMessage: string;
@@ -2106,9 +2108,14 @@ begin
   FMessage := Message;
   FStack := GetErrorName + ': ' + Message + sLineBreak + '    at <anonymous>';
 
-  SetProperty(PROP_NAME, TJSValue.CreateString(GetErrorName));
-  SetProperty(PROP_MESSAGE, TJSValue.CreateString(Message));
-  SetProperty(PROP_STACK, TJSValue.CreateString(FStack));
+  DefineHiddenProperty(PROP_STACK, TJSValue.CreateString(FStack));
+end;
+
+procedure TJSErrorImpl.DefineHiddenProperty(const Name: string; const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  DefineProperty(Name, Descriptor);
 end;
 
 function TJSErrorImpl.GetErrorType: TJSErrorType;

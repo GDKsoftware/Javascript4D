@@ -69,7 +69,8 @@ uses
   JS4D.Tests.NumberParsing in 'JS4D.Tests.NumberParsing.pas',
   JS4D.Tests.JsonStringify in 'JS4D.Tests.JsonStringify.pas',
   JS4D.Tests.JsonReviver in 'JS4D.Tests.JsonReviver.pas',
-  JS4D.Tests.MathFunctions in 'JS4D.Tests.MathFunctions.pas';
+  JS4D.Tests.MathFunctions in 'JS4D.Tests.MathFunctions.pas',
+  JS4D.Tests.ErrorObjects in 'JS4D.Tests.ErrorObjects.pas';
 
 var
   Runner: ITestRunner;
