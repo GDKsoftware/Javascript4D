@@ -17,6 +17,7 @@ uses
   JS4D.Operators,
   JS4D.Builtins,
   JS4D.ArrayIteration,
+  JS4D.ArrayIterator,
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
   JS4D.PropertyDescriptors,
@@ -74,6 +75,7 @@ type
     procedure RegisterObject;
     procedure RegisterJSON;
     procedure RegisterArray;
+    procedure RegisterArrayIterators(const PrototypeObj: IJSObject);
     procedure RegisterDate;
     procedure RegisterErrors;
     function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
@@ -95,6 +97,9 @@ type
     function BuildFunctionSource(const Args: TArray<TJSValue>): string;
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateArrayStaticMethod(const MethodName: string): IJSFunction;
+    function CreateArrayIteratorFactory(const MethodName: string; const Kind: TJSArrayIteratorKind;
+                                        const IteratorPrototype: IJSObject): IJSFunction;
     function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
     function ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
     function ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
@@ -226,6 +231,12 @@ const
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_FROM = 'from';
+  ARRAY_OF = 'of';
+  ARRAY_KEYS = 'keys';
+  ARRAY_VALUES = 'values';
+  ARRAY_ENTRIES = 'entries';
+  ITERATOR_NEXT = 'next';
+  ITERATOR_NOT_AN_ARRAY_ITERATOR = 'next method called on an object that is not an array iterator';
   DATE_NAME = 'Date';
   ERROR_NAME = 'Error';
   TYPE_ERROR_NAME = 'TypeError';
@@ -1362,69 +1373,19 @@ begin
       Result := TJSValue.CreateBoolean(Args[0].IsArray);
     end)));
 
-  ArrayObj.SetProperty(ARRAY_FROM, TJSValue.CreateObject(TJSFunction.CreateNative(ARRAY_FROM,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      const ResultArr: IJSArray = TJSArray.Create;
-
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Source = Args[0];
-
-      if Source.IsArray then
-      begin
-        var SourceArr: IJSArray;
-        if Supports(Source.ToObject, IJSArray, SourceArr) then
-        begin
-          for var Index := 0 to SourceArr.Length - 1 do
-          begin
-            ResultArr.Push(SourceArr[Index]);
-          end;
-        end;
-      end
-      else if Source.IsString then
-      begin
-        const Str = Source.AsString;
-
-        const CharCount = Length(Str);
-
-        FInterpreter.Limits.EnsureArrayLength(CharCount);
-
-        for var Index := 1 to Length(Str) do
-        begin
-          ResultArr.Push(TJSValue.CreateString(Str[Index]));
-        end;
-      end
-      else if Source.IsObject then
-      begin
-        const Obj = Source.ToObject;
-        const LengthValue = Obj.GetProperty('length');
-
-        if LengthValue.IsNumber then
-        begin
-          const Len = Trunc(LengthValue.ToNumber);
-
-          FInterpreter.Limits.EnsureArrayLength(Len);
-
-          for var Index := 0 to Len - 1 do
-          begin
-            ResultArr.Push(Obj.GetProperty(IntToStr(Index)));
-          end;
-        end;
-      end;
-
-      Result := TJSValue.CreateObject(ResultArr);
-    end)));
+  for var StaticName in [ARRAY_OF, ARRAY_FROM] do
+  begin
+    const StaticMethod = CreateArrayStaticMethod(StaticName);
+    ArrayObj.SetProperty(StaticName, TJSValue.CreateObject(StaticMethod));
+  end;
 
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
   end;
+
+  RegisterArrayIterators(PrototypeObj);
 
   AttachPrototypeObject(ArrayObj, PrototypeObj);
 
@@ -1492,6 +1453,53 @@ begin
         raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_FUNCTION, [MethodName]));
 
       Result := FInterpreter.ExecuteFunctionMethod(Target, MethodName, Args);
+    end);
+end;
+
+procedure TJSEngine.RegisterArrayIterators(const PrototypeObj: IJSObject);
+begin
+  const IteratorPrototype = TJSObject.Create;
+  IteratorPrototype.Prototype := FInterpreter.ObjectPrototype;
+  IteratorPrototype.SetProperty(ITERATOR_NEXT, TJSValue.CreateObject(TJSFunction.CreateNative(ITERATOR_NEXT,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Iterator: IJSArrayIterator;
+      if not Supports(This, IJSArrayIterator, Iterator) then
+        raise TJSErrorFactory.TypeError(ITERATOR_NOT_AN_ARRAY_ITERATOR);
+
+      Result := Iterator.NextResult;
+    end)));
+
+  const KeysMethod = CreateArrayIteratorFactory(ARRAY_KEYS, TJSArrayIteratorKind.Keys, IteratorPrototype);
+  const ValuesMethod = CreateArrayIteratorFactory(ARRAY_VALUES, TJSArrayIteratorKind.Values, IteratorPrototype);
+  const EntriesMethod = CreateArrayIteratorFactory(ARRAY_ENTRIES, TJSArrayIteratorKind.Entries, IteratorPrototype);
+
+  PrototypeObj.SetProperty(ARRAY_KEYS, TJSValue.CreateObject(KeysMethod));
+  PrototypeObj.SetProperty(ARRAY_VALUES, TJSValue.CreateObject(ValuesMethod));
+  PrototypeObj.SetProperty(ARRAY_ENTRIES, TJSValue.CreateObject(EntriesMethod));
+end;
+
+function TJSEngine.CreateArrayStaticMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := FInterpreter.ExecuteArrayStaticMethod(This, MethodName, Args);
+    end);
+end;
+
+function TJSEngine.CreateArrayIteratorFactory(const MethodName: string; const Kind: TJSArrayIteratorKind;
+                                              const IteratorPrototype: IJSObject): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if not Assigned(This) then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+
+      const Iterator = TJSArrayIterator.Create(This, Kind, FInterpreter.ArrayPrototype, FInterpreter.ObjectPrototype);
+      Iterator.Prototype := IteratorPrototype;
+      Result := TJSValue.CreateObject(Iterator);
     end);
 end;
 

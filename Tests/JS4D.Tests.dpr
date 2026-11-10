@@ -89,6 +89,8 @@ uses
   JS4D.Tests.ErrorObjects in 'JS4D.Tests.ErrorObjects.pas',
   JS4D.Tests.StrictThis in 'JS4D.Tests.StrictThis.pas',
   JS4D.Tests.GenericEs2015ArrayMethods in 'JS4D.Tests.GenericEs2015ArrayMethods.pas',
+  JS4D.Tests.ArrayStatics in 'JS4D.Tests.ArrayStatics.pas',
+  JS4D.Tests.ArrayIterators in 'JS4D.Tests.ArrayIterators.pas',
   JS4D.Tests.StringArgumentConversion in 'JS4D.Tests.StringArgumentConversion.pas';
 
 var

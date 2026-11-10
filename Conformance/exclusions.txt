@@ -106,7 +106,6 @@ Array.prototype.at
 Array.prototype.flat
 Array.prototype.flatMap
 Array.prototype.includes
-Array.prototype.values
 change-array-by-copy
 stable-array-sort
 string-trimming

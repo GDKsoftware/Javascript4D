@@ -168,6 +168,8 @@
         <DCCReference Include="JS4D.Tests.ErrorObjects.pas"/>
         <DCCReference Include="JS4D.Tests.StrictThis.pas"/>
         <DCCReference Include="JS4D.Tests.GenericEs2015ArrayMethods.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayStatics.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayIterators.pas"/>
         <DCCReference Include="JS4D.Tests.StringArgumentConversion.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>

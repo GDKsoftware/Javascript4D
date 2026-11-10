@@ -20,6 +20,8 @@ uses
   JS4D.PropertyDescriptors,
   JS4D.LexicalStates,
   JS4D.ArrayIteration,
+  JS4D.ArrayIterator,
+  JS4D.ArrayStatics,
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
   JS4D.Operators;
@@ -136,6 +138,7 @@ type
   TJSArraySource = record
     Elements: IJSArray;
     ArrayLike: IJSObject;
+    Iterator: IJSArrayIterator;
     Items: TArray<TJSValue>;
     Position: Integer;
 
@@ -384,6 +387,7 @@ type
     procedure AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
     procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
+    function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
     function BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
@@ -409,6 +413,7 @@ type
     function ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteArrayStaticMethod(const ThisObj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
@@ -729,6 +734,9 @@ end;
 
 function TJSArraySource.HasNext: Boolean;
 begin
+  if Assigned(Iterator) then
+    Exit(Iterator.HasNext);
+
   if Assigned(Elements) then
     Exit(Position < Elements.Length);
 
@@ -741,6 +749,9 @@ end;
 function TJSArraySource.Next: TJSValue;
 begin
   Result := TJSValue.CreateUndefined;
+
+  if Assigned(Iterator) then
+    Exit(Iterator.Next);
 
   if HasNext then
   begin
@@ -3368,6 +3379,13 @@ begin
     Exit;
   end;
 
+  var SourceIterator: IJSArrayIterator;
+  if Supports(Target, IJSArrayIterator, SourceIterator) then
+  begin
+    Source.Iterator := SourceIterator;
+    Exit;
+  end;
+
   if Supports(Target, IJSArgumentsScope) then
   begin
     Source.ArrayLike := Target;
@@ -4201,6 +4219,42 @@ begin
   Context.Executor := CreateCallbackExecutor(MethodName, Args);
 
   Result := TJSArrayGeneric.Call(Target, MethodName, Args, Context);
+end;
+
+function TJSInterpreter.ExecuteArrayStaticMethod(const ThisObj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var Context: TJSArrayStaticsContext;
+  Context.ArrayPrototype := FArrayPrototype;
+  Context.Limits := FLimits;
+  Context.Construct :=
+    function(const Constructor_: IJSFunction; const ConstructorArgs: TArray<TJSValue>): TJSValue
+    begin
+      Result := Construct(Constructor_, ConstructorArgs);
+    end;
+  Context.CallMapper :=
+    function(const Mapper: IJSFunction; const MapperArgs: TArray<TJSValue>; const ThisValue: TJSValue): TJSValue
+    begin
+      Result := CallFunction(Mapper, MapperArgs, ThisObjectFor(Mapper, ThisValue));
+    end;
+  Context.OpenSequence := OpenSequenceReader;
+
+  Result := TJSArrayStatics.Call(MethodName, ThisObj, Args, Context);
+end;
+
+function TJSInterpreter.OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
+begin
+  var Values: TJSArraySource;
+  Result := TryOpenArraySource(Source, Values);
+  if not Result then
+    Exit;
+
+  Reader :=
+    function(out Item: TJSValue): Boolean
+    begin
+      Result := Values.HasNext;
+      if Result then
+        Item := Values.Next;
+    end;
 end;
 
 function TJSInterpreter.ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

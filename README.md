@@ -201,7 +201,7 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 **Global Functions**
 - `parseInt`, `parseFloat`
 - `isNaN`, `isFinite`
-- `Array.isArray`, `Array.from`
+- `Array.isArray`, `Array.from`, `Array.of`, `Array.prototype.keys`, `values` and `entries`
 - `Date.now`, `Date.parse`
 
 ## Architecture

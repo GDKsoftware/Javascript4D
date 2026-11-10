@@ -110,6 +110,8 @@
         <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArgumentsObject.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayGeneric.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayIterator.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayStatics.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayIteration.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayLike.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.BuiltinAttributes.pas"/>

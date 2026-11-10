@@ -194,6 +194,11 @@ begin
 
     const Arity = StrToInt(Parts[1]);
     TJSFunction.DefineLength(Member.ToObject, Arity);
+
+    var Method: IJSFunction;
+    const IsMethod = Assigned(Target) and Supports(Member.ToObject, IJSFunction, Method);
+    if IsMethod then
+      Method.IsConstructor := False;
   end;
 end;
 
