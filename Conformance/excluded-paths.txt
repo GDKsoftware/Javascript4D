@@ -24,8 +24,6 @@ language/expressions/logical-assignment/
 language/expressions/new.target/
 language/expressions/optional-chaining/
 language/expressions/super/
-language/expressions/tagged-template/
-language/expressions/template-literal/
 language/expressions/yield/
 language/statements/async-function/
 language/statements/async-generator/

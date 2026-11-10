@@ -18,6 +18,7 @@ type
     BooleanLiteral,
     NullLiteral,
     RegExpLiteral,
+    TemplateChunk,
     EscapedKeyword,
     UnusedReservedWord,
 
@@ -119,6 +120,10 @@ type
     FIsLegacyLiteral: Boolean;
     FHasEscape: Boolean;
     FLineTerminatorBefore: Boolean;
+    FRawValue: string;
+    FHasInvalidEscape: Boolean;
+    FIsTemplateHead: Boolean;
+    FIsTemplateTail: Boolean;
 
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
@@ -133,6 +138,10 @@ type
     property IsLegacyLiteral: Boolean read FIsLegacyLiteral write FIsLegacyLiteral;
     property HasEscape: Boolean read FHasEscape write FHasEscape;
     property LineTerminatorBefore: Boolean read FLineTerminatorBefore write FLineTerminatorBefore;
+    property RawValue: string read FRawValue write FRawValue;
+    property HasInvalidEscape: Boolean read FHasInvalidEscape write FHasInvalidEscape;
+    property IsTemplateHead: Boolean read FIsTemplateHead write FIsTemplateHead;
+    property IsTemplateTail: Boolean read FIsTemplateTail write FIsTemplateTail;
   end;
 
   TJSKeywords = class

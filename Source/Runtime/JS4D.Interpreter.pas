@@ -284,6 +284,10 @@ type
     function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
+    function VisitTemplateLiteral(const Node: TJSTemplateLiteral): TJSValue;
+    function VisitTemplateObject(const Node: TJSTemplateObject): TJSValue;
+    function CreateTemplateObject(const Node: TJSTemplateObject): IJSArray;
+    function ToStringCoerced(const Value: TJSValue): string;
     function CurrentThisObject: IJSObject;
     function CreateArrowFunction(const Node: TJSFunctionExpression): IJSFunction;
 
@@ -348,6 +352,7 @@ const
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
   LENGTH_PROPERTY = 'length';
+  RAW_PROPERTY = 'raw';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   ARGUMENTS_NAME = 'arguments';
@@ -1064,6 +1069,10 @@ begin
       Result := VisitSequenceExpression(TJSSequenceExpression(Node));
     TJSASTNodeType.ThisExpression:
       Result := VisitThisExpression(TJSThisExpression(Node));
+    TJSASTNodeType.TemplateLiteral:
+      Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
+    TJSASTNodeType.TemplateObject:
+      Result := VisitTemplateObject(TJSTemplateObject(Node));
     else
       Result := TJSValue.CreateUndefined;
   end;
@@ -3099,6 +3108,74 @@ begin
     Result := TJSValue.CreateUndefined
   else
     Result := TJSValue.CreateObject(FGlobalObject);
+end;
+
+function TJSInterpreter.VisitTemplateLiteral(const Node: TJSTemplateLiteral): TJSValue;
+begin
+  var Text := Node.Parts[0].Cooked;
+
+  for var Index := 0 to Node.Expressions.Count - 1 do
+  begin
+    const Substitution = ToStringCoerced(Visit(Node.Expressions[Index]));
+    Text := Text + Substitution + Node.Parts[Index + 1].Cooked;
+  end;
+
+  Result := TJSValue.CreateString(Text);
+end;
+
+function TJSInterpreter.VisitTemplateObject(const Node: TJSTemplateObject): TJSValue;
+begin
+  var Strings: IJSArray;
+  const IsCached = Supports(Node.CachedObject, IJSArray, Strings);
+  if not IsCached then
+  begin
+    Strings := CreateTemplateObject(Node);
+    Node.CachedObject := Strings;
+  end;
+
+  Result := TJSValue.CreateObject(Strings);
+end;
+
+function TJSInterpreter.CreateTemplateObject(const Node: TJSTemplateObject): IJSArray;
+begin
+  const Cooked = TJSArray.Create;
+  Cooked.Prototype := FArrayPrototype;
+
+  const Raw = TJSArray.Create;
+  Raw.Prototype := FArrayPrototype;
+
+  for var Part in Node.Parts do
+  begin
+    if Part.HasCooked then
+      Cooked.Push(TJSValue.CreateString(Part.Cooked))
+    else
+      Cooked.Push(TJSValue.CreateUndefined);
+
+    Raw.Push(TJSValue.CreateString(Part.Raw));
+  end;
+
+  Raw.Freeze;
+
+  var RawDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Raw));
+  RawDescriptor.Writable := False;
+  RawDescriptor.Enumerable := False;
+  RawDescriptor.Configurable := False;
+  Cooked.DefineProperty(RAW_PROPERTY, RawDescriptor);
+  Cooked.Freeze;
+
+  Result := Cooked;
+end;
+
+function TJSInterpreter.ToStringCoerced(const Value: TJSValue): string;
+begin
+  const NeedsConversion = Value.IsObject and (not Value.IsArray);
+  if NeedsConversion then
+  begin
+    const Primitive = Value.ToPrimitive(True);
+    Exit(ToText(Primitive));
+  end;
+
+  Result := ToText(Value);
 end;
 
 function TJSInterpreter.ToText(const Value: TJSValue): string;

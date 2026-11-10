@@ -24,6 +24,11 @@ type
     FTokens: TObjectList<TJSToken>;
     FCurrentIndex: Integer;
     FStringHasLegacyEscape: Boolean;
+    FBraceDepth: Integer;
+    FSubstitutionDepths: TList<Integer>;
+    FTemplateCooked: string;
+    FTemplateRaw: string;
+    FTemplateHasInvalidEscape: Boolean;
 
     function CurrentChar: Char;
     function PeekChar(const Offset: Integer = 1): Char;
@@ -63,6 +68,20 @@ type
     function ParseLineContinuation(const Terminator: Char): string;
     function ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
     function ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
+    function HexDigitValue(const Ch: Char): Integer;
+
+    function ScanTemplateChunk(const IsHead: Boolean; const StartLine: Integer; const StartColumn: Integer): TJSToken;
+    function CreateTemplateChunk(const IsHead: Boolean; const IsTail: Boolean; const StartLine: Integer;
+                                 const StartColumn: Integer): TJSToken;
+    function ClosesTemplateSubstitution: Boolean;
+    function ScanPunctuationTrackingBraces: TJSToken;
+    procedure ReadTemplateLineTerminator;
+    procedure ReadTemplateEscape;
+    procedure ReadTemplateLineContinuation;
+    function TryReadTemplateEscapeValue(const Escape: Char; out Value: string): Boolean;
+    function TryReadHexDigits(const DigitCount: Integer; out Value: Integer): Boolean;
+    function TryReadCodePointEscape(out Value: string): Boolean;
+    function CodePointToText(const CodePoint: Integer): string;
 
     function CreateToken(const TokenType: TJSTokenType; const Value: string): TJSToken;
 
@@ -148,6 +167,16 @@ const
   ESCAPE_U = 'u';
   ESCAPE_X = 'x';
 
+  BACKTICK = '`';
+  MAX_CODE_POINT = $10FFFF;
+  MAX_BASIC_PLANE_CODE_POINT = $FFFF;
+  SUPPLEMENTARY_PLANE_OFFSET = $10000;
+  HIGH_SURROGATE_BASE = $D800;
+  LOW_SURROGATE_BASE = $DC00;
+  SURROGATE_PAYLOAD_MASK = $3FF;
+  SURROGATE_PAYLOAD_BITS = 10;
+
+  SUnterminatedTemplate = 'Unterminated template literal';
   SUnterminatedStringLiteral = 'Unterminated string literal';
   SUnterminatedComment = 'Unterminated comment';
   SUnterminatedRegularExpression = 'Unterminated regular expression';
@@ -171,11 +200,13 @@ begin
   FColumn := 1;
   FLineStart := 1;
   FTokens := TObjectList<TJSToken>.Create(True);
+  FSubstitutionDepths := TList<Integer>.Create;
   FCurrentIndex := 0;
 end;
 
 destructor TJSLexer.Destroy;
 begin
+  FSubstitutionDepths.Free;
   FTokens.Free;
   inherited;
 end;
@@ -313,12 +344,48 @@ begin
   if (Ch = SINGLE_QUOTE) or (Ch = DOUBLE_QUOTE) then
     Exit(ScanString(Ch));
 
+  if Ch = BACKTICK then
+  begin
+    const StartLine = FLine;
+    const StartColumn = FColumn;
+    Advance;
+    Exit(ScanTemplateChunk(True, StartLine, StartColumn));
+  end;
+
+  if (Ch = RIGHT_BRACE) and ClosesTemplateSubstitution then
+  begin
+    const StartLine = FLine;
+    const StartColumn = FColumn;
+    Advance;
+    FSubstitutionDepths.Delete(FSubstitutionDepths.Count - 1);
+    Exit(ScanTemplateChunk(False, StartLine, StartColumn));
+  end;
+
   if CharInSet(Ch, [PLUS_CHAR, MINUS_CHAR, ASTERISK, FORWARD_SLASH, PERCENT_CHAR,
                     EQUAL_CHAR, EXCLAMATION, LESS_THAN, GREATER_THAN,
                     AMPERSAND, PIPE_CHAR, CARET_CHAR, TILDE_CHAR]) then
     Exit(ScanOperator);
 
+  Result := ScanPunctuationTrackingBraces;
+end;
+
+function TJSLexer.ScanPunctuationTrackingBraces: TJSToken;
+begin
   Result := ScanPunctuation;
+
+  case Result.TokenType of
+    TJSTokenType.LeftBrace:
+      Inc(FBraceDepth);
+    TJSTokenType.RightBrace:
+      Dec(FBraceDepth);
+  end;
+end;
+
+function TJSLexer.ClosesTemplateSubstitution: Boolean;
+begin
+  const HasOpenSubstitution = (FSubstitutionDepths.Count > 0);
+
+  Result := HasOpenSubstitution and (FSubstitutionDepths.Last = FBraceDepth);
 end;
 
 function TJSLexer.ScanIdentifier: TJSToken;
@@ -670,13 +737,7 @@ begin
     if not IsHexDigit(HexCh) then
       raise TJSErrorFactory.SyntaxError(ErrorMessage, FLine, FColumn);
 
-    if CharInSet(HexCh, ['0'..'9']) then
-      Result := Result * 16 + Ord(HexCh) - Ord('0')
-    else if CharInSet(HexCh, ['a'..'f']) then
-      Result := Result * 16 + 10 + Ord(HexCh) - Ord('a')
-    else
-      Result := Result * 16 + 10 + Ord(HexCh) - Ord('A');
-
+    Result := Result * 16 + HexDigitValue(HexCh);
     Advance;
   end;
 end;
@@ -695,6 +756,233 @@ begin
   const IsValidChar = (IsIdentifierStart(Result) or ((not IsFirstChar) and IsIdentifierPart(Result)));
   if not IsValidChar then
     raise TJSErrorFactory.SyntaxError(SInvalidIdentifierEscape, FLine, FColumn);
+end;
+
+function TJSLexer.HexDigitValue(const Ch: Char): Integer;
+begin
+  if CharInSet(Ch, ['0'..'9']) then
+    Exit(Ord(Ch) - Ord('0'));
+
+  if CharInSet(Ch, ['a'..'f']) then
+    Exit(10 + Ord(Ch) - Ord('a'));
+
+  Result := 10 + Ord(Ch) - Ord('A');
+end;
+
+function TJSLexer.ScanTemplateChunk(const IsHead: Boolean; const StartLine: Integer;
+                                    const StartColumn: Integer): TJSToken;
+begin
+  FTemplateCooked := '';
+  FTemplateRaw := '';
+  FTemplateHasInvalidEscape := False;
+
+  while not IsAtEnd do
+  begin
+    const Ch = CurrentChar;
+
+    if Ch = BACKTICK then
+    begin
+      Advance;
+      Exit(CreateTemplateChunk(IsHead, True, StartLine, StartColumn));
+    end;
+
+    const OpensSubstitution = (Ch = DOLLAR_SIGN) and (PeekChar = LEFT_BRACE);
+    if OpensSubstitution then
+    begin
+      Advance;
+      Advance;
+      FSubstitutionDepths.Add(FBraceDepth);
+      Exit(CreateTemplateChunk(IsHead, False, StartLine, StartColumn));
+    end;
+
+    if Ch = BACKSLASH then
+    begin
+      ReadTemplateEscape;
+    end
+    else if (Ch = LF_CHAR) or (Ch = CR_CHAR) then
+    begin
+      ReadTemplateLineTerminator;
+    end
+    else
+    begin
+      FTemplateCooked := FTemplateCooked + Ch;
+      FTemplateRaw := FTemplateRaw + Ch;
+      Advance;
+    end;
+  end;
+
+  raise TJSErrorFactory.SyntaxError(SUnterminatedTemplate, StartLine, StartColumn);
+end;
+
+function TJSLexer.CreateTemplateChunk(const IsHead: Boolean; const IsTail: Boolean; const StartLine: Integer;
+                                      const StartColumn: Integer): TJSToken;
+begin
+  Result := TJSToken.Create(TJSTokenType.TemplateChunk, FTemplateCooked, StartLine, StartColumn);
+  Result.RawValue := FTemplateRaw;
+  Result.HasInvalidEscape := FTemplateHasInvalidEscape;
+  Result.IsTemplateHead := IsHead;
+  Result.IsTemplateTail := IsTail;
+end;
+
+procedure TJSLexer.ReadTemplateLineTerminator;
+begin
+  const IsCarriageReturn = (CurrentChar = CR_CHAR);
+  Advance;
+
+  const IsCarriageReturnLineFeed = IsCarriageReturn and (CurrentChar = LF_CHAR);
+  if IsCarriageReturnLineFeed then
+    Advance;
+
+  FTemplateCooked := FTemplateCooked + LF_CHAR;
+  FTemplateRaw := FTemplateRaw + LF_CHAR;
+end;
+
+procedure TJSLexer.ReadTemplateLineContinuation;
+begin
+  const Terminator = CurrentChar;
+  Advance;
+
+  const IsCarriageReturnLineFeed = (Terminator = CR_CHAR) and (CurrentChar = LF_CHAR);
+  if IsCarriageReturnLineFeed then
+    Advance;
+
+  if Terminator = CR_CHAR then
+    FTemplateRaw := FTemplateRaw + BACKSLASH + LF_CHAR
+  else
+    FTemplateRaw := FTemplateRaw + BACKSLASH + Terminator;
+end;
+
+procedure TJSLexer.ReadTemplateEscape;
+begin
+  const EscapeStart = FPosition;
+  Advance;
+
+  if IsAtEnd then
+    raise TJSErrorFactory.SyntaxError(SUnterminatedTemplate, FLine, FColumn);
+
+  if IsLineTerminator(CurrentChar) then
+  begin
+    ReadTemplateLineContinuation;
+    Exit;
+  end;
+
+  const Escape = CurrentChar;
+  Advance;
+
+  var Value: string;
+  const IsValid = TryReadTemplateEscapeValue(Escape, Value);
+  if IsValid then
+    FTemplateCooked := FTemplateCooked + Value
+  else
+    FTemplateHasInvalidEscape := True;
+
+  FTemplateRaw := FTemplateRaw + Copy(FSource, EscapeStart, FPosition - EscapeStart);
+end;
+
+function TJSLexer.TryReadTemplateEscapeValue(const Escape: Char; out Value: string): Boolean;
+begin
+  Result := True;
+
+  case Escape of
+    ESCAPE_N:
+      Value := LF_CHAR;
+    ESCAPE_R:
+      Value := CR_CHAR;
+    ESCAPE_T:
+      Value := TAB_CHAR;
+    ESCAPE_B:
+      Value := #8;
+    ESCAPE_F:
+      Value := #12;
+    ESCAPE_V:
+      Value := #11;
+    ZERO_CHAR:
+      begin
+        Value := NULL_CHAR;
+        Result := not IsDigit(CurrentChar);
+      end;
+    '1'..'9':
+      Result := False;
+    ESCAPE_X:
+      begin
+        var CodeUnit: Integer;
+        Result := TryReadHexDigits(2, CodeUnit);
+        if Result then
+          Value := Char(CodeUnit);
+      end;
+    ESCAPE_U:
+      begin
+        const IsCodePoint = (CurrentChar = LEFT_BRACE);
+        if IsCodePoint then
+        begin
+          Result := TryReadCodePointEscape(Value);
+        end
+        else
+        begin
+          var CodeUnit: Integer;
+          Result := TryReadHexDigits(4, CodeUnit);
+          if Result then
+            Value := Char(CodeUnit);
+        end;
+      end;
+  else
+    Value := Escape;
+  end;
+end;
+
+function TJSLexer.TryReadHexDigits(const DigitCount: Integer; out Value: Integer): Boolean;
+begin
+  Value := 0;
+
+  for var Index := 1 to DigitCount do
+  begin
+    if not IsHexDigit(CurrentChar) then
+      Exit(False);
+
+    Value := Value * 16 + HexDigitValue(CurrentChar);
+    Advance;
+  end;
+
+  Result := True;
+end;
+
+function TJSLexer.TryReadCodePointEscape(out Value: string): Boolean;
+begin
+  Advance;
+
+  var CodePoint := 0;
+  var DigitCount := 0;
+  var IsInRange := True;
+
+  while IsHexDigit(CurrentChar) do
+  begin
+    if IsInRange then
+      CodePoint := CodePoint * 16 + HexDigitValue(CurrentChar);
+
+    IsInRange := IsInRange and (CodePoint <= MAX_CODE_POINT);
+    Inc(DigitCount);
+    Advance;
+  end;
+
+  const IsClosed = (CurrentChar = RIGHT_BRACE);
+  if IsClosed then
+    Advance;
+
+  Result := IsClosed and IsInRange and (DigitCount > 0);
+  if Result then
+    Value := CodePointToText(CodePoint);
+end;
+
+function TJSLexer.CodePointToText(const CodePoint: Integer): string;
+begin
+  if CodePoint <= MAX_BASIC_PLANE_CODE_POINT then
+    Exit(Char(CodePoint));
+
+  const Offset = CodePoint - SUPPLEMENTARY_PLANE_OFFSET;
+  const HighSurrogate = Char(HIGH_SURROGATE_BASE + (Offset shr SURROGATE_PAYLOAD_BITS));
+  const LowSurrogate = Char(LOW_SURROGATE_BASE + (Offset and SURROGATE_PAYLOAD_MASK));
+
+  Result := HighSurrogate + LowSurrogate;
 end;
 
 function TJSLexer.ScanRegExp: TJSToken;
@@ -836,6 +1124,9 @@ begin
             TJSTokenType.Decrement,
             TJSTokenType.KeywordThis
           ];
+
+          const EndsTemplate = (PrevToken.TokenType = TJSTokenType.TemplateChunk) and PrevToken.IsTemplateTail;
+          IsDivisionContext := IsDivisionContext or EndsTemplate;
         end;
 
         if IsDivisionContext then
@@ -1085,6 +1376,8 @@ begin
   FLine := 1;
   FColumn := 1;
   FCurrentIndex := 0;
+  FBraceDepth := 0;
+  FSubstitutionDepths.Clear;
 
   while not IsAtEnd do
   begin

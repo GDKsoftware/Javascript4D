@@ -54,7 +54,9 @@ type
     MemberExpression,
     NewExpression,
     SequenceExpression,
-    ThisExpression
+    ThisExpression,
+    TemplateLiteral,
+    TemplateObject
   );
 
   TJSASTNode = class
@@ -384,6 +386,8 @@ type
     property Arguments: TObjectList<TJSExpression> read FArguments;
   end;
 
+  TJSTaggedTemplateExpression = class(TJSCallExpression);
+
   TJSMemberExpression = class(TJSExpression)
   private
     FObject_: TJSExpression;
@@ -426,6 +430,38 @@ type
   TJSThisExpression = class(TJSExpression)
   public
     constructor Create;
+  end;
+
+  TJSTemplatePart = record
+    Cooked: string;
+    Raw: string;
+    HasCooked: Boolean;
+  end;
+
+  TJSTemplateLiteral = class(TJSExpression)
+  private
+    FParts: TList<TJSTemplatePart>;
+    FExpressions: TObjectList<TJSExpression>;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Parts: TList<TJSTemplatePart> read FParts;
+    property Expressions: TObjectList<TJSExpression> read FExpressions;
+  end;
+
+  TJSTemplateObject = class(TJSExpression)
+  private
+    FParts: TList<TJSTemplatePart>;
+    FCachedObject: IInterface;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Parts: TList<TJSTemplatePart> read FParts;
+    property CachedObject: IInterface read FCachedObject write FCachedObject;
   end;
 
   TJSBlockStatement = class(TJSStatement)
@@ -1038,6 +1074,36 @@ end;
 constructor TJSThisExpression.Create;
 begin
   inherited Create(TJSASTNodeType.ThisExpression);
+end;
+
+{ TJSTemplateLiteral }
+
+constructor TJSTemplateLiteral.Create;
+begin
+  inherited Create(TJSASTNodeType.TemplateLiteral);
+  FParts := TList<TJSTemplatePart>.Create;
+  FExpressions := TObjectList<TJSExpression>.Create(True);
+end;
+
+destructor TJSTemplateLiteral.Destroy;
+begin
+  FExpressions.Free;
+  FParts.Free;
+  inherited;
+end;
+
+{ TJSTemplateObject }
+
+constructor TJSTemplateObject.Create;
+begin
+  inherited Create(TJSASTNodeType.TemplateObject);
+  FParts := TList<TJSTemplatePart>.Create;
+end;
+
+destructor TJSTemplateObject.Destroy;
+begin
+  FParts.Free;
+  inherited;
 end;
 
 { TJSBlockStatement }

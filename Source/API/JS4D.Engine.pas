@@ -18,6 +18,7 @@ uses
   JS4D.Builtins,
   JS4D.ArrayIteration,
   JS4D.ArrayGeneric,
+  JS4D.ArrayLike,
   JS4D.PropertyDescriptors,
   JS4D.PrototypeMethods,
   JS4D.DateBuiltins,
@@ -61,6 +62,9 @@ type
     function ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
+    procedure RegisterStringRaw(const StringFunc: IJSFunction);
+    function ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
+    function CoerceToObject(const Value: TJSValue): IJSObject;
     procedure RegisterConsole;
     procedure RegisterMath;
     procedure RegisterObject;
@@ -165,6 +169,8 @@ const
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   LENGTH_PROPERTY = 'length';
+  RAW_PROPERTY = 'raw';
+  NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
@@ -515,6 +521,8 @@ begin
       Result := TJSValue.CreateString(OutputChars);
     end)));
 
+  RegisterStringRaw(StringFunc);
+
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
   AttachPrototypeObject(StringFunc, StringPrototype);
 
@@ -554,6 +562,51 @@ begin
   RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
   ApplyBuiltinAttributes;
+end;
+
+procedure TJSEngine.RegisterStringRaw(const StringFunc: IJSFunction);
+begin
+  const RawFunc = TJSFunction.CreateNative(RAW_PROPERTY,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := TJSValue.CreateString(ConcatenateRawStrings(Args));
+    end);
+
+  RawFunc.IsConstructor := False;
+  FInterpreter.RegisterFunction(RawFunc);
+  StringFunc.SetProperty(RAW_PROPERTY, TJSValue.CreateObject(RawFunc));
+end;
+
+function TJSEngine.ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
+begin
+  const Cooked = CoerceToObject(ArgumentAt(Args, 0));
+  const Raw = CoerceToObject(Cooked.GetProperty(RAW_PROPERTY));
+  const SegmentCount = TJSArrayLike.ToLength(Raw);
+
+  Result := '';
+
+  for var Index: Int64 := 0 to SegmentCount - 1 do
+  begin
+    const SegmentName = TJSArrayLike.IndexName(Index);
+    const Segment = Raw.GetProperty(SegmentName);
+    Result := Result + ToText(Segment);
+
+    const IsLastSegment = (Index = SegmentCount - 1);
+    const HasSubstitution = (Index + 1 < Length(Args));
+    if (not IsLastSegment) and HasSubstitution then
+      Result := Result + ToText(Args[Index + 1]);
+  end;
+end;
+
+function TJSEngine.CoerceToObject(const Value: TJSValue): IJSObject;
+begin
+  if Value.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
+
+  if Value.IsObject then
+    Exit(Value.ToObject);
+
+  Result := FInterpreter.WrapPrimitive(Value);
 end;
 
 procedure TJSEngine.RegisterUriFunction(const Name: string; const Transform: TUriTransform);

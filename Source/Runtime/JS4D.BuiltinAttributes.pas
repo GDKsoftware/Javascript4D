@@ -46,7 +46,7 @@ type
                   'reduceRight:1 find:1 findIndex:1 fill:1 copyWithin:2 includes:1 keys:0 values:0 entries:0 ' +
                   'flat:0 flatMap:1'),
         (Owner: 'String';
-         Entries: 'fromCharCode:1'),
+         Entries: 'fromCharCode:1 raw:1'),
         (Owner: 'String.prototype';
          Entries: 'toString:0 valueOf:0 charAt:1 charCodeAt:1 concat:1 indexOf:1 lastIndexOf:1 localeCompare:1 ' +
                   'match:1 replace:2 search:1 slice:2 split:2 substring:2 toLowerCase:0 toLocaleLowerCase:0 ' +

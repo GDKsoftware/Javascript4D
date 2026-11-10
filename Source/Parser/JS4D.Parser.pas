@@ -114,6 +114,12 @@ type
     function ParseIdentifierName: TJSIdentifier;
     function ParseMemberExpression: TJSExpression;
     function ParseNewExpression: TJSExpression;
+    function IsTemplateStart: Boolean;
+    function ParseTemplateLiteral: TJSTemplateLiteral;
+    function ParseTaggedTemplate(const Tag: TJSExpression): TJSTaggedTemplateExpression;
+    procedure ReadTemplateParts(const IsTagged: Boolean; const Parts: TList<TJSTemplatePart>;
+                                const Expressions: TObjectList<TJSExpression>);
+    function CreateTemplatePart(const Chunk: TJSToken; const IsTagged: Boolean): TJSTemplatePart;
     function ParsePrimaryExpression: TJSExpression;
     function ParseArrayExpression: TJSArrayExpression;
     function ParseObjectExpression: TJSObjectExpression;
@@ -182,6 +188,7 @@ const
   LetBindingNameMessage = 'let is disallowed as a lexically bound name';
   ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
   DuplicateArrowParameterMessage = 'Duplicate parameter name not allowed in arrow functions';
+  InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
 
 { TJSParser }
@@ -1774,6 +1781,8 @@ begin
       Expect(TJSTokenType.RightBracket);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
+    else if IsTemplateStart then
+      Result := ParseTaggedTemplate(Result)
     else
       Break;
   end;
@@ -1805,9 +1814,84 @@ begin
       Expect(TJSTokenType.RightBracket);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
+    else if IsTemplateStart then
+      Result := ParseTaggedTemplate(Result)
     else
       Break;
   end;
+end;
+
+function TJSParser.IsTemplateStart: Boolean;
+begin
+  Result := Check(TJSTokenType.TemplateChunk) and CurrentToken.IsTemplateHead;
+end;
+
+function TJSParser.ParseTemplateLiteral: TJSTemplateLiteral;
+begin
+  Result := TJSTemplateLiteral.Create;
+  Result.Line := CurrentToken.Line;
+  Result.Column := CurrentToken.Column;
+
+  try
+    ReadTemplateParts(False, Result.Parts, Result.Expressions);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseTaggedTemplate(const Tag: TJSExpression): TJSTaggedTemplateExpression;
+begin
+  const Site = TJSTemplateObject.Create;
+  Site.Line := CurrentToken.Line;
+  Site.Column := CurrentToken.Column;
+
+  Result := TJSTaggedTemplateExpression.Create(Tag);
+  Result.Line := Site.Line;
+  Result.Column := Site.Column;
+  Result.Arguments.Add(Site);
+
+  try
+    ReadTemplateParts(True, Site.Parts, Result.Arguments);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.ReadTemplateParts(const IsTagged: Boolean; const Parts: TList<TJSTemplatePart>;
+                                      const Expressions: TObjectList<TJSExpression>);
+begin
+  var Chunk := CurrentToken;
+
+  while True do
+  begin
+    const Part = CreateTemplatePart(Chunk, IsTagged);
+    Parts.Add(Part);
+    Advance;
+
+    if Chunk.IsTemplateTail then
+      Exit;
+
+    const Substitution = ParseNestedExpression;
+    Expressions.Add(Substitution);
+
+    Chunk := CurrentToken;
+    const ContinuesTemplate = (Chunk.TokenType = TJSTokenType.TemplateChunk) and (not Chunk.IsTemplateHead);
+    if not ContinuesTemplate then
+      raise TJSErrorFactory.UnexpectedToken(Chunk.Value, Chunk.Line, Chunk.Column);
+  end;
+end;
+
+function TJSParser.CreateTemplatePart(const Chunk: TJSToken; const IsTagged: Boolean): TJSTemplatePart;
+begin
+  const IsRejected = Chunk.HasInvalidEscape and (not IsTagged);
+  if IsRejected then
+    raise TJSErrorFactory.SyntaxError(InvalidTemplateEscapeMessage, Chunk.Line, Chunk.Column);
+
+  Result.Cooked := Chunk.Value;
+  Result.Raw := Chunk.RawValue;
+  Result.HasCooked := not Chunk.HasInvalidEscape;
 end;
 
 function TJSParser.ParseNewExpression: TJSExpression;
@@ -1896,6 +1980,14 @@ begin
       begin
         Advance;
         Exit(TJSThisExpression.Create);
+      end;
+
+    TJSTokenType.TemplateChunk:
+      begin
+        if not CurrentToken.IsTemplateHead then
+          raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+        Exit(ParseTemplateLiteral);
       end;
 
     TJSTokenType.LeftParen:
@@ -2331,6 +2423,9 @@ end;
 
 function TJSParser.IsValidAssignmentTarget(const Target: TJSExpression): Boolean;
 begin
+  if Target is TJSTaggedTemplateExpression then
+    Exit(False);
+
   const IsCall = (Target.NodeType = TJSASTNodeType.CallExpression);
   if IsCall then
     Exit(not FStrictMode);

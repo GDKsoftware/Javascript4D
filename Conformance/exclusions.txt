@@ -48,7 +48,6 @@ optional-chaining
 rest-parameters
 super
 tail-call-optimization
-template
 top-level-await
 u180e
 well-formed-json-stringify
