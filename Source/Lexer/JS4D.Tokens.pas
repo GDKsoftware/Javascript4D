@@ -19,6 +19,7 @@ type
     NullLiteral,
     RegExpLiteral,
     EscapedKeyword,
+    UnusedReservedWord,
 
     LeftParen,
     RightParen,
@@ -115,6 +116,7 @@ type
     FSourcePosition: Integer;
     FIsLegacyLiteral: Boolean;
     FHasEscape: Boolean;
+    FLineTerminatorBefore: Boolean;
 
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
@@ -128,6 +130,7 @@ type
     property SourcePosition: Integer read FSourcePosition write FSourcePosition;
     property IsLegacyLiteral: Boolean read FIsLegacyLiteral write FIsLegacyLiteral;
     property HasEscape: Boolean read FHasEscape write FHasEscape;
+    property LineTerminatorBefore: Boolean read FLineTerminatorBefore write FLineTerminatorBefore;
   end;
 
   TJSKeywords = class
@@ -143,13 +146,18 @@ type
 
     class function IsKeyword(const Identifier: string): Boolean;
     class function IsReservedWord(const Identifier: string): Boolean;
+    class function IsUnusedReservedWord(const Identifier: string): Boolean;
     class function IsIdentifierName(const TokenType: TJSTokenType): Boolean;
     class function GetKeywordType(const Identifier: string): TJSTokenType;
   end;
 
 implementation
 
+uses
+  System.StrUtils;
+
 const
+  UnusedReservedWords: array[0..3] of string = ('enum', 'export', 'extends', 'import');
   KeywordVar = 'var';
   KeywordFunction = 'function';
   KeywordReturn = 'return';
@@ -268,10 +276,16 @@ begin
   Result := FKeywords.ContainsKey(Identifier) or FFutureReservedWords.Contains(Identifier);
 end;
 
+class function TJSKeywords.IsUnusedReservedWord(const Identifier: string): Boolean;
+begin
+  Result := MatchStr(Identifier, UnusedReservedWords);
+end;
+
 class function TJSKeywords.IsIdentifierName(const TokenType: TJSTokenType): Boolean;
 begin
   const IsNameLikeLiteral = (TokenType in [TJSTokenType.Identifier,
                                            TJSTokenType.EscapedKeyword,
+                                           TJSTokenType.UnusedReservedWord,
                                            TJSTokenType.BooleanLiteral,
                                            TJSTokenType.NullLiteral]);
   const IsKeywordToken = (TokenType >= TJSTokenType.KeywordVar);

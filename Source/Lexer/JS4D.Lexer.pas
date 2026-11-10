@@ -350,7 +350,12 @@ end;
 function TJSLexer.IdentifierTokenType(const Name: string; const HasEscape: Boolean): TJSTokenType;
 begin
   if not HasEscape then
+  begin
+    if TJSKeywords.IsUnusedReservedWord(Name) then
+      Exit(TJSTokenType.UnusedReservedWord);
+
     Exit(TJSKeywords.GetKeywordType(Name));
+  end;
 
   if TJSKeywords.IsReservedWord(Name) then
     Result := TJSTokenType.EscapedKeyword
@@ -710,6 +715,9 @@ begin
     begin
       Pattern := Pattern + Ch;
       Advance;
+
+      if IsLineTerminator(CurrentChar) then
+        raise TJSErrorFactory.SyntaxError(SUnterminatedRegularExpression, FLine, FColumn);
 
       if not IsAtEnd then
       begin
@@ -1075,7 +1083,12 @@ begin
 
   while not IsAtEnd do
   begin
+    const LineBeforeWhitespace = FLine;
+    SkipWhitespace;
+    const CrossedLineTerminator = (FLine > LineBeforeWhitespace);
+
     const Token = ScanToken;
+    Token.LineTerminatorBefore := CrossedLineTerminator;
     FTokens.Add(Token);
 
     if Token.TokenType = TJSTokenType.EndOfFile then

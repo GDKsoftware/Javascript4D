@@ -39,6 +39,10 @@ language/statements/for-of/
 language/statements/generators/
 language/statements/let/
 language/statements/using/
+language/statements/switch/scope-lex-async-
+language/statements/switch/scope-lex-class.js
+language/statements/switch/scope-lex-const.js
+language/statements/switch/scope-lex-generator.js
 
 # Built-ins introduced after ES5.1
 built-ins/AbstractModuleSource/

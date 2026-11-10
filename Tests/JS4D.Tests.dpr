@@ -53,6 +53,7 @@ uses
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
   JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas',
+  JS4D.Tests.SyntaxEarlyErrors in 'JS4D.Tests.SyntaxEarlyErrors.pas',
   JS4D.Tests.FunctionDeclarations in 'JS4D.Tests.FunctionDeclarations.pas',
   JS4D.Tests.GlobalObject in 'JS4D.Tests.GlobalObject.pas',
   JS4D.Tests.RegExpSyntax in 'JS4D.Tests.RegExpSyntax.pas',

@@ -30,6 +30,7 @@ type
     FLabelScopeStart: Integer;
     FLoopDepth: Integer;
     FSwitchDepth: Integer;
+    FFunctionDepth: Integer;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -49,7 +50,9 @@ type
     function ParseIfStatement: TJSIfStatement;
     function ParseWhileStatement: TJSWhileStatement;
     function ParseDoWhileStatement: TJSDoWhileStatement;
-    function ParseLoopBody: TJSStatement;
+    function ParseLoopBody(const Owned: array of TObject): TJSStatement;
+    procedure RejectFunctionDeclarationBody(const Owned: array of TObject);
+    procedure FreeOwned(const Owned: array of TObject);
     function ParseLabeledStatement: TJSLabeledStatement;
     function LabelsIterationStatement: Boolean;
     function FindActiveLabel(const LabelName: string): Integer;
@@ -145,6 +148,10 @@ const
   UndefinedLabelMessage = 'Undefined label ''%s''';
   DuplicateLabelMessage = 'Label ''%s'' has already been declared';
   ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
+  IllegalReturnMessage = 'Illegal return statement';
+  IllegalThrowNewlineMessage = 'Illegal newline after throw';
+  DuplicateDefaultMessage = 'More than one default clause in switch statement';
+  FunctionDeclarationBodyMessage = 'Function declaration is not allowed as the body of a statement';
 
 { TJSParser }
 
@@ -220,14 +227,14 @@ end;
 
 procedure TJSParser.ExpectSemicolon;
 begin
-  if Check(TJSTokenType.Semicolon) then
-  begin
-    Advance;
+  if Match(TJSTokenType.Semicolon) then
     Exit;
-  end;
 
-  if Check(TJSTokenType.RightBrace) or Check(TJSTokenType.EndOfFile) then
-    Exit;
+  const CanInsertSemicolon = (Check(TJSTokenType.RightBrace) or
+                              Check(TJSTokenType.EndOfFile) or
+                              CurrentToken.LineTerminatorBefore);
+  if not CanInsertSemicolon then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.IsAtEnd: Boolean;
@@ -420,7 +427,13 @@ end;
 function TJSParser.ParseExpressionStatement: TJSExpressionStatement;
 begin
   const Expression = ParseExpression;
-  ExpectSemicolon;
+  try
+    ExpectSemicolon;
+  except
+    Expression.Free;
+    raise;
+  end;
+
   Result := TJSExpressionStatement.Create(Expression);
 end;
 
@@ -430,14 +443,28 @@ begin
   Expect(TJSTokenType.LeftParen);
 
   const Test = ParseExpression;
-
-  Expect(TJSTokenType.RightParen);
-
-  const Consequent = ParseStatement;
+  var Consequent: TJSStatement := nil;
   var Alternate: TJSStatement := nil;
 
-  if Match(TJSTokenType.KeywordElse) then
-    Alternate := ParseStatement;
+  try
+    Expect(TJSTokenType.RightParen);
+
+    if FStrictMode then
+      RejectFunctionDeclarationBody([]);
+
+    Consequent := ParseStatement;
+
+    if Match(TJSTokenType.KeywordElse) then
+    begin
+      if FStrictMode then
+        RejectFunctionDeclarationBody([]);
+
+      Alternate := ParseStatement;
+    end;
+  except
+    FreeOwned([Test, Consequent, Alternate]);
+    raise;
+  end;
 
   Result := TJSIfStatement.Create(Test, Consequent, Alternate);
 end;
@@ -451,7 +478,7 @@ begin
 
   Expect(TJSTokenType.RightParen);
 
-  const Body = ParseLoopBody;
+  const Body = ParseLoopBody([Test]);
 
   Result := TJSWhileStatement.Create(Test, Body);
 end;
@@ -559,6 +586,8 @@ begin
   const OuterLoopDepth = FLoopDepth;
   const OuterSwitchDepth = FSwitchDepth;
 
+  Inc(FFunctionDepth);
+
   const DeclaresStrictMode = Check(TJSTokenType.LeftBrace) and PrologueDeclaresStrictMode(1);
   if DeclaresStrictMode then
     FStrictMode := True;
@@ -573,6 +602,7 @@ begin
     Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
                                                               [ARGUMENTS_NAME, EVAL_NAME]);
   finally
+    Dec(FFunctionDepth);
     FStrictMode := OldStrictMode;
     FLabelScopeStart := OuterLabelScopeStart;
     FLoopDepth := OuterLoopDepth;
@@ -584,7 +614,7 @@ function TJSParser.ParseDoWhileStatement: TJSDoWhileStatement;
 begin
   Expect(TJSTokenType.KeywordDo);
 
-  const Body = ParseLoopBody;
+  const Body = ParseLoopBody([]);
 
   Expect(TJSTokenType.KeywordWhile);
   Expect(TJSTokenType.LeftParen);
@@ -592,7 +622,7 @@ begin
   const Test = ParseExpression;
 
   Expect(TJSTokenType.RightParen);
-  ExpectSemicolon;
+  Match(TJSTokenType.Semicolon);
 
   Result := TJSDoWhileStatement.Create(Body, Test);
 end;
@@ -612,6 +642,8 @@ begin
       raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
     const VarName = CurrentToken.Value;
+    CheckStrictModeReservedWord(VarName);
+    CheckRestrictedBindingName(VarName);
     Advance;
 
     if Match(TJSTokenType.KeywordIn) then
@@ -624,7 +656,7 @@ begin
       const Right = ParseExpression;
       Expect(TJSTokenType.RightParen);
 
-      const Body = ParseLoopBody;
+      const Body = ParseLoopBody([VarDecl, Right]);
 
       Exit(TJSForInStatement.Create(VarDecl, Right, Body));
     end;
@@ -645,6 +677,8 @@ begin
         raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
       const NextVarName = CurrentToken.Value;
+      CheckStrictModeReservedWord(NextVarName);
+      CheckRestrictedBindingName(NextVarName);
       Advance;
 
       const NextVarId = TJSIdentifier.Create(NextVarName);
@@ -677,7 +711,7 @@ begin
       const Right = ParseExpression;
       Expect(TJSTokenType.RightParen);
 
-      const Body = ParseLoopBody;
+      const Body = ParseLoopBody([Expr, Right]);
 
       Exit(TJSForInStatement.Create(Expr, Right, Body));
     end;
@@ -699,7 +733,7 @@ begin
 
   Expect(TJSTokenType.RightParen);
 
-  const Body = ParseLoopBody;
+  const Body = ParseLoopBody([Init, Test, Update]);
 
   Result := TJSForStatement.Create(Init, Test, Update, Body);
 end;
@@ -707,6 +741,9 @@ end;
 function TJSParser.ParseReturnStatement: TJSReturnStatement;
 begin
   const Token = CurrentToken;
+  if FFunctionDepth = 0 then
+    raise TJSErrorFactory.SyntaxError(IllegalReturnMessage, Token.Line, Token.Column);
+
   Expect(TJSTokenType.KeywordReturn);
 
   var Argument: TJSExpression := nil;
@@ -717,7 +754,12 @@ begin
   if (not HasNewLine) and (not IsEndOfStatement) then
     Argument := ParseExpression;
 
-  ExpectSemicolon;
+  try
+    ExpectSemicolon;
+  except
+    Argument.Free;
+    raise;
+  end;
 
   Result := TJSReturnStatement.Create(Argument);
 end;
@@ -845,11 +887,36 @@ begin
   end;
 end;
 
-function TJSParser.ParseLoopBody: TJSStatement;
+procedure TJSParser.RejectFunctionDeclarationBody(const Owned: array of TObject);
 begin
+  if not Check(TJSTokenType.KeywordFunction) then
+    Exit;
+
+  FreeOwned(Owned);
+
+  raise TJSErrorFactory.SyntaxError(FunctionDeclarationBodyMessage, CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.FreeOwned(const Owned: array of TObject);
+begin
+  for var Node in Owned do
+  begin
+    Node.Free;
+  end;
+end;
+
+function TJSParser.ParseLoopBody(const Owned: array of TObject): TJSStatement;
+begin
+  RejectFunctionDeclarationBody(Owned);
+
   Inc(FLoopDepth);
   try
-    Result := ParseStatement;
+    try
+      Result := ParseStatement;
+    except
+      FreeOwned(Owned);
+      raise;
+    end;
   finally
     Dec(FLoopDepth);
   end;
@@ -867,6 +934,8 @@ begin
 
   Result := TJSSwitchStatement.Create(Discriminant);
 
+  var HasDefaultClause := False;
+
   Inc(FSwitchDepth);
   try
     while (not Check(TJSTokenType.RightBrace)) and (not IsAtEnd) do
@@ -874,9 +943,17 @@ begin
       var Test: TJSExpression := nil;
 
       if Match(TJSTokenType.KeywordCase) then
-        Test := ParseExpression
+      begin
+        Test := ParseExpression;
+      end
       else
+      begin
+        if HasDefaultClause then
+          raise TJSErrorFactory.SyntaxError(DuplicateDefaultMessage, CurrentToken.Line, CurrentToken.Column);
+
+        HasDefaultClause := True;
         Expect(TJSTokenType.KeywordDefault);
+      end;
 
       Expect(TJSTokenType.Colon);
 
@@ -906,8 +983,16 @@ function TJSParser.ParseThrowStatement: TJSThrowStatement;
 begin
   Expect(TJSTokenType.KeywordThrow);
 
+  if CurrentToken.LineTerminatorBefore then
+    raise TJSErrorFactory.SyntaxError(IllegalThrowNewlineMessage, CurrentToken.Line, CurrentToken.Column);
+
   const Argument = ParseExpression;
-  ExpectSemicolon;
+  try
+    ExpectSemicolon;
+  except
+    Argument.Free;
+    raise;
+  end;
 
   Result := TJSThrowStatement.Create(Argument);
 end;
