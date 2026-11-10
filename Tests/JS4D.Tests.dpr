@@ -12,6 +12,7 @@ uses
   JS4D.Types in '..\Source\Core\JS4D.Types.pas',
   JS4D.Errors in '..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
+  JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
@@ -21,6 +22,7 @@ uses
   JS4D.Json in '..\Source\API\JS4D.Json.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
+  JS4D.PatternOperations in '..\Source\Runtime\JS4D.PatternOperations.pas',
   JS4D.Tests.Engine in 'JS4D.Tests.Engine.pas',
   JS4D.Tests.Lexer in 'JS4D.Tests.Lexer.pas',
   JS4D.Tests.Parser in 'JS4D.Tests.Parser.pas',
@@ -57,7 +59,8 @@ uses
   JS4D.Tests.UriCoding in 'JS4D.Tests.UriCoding.pas',
   JS4D.Tests.GenericArrayMutators in 'JS4D.Tests.GenericArrayMutators.pas',
   JS4D.Tests.LexicalGrammar in 'JS4D.Tests.LexicalGrammar.pas',
-  JS4D.Tests.ArrayIterationLength in 'JS4D.Tests.ArrayIterationLength.pas';
+  JS4D.Tests.ArrayIterationLength in 'JS4D.Tests.ArrayIterationLength.pas',
+  JS4D.Tests.RegExpMatching in 'JS4D.Tests.RegExpMatching.pas';
 
 var
   Runner: ITestRunner;

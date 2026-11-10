@@ -7,7 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
-  System.RegularExpressions;
+  JS4D.PcreMatcher;
 
 type
   TJSValueType = (
@@ -256,15 +256,23 @@ type
     property Time: Double read GetTime write SetTime;
   end;
 
+  TJSCallbackExecutor = reference to function(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+
+  TJSRegExpMatch = record
+    Found: Boolean;
+    Index: Integer;
+    Length: Integer;
+    Captures: TArray<TJSValue>;
+  end;
+
   IJSRegExp = interface(IJSObject)
     ['{F6A7B8C9-D0E1-2345-FABC-678901234567}']
     function Test(const Str: string): Boolean;
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
-    function Replace(const Str: string; const Replacement: string): string;
+    function MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
     function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
-    function Split(const Str: string; const Limit: Integer = -1): IJSArray;
     function GetPattern: string;
     function GetFlags: string;
     function GetGlobal: Boolean;
@@ -493,11 +501,17 @@ type
   private
     FPattern: string;
     FFlags: string;
-    FRegEx: TRegEx;
+    FMatcher: TJSPcreMatcher;
     FGlobal: Boolean;
     FIgnoreCase: Boolean;
     FMultiline: Boolean;
-    FLastIndex: Integer;
+
+    function ReadLastIndex: Int64;
+    procedure WriteLastIndex(const Value: Integer);
+    function FindMatch(const Str: string): TJSRegExpMatch;
+    function CaptureValue(const Str: string; const GroupIndex: Integer): TJSValue;
+    function BuildExecResult(const Found: TJSRegExpMatch; const Str: string): TJSValue;
+    function MatchAllText(const Str: string): TJSValue;
 
   protected
     function GetPattern: string;
@@ -510,14 +524,14 @@ type
 
   public
     constructor Create(const Pattern: string; const Flags: string = '');
+    destructor Destroy; override;
 
     function Test(const Str: string): Boolean;
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
-    function Replace(const Str: string; const Replacement: string): string;
+    function MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
     function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
-    function Split(const Str: string; const Limit: Integer = -1): IJSArray;
 
     property Pattern: string read GetPattern;
     property Flags: string read GetFlags;
@@ -2180,21 +2194,12 @@ begin
   FGlobal := (Pos('g', Flags) > 0);
   FIgnoreCase := (Pos('i', Flags) > 0);
   FMultiline := (Pos('m', Flags) > 0);
-  FLastIndex := 0;
-
-  var Options: TRegExOptions := [];
-
-  if FIgnoreCase then
-    Options := Options + [roIgnoreCase];
-
-  if FMultiline then
-    Options := Options + [roMultiLine];
 
   var CompilablePattern := Pattern;
   if Pattern.IsEmpty then
     CompilablePattern := EMPTY_PATTERN_GROUP;
 
-  FRegEx := TRegEx.Create(CompilablePattern, Options);
+  FMatcher := TJSPcreMatcher.Create(CompilablePattern, FIgnoreCase, FMultiline);
 
   SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
   SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));
@@ -2202,6 +2207,12 @@ begin
   SetProperty(PROP_IGNORE_CASE, TJSValue.CreateBoolean(FIgnoreCase));
   SetProperty(PROP_MULTILINE, TJSValue.CreateBoolean(FMultiline));
   SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
+end;
+
+destructor TJSRegExpImpl.Destroy;
+begin
+  FMatcher.Free;
+  inherited Destroy;
 end;
 
 function TJSRegExpImpl.GetPattern: string;
@@ -2231,167 +2242,170 @@ end;
 
 function TJSRegExpImpl.GetLastIndex: Integer;
 begin
-  Result := FLastIndex;
+  Result := Integer(Min(Max(ReadLastIndex, 0), MaxInt));
 end;
 
 procedure TJSRegExpImpl.SetLastIndex(const Value: Integer);
 begin
-  FLastIndex := Value;
+  WriteLastIndex(Value);
+end;
+
+function TJSRegExpImpl.ReadLastIndex: Int64;
+begin
+  Result := GetProperty(PROP_LAST_INDEX).ToInteger;
+end;
+
+procedure TJSRegExpImpl.WriteLastIndex(const Value: Integer);
+begin
+  SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(Value));
+end;
+
+function TJSRegExpImpl.MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
+begin
+  Result := Default(TJSRegExpMatch);
+
+  if not FMatcher.TryMatch(Str, Start) then
+    Exit;
+
+  const MatchStart = FMatcher.GroupStart(0);
+
+  Result.Found := True;
+  Result.Index := MatchStart;
+  Result.Length := FMatcher.GroupEnd(0) - MatchStart;
+
+  SetLength(Result.Captures, FMatcher.CaptureCount);
+  for var CaptureIndex := 0 to FMatcher.CaptureCount - 1 do
+  begin
+    Result.Captures[CaptureIndex] := CaptureValue(Str, CaptureIndex + 1);
+  end;
+end;
+
+function TJSRegExpImpl.CaptureValue(const Str: string; const GroupIndex: Integer): TJSValue;
+begin
+  if not FMatcher.HasParticipated(GroupIndex) then
+    Exit(TJSValue.CreateUndefined);
+
+  const CaptureStart = FMatcher.GroupStart(GroupIndex);
+  const CaptureLength = FMatcher.GroupEnd(GroupIndex) - CaptureStart;
+
+  Result := TJSValue.CreateString(Copy(Str, CaptureStart + 1, CaptureLength));
+end;
+
+function TJSRegExpImpl.FindMatch(const Str: string): TJSRegExpMatch;
+begin
+  var Start := ReadLastIndex;
+  if not FGlobal then
+    Start := 0;
+
+  const InRange = (Start >= 0) and (Start <= Length(Str));
+  if InRange then
+    Result := MatchAt(Str, Integer(Start))
+  else
+    Result := Default(TJSRegExpMatch);
+
+  if not Result.Found then
+  begin
+    WriteLastIndex(0);
+    Exit;
+  end;
+
+  if FGlobal then
+    WriteLastIndex(Result.Index + Result.Length);
 end;
 
 function TJSRegExpImpl.Test(const Str: string): Boolean;
 begin
-  if FGlobal then
+  Result := FindMatch(Str).Found;
+end;
+
+function TJSRegExpImpl.BuildExecResult(const Found: TJSRegExpMatch; const Str: string): TJSValue;
+begin
+  const ResultArr: IJSArray = TJSArrayImpl.Create;
+  ResultArr.Push(TJSValue.CreateString(Copy(Str, Found.Index + 1, Found.Length)));
+
+  for var Capture in Found.Captures do
   begin
-    const Match = FRegEx.Match(Str, FLastIndex + 1);
-    Result := Match.Success;
+    ResultArr.Push(Capture);
+  end;
 
-    if Result then
-      FLastIndex := Match.Index + Match.Length - 1
-    else
-      FLastIndex := 0;
+  ResultArr.SetProperty(PROP_INDEX, TJSValue.CreateNumber(Found.Index));
+  ResultArr.SetProperty(PROP_INPUT, TJSValue.CreateString(Str));
 
-    SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(FLastIndex));
-  end
-  else
-    Result := FRegEx.IsMatch(Str);
+  Result := TJSValue.CreateObject(ResultArr);
 end;
 
 function TJSRegExpImpl.Exec(const Str: string): TJSValue;
-var
-  Match: TMatch;
 begin
-  if FGlobal then
-  begin
-    Match := FRegEx.Match(Str, FLastIndex + 1);
+  const Found = FindMatch(Str);
+  if not Found.Found then
+    Exit(TJSValue.CreateNull);
 
-    if Match.Success then
-    begin
-      FLastIndex := Match.Index + Match.Length - 1;
-      SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(FLastIndex));
-    end
-    else
-    begin
-      FLastIndex := 0;
-      SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
-      Result := TJSValue.CreateNull;
-      Exit;
-    end;
-  end
-  else
-  begin
-    Match := FRegEx.Match(Str);
+  Result := BuildExecResult(Found, Str);
+end;
 
-    if not Match.Success then
-    begin
-      Result := TJSValue.CreateNull;
-      Exit;
-    end;
-  end;
+function TJSRegExpImpl.MatchAllText(const Str: string): TJSValue;
+begin
+  WriteLastIndex(0);
 
   const ResultArr: IJSArray = TJSArrayImpl.Create;
-  ResultArr.Push(TJSValue.CreateString(Match.Value));
+  var Position := 0;
 
-  for var GroupIdx := 1 to Match.Groups.Count - 1 do
+  while Position <= Length(Str) do
   begin
-    const Group = Match.Groups[GroupIdx];
+    const Found = MatchAt(Str, Position);
+    if not Found.Found then
+      Break;
 
-    if Group.Success then
-      ResultArr.Push(TJSValue.CreateString(Group.Value))
-    else
-      ResultArr.Push(TJSValue.CreateUndefined);
+    ResultArr.Push(TJSValue.CreateString(Copy(Str, Found.Index + 1, Found.Length)));
+
+    Position := Found.Index + Found.Length;
+    if Found.Length = 0 then
+      Inc(Position);
   end;
 
-  ResultArr.SetProperty(PROP_INDEX, TJSValue.CreateNumber(Match.Index - 1));
-  ResultArr.SetProperty(PROP_INPUT, TJSValue.CreateString(Str));
+  if ResultArr.Length = 0 then
+    Exit(TJSValue.CreateNull);
 
   Result := TJSValue.CreateObject(ResultArr);
 end;
 
 function TJSRegExpImpl.Match(const Str: string): TJSValue;
 begin
-  if not FGlobal then
-  begin
-    Result := Exec(Str);
-    Exit;
-  end;
-
-  const Matches = FRegEx.Matches(Str);
-
-  if Matches.Count = 0 then
-  begin
-    Result := TJSValue.CreateNull;
-    Exit;
-  end;
-
-  const ResultArr: IJSArray = TJSArrayImpl.Create;
-
-  for var MatchItem in Matches do
-  begin
-    ResultArr.Push(TJSValue.CreateString(MatchItem.Value));
-  end;
-
-  Result := TJSValue.CreateObject(ResultArr);
-end;
-
-function TJSRegExpImpl.Replace(const Str: string; const Replacement: string): string;
-begin
   if FGlobal then
-    Result := FRegEx.Replace(Str, Replacement)
+    Result := MatchAllText(Str)
   else
-    Result := FRegEx.Replace(Str, Replacement, 1);
+    Result := Exec(Str);
 end;
 
 function TJSRegExpImpl.CountReplacements(const Str: string): Integer;
 begin
-  Result := FRegEx.Matches(Str).Count;
+  Result := 0;
 
-  if (not FGlobal) and (Result > 1) then
-    Result := 1;
+  var Position := 0;
+  while Position <= Length(Str) do
+  begin
+    const Found = MatchAt(Str, Position);
+    if not Found.Found then
+      Break;
+
+    Inc(Result);
+    if not FGlobal then
+      Break;
+
+    Position := Found.Index + Found.Length;
+    if Found.Length = 0 then
+      Inc(Position);
+  end;
 end;
 
 function TJSRegExpImpl.Search(const Str: string): Integer;
 begin
-  const Match = FRegEx.Match(Str);
+  const Found = MatchAt(Str, 0);
 
-  if Match.Success then
-    Result := Match.Index - 1
+  if Found.Found then
+    Result := Found.Index
   else
     Result := -1;
-end;
-
-function TJSRegExpImpl.Split(const Str: string; const Limit: Integer): IJSArray;
-begin
-  Result := TJSArrayImpl.Create;
-
-  const Matches = FRegEx.Matches(Str);
-
-  if Matches.Count = 0 then
-  begin
-    Result.Push(TJSValue.CreateString(Str));
-    Exit;
-  end;
-
-  var LastEnd := 1;
-  var Count := 0;
-
-  for var MatchItem in Matches do
-  begin
-    if (Limit >= 0) and (Count >= Limit) then
-      Break;
-
-    const Part = Copy(Str, LastEnd, MatchItem.Index - LastEnd);
-    Result.Push(TJSValue.CreateString(Part));
-    Inc(Count);
-
-    LastEnd := MatchItem.Index + MatchItem.Length;
-  end;
-
-  if (Limit < 0) or (Count < Limit) then
-  begin
-    const Remainder = Copy(Str, LastEnd, Length(Str) - LastEnd + 1);
-    Result.Push(TJSValue.CreateString(Remainder));
-  end;
 end;
 
 { TJSPrimitiveWrapperImpl }

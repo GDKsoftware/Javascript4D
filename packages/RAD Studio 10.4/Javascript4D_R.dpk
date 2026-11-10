@@ -37,12 +37,14 @@ contains
   JS4D.Engine in '..\..\Source\API\JS4D.Engine.pas',
   JS4D.Errors in '..\..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\..\Source\Core\JS4D.RegExpSyntax.pas',
+  JS4D.PcreMatcher in '..\..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.Types in '..\..\Source\Core\JS4D.Types.pas',
   JS4D.Lexer in '..\..\Source\Lexer\JS4D.Lexer.pas',
   JS4D.Tokens in '..\..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.AST in '..\..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\..\Source\Parser\JS4D.Parser.pas',
   JS4D.Builtins in '..\..\Source\Runtime\JS4D.Builtins.pas',
+  JS4D.PatternOperations in '..\..\Source\Runtime\JS4D.PatternOperations.pas',
   JS4D.Interpreter in '..\..\Source\Runtime\JS4D.Interpreter.pas';
 
 end.

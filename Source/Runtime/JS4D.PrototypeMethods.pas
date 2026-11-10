@@ -380,7 +380,14 @@ begin
 
   const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, True);
 
-  Result := TJSBuiltins.CallStringMethod(Text, MethodName, PrimitiveArgs, FInterpreter.Limits);
+  const Executor: TJSCallbackExecutor =
+    function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
+    begin
+      const ThisArg = FInterpreter.ThisObjectFor(Func, TJSValue.CreateUndefined);
+      Result := FInterpreter.CallFunction(Func, CallbackArgs, ThisArg);
+    end;
+
+  Result := TJSBuiltins.CallStringMethod(Text, MethodName, PrimitiveArgs, Executor, FInterpreter.Limits);
 end;
 
 function TJSPrototypeMethods.CallNumberMethod(const This: IJSObject; const MethodName: string;

@@ -88,11 +88,13 @@
         <DCCReference Include="..\Source\Core\JS4D.Types.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.RegExpSyntax.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Builtins.pas"/>
+        <DCCReference Include="..\Source\Runtime\JS4D.PatternOperations.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Interpreter.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Json.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Engine.pas"/>

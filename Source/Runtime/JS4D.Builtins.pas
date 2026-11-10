@@ -10,11 +10,10 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   System.RegularExpressions,
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.PatternOperations;
 
 type
-  TJSCallbackExecutor = reference to function(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
-
   TJSBuiltins = class
   private
     class function ArrayPush(const Arr: IJSArray; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -50,6 +49,7 @@ type
     class function StringSubstring(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringSubstr(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringSlice(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function SplitLimit(const Args: TArray<TJSValue>): Int64; static;
     class function StringSplit(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringToLowerCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringToUpperCase(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -57,9 +57,11 @@ type
     class function StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
-    class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function StringReplace(const Str: string; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                 const Limits: TJSLimits): TJSValue; static;
+    class function ArgumentOrUndefined(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
+    class function RegExpFromArgument(const Args: TArray<TJSValue>; const Limits: TJSLimits): IJSRegExp; static;
     class function BuildPadding(const PadStr: string; const PadLength: Integer): string; static;
-    class function PatternPosition(const SearchStr: string; const Str: string): Integer; static;
     class function PatternText(const Pattern: TJSValue; const Limits: TJSLimits): string; static;
     class procedure CheckRegExpReplaceLength(const RegExp: IJSRegExp; const Str: string; const Replacement: string; const Limits: TJSLimits); static;
     class function StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
@@ -83,7 +85,8 @@ type
   public
     class function CallArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function CallArrayMethodWithCallback(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue; static;
-    class function CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
+    class function CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>;
+                                    const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue; static;
     class function CallNumberMethod(const Num: Double; const MethodName: string; const Args: TArray<TJSValue>): TJSValue; static;
 
     class function HasArrayMethod(const MethodName: string): Boolean; static;
@@ -1036,6 +1039,21 @@ begin
     Result := TJSValue.CreateString(Copy(Str, StartIndex + 1, EndIndex - StartIndex));
 end;
 
+class function TJSBuiltins.SplitLimit(const Args: TArray<TJSValue>): Int64;
+begin
+  const IsLimitGiven = (Length(Args) > 1) and (not Args[1].IsUndefined);
+  if not IsLimitGiven then
+    Exit(High(Cardinal));
+
+  const Number = Args[1].ToNumber;
+  if System.Math.IsNaN(Number) or System.Math.IsInfinite(Number) then
+    Exit(0);
+
+  const Whole = Int(Number);
+  const Modulus = 4294967296.0;
+  Result := Trunc(Whole - Modulus * Floor(Whole / Modulus));
+end;
+
 class function TJSBuiltins.StringSplit(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const ResultArr: IJSArray = TJSArray.Create;
@@ -1048,11 +1066,7 @@ begin
   end;
 
   const Separator = Args[0];
-
-  var LimitValue := MaxInt;
-
-  if Length(Args) > 1 then
-    LimitValue := Max(0, Trunc(Args[1].ToNumber));
+  const LimitValue = SplitLimit(Args);
 
   if LimitValue = 0 then
   begin
@@ -1070,16 +1084,8 @@ begin
   var RegExpIntf: IJSRegExp;
   if Separator.IsObject and Supports(Separator.ToObject, IJSRegExp, RegExpIntf) then
   begin
-    const SplitResult = RegExpIntf.Split(Str, LimitValue);
-
-    Limits.EnsureArrayLength(SplitResult.Length);
-
-    for var Index := 0 to SplitResult.Length - 1 do
-    begin
-      ResultArr.Push(SplitResult[Index]);
-    end;
-
-    Result := TJSValue.CreateObject(ResultArr);
+    const Pieces = TJSPatternOperations.Split(Str, RegExpIntf, LimitValue, Limits);
+    Result := TJSValue.CreateObject(Pieces);
     Exit;
   end;
 
@@ -1189,45 +1195,35 @@ begin
   Limits.EnsureStringLength(SourceLength + MatchCount * Int64(ReplacementLength));
 end;
 
-class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
+class function TJSBuiltins.StringReplace(const Str: string; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                          const Limits: TJSLimits): TJSValue;
 begin
-  if Length(Args) < 2 then
-  begin
-    Result := TJSValue.CreateString(Str);
-    Exit;
-  end;
+  const SearchValue = ArgumentOrUndefined(Args, 0);
+  const ReplaceValue = ArgumentOrUndefined(Args, 1);
 
-  const ReplaceValue = Args[1].ToLimitedString(Limits);
+  const IsCallback = ReplaceValue.IsFunction;
 
   var RegExpIntf: IJSRegExp;
-  if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
+  if SearchValue.IsObject and Supports(SearchValue.ToObject, IJSRegExp, RegExpIntf) then
   begin
-    CheckRegExpReplaceLength(RegExpIntf, Str, ReplaceValue, Limits);
+    if not IsCallback then
+      CheckRegExpReplaceLength(RegExpIntf, Str, ReplaceValue.ToLimitedString(Limits), Limits);
 
-    const Replaced = RegExpIntf.Replace(Str, ReplaceValue);
-
-    const ReplacedLength = Length(Replaced);
-
-    Limits.EnsureStringLength(ReplacedLength);
-    Result := TJSValue.CreateString(Replaced);
-    Exit;
+    const ReplacedByPattern = TJSPatternOperations.Replace(Str, RegExpIntf, ReplaceValue, Executor, Limits);
+    Exit(TJSValue.CreateString(ReplacedByPattern));
   end;
 
-  const SearchValue = Args[0].ToLimitedString(Limits);
-  const Position = Pos(SearchValue, Str);
+  const SearchText = PatternText(SearchValue, Limits);
+  const ReplacedByText = TJSPatternOperations.ReplaceText(Str, SearchText, ReplaceValue, Executor, Limits);
+  Result := TJSValue.CreateString(ReplacedByText);
+end;
 
-  if Position = 0 then
-  begin
-    Result := TJSValue.CreateString(Str);
-    Exit;
-  end;
-
-  const ResultLength = Int64(Length(Str)) - Length(SearchValue) + Length(ReplaceValue);
-
-  Limits.EnsureStringLength(ResultLength);
-
-  Result := TJSValue.CreateString(
-    Copy(Str, 1, Position - 1) + ReplaceValue + Copy(Str, Position + Length(SearchValue), MaxInt));
+class function TJSBuiltins.ArgumentOrUndefined(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
+begin
+  if Index < Length(Args) then
+    Result := Args[Index]
+  else
+    Result := TJSValue.CreateUndefined;
 end;
 
 class function TJSBuiltins.StringConcat(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
@@ -1434,32 +1430,19 @@ end;
 
 class function TJSBuiltins.StringMatch(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateNull;
+  const Pattern = RegExpFromArgument(Args, Limits);
+
+  Result := Pattern.Match(Str);
+end;
+
+class function TJSBuiltins.RegExpFromArgument(const Args: TArray<TJSValue>; const Limits: TJSLimits): IJSRegExp;
+begin
+  const Pattern = ArgumentOrUndefined(Args, 0);
+
+  if Pattern.IsObject and Supports(Pattern.ToObject, IJSRegExp, Result) then
     Exit;
-  end;
 
-  var RegExpIntf: IJSRegExp;
-  if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
-  begin
-    Result := RegExpIntf.Match(Str);
-    Exit;
-  end;
-
-  const SearchStr = PatternText(Args[0], Limits);
-  const Position = PatternPosition(SearchStr, Str);
-
-  if Position > 0 then
-  begin
-    const ResultArr: IJSArray = TJSArray.Create;
-    ResultArr.Push(TJSValue.CreateString(SearchStr));
-    ResultArr.SetProperty('index', TJSValue.CreateNumber(Position - 1));
-    ResultArr.SetProperty('input', TJSValue.CreateString(Str));
-    Result := TJSValue.CreateObject(ResultArr);
-  end
-  else
-    Result := TJSValue.CreateNull;
+  Result := TJSRegExp.Create(PatternText(Pattern, Limits), '');
 end;
 
 class function TJSBuiltins.PatternText(const Pattern: TJSValue; const Limits: TJSLimits): string;
@@ -1470,36 +1453,12 @@ begin
     Result := Pattern.ToLimitedString(Limits);
 end;
 
-class function TJSBuiltins.PatternPosition(const SearchStr: string; const Str: string): Integer;
-begin
-  if SearchStr.IsEmpty then
-    Result := 1
-  else
-    Result := Pos(SearchStr, Str);
-end;
-
 class function TJSBuiltins.StringSearch(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateNumber(-1);
-    Exit;
-  end;
+  const Pattern = RegExpFromArgument(Args, Limits);
+  const Position = Pattern.Search(Str);
 
-  var RegExpIntf: IJSRegExp;
-  if Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, RegExpIntf) then
-  begin
-    Result := TJSValue.CreateNumber(RegExpIntf.Search(Str));
-    Exit;
-  end;
-
-  const SearchStr = PatternText(Args[0], Limits);
-  const Position = PatternPosition(SearchStr, Str);
-
-  if Position > 0 then
-    Result := TJSValue.CreateNumber(Position - 1)
-  else
-    Result := TJSValue.CreateNumber(-1);
+  Result := TJSValue.CreateNumber(Position);
 end;
 
 class function TJSBuiltins.NumberToString(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
@@ -1676,7 +1635,8 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
-class function TJSBuiltins.CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
+class function TJSBuiltins.CallStringMethod(const Str: string; const MethodName: string; const Args: TArray<TJSValue>;
+                                            const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue;
 begin
   if MethodName = METHOD_CHAR_AT then
     Exit(StringCharAt(Str, Args));
@@ -1721,7 +1681,7 @@ begin
     Exit(StringTrimEnd(Str, Args));
 
   if MethodName = METHOD_REPLACE then
-    Exit(StringReplace(Str, Args, Limits));
+    Exit(StringReplace(Str, Args, Executor, Limits));
 
   if MethodName = METHOD_MATCH then
     Exit(StringMatch(Str, Args, Limits));

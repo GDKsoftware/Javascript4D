@@ -1628,51 +1628,6 @@ begin
       begin
         const RegExpObj: IJSRegExp = TJSRegExp.Create(Node.RegExpPattern, Node.RegExpFlags);
         RegExpObj.Prototype := FRegExpPrototype;
-
-        var TestFunc: IJSFunction := TJSFunction.CreateNative('test',
-          function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-          begin
-            var RE: IJSRegExp;
-            if Supports(This, IJSRegExp, RE) and (Length(Args) > 0) then
-            begin
-              const Subject = ToText(Args[0]);
-
-              Result := TJSValue.CreateBoolean(RE.Test(Subject));
-            end
-            else
-              Result := TJSValue.CreateBoolean(False);
-          end);
-        RegisterFunction(TestFunc);
-        RegExpObj.SetProperty('test', TJSValue.CreateObject(TestFunc));
-
-        var ExecFunc: IJSFunction := TJSFunction.CreateNative('exec',
-          function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-          begin
-            var RE: IJSRegExp;
-            if Supports(This, IJSRegExp, RE) and (Length(Args) > 0) then
-            begin
-              const Subject = ToText(Args[0]);
-
-              Result := RE.Exec(Subject);
-            end
-            else
-              Result := TJSValue.CreateNull;
-          end);
-        RegisterFunction(ExecFunc);
-        RegExpObj.SetProperty('exec', TJSValue.CreateObject(ExecFunc));
-
-        var ToStringFunc: IJSFunction := TJSFunction.CreateNative('toString',
-          function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-          begin
-            var RE: IJSRegExp;
-            if Supports(This, IJSRegExp, RE) then
-              Result := TJSValue.CreateString('/' + RE.Pattern + '/' + RE.Flags)
-            else
-              Result := TJSValue.CreateString('/(?:)/');
-          end);
-        RegisterFunction(ToStringFunc);
-        RegExpObj.SetProperty('toString', TJSValue.CreateObject(ToStringFunc));
-
         Result := TJSValue.CreateObject(RegExpObj);
       end;
     else

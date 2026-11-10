@@ -1813,45 +1813,6 @@ begin
       const Flags = RegExpFlagsArgument(Args);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
-
-      RegExpObj.SetProperty('test', TJSValue.CreateObject(TJSFunction.CreateNative('test',
-        function(const This: IJSObject; const TestArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) and (Length(TestArgs) > 0) then
-          begin
-            const Subject = ToText(TestArgs[0]);
-
-            Result := TJSValue.CreateBoolean(RE.Test(Subject));
-          end
-          else
-            Result := TJSValue.CreateBoolean(False);
-        end)));
-
-      RegExpObj.SetProperty('exec', TJSValue.CreateObject(TJSFunction.CreateNative('exec',
-        function(const This: IJSObject; const ExecArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) and (Length(ExecArgs) > 0) then
-          begin
-            const Subject = ToText(ExecArgs[0]);
-
-            Result := RE.Exec(Subject);
-          end
-          else
-            Result := TJSValue.CreateNull;
-        end)));
-
-      RegExpObj.SetProperty('toString', TJSValue.CreateObject(TJSFunction.CreateNative('toString',
-        function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) then
-            Result := TJSValue.CreateString('/' + RE.Pattern + '/' + RE.Flags)
-          else
-            Result := TJSValue.CreateString('/(?:)/');
-        end)));
-
       RegExpObj.Prototype := PrototypeObj;
       Result := TJSValue.CreateObject(RegExpObj);
     end);

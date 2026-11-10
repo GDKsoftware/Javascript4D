@@ -93,6 +93,7 @@
         <DCCReference Include="..\Source\Core\JS4D.Types.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.RegExpSyntax.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
@@ -137,6 +138,7 @@
         <DCCReference Include="JS4D.Tests.GenericArrayMutators.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalGrammar.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayIterationLength.pas"/>
+        <DCCReference Include="JS4D.Tests.RegExpMatching.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
