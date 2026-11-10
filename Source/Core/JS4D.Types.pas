@@ -7,7 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
-  JS4D.PcreMatcher;
+  JS4D.PcreMatcher,
+  JS4D.SlotMap;
 
 type
   TJSValueType = (
@@ -160,6 +161,9 @@ type
     property Getter: TJSValue read GetGetter write SetGetter;
     property Setter: TJSValue read GetSetter write SetSetter;
   end;
+
+  TJSPropertyMap = TJSSlotMap<TJSPropertyDescriptor>;
+  PJSPropertyDescriptor = TJSPropertyMap.PSlot;
 
   TJSPropertyDefinition = record
     HasValue: Boolean;
@@ -317,7 +321,7 @@ type
 
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
-    FProperties: TDictionary<string, TJSPropertyDescriptor>;
+    FProperties: TJSPropertyMap;
     FOrderedKeys: TList<string>;
     FPrototype: IJSObject;
     FFrozen: Boolean;
@@ -337,6 +341,7 @@ type
 
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
+    function GetPropertyLayoutVersion: Cardinal;
 
     procedure StoreOwnValue(const Name: string; const Value: TJSValue);
 
@@ -368,11 +373,13 @@ type
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
     function HasOwnProperty(const Name: string): Boolean; virtual;
     function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; virtual;
+    function TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
+    property PropertyLayoutVersion: Cardinal read GetPropertyLayoutVersion;
   end;
 
   TJSFunctionImpl = class(TJSObjectImpl, IJSFunction)
@@ -1146,7 +1153,7 @@ end;
 constructor TJSObjectImpl.Create;
 begin
   inherited Create;
-  FProperties := TDictionary<string, TJSPropertyDescriptor>.Create;
+  FProperties := TJSPropertyMap.Create;
   FOrderedKeys := TList<string>.Create;
   FFrozen := False;
   FSealed := False;
@@ -1157,9 +1164,9 @@ function TJSObjectImpl.HoldsNested: Boolean;
 begin
   Result := False;
 
-  for var Entry in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    const PropertyValue = Entry.Value.Value;
+    const PropertyValue = FProperties.SlotAt(Position).Value;
 
     if PropertyValue.IsObject and (not PropertyValue.IsFunction) then
       Exit(True);
@@ -1168,9 +1175,9 @@ end;
 
 procedure TJSObjectImpl.DetachNested(const Pending: TList<IJSObject>);
 begin
-  for var Entry in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    const PropertyValue = Entry.Value.Value;
+    const PropertyValue = FProperties.SlotAt(Position).Value;
     const PropertyObject = PropertyValue.ToObject;
     var Func: IJSFunction;
 
@@ -1216,11 +1223,13 @@ begin
 
   ReleaseNested;
 
-  for var Pair in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    ReleaseClosure(Pair.Value.Value);
-    ReleaseClosure(Pair.Value.Getter);
-    ReleaseClosure(Pair.Value.Setter);
+    const Slot = FProperties.SlotAt(Position);
+
+    ReleaseClosure(Slot.Value);
+    ReleaseClosure(Slot.Getter);
+    ReleaseClosure(Slot.Setter);
   end;
 
   FProperties.Clear;
@@ -1296,23 +1305,32 @@ begin
     Result := FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
-function TJSObjectImpl.TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
-var
-  Descriptor: TJSPropertyDescriptor;
+function TJSObjectImpl.GetPropertyLayoutVersion: Cardinal;
 begin
-  Result := FProperties.TryGetValue(Name, Descriptor);
+  Result := FProperties.LayoutVersion;
+end;
+
+function TJSObjectImpl.TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
+begin
+  Result := FProperties.TryGetSlot(Name, Slot);
+end;
+
+function TJSObjectImpl.TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
+begin
+  var Slot: PJSPropertyDescriptor;
+  Result := FProperties.TryGetSlot(Name, Slot);
 
   if not Result then
     Exit;
 
-  if Descriptor.IsAccessor then
+  if Slot.IsAccessor then
   begin
-    InvokeSetter(Descriptor, Value);
+    const Accessor = Slot^;
+    InvokeSetter(Accessor, Value);
   end
-  else if Descriptor.Writable then
+  else if Slot.Writable then
   begin
-    Descriptor.Value := Value;
-    FProperties[Name] := Descriptor;
+    Slot.Value := Value;
   end;
 end;
 
@@ -1420,7 +1438,7 @@ begin
   FSealed := True;
   FExtensible := False;
 
-  for var Key in FProperties.Keys.ToArray do
+  for var Key in FProperties.Names do
   begin
     var Descriptor := FProperties[Key];
     Descriptor.Writable := False;
@@ -1434,7 +1452,7 @@ begin
   FSealed := True;
   FExtensible := False;
 
-  for var Key in FProperties.Keys.ToArray do
+  for var Key in FProperties.Names do
   begin
     var Descriptor := FProperties[Key];
     Descriptor.Configurable := False;

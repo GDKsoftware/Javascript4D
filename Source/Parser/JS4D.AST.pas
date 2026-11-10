@@ -88,11 +88,19 @@ type
     property IsStrict: Boolean read FIsStrict write FIsStrict;
   end;
 
+  TJSBindingCache = record
+    Owner: TObject;
+    LayoutVersion: Cardinal;
+    Slot: Pointer;
+  end;
+
   TJSIdentifier = class(TJSExpression)
   private
     FName: string;
 
   public
+    BindingCache: TJSBindingCache;
+
     constructor Create(const Name: string);
 
     property Name: string read FName;

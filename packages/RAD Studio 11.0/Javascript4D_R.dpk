@@ -52,6 +52,7 @@ contains
   JS4D.NumberFormat in '..\..\Source\Core\JS4D.NumberFormat.pas',
   JS4D.NumberParse in '..\..\Source\Core\JS4D.NumberParse.pas',
   JS4D.UriCoding in '..\..\Source\Core\JS4D.UriCoding.pas',
+  JS4D.SlotMap in '..\..\Source\Core\JS4D.SlotMap.pas',
   JS4D.ArgumentsObject in '..\..\Source\Runtime\JS4D.ArgumentsObject.pas',
   JS4D.ArrayGeneric in '..\..\Source\Runtime\JS4D.ArrayGeneric.pas',
   JS4D.ArrayIteration in '..\..\Source\Runtime\JS4D.ArrayIteration.pas',

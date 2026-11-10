@@ -6,12 +6,14 @@ interface
 
 uses
   JS4D.Types,
+  JS4D.AST,
   JS4D.ObjectScope;
 
 type
   TJSGlobalScope = class(TInterfacedObject, IJSScope)
   private
     FGlobalObject: IJSObject;
+    FGlobalStorage: TJSObjectImpl;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -19,6 +21,7 @@ type
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
     function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
+    function FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -38,6 +41,7 @@ constructor TJSGlobalScope.Create(const GlobalObject: IJSObject);
 begin
   inherited Create;
   FGlobalObject := GlobalObject;
+  FGlobalStorage := (GlobalObject as TObject) as TJSObjectImpl;
 end;
 
 function TJSGlobalScope.HasVariable(const Name: string): Boolean;
@@ -62,6 +66,21 @@ begin
     Value := FGlobalObject.GetProperty(Name)
   else
     Value := Descriptor.Value;
+end;
+
+function TJSGlobalScope.FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+begin
+  const IsCacheCurrent = (Cache.Owner = FGlobalStorage) and
+                         (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion);
+  if IsCacheCurrent then
+    Exit(Cache.Slot);
+
+  if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
+    Exit(nil);
+
+  Cache.Owner         := FGlobalStorage;
+  Cache.LayoutVersion := FGlobalStorage.PropertyLayoutVersion;
+  Cache.Slot          := Result;
 end;
 
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
@@ -119,6 +138,7 @@ end;
 
 procedure TJSGlobalScope.ReleaseReferences;
 begin
+  FGlobalStorage := nil;
   FGlobalObject := nil;
 end;
 

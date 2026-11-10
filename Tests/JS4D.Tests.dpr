@@ -15,6 +15,7 @@ uses
   JS4D.RegExpTranslator in '..\Source\Core\JS4D.RegExpTranslator.pas',
   JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
+  JS4D.SlotMap in '..\Source\Core\JS4D.SlotMap.pas',
   JS4D.NumberFormat in '..\Source\Core\JS4D.NumberFormat.pas',
   JS4D.NumberParse in '..\Source\Core\JS4D.NumberParse.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',

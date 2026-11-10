@@ -106,6 +106,7 @@ type
   TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
+    FGlobalBindings: TJSGlobalScope;
     FCurrentScope: IJSScope;
     FThisValue: IJSObject;
     FStrictMode: Boolean;
@@ -221,6 +222,10 @@ type
     function VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
+    function GlobalDataSlot(const Identifier: TJSIdentifier): PJSPropertyDescriptor;
+    procedure StoreGlobalVariable(const Identifier: TJSIdentifier; const Value: TJSValue);
+    function AssignToGlobalVariable(const Node: TJSAssignmentExpression; const Identifier: TJSIdentifier): TJSValue;
+    function UpdateGlobalVariable(const Node: TJSUpdateExpression; const Identifier: TJSIdentifier): TJSValue;
     function AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
     procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
     function AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
@@ -520,7 +525,8 @@ begin
   FLimits := TJSLimits.Default;
   FCallDepth := 0;
   FGlobalObject := TJSObject.Create;
-  FGlobalScope := TJSGlobalScope.Create(FGlobalObject);
+  FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
+  FGlobalScope := FGlobalBindings;
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
   FThisValue := nil;
@@ -553,6 +559,7 @@ begin
   FProgramParser := nil;
 
   FCurrentScope := nil;
+  FGlobalBindings := nil;
   FGlobalScope := nil;
   FGlobalObject := nil;
   FThisValue := nil;
@@ -578,17 +585,17 @@ end;
 
 procedure TJSInterpreter.RegisterFunction(const Func: IJSFunction);
 begin
+  const IsRegistered = (Func.CallHandler = Self);
   Func.CallHandler := Self;
 
-  if not FFunctionRegistry.Contains(Func) then
+  if not IsRegistered then
     FFunctionRegistry.Add(Func);
   FFunctionPrograms.AddOrSetValue(Pointer(Func as IInterface), FCurrentProgram);
 end;
 
 procedure TJSInterpreter.RegisterScope(const Scope: IJSScope);
 begin
-  if not FScopeRegistry.Contains(Scope) then
-    FScopeRegistry.Add(Scope);
+  FScopeRegistry.Add(Scope);
 end;
 
 procedure TJSInterpreter.AttachPrototype(const Func: IJSFunction);
@@ -1232,6 +1239,10 @@ begin
   if not (Callee is TJSIdentifier) then
     Exit;
 
+  const IsGlobalCode = (FCurrentScope = FGlobalScope);
+  if IsGlobalCode then
+    Exit;
+
   const CalleeName = TJSIdentifier(Callee).Name;
   const DeclaringScope = FCurrentScope.Resolve(CalleeName);
   var ObjectScope: IJSObjectScope;
@@ -1635,6 +1646,10 @@ end;
 
 function TJSInterpreter.VisitIdentifier(const Node: TJSIdentifier): TJSValue;
 begin
+  const GlobalSlot = GlobalDataSlot(Node);
+  if Assigned(GlobalSlot) then
+    Exit(GlobalSlot.Value);
+
   if not FCurrentScope.TryGetVariable(Node.Name, Result) then
     raise TJSErrorFactory.UndefinedVariable(Node.Name, Node.Line, Node.Column);
 end;
@@ -2120,9 +2135,53 @@ begin
   raise TJSErrorFactory.InvalidLeftHandSide(Node.Line, Node.Column);
 end;
 
+function TJSInterpreter.GlobalDataSlot(const Identifier: TJSIdentifier): PJSPropertyDescriptor;
+begin
+  Result := nil;
+
+  if FCurrentScope <> FGlobalScope then
+    Exit;
+
+  const Slot = FGlobalBindings.FindOwnSlot(Identifier.BindingCache, Identifier.Name);
+  if Assigned(Slot) and (not Slot.IsAccessor) then
+    Result := Slot;
+end;
+
+procedure TJSInterpreter.StoreGlobalVariable(const Identifier: TJSIdentifier; const Value: TJSValue);
+begin
+  const Slot = FGlobalBindings.FindOwnSlot(Identifier.BindingCache, Identifier.Name);
+  const IsPlainWritable = Assigned(Slot) and (not Slot.IsAccessor) and Slot.Writable;
+
+  if IsPlainWritable then
+    Slot.Value := Value
+  else
+    FGlobalScope.DeclareVariable(Identifier.Name, Value);
+end;
+
+function TJSInterpreter.AssignToGlobalVariable(const Node: TJSAssignmentExpression; const Identifier: TJSIdentifier): TJSValue;
+begin
+  if Node.Operator = TJSAssignmentOperator.Assign then
+  begin
+    Result := Visit(Node.Right);
+  end
+  else
+  begin
+    const Current = GlobalDataSlot(Identifier).Value;
+    const Right = Visit(Node.Right);
+    const BinaryOperator = TJSOperators.BinaryOperatorFor(Node.Operator);
+    Result := TJSOperators.Apply(BinaryOperator, Current, Right, FLimits);
+  end;
+
+  StoreGlobalVariable(Identifier, Result);
+end;
+
 function TJSInterpreter.AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
 begin
   const Identifier = TJSIdentifier(Node.Left);
+
+  const IsGlobalVariable = Assigned(GlobalDataSlot(Identifier));
+  if IsGlobalVariable then
+    Exit(AssignToGlobalVariable(Node, Identifier));
 
   const Binding = FCurrentScope.Resolve(Identifier.Name);
 
@@ -2202,9 +2261,31 @@ begin
   raise TJSErrorFactory.InvalidLeftHandSide(Node.Line, Node.Column);
 end;
 
+function TJSInterpreter.UpdateGlobalVariable(const Node: TJSUpdateExpression; const Identifier: TJSIdentifier): TJSValue;
+begin
+  const OldNumber = TJSOperators.ToNumber(GlobalDataSlot(Identifier).Value);
+
+  var NewNumber := OldNumber - 1;
+  if Node.Operator = TJSUpdateOperator.Increment then
+    NewNumber := OldNumber + 1;
+
+  const NewValue = TJSValue.CreateNumber(NewNumber);
+  StoreGlobalVariable(Identifier, NewValue);
+
+  if Node.Prefix then
+    Result := NewValue
+  else
+    Result := TJSValue.CreateNumber(OldNumber);
+end;
+
 function TJSInterpreter.UpdateIdentifier(const Node: TJSUpdateExpression): TJSValue;
 begin
   const Identifier = TJSIdentifier(Node.Argument);
+
+  const IsGlobalVariable = Assigned(GlobalDataSlot(Identifier));
+  if IsGlobalVariable then
+    Exit(UpdateGlobalVariable(Node, Identifier));
+
   const Binding = FCurrentScope.Resolve(Identifier.Name);
   const OldValue = FCurrentScope.GetVariable(Identifier.Name);
   const OldNumber = TJSOperators.ToNumber(OldValue);

@@ -5,6 +5,7 @@ unit JS4D.Tests.GlobalObject;
 interface
 
 uses
+  System.SysUtils,
   DUnitX.TestFramework,
   JS4D.Types,
   JS4D.Engine;
@@ -80,6 +81,48 @@ type
 
     [Test]
     procedure GlobalReadOnlyProperty_AssignedAsVariable_KeepsValue;
+
+    [Test]
+    procedure DeletedGlobal_ReadAgainInSameLoop_ThrowsReferenceError;
+
+    [Test]
+    procedure DeletedGlobal_ReadFromFunction_ThrowsReferenceError;
+
+    [Test]
+    procedure DeletedGlobal_DeclaredAgain_ReadsNewValue;
+
+    [Test]
+    procedure GlobalRedefinedAsAccessor_ReadInSameLoop_InvokesGetter;
+
+    [Test]
+    procedure GlobalAccessorRedefinedAsData_ReadInSameLoop_ReadsValue;
+
+    [Test]
+    procedure GlobalRedefinedAsReadOnly_AssignedInSameLoop_KeepsValue;
+
+    [Test]
+    procedure GlobalRedefinedWithSetter_AssignedInSameLoop_InvokesSetter;
+
+    [Test]
+    procedure EvalDeclaredVar_ReadInLoop_IsDeletable;
+
+    [Test]
+    procedure UnresolvedGlobal_DeclaredInSameLoop_ReadsNewValue;
+
+    [Test]
+    procedure GlobalRead_AfterManyNewGlobalsAreDeclared_StaysCorrect;
+
+    [Test]
+    procedure GlobalAssignment_AfterManyNewGlobalsAreDeclared_StaysCorrect;
+
+    [Test]
+    procedure WithObject_ShadowsGlobalInSameLoop_ReadsObjectProperty;
+
+    [Test]
+    procedure GlobalReadAndWrite_InSameSource_RunTwice_StaysCorrect;
+
+    [Test]
+    procedure TwoEngines_RunningSameSource_KeepTheirOwnGlobals;
   end;
 
 implementation
@@ -221,6 +264,151 @@ begin
                  'fixed = 2; fixed === 1';
 
   Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.DeletedGlobal_ReadAgainInSameLoop_ThrowsReferenceError;
+begin
+  const Script = 'this.gone = 1; var seen = 0; var caught = false; ' +
+                 'try { for (var k = 0; k < 3; k++) { seen += gone; if (k === 0) { delete this.gone; } } } ' +
+                 'catch (e) { caught = e instanceof ReferenceError; } ' +
+                 'seen === 1 && caught';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.DeletedGlobal_ReadFromFunction_ThrowsReferenceError;
+begin
+  const Script = 'this.gone = 1; function read() { return gone; } ' +
+                 'var first = read(); delete this.gone; var caught = false; ' +
+                 'try { read(); } catch (e) { caught = e instanceof ReferenceError; } ' +
+                 'first === 1 && caught';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.DeletedGlobal_DeclaredAgain_ReadsNewValue;
+begin
+  const Script = 'this.again = 1; var out = []; ' +
+                 'for (var k = 0; k < 3; k++) { out.push(again); if (k === 0) { delete this.again; this.again = 10; } } ' +
+                 'out.join() === "1,10,10"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalRedefinedAsAccessor_ReadInSameLoop_InvokesGetter;
+begin
+  const Script = 'this.v = 1; var out = []; ' +
+                 'for (var k = 0; k < 3; k++) { out.push(v); ' +
+                 'if (k === 0) { Object.defineProperty(this, "v", { get: function() { return 42; }, configurable: true }); } } ' +
+                 'out.join() === "1,42,42"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalAccessorRedefinedAsData_ReadInSameLoop_ReadsValue;
+begin
+  const Script = 'Object.defineProperty(this, "w", { get: function() { return 5; }, configurable: true }); var out = []; ' +
+                 'for (var k = 0; k < 3; k++) { out.push(w); ' +
+                 'if (k === 0) { Object.defineProperty(this, "w", { value: 9, configurable: true }); } } ' +
+                 'out.join() === "5,9,9"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalRedefinedAsReadOnly_AssignedInSameLoop_KeepsValue;
+begin
+  const Script = 'this.ro = 1; ' +
+                 'for (var k = 0; k < 3; k++) { ro = ro + 1; ' +
+                 'if (k === 0) { Object.defineProperty(this, "ro", { value: 100, writable: false, configurable: true }); } } ' +
+                 'ro === 100';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalRedefinedWithSetter_AssignedInSameLoop_InvokesSetter;
+begin
+  const Script = 'this.sink = 0; var stored = []; ' +
+                 'for (var k = 0; k < 3; k++) { sink = k; ' +
+                 'if (k === 0) { Object.defineProperty(this, "sink", { set: function(v) { stored.push(v); }, configurable: true }); } } ' +
+                 'stored.join() === "1,2"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.EvalDeclaredVar_ReadInLoop_IsDeletable;
+begin
+  const Script = 'eval("var fromEval = 1"); var seen = 0; var caught = false; ' +
+                 'try { for (var k = 0; k < 3; k++) { seen += fromEval; if (k === 0) { delete this.fromEval; } } } ' +
+                 'catch (e) { caught = e instanceof ReferenceError; } ' +
+                 'seen === 1 && caught';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.UnresolvedGlobal_DeclaredInSameLoop_ReadsNewValue;
+begin
+  const Script = 'var out = []; ' +
+                 'for (var k = 0; k < 3; k++) { ' +
+                 'try { out.push(late); } catch (e) { out.push("missing"); } ' +
+                 'if (k === 0) { this.late = 5; } } ' +
+                 'out.join() === "missing,5,5"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalRead_AfterManyNewGlobalsAreDeclared_StaysCorrect;
+begin
+  const Script = 'this.kept = 7; var total = 0; ' +
+                 'for (var k = 0; k < 3; k++) { total += kept; ' +
+                 'if (k === 0) { for (var j = 0; j < 500; j++) { this["extra" + j] = j; } } } ' +
+                 'total === 21 && extra499 === 499';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalAssignment_AfterManyNewGlobalsAreDeclared_StaysCorrect;
+begin
+  const Script = 'this.counter = 1; ' +
+                 'for (var k = 0; k < 3; k++) { counter = counter + 1; ' +
+                 'if (k === 0) { for (var j = 0; j < 500; j++) { this["extra" + j] = j; } } } ' +
+                 'this.counter === 4 && extra0 === 0';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.WithObject_ShadowsGlobalInSameLoop_ReadsObjectProperty;
+begin
+  const Script = 'var shadowed = 1; var out = []; var box = { shadowed: 2 }; ' +
+                 'for (var k = 0; k < 3; k++) { out.push(shadowed); with (box) { out.push(shadowed); shadowed = shadowed + 10; } } ' +
+                 'out.join() === "1,2,1,12,1,22" && shadowed === 1 && box.shadowed === 32';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalReadAndWrite_InSameSource_RunTwice_StaysCorrect;
+begin
+  const Script = 'var runs = (typeof runs === "undefined") ? 1 : runs + 1; ' +
+                 'var sum = 0; for (var i = 0; i < 5; i++) { sum += i; } sum + runs';
+
+  Assert.AreEqual(Double(11), FEngine.Evaluate(Script).AsNumber);
+  Assert.AreEqual(Double(12), FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TGlobalObjectTests.TwoEngines_RunningSameSource_KeepTheirOwnGlobals;
+begin
+  const Other = TJSEngine.Create;
+  try
+    const Script = 'var total = (typeof total === "undefined") ? 0 : total; ' +
+                   'for (var i = 0; i < 4; i++) { total += %d; } total';
+
+    Assert.AreEqual(Double(4), FEngine.Evaluate(Format(Script, [1])).AsNumber);
+    Assert.AreEqual(Double(40), Other.Evaluate(Format(Script, [10])).AsNumber);
+    Assert.AreEqual(Double(8), FEngine.Evaluate(Format(Script, [1])).AsNumber);
+    Assert.AreEqual(Double(80), Other.Evaluate(Format(Script, [10])).AsNumber);
+    Assert.AreEqual(Double(12), FEngine.Evaluate(Format(Script, [1])).AsNumber);
+  finally
+    Other.Free;
+  end;
 end;
 
 end.

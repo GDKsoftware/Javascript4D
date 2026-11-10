@@ -105,6 +105,7 @@
         <DCCReference Include="..\..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.UriCoding.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArgumentsObject.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayGeneric.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayIteration.pas"/>
