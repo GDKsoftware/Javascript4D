@@ -439,6 +439,7 @@ type
     class procedure DefineName(const Target: IJSObject; const Name: string); static;
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+    procedure SetExpectedArgumentCount(const Count: Integer);
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -1740,6 +1741,11 @@ procedure TJSFunctionImpl.SetParameters(const Value: TArray<string>);
 begin
   FParameters := Value;
   DefineLength(Self, Length(Value));
+end;
+
+procedure TJSFunctionImpl.SetExpectedArgumentCount(const Count: Integer);
+begin
+  DefineLength(Self, Count);
 end;
 
 class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);

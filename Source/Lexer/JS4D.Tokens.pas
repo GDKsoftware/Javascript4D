@@ -32,6 +32,7 @@ type
     Semicolon,
     Colon,
     Dot,
+    Ellipsis,
 
     Plus,
     Minus,

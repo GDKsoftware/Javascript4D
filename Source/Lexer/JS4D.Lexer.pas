@@ -1323,7 +1323,19 @@ begin
     COLON_CHAR:
       Result := TJSToken.Create(TJSTokenType.Colon, ':', FLine, StartColumn);
     DOT_CHAR:
-      Result := TJSToken.Create(TJSTokenType.Dot, '.', FLine, StartColumn);
+      begin
+        const IsEllipsis = (CurrentChar = DOT_CHAR) and (PeekChar(1) = DOT_CHAR);
+        if IsEllipsis then
+        begin
+          Advance;
+          Advance;
+          Result := TJSToken.Create(TJSTokenType.Ellipsis, '...', FLine, StartColumn);
+        end
+        else
+        begin
+          Result := TJSToken.Create(TJSTokenType.Dot, '.', FLine, StartColumn);
+        end;
+      end;
     QUESTION_CHAR:
       Result := TJSToken.Create(TJSTokenType.Question, '?', FLine, StartColumn);
   else

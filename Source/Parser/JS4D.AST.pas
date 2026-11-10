@@ -56,7 +56,8 @@ type
     SequenceExpression,
     ThisExpression,
     TemplateLiteral,
-    TemplateObject
+    TemplateObject,
+    SpreadElement
   );
 
   TJSASTNode = class
@@ -168,12 +169,14 @@ type
   TJSArrayExpression = class(TJSExpression)
   private
     FElements: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Elements: TObjectList<TJSExpression> read FElements;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
   end;
 
   TJSPropertyKind = (Data, Getter, Setter, Method, Shorthand);
@@ -211,10 +214,43 @@ type
     property Properties: TObjectList<TJSObjectProperty> read FProperties;
   end;
 
+  TJSSpreadElement = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+
+  public
+    constructor Create(const Argument: TJSExpression);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument;
+  end;
+
+  // Default values and rest parameter of a function. Only created when a function has at least one
+  // of them; Defaults has one entry per name in Params, nil where the parameter has no default.
+  TJSParameterInfo = class
+  private
+    FDefaults: TObjectList<TJSExpression>;
+    FRest: TJSIdentifier;
+    FExpectedArgumentCount: Integer;
+    FHasDefaults: Boolean;
+    FReferencesArguments: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
+    property Defaults: TObjectList<TJSExpression> read FDefaults;
+    property Rest: TJSIdentifier read FRest write FRest;
+    property ExpectedArgumentCount: Integer read FExpectedArgumentCount write FExpectedArgumentCount;
+    property HasDefaults: Boolean read FHasDefaults write FHasDefaults;
+  end;
+
   TJSFunctionExpression = class(TJSExpression)
   private
     FId: TJSIdentifier;
     FParams: TObjectList<TJSIdentifier>;
+    FParameterInfo: TJSParameterInfo;
     FBody: TJSStatement;
     FIsStrict: Boolean;
     FIsArrow: Boolean;
@@ -225,6 +261,7 @@ type
 
     property Id: TJSIdentifier read FId write FId;
     property Params: TObjectList<TJSIdentifier> read FParams;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property IsArrow: Boolean read FIsArrow write FIsArrow;
@@ -383,6 +420,7 @@ type
   private
     FCallee: TJSExpression;
     FArguments: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
 
   public
     constructor Create(const Callee: TJSExpression);
@@ -390,6 +428,7 @@ type
 
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
   end;
 
   TJSTaggedTemplateExpression = class(TJSCallExpression);
@@ -413,6 +452,7 @@ type
   private
     FCallee: TJSExpression;
     FArguments: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
 
   public
     constructor Create(const Callee: TJSExpression);
@@ -420,6 +460,7 @@ type
 
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
   end;
 
   TJSSequenceExpression = class(TJSExpression)
@@ -477,12 +518,14 @@ type
     FDeclaresStrictMode: Boolean;
     FIsFunctionBody: Boolean;
     FScopeInfo: TJSScopeInfo;
+    FParameterInfo: TJSParameterInfo;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
     property IsFunctionBody: Boolean read FIsFunctionBody write FIsFunctionBody;
@@ -519,6 +562,7 @@ type
   private
     FId: TJSIdentifier;
     FParams: TObjectList<TJSIdentifier>;
+    FParameterInfo: TJSParameterInfo;
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
     FHoistsToVar: Boolean;
@@ -529,6 +573,7 @@ type
 
     property Id: TJSIdentifier read FId;
     property Params: TObjectList<TJSIdentifier> read FParams;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
@@ -920,7 +965,37 @@ destructor TJSFunctionExpression.Destroy;
 begin
   FId.Free;
   FParams.Free;
+  FParameterInfo.Free;
   FBody.Free;
+  inherited;
+end;
+
+{ TJSSpreadElement }
+
+constructor TJSSpreadElement.Create(const Argument: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.SpreadElement);
+  FArgument := Argument;
+end;
+
+destructor TJSSpreadElement.Destroy;
+begin
+  FArgument.Free;
+  inherited;
+end;
+
+{ TJSParameterInfo }
+
+constructor TJSParameterInfo.Create;
+begin
+  inherited Create;
+  FDefaults := TObjectList<TJSExpression>.Create(True);
+end;
+
+destructor TJSParameterInfo.Destroy;
+begin
+  FDefaults.Free;
+  FRest.Free;
   inherited;
 end;
 
@@ -1184,6 +1259,7 @@ destructor TJSFunctionDeclaration.Destroy;
 begin
   FId.Free;
   FParams.Free;
+  FParameterInfo.Free;
   FBody.Free;
   inherited;
 end;

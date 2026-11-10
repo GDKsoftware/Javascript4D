@@ -7,7 +7,6 @@ language/destructuring/
 language/export/
 language/import/
 language/module-code/
-language/rest-parameters/
 language/literals/bigint/
 language/expressions/async-arrow-function/
 language/expressions/async-function/

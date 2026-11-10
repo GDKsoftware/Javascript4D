@@ -18,7 +18,6 @@ class-static-fields-public
 class-static-methods-private
 coalesce-expression
 decorators
-default-parameters
 destructuring-assignment
 destructuring-binding
 dynamic-import
@@ -44,7 +43,6 @@ object-rest
 object-spread
 optional-catch-binding
 optional-chaining
-rest-parameters
 super
 tail-call-optimization
 top-level-await

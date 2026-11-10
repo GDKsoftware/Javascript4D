@@ -77,7 +77,8 @@ type
     function ParseWithStatement: TJSWithStatement;
     function ParseWithBody: TJSStatement;
     function StartsWithDeclaration: Boolean;
-    function ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>): TJSBlockStatement;
+    function ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>;
+                                    const ParameterInfo: TJSParameterInfo): TJSBlockStatement;
     function PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
     procedure RejectLegacyLiteralInStrictMode(const Token: TJSToken);
     function ParseForStatement: TJSStatement;
@@ -136,10 +137,19 @@ type
     function ParseArrowFunction: TJSFunctionExpression;
     procedure ParseArrowParameters(const Func: TJSFunctionExpression);
     procedure ParseArrowParameter(const Func: TJSFunctionExpression);
+    function ParseFormalParameters(const Params: TObjectList<TJSIdentifier>): TJSParameterInfo;
+    procedure ParseFormalParameter(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
+    procedure ParseRestParameter(const Info: TJSParameterInfo);
+    procedure RejectDuplicateNonSimpleParameters(const Params: TObjectList<TJSIdentifier>;
+                                                 const Info: TJSParameterInfo);
+    function StartsParameterExpression(const Offset: Integer): Boolean;
+    function FindClosingParenthesisOffset: Integer;
+    function StartsArrowAfterParenthesis: Boolean;
+    function ParseSpreadOrAssignmentExpression: TJSExpression;
     procedure ParseArrowBody(const Func: TJSFunctionExpression);
     function ParseConciseBody: TJSBlockStatement;
     procedure RejectDuplicateArrowParameters(const Params: TObjectList<TJSIdentifier>);
-    function ParseArguments: TObjectList<TJSExpression>;
+    function ParseArguments(const Target: TObjectList<TJSExpression>): Boolean;
 
     function IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
     function IsRelationalOperator: Boolean;
@@ -151,7 +161,8 @@ type
     procedure CheckStrictModeReservedWord(const Name: string);
     function IsRestrictedStrictName(const Name: string): Boolean;
     procedure CheckRestrictedBindingName(const Name: string);
-    procedure CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>);
+    procedure CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>;
+                                        const ParameterInfo: TJSParameterInfo);
     procedure CheckDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
     procedure RejectDuplicateParameters(const Params: TObjectList<TJSIdentifier>);
     procedure CheckRestrictedParameterNames(const Params: TObjectList<TJSIdentifier>);
@@ -194,6 +205,9 @@ const
   LetBindingNameMessage = 'let is disallowed as a lexically bound name';
   ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
   DuplicateArrowParameterMessage = 'Duplicate parameter name not allowed in arrow functions';
+  DuplicateNonSimpleParameterMessage = 'Duplicate parameter name not allowed with default or rest parameters';
+  StrictNonSimpleParametersMessage = '''use strict'' directive not allowed in a function with default or rest parameters';
+  RestParameterNotLastMessage = 'Rest parameter must be last formal parameter';
   InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
 
@@ -579,27 +593,10 @@ begin
   Result := TJSFunctionDeclaration.Create(Identifier);
 
   try
-    Expect(TJSTokenType.LeftParen);
-
-    if not Check(TJSTokenType.RightParen) then
-    begin
-      repeat
-        if not Check(TJSTokenType.Identifier) then
-          raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-        const ParamName = CurrentToken.Value;
-        CheckStrictModeReservedWord(ParamName);
-        Advance;
-
-        const Param = TJSIdentifier.Create(ParamName);
-        Result.Params.Add(Param);
-      until not Match(TJSTokenType.Comma);
-    end;
-
-    Expect(TJSTokenType.RightParen);
+    Result.ParameterInfo := ParseFormalParameters(Result.Params);
 
     const OldStrictMode = FStrictMode;
-    Result.Body := ParseFunctionBodyBlock(Result.Params);
+    Result.Body := ParseFunctionBodyBlock(Result.Params, Result.ParameterInfo);
 
     if Result.Body.DeclaresStrictMode then
     begin
@@ -607,7 +604,7 @@ begin
       FStrictMode := True;
     end;
 
-    CheckStrictFunctionHeader(FuncName, Result.Params);
+    CheckStrictFunctionHeader(FuncName, Result.Params, Result.ParameterInfo);
     FStrictMode := OldStrictMode;
   except
     Result.Free;
@@ -793,15 +790,21 @@ begin
     raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage, Token.Line, Token.Column);
 end;
 
-function TJSParser.ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>): TJSBlockStatement;
+function TJSParser.ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>;
+                                          const ParameterInfo: TJSParameterInfo): TJSBlockStatement;
 begin
+  const HasRest = Assigned(ParameterInfo) and Assigned(ParameterInfo.Rest);
+
   var ParameterNames: TArray<string>;
-  SetLength(ParameterNames, Params.Count);
+  SetLength(ParameterNames, Params.Count + Ord(HasRest));
 
   for var Index := 0 to Params.Count - 1 do
   begin
     ParameterNames[Index] := Params[Index].Name;
   end;
+
+  if HasRest then
+    ParameterNames[Params.Count] := ParameterInfo.Rest.Name;
 
   const OldStrictMode = FStrictMode;
   const OuterLabelScopeStart = FLabelScopeStart;
@@ -818,11 +821,16 @@ begin
   FLoopDepth := 0;
   FSwitchDepth := 0;
   try
+    if DeclaresStrictMode and Assigned(ParameterInfo) then
+      raise TJSErrorFactory.SyntaxError(StrictNonSimpleParametersMessage, CurrentToken.Line, CurrentToken.Column);
+
     const StartPosition = FLexer.Position;
     Result := ParseNestedBlockStatement(ParameterNames);
     Result.DeclaresStrictMode := DeclaresStrictMode;
+    Result.ParameterInfo := ParameterInfo;
     Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
-                                                              [ARGUMENTS_NAME, EVAL_NAME]);
+                                                              [ARGUMENTS_NAME, EVAL_NAME]) or
+                                  (Assigned(ParameterInfo) and ParameterInfo.ReferencesArguments);
   finally
     Dec(FFunctionDepth);
     FStrictMode := OldStrictMode;
@@ -1766,13 +1774,12 @@ begin
     if Check(TJSTokenType.LeftParen) then
     begin
       const CallExpr = TJSCallExpression.Create(Result);
-      const Args = ParseArguments;
-
-      for var Arg in Args do
-        CallExpr.Arguments.Add(Arg);
-
-      Args.OwnsObjects := False;
-      Args.Free;
+      try
+        CallExpr.HasSpread := ParseArguments(CallExpr.Arguments);
+      except
+        CallExpr.Free;
+        raise;
+      end;
 
       Result := CallExpr;
     end
@@ -1909,13 +1916,12 @@ begin
 
   if Check(TJSTokenType.LeftParen) then
   begin
-    const Args = ParseArguments;
-
-    for var Arg in Args do
-      NewExpr.Arguments.Add(Arg);
-
-    Args.OwnsObjects := False;
-    Args.Free;
+    try
+      NewExpr.HasSpread := ParseArguments(NewExpr.Arguments);
+    except
+      NewExpr.Free;
+      raise;
+    end;
   end;
 
   Result := NewExpr;
@@ -2041,8 +2047,9 @@ begin
       end
       else
       begin
-        const Element = ParseNestedAssignmentExpression;
+        const Element = ParseSpreadOrAssignmentExpression;
         Result.Elements.Add(Element);
+        Result.HasSpread := Result.HasSpread or (Element is TJSSpreadElement);
 
         if not Check(TJSTokenType.RightBracket) then
           Expect(TJSTokenType.Comma);
@@ -2230,7 +2237,8 @@ begin
     ParseFunctionSignatureAndBody(Result);
 
     const ExpectedParamCount = Ord(Kind = TJSPropertyKind.Setter);
-    const HasExpectedParams = (Result.Params.Count = ExpectedParamCount);
+    const HasRest = Assigned(Result.ParameterInfo) and Assigned(Result.ParameterInfo.Rest);
+    const HasExpectedParams = (Result.Params.Count = ExpectedParamCount) and (not HasRest);
     if not HasExpectedParams then
       raise TJSErrorFactory.SyntaxError(ACCESSOR_PARAMETER_COUNT, AccessorLine, AccessorColumn);
   except
@@ -2263,29 +2271,12 @@ end;
 
 procedure TJSParser.ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
 begin
-  Expect(TJSTokenType.LeftParen);
-
-  if not Check(TJSTokenType.RightParen) then
-  begin
-    repeat
-      if not Check(TJSTokenType.Identifier) then
-        raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
-
-      const ParamName = CurrentToken.Value;
-      CheckStrictModeReservedWord(ParamName);
-      Advance;
-
-      const Param = TJSIdentifier.Create(ParamName);
-      Func.Params.Add(Param);
-    until not Match(TJSTokenType.Comma);
-  end;
-
-  Expect(TJSTokenType.RightParen);
+  Func.ParameterInfo := ParseFormalParameters(Func.Params);
 
   Inc(FClosureCount);
 
   const OldStrictMode = FStrictMode;
-  const Body = ParseFunctionBodyBlock(Func.Params);
+  const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
   Func.Body := Body;
 
   if Body.DeclaresStrictMode then
@@ -2298,8 +2289,139 @@ begin
   if Assigned(Func.Id) then
     FuncName := Func.Id.Name;
 
-  CheckStrictFunctionHeader(FuncName, Func.Params);
+  CheckStrictFunctionHeader(FuncName, Func.Params, Func.ParameterInfo);
   FStrictMode := OldStrictMode;
+end;
+
+function TJSParser.ParseFormalParameters(const Params: TObjectList<TJSIdentifier>): TJSParameterInfo;
+begin
+  Expect(TJSTokenType.LeftParen);
+
+  const StartPosition = FLexer.Position;
+  const Info = TJSParameterInfo.Create;
+  try
+    while not Check(TJSTokenType.RightParen) do
+    begin
+      if Check(TJSTokenType.Ellipsis) then
+      begin
+        ParseRestParameter(Info);
+        Break;
+      end;
+
+      ParseFormalParameter(Params, Info);
+
+      if not Check(TJSTokenType.RightParen) then
+        Expect(TJSTokenType.Comma);
+    end;
+
+    Expect(TJSTokenType.RightParen);
+
+    const IsSimple = (not Info.HasDefaults) and (not Assigned(Info.Rest));
+    if IsSimple then
+    begin
+      Info.Free;
+      Exit(nil);
+    end;
+
+    RejectDuplicateNonSimpleParameters(Params, Info);
+    Info.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
+                                                            [ARGUMENTS_NAME, EVAL_NAME]);
+    Result := Info;
+  except
+    Info.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.ParseFormalParameter(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
+begin
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const ParamName = CurrentToken.Value;
+  CheckStrictModeReservedWord(ParamName);
+  Advance;
+
+  Params.Add(TJSIdentifier.Create(ParamName));
+
+  const HasDefault = Match(TJSTokenType.Assign);
+  if not HasDefault then
+  begin
+    Info.Defaults.Add(nil);
+    if not Info.HasDefaults then
+      Info.ExpectedArgumentCount := Info.ExpectedArgumentCount + 1;
+    Exit;
+  end;
+
+  Info.HasDefaults := True;
+  Info.Defaults.Add(ParseNestedAssignmentExpression);
+end;
+
+procedure TJSParser.ParseRestParameter(const Info: TJSParameterInfo);
+begin
+  Expect(TJSTokenType.Ellipsis);
+
+  if not Check(TJSTokenType.Identifier) then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  const ParamName = CurrentToken.Value;
+  CheckStrictModeReservedWord(ParamName);
+  Advance;
+
+  Info.Rest := TJSIdentifier.Create(ParamName);
+
+  const ClosesParameters = Check(TJSTokenType.RightParen);
+  if not ClosesParameters then
+    raise TJSErrorFactory.SyntaxError(RestParameterNotLastMessage, CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.RejectDuplicateNonSimpleParameters(const Params: TObjectList<TJSIdentifier>;
+                                                       const Info: TJSParameterInfo);
+begin
+  for var Index := 0 to Params.Count - 1 do
+  begin
+    for var EarlierIndex := 0 to Index - 1 do
+    begin
+      const IsDuplicate = (Params[EarlierIndex].Name = Params[Index].Name);
+      if IsDuplicate then
+        raise TJSErrorFactory.SyntaxError(DuplicateNonSimpleParameterMessage, CurrentToken.Line, CurrentToken.Column);
+    end;
+
+    const IsRestDuplicate = Assigned(Info.Rest) and (Info.Rest.Name = Params[Index].Name);
+    if IsRestDuplicate then
+      raise TJSErrorFactory.SyntaxError(DuplicateNonSimpleParameterMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
+end;
+
+function TJSParser.StartsParameterExpression(const Offset: Integer): Boolean;
+begin
+  const TokenType = FLexer.PeekToken(Offset).TokenType;
+
+  Result := (TokenType = TJSTokenType.Assign) or (TokenType = TJSTokenType.Ellipsis);
+end;
+
+function TJSParser.FindClosingParenthesisOffset: Integer;
+begin
+  var Depth := 0;
+  var Offset := 0;
+
+  while True do
+  begin
+    const TokenType = FLexer.PeekToken(Offset).TokenType;
+
+    if TokenType = TJSTokenType.EndOfFile then
+      Exit(-1);
+
+    if TokenType in [TJSTokenType.LeftParen, TJSTokenType.LeftBracket, TJSTokenType.LeftBrace] then
+      Inc(Depth)
+    else if TokenType in [TJSTokenType.RightParen, TJSTokenType.RightBracket, TJSTokenType.RightBrace] then
+      Dec(Depth);
+
+    if Depth = 0 then
+      Exit(Offset);
+
+    Inc(Offset);
+  end;
 end;
 
 function TJSParser.StartsArrowFunction: Boolean;
@@ -2318,6 +2440,10 @@ begin
   begin
     Inc(Offset);
 
+    const HasParameterExpression = StartsParameterExpression(Offset);
+    if HasParameterExpression then
+      Exit(StartsArrowAfterParenthesis);
+
     const SeparatorToken = FLexer.PeekToken(Offset);
     const HasMoreParameters = (SeparatorToken.TokenType = TJSTokenType.Comma);
     if not HasMoreParameters then
@@ -2326,10 +2452,23 @@ begin
     Inc(Offset);
   end;
 
+  const IsRestParameter = (FLexer.PeekToken(Offset).TokenType = TJSTokenType.Ellipsis);
+  if IsRestParameter then
+    Exit(StartsArrowAfterParenthesis);
+
   const ClosingToken = FLexer.PeekToken(Offset);
   const TokenAfterClosing = FLexer.PeekToken(Offset + 1);
   const ClosesParameters = (ClosingToken.TokenType = TJSTokenType.RightParen);
   Result := ClosesParameters and (TokenAfterClosing.TokenType = TJSTokenType.Arrow);
+end;
+
+function TJSParser.StartsArrowAfterParenthesis: Boolean;
+begin
+  const ClosingOffset = FindClosingParenthesisOffset;
+  if ClosingOffset < 0 then
+    Exit(False);
+
+  Result := (FLexer.PeekToken(ClosingOffset + 1).TokenType = TJSTokenType.Arrow);
 end;
 
 function TJSParser.ParseArrowFunction: TJSFunctionExpression;
@@ -2356,21 +2495,14 @@ end;
 
 procedure TJSParser.ParseArrowParameters(const Func: TJSFunctionExpression);
 begin
-  const IsParenthesized = Match(TJSTokenType.LeftParen);
+  const IsParenthesized = Check(TJSTokenType.LeftParen);
   if not IsParenthesized then
   begin
     ParseArrowParameter(Func);
     Exit;
   end;
 
-  if not Check(TJSTokenType.RightParen) then
-  begin
-    repeat
-      ParseArrowParameter(Func);
-    until (not Match(TJSTokenType.Comma)) or Check(TJSTokenType.RightParen);
-  end;
-
-  Expect(TJSTokenType.RightParen);
+  Func.ParameterInfo := ParseFormalParameters(Func.Params);
   RejectDuplicateArrowParameters(Func.Params);
 end;
 
@@ -2393,7 +2525,7 @@ begin
 
   if Check(TJSTokenType.LeftBrace) then
   begin
-    const Body = ParseFunctionBodyBlock(Func.Params);
+    const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
     Func.Body := Body;
 
     if Body.DeclaresStrictMode then
@@ -2404,10 +2536,12 @@ begin
   end
   else
   begin
-    Func.Body := ParseConciseBody;
+    const Body = ParseConciseBody;
+    Body.ParameterInfo := Func.ParameterInfo;
+    Func.Body := Body;
   end;
 
-  CheckStrictFunctionHeader('', Func.Params);
+  CheckStrictFunctionHeader('', Func.Params, Func.ParameterInfo);
   FStrictMode := OldStrictMode;
 end;
 
@@ -2439,26 +2573,35 @@ begin
   end;
 end;
 
-function TJSParser.ParseArguments: TObjectList<TJSExpression>;
+function TJSParser.ParseArguments(const Target: TObjectList<TJSExpression>): Boolean;
 begin
   Expect(TJSTokenType.LeftParen);
 
-  Result := TObjectList<TJSExpression>.Create(True);
+  Result := False;
 
-  try
-    if not Check(TJSTokenType.RightParen) then
-    begin
-      repeat
-        const Arg = ParseNestedAssignmentExpression;
-        Result.Add(Arg);
-      until not Match(TJSTokenType.Comma);
-    end;
+  if not Check(TJSTokenType.RightParen) then
+  begin
+    repeat
+      const HasTrailingComma = Check(TJSTokenType.RightParen);
+      if HasTrailingComma then
+        Break;
 
-    Expect(TJSTokenType.RightParen);
-  except
-    Result.Free;
-    raise;
+      const Argument = ParseSpreadOrAssignmentExpression;
+      Target.Add(Argument);
+      Result := Result or (Argument is TJSSpreadElement);
+    until not Match(TJSTokenType.Comma);
   end;
+
+  Expect(TJSTokenType.RightParen);
+end;
+
+function TJSParser.ParseSpreadOrAssignmentExpression: TJSExpression;
+begin
+  const IsSpread = Match(TJSTokenType.Ellipsis);
+  if not IsSpread then
+    Exit(ParseNestedAssignmentExpression);
+
+  Result := TJSSpreadElement.Create(ParseNestedAssignmentExpression);
 end;
 
 function TJSParser.IsAssignmentOperator(const TokenType: TJSTokenType): Boolean;
@@ -2578,7 +2721,8 @@ begin
   end;
 end;
 
-procedure TJSParser.CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>);
+procedure TJSParser.CheckStrictFunctionHeader(const FuncName: string; const Params: TObjectList<TJSIdentifier>;
+                                              const ParameterInfo: TJSParameterInfo);
 begin
   if not FStrictMode then
     Exit;
@@ -2589,6 +2733,12 @@ begin
   for var Param in Params do
   begin
     CheckStrictModeReservedWord(Param.Name);
+  end;
+
+  const HasRest = Assigned(ParameterInfo) and Assigned(ParameterInfo.Rest);
+  if HasRest then
+  begin
+    CheckRestrictedBindingName(ParameterInfo.Rest.Name);
   end;
 
   CheckDuplicateParameters(Params);

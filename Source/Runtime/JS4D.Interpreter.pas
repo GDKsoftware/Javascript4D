@@ -156,6 +156,25 @@ type
     procedure AttachPrototype(const Func: IJSFunction);
     function ReferencesArguments(const Func: IJSFunction): Boolean;
     function CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
+    procedure AssignParameters(const Func: TJSFunction; const Params: TObjectList<TJSIdentifier>;
+                               const Info: TJSParameterInfo);
+    function ParameterInfoOf(const Func: IJSFunction): TJSParameterInfo;
+    function BindParametersWithExpressions(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                           const Info: TJSParameterInfo): IJSScope;
+    procedure DeclareParameterBindings(const Func: IJSFunction; const Info: TJSParameterInfo);
+    procedure InitializeParameterBindings(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                          const Info: TJSParameterInfo);
+    procedure StoreParameter(const Name: string; const Value: TJSValue; const IsLexical: Boolean);
+    function CreateRestArray(const Args: TArray<TJSValue>; const FirstIndex: Integer): TJSValue;
+    procedure CopyParametersToBodyScope(const Func: IJSFunction; const ParameterScope: IJSScope;
+                                        const Info: TJSParameterInfo);
+    procedure CopyParameterToBodyScope(const Name: string; const ParameterScope: IJSScope);
+    function VisitArrayWithSpread(const Node: TJSArrayExpression): TJSValue;
+    function EvaluateArguments(const Nodes: TObjectList<TJSExpression>; const HasSpread: Boolean): TArray<TJSValue>;
+    function EvaluateSpreadArguments(const Nodes: TObjectList<TJSExpression>): TArray<TJSValue>;
+    procedure AppendSpreadValues(const Source: TJSValue; const Target: TList<TJSValue>);
+    procedure AppendArrayValues(const Source: IJSArray; const Target: TList<TJSValue>);
+    procedure AppendStringValues(const Source: string; const Target: TList<TJSValue>);
     function CreateThrowTypeError: IJSFunction;
     function CreateCalleeDescriptor: TJSPropertyDescriptor;
     procedure DetachProperties(const Func: IJSFunction);
@@ -398,6 +417,11 @@ const
                             TJSASTNodeType.FunctionDeclaration,
                             TJSASTNodeType.EmptyStatement];
   REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
+  NOT_ITERABLE = 'Spread syntax requires an iterable value';
+  HIGH_SURROGATE_FIRST = $D800;
+  HIGH_SURROGATE_LAST = $DBFF;
+  LOW_SURROGATE_FIRST = $DC00;
+  LOW_SURROGATE_LAST = $DFFF;
 
 { TJSScope }
 
@@ -786,6 +810,8 @@ function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; cons
 begin
   if Func.IsStrict then
     Result := TJSObject.Create
+  else if Assigned(ParameterInfoOf(Func)) then
+    Result := TJSArgumentsObject.Create(FCurrentScope, nil, Length(Args))
   else
     Result := TJSArgumentsObject.Create(FCurrentScope, Func.Parameters, Length(Args));
 
@@ -811,6 +837,247 @@ begin
     CalleeDescriptor.Enumerable := False;
     Result.DefineProperty(CALLEE_PROPERTY, CalleeDescriptor);
   end;
+end;
+
+procedure TJSInterpreter.AssignParameters(const Func: TJSFunction; const Params: TObjectList<TJSIdentifier>;
+                                          const Info: TJSParameterInfo);
+begin
+  var Names: TArray<string>;
+  SetLength(Names, Params.Count);
+
+  for var Index := 0 to Params.Count - 1 do
+  begin
+    Names[Index] := Params[Index].Name;
+  end;
+
+  Func.Parameters := Names;
+
+  if Assigned(Info) then
+    Func.SetExpectedArgumentCount(Info.ExpectedArgumentCount);
+end;
+
+function TJSInterpreter.ParameterInfoOf(const Func: IJSFunction): TJSParameterInfo;
+begin
+  const Body = TObject(Func.BodyNode);
+  if not (Body is TJSBlockStatement) then
+    Exit(nil);
+
+  Result := TJSBlockStatement(Body).ParameterInfo;
+end;
+
+function TJSInterpreter.BindParametersWithExpressions(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                                      const Info: TJSParameterInfo): IJSScope;
+begin
+  Result := nil;
+
+  if Info.HasDefaults then
+    DeclareParameterBindings(Func, Info);
+
+  InitializeParameterBindings(Func, Args, Info);
+
+  if not Info.HasDefaults then
+    Exit;
+
+  Result := FCurrentScope;
+  FCurrentScope := TJSScope.Create(Result);
+  FVarScope := FCurrentScope;
+  RegisterScope(FCurrentScope);
+end;
+
+procedure TJSInterpreter.DeclareParameterBindings(const Func: IJSFunction; const Info: TJSParameterInfo);
+begin
+  for var Name in Func.Parameters do
+  begin
+    FCurrentScope.DeclareLexical(Name, False);
+  end;
+
+  if Assigned(Info.Rest) then
+    FCurrentScope.DeclareLexical(Info.Rest.Name, False);
+end;
+
+procedure TJSInterpreter.InitializeParameterBindings(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                                     const Info: TJSParameterInfo);
+begin
+  const Parameters = Func.Parameters;
+
+  for var Index := 0 to Length(Parameters) - 1 do
+  begin
+    var Value := TJSValue.CreateUndefined;
+    if Index < Length(Args) then
+      Value := Args[Index];
+
+    const DefaultNode = Info.Defaults[Index];
+    const UsesDefault = Value.IsUndefined and Assigned(DefaultNode);
+    if UsesDefault then
+      Value := VisitNamed(DefaultNode, Parameters[Index]);
+
+    StoreParameter(Parameters[Index], Value, Info.HasDefaults);
+  end;
+
+  if Assigned(Info.Rest) then
+    StoreParameter(Info.Rest.Name, CreateRestArray(Args, Length(Parameters)), Info.HasDefaults);
+end;
+
+procedure TJSInterpreter.StoreParameter(const Name: string; const Value: TJSValue; const IsLexical: Boolean);
+begin
+  if IsLexical then
+    FCurrentScope.InitializeLexical(Name, Value)
+  else
+    FCurrentScope.DeclareVariable(Name, Value);
+end;
+
+function TJSInterpreter.CreateRestArray(const Args: TArray<TJSValue>; const FirstIndex: Integer): TJSValue;
+begin
+  const Rest: IJSArray = TJSArray.Create;
+  Rest.Prototype := FArrayPrototype;
+
+  for var Index := FirstIndex to Length(Args) - 1 do
+  begin
+    Rest.Push(Args[Index]);
+  end;
+
+  Result := TJSValue.CreateObject(Rest);
+end;
+
+procedure TJSInterpreter.CopyParametersToBodyScope(const Func: IJSFunction; const ParameterScope: IJSScope;
+                                                   const Info: TJSParameterInfo);
+begin
+  for var Name in Func.Parameters do
+  begin
+    CopyParameterToBodyScope(Name, ParameterScope);
+  end;
+
+  if Assigned(Info.Rest) then
+    CopyParameterToBodyScope(Info.Rest.Name, ParameterScope);
+end;
+
+procedure TJSInterpreter.CopyParameterToBodyScope(const Name: string; const ParameterScope: IJSScope);
+begin
+  const IsRedeclaredInBody = (FCurrentScope.Resolve(Name) = FCurrentScope);
+  if not IsRedeclaredInBody then
+    Exit;
+
+  const IsHoistedOnly = FCurrentScope.GetVariable(Name).IsUndefined;
+  if IsHoistedOnly then
+    FCurrentScope.SetVariable(Name, ParameterScope.GetVariable(Name));
+end;
+
+function TJSInterpreter.EvaluateArguments(const Nodes: TObjectList<TJSExpression>;
+                                          const HasSpread: Boolean): TArray<TJSValue>;
+begin
+  if HasSpread then
+    Exit(EvaluateSpreadArguments(Nodes));
+
+  SetLength(Result, Nodes.Count);
+
+  for var Index := 0 to Nodes.Count - 1 do
+  begin
+    Result[Index] := Visit(Nodes[Index]);
+  end;
+end;
+
+function TJSInterpreter.EvaluateSpreadArguments(const Nodes: TObjectList<TJSExpression>): TArray<TJSValue>;
+begin
+  const Values = TList<TJSValue>.Create;
+  try
+    for var Node in Nodes do
+    begin
+      if Node is TJSSpreadElement then
+        AppendSpreadValues(Visit(TJSSpreadElement(Node).Argument), Values)
+      else
+        Values.Add(Visit(Node));
+    end;
+
+    Result := Values.ToArray;
+  finally
+    Values.Free;
+  end;
+end;
+
+procedure TJSInterpreter.AppendSpreadValues(const Source: TJSValue; const Target: TList<TJSValue>);
+begin
+  var SourceArray: IJSArray;
+  const IsArray = Source.IsArray and Supports(Source.ToObject, IJSArray, SourceArray);
+  if IsArray then
+  begin
+    AppendArrayValues(SourceArray, Target);
+    Exit;
+  end;
+
+  if Source.IsString then
+  begin
+    AppendStringValues(Source.ToString, Target);
+    Exit;
+  end;
+
+  raise TJSErrorFactory.TypeError(NOT_ITERABLE);
+end;
+
+procedure TJSInterpreter.AppendArrayValues(const Source: IJSArray; const Target: TList<TJSValue>);
+begin
+  for var Index := 0 to Source.Length - 1 do
+  begin
+    FLimits.EnsureArrayLength(Target.Count + 1);
+
+    if Source.HasElement(Index) then
+      Target.Add(Source.GetElement(Index))
+    else
+      Target.Add(TJSValue.CreateUndefined);
+  end;
+end;
+
+procedure TJSInterpreter.AppendStringValues(const Source: string; const Target: TList<TJSValue>);
+begin
+  var Position := 1;
+
+  while Position <= Length(Source) do
+  begin
+    const HasLowSurrogateNext = (Position < Length(Source)) and
+                                InRange(Ord(Source[Position + 1]), LOW_SURROGATE_FIRST, LOW_SURROGATE_LAST);
+    const IsSurrogatePair = InRange(Ord(Source[Position]), HIGH_SURROGATE_FIRST, HIGH_SURROGATE_LAST) and
+                            HasLowSurrogateNext;
+    const CodeUnitCount = 1 + Ord(IsSurrogatePair);
+
+    Target.Add(TJSValue.CreateString(Copy(Source, Position, CodeUnitCount)));
+    Inc(Position, CodeUnitCount);
+  end;
+end;
+
+function TJSInterpreter.VisitArrayWithSpread(const Node: TJSArrayExpression): TJSValue;
+begin
+  const Arr: IJSArray = TJSArray.Create;
+  Arr.Prototype := FArrayPrototype;
+
+  const Spread = TList<TJSValue>.Create;
+  try
+    for var Element in Node.Elements do
+    begin
+      if not Assigned(Element) then
+      begin
+        Arr.Push(TJSValue.CreateUndefined);
+        Arr.DeleteElement(Arr.Length - 1);
+      end
+      else if Element is TJSSpreadElement then
+      begin
+        Spread.Clear;
+        AppendSpreadValues(Visit(TJSSpreadElement(Element).Argument), Spread);
+        FLimits.EnsureArrayLength(Arr.Length + Spread.Count);
+
+        for var Value in Spread do
+        begin
+          Arr.Push(Value);
+        end;
+      end
+      else
+      begin
+        Arr.Push(Visit(Element));
+      end;
+    end;
+  finally
+    Spread.Free;
+  end;
+
+  Result := TJSValue.CreateObject(Arr);
 end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
@@ -1507,15 +1774,7 @@ begin
   Func.IsStrict := FStrictMode or Node.IsStrict;
   Func.ClosureScope := FCurrentScope;
 
-  var Params: TArray<string>;
-  SetLength(Params, Node.Params.Count);
-
-  for var Index := 0 to Node.Params.Count - 1 do
-  begin
-    Params[Index] := Node.Params[Index].Name;
-  end;
-
-  Func.Parameters := Params;
+  AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
   AttachPrototype(Func);
 
@@ -2151,6 +2410,9 @@ end;
 
 function TJSInterpreter.VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
 begin
+  if Node.HasSpread then
+    Exit(VisitArrayWithSpread(Node));
+
   FLimits.EnsureArrayLength(Node.Elements.Count);
 
   const Arr = TJSArray.Create;
@@ -2315,15 +2577,7 @@ begin
   Func.IsConstructor := False;
   Func.LexicalThis := CurrentThisObject;
 
-  var Params: TArray<string>;
-  SetLength(Params, Node.Params.Count);
-
-  for var Index := 0 to Node.Params.Count - 1 do
-  begin
-    Params[Index] := Node.Params[Index].Name;
-  end;
-
-  Func.Parameters := Params;
+  AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
 
   Result := Func;
@@ -2355,15 +2609,7 @@ begin
   Func.IsStrict := FStrictMode or Node.IsStrict;
   Func.ClosureScope := FCurrentScope;
 
-  var Params: TArray<string>;
-  SetLength(Params, Node.Params.Count);
-
-  for var Index := 0 to Node.Params.Count - 1 do
-  begin
-    Params[Index] := Node.Params[Index].Name;
-  end;
-
-  Func.Parameters := Params;
+  AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
 
   Result := Func;
@@ -2948,9 +3194,7 @@ begin
     else
       MethodName := TJSIdentifier(MemberExpr.Property_).Name;
 
-    SetLength(Args, Node.Arguments.Count);
-    for var Index := 0 to Node.Arguments.Count - 1 do
-      Args[Index] := Visit(Node.Arguments[Index]);
+    Args := EvaluateArguments(Node.Arguments, Node.HasSpread);
     ArgsEvaluated := True;
 
     if ObjValue.IsArray and TJSBuiltins.HasArrayMethod(MethodName) then
@@ -2984,11 +3228,7 @@ begin
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
 
   if not ArgsEvaluated then
-  begin
-    SetLength(Args, Node.Arguments.Count);
-    for var Index := 0 to Node.Arguments.Count - 1 do
-      Args[Index] := Visit(Node.Arguments[Index]);
-  end;
+    Args := EvaluateArguments(Node.Arguments, Node.HasSpread);
 
   if IsDirectEvalCall(Node.Callee, Func) then
     Exit(CallDirectEval(Func, Args));
@@ -3140,6 +3380,7 @@ end;
 function TJSInterpreter.VisitNewExpression(const Node: TJSNewExpression): TJSValue;
 begin
   const CalleeValue = Visit(Node.Callee);
+  const Args = EvaluateArguments(Node.Arguments, Node.HasSpread);
 
   if not CalleeValue.IsFunction then
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
@@ -3150,14 +3391,6 @@ begin
 
   if not Func.IsConstructor then
     raise TJSErrorFactory.NotAConstructor(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
-
-  var Args: TArray<TJSValue>;
-  SetLength(Args, Node.Arguments.Count);
-
-  for var Index := 0 to Node.Arguments.Count - 1 do
-  begin
-    Args[Index] := Visit(Node.Arguments[Index]);
-  end;
 
   Result := Construct(Func, Args);
 end;
@@ -3328,16 +3561,29 @@ begin
       FCurrentScope.DeclareVariable(ARGUMENTS_NAME, TJSValue.CreateObject(CreateArgumentsObject(Args, Func)));
     end;
 
-    for var Index := 0 to Length(Func.Parameters) - 1 do
+    const FunctionBody = TJSBlockStatement(Func.BodyNode);
+    const ParameterInfo = FunctionBody.ParameterInfo;
+    var ParameterScope: IJSScope := nil;
+
+    if Assigned(ParameterInfo) then
     begin
-      if Index < Length(Args) then
-        FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
-      else
-        FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
+      ParameterScope := BindParametersWithExpressions(Func, Args, ParameterInfo);
+    end
+    else
+    begin
+      for var Index := 0 to Length(Func.Parameters) - 1 do
+      begin
+        if Index < Length(Args) then
+          FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
+        else
+          FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
+      end;
     end;
 
-    const FunctionBody = TJSBlockStatement(Func.BodyNode);
     InstantiateTopLevel(FunctionBody.Body, FunctionBody.ScopeInfo);
+
+    if Assigned(ParameterScope) then
+      CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
 
     try
       Visit(TJSASTNode(Func.BodyNode));

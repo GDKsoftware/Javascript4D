@@ -55,6 +55,7 @@ uses
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',
   JS4D.Tests.ArrowFunctions in 'JS4D.Tests.ArrowFunctions.pas',
+  JS4D.Tests.FunctionParameters in 'JS4D.Tests.FunctionParameters.pas',
   JS4D.Tests.TemplateLiterals in 'JS4D.Tests.TemplateLiterals.pas',
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
