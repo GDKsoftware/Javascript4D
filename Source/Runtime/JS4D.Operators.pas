@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.Types,
+  JS4D.MathFunctions,
   JS4D.AST;
 
 type
@@ -152,10 +153,11 @@ begin
   if IsNaN(Dividend) or (Dividend = 0) then
     Exit(NaN);
 
-  if Dividend > 0 then
-    Result := Infinity
+  const IsNegativeResult = ((Dividend < 0) xor Divisor.Sign);
+  if IsNegativeResult then
+    Result := NegInfinity
   else
-    Result := NegInfinity;
+    Result := Infinity;
 end;
 
 class function TJSOperators.Remainder(const Dividend: Double; const Divisor: Double): Double;
@@ -167,7 +169,9 @@ begin
   if IsInfinite(Divisor) then
     Exit(Dividend);
 
-  Result := FMod(Dividend, Divisor);
+  const Remainder = FMod(Dividend, Divisor);
+
+  Result := TJSMathFunctions.KeepZeroSign(Remainder, Dividend);
 end;
 
 class function TJSOperators.ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue;

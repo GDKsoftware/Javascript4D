@@ -45,6 +45,15 @@ type
     procedure BinaryOperator_OnNumbers_UsesInt32Semantics(const Script: string; const Expected: string);
 
     [Test]
+    [TestCase('Positive by positive zero', 'result = 1 / 0#Infinity', '#')]
+    [TestCase('Positive by negative zero', 'result = 1 / -0#-Infinity', '#')]
+    [TestCase('Negative by positive zero', 'result = -1 / 0#-Infinity', '#')]
+    [TestCase('Negative by negative zero', 'result = -1 / -0#Infinity', '#')]
+    [TestCase('Infinity by negative zero', 'result = Infinity / -0#-Infinity', '#')]
+    [TestCase('Zero by negative zero', 'result = isNaN(0 / -0)#true', '#')]
+    procedure Divide_ByZero_FollowsSignOfBothOperands(const Script: string; const Expected: string);
+
+    [Test]
     [TestCase('Add wrapper and number', 'result = new String("1") + 1#11', '#')]
     [TestCase('Add two wrappers', 'result = new String("1") + new String("1")#11', '#')]
     [TestCase('Add wrapper and undefined', 'result = new String("1") + undefined#1undefined', '#')]
@@ -192,6 +201,11 @@ begin
 end;
 
 procedure TOperatorsTests.BinaryOperator_OnNumbers_UsesInt32Semantics(const Script: string; const Expected: string);
+begin
+  Assert.AreEqual(Expected, RunScript(Script));
+end;
+
+procedure TOperatorsTests.Divide_ByZero_FollowsSignOfBothOperands(const Script: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, RunScript(Script));
 end;

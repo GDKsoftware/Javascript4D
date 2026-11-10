@@ -66,7 +66,10 @@ uses
   JS4D.Tests.RegExpMatching in 'JS4D.Tests.RegExpMatching.pas',
   JS4D.Tests.NumberFormat in 'JS4D.Tests.NumberFormat.pas',
   JS4D.Tests.FunctionObjects in 'JS4D.Tests.FunctionObjects.pas',
-  JS4D.Tests.NumberParsing in 'JS4D.Tests.NumberParsing.pas';
+  JS4D.Tests.NumberParsing in 'JS4D.Tests.NumberParsing.pas',
+  JS4D.Tests.JsonStringify in 'JS4D.Tests.JsonStringify.pas',
+  JS4D.Tests.JsonReviver in 'JS4D.Tests.JsonReviver.pas',
+  JS4D.Tests.MathFunctions in 'JS4D.Tests.MathFunctions.pas';
 
 var
   Runner: ITestRunner;

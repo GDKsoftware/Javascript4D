@@ -7,7 +7,6 @@ interface
 uses
   System.SysUtils,
   System.Math,
-  System.JSON,
   System.DateUtils,
   System.Generics.Collections,
   JS4D.Types,
@@ -25,7 +24,10 @@ uses
   JS4D.BuiltinAttributes,
   JS4D.Json,
   JS4D.JsonSyntax,
+  JS4D.JsonReader,
+  JS4D.JsonReviver,
   JS4D.UriCoding,
+  JS4D.MathFunctions,
   JS4D.NumberParse,
   JS4D.Errors;
 
@@ -40,8 +42,6 @@ type
     FDateBuiltins: TJSDateBuiltins;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
-
-    class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
 
     function ToText(const Value: TJSValue): string;
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
@@ -220,61 +220,6 @@ const
   OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL = 'Object prototype may only be an Object or null';
 
 { TJSEngine }
-
-class function TJSEngine.ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue;
-begin
-  if JSONValue is TJSONNull then
-  begin
-    Result := TJSValue.CreateNull;
-    Exit;
-  end;
-
-  if JSONValue is TJSONBool then
-  begin
-    Result := TJSValue.CreateBoolean(TJSONBool(JSONValue).AsBoolean);
-    Exit;
-  end;
-
-  if JSONValue is TJSONNumber then
-  begin
-    Result := TJSValue.CreateNumber(TJSONNumber(JSONValue).AsDouble);
-    Exit;
-  end;
-
-  if JSONValue is TJSONString then
-  begin
-    Result := TJSValue.CreateString(TJSONString(JSONValue).Value);
-    Exit;
-  end;
-
-  if JSONValue is TJSONArray then
-  begin
-    const Arr = TJSArray.Create;
-
-    for var Index := 0 to TJSONArray(JSONValue).Count - 1 do
-    begin
-      Arr.Push(ConvertJSONToJSValue(TJSONArray(JSONValue).Items[Index]));
-    end;
-
-    Result := TJSValue.CreateObject(Arr);
-    Exit;
-  end;
-
-  if JSONValue is TJSONObject then
-  begin
-    const Obj = TJSObject.Create;
-
-    for var Pair in TJSONObject(JSONValue) do
-    begin
-      Obj.SetProperty(Pair.JsonString.Value, ConvertJSONToJSValue(Pair.JsonValue));
-    end;
-
-    Result := TJSValue.CreateObject(Obj);
-    Exit;
-  end;
-
-  Result := TJSValue.CreateUndefined;
-end;
 
 constructor TJSEngine.Create;
 begin
@@ -698,7 +643,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Floor(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Floor(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_CEIL, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_CEIL,
@@ -710,7 +655,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Ceil(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Ceil(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_ROUND, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ROUND,
@@ -722,7 +667,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Round(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Round(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_SQRT, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_SQRT,
@@ -754,7 +699,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Power(Args[0].ToNumber, Args[1].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Power(Args[0].ToNumber, Args[1].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_MIN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_MIN,
@@ -778,8 +723,7 @@ begin
           Exit;
         end;
 
-        if Value < MinValue then
-          MinValue := Value;
+        MinValue := TJSMathFunctions.Smaller(MinValue, Value);
       end;
 
       Result := TJSValue.CreateNumber(MinValue);
@@ -806,8 +750,7 @@ begin
           Exit;
         end;
 
-        if Value > MaxValue then
-          MaxValue := Value;
+        MaxValue := TJSMathFunctions.Larger(MaxValue, Value);
       end;
 
       Result := TJSValue.CreateNumber(MaxValue);
@@ -828,7 +771,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Sin(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Sin(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_COS, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_COS,
@@ -852,7 +795,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Tan(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Tan(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_ASIN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ASIN,
@@ -960,7 +903,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Trunc(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Trunc(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_SIGN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_SIGN,
@@ -972,27 +915,7 @@ begin
         Exit;
       end;
 
-      const Num = Args[0].ToNumber;
-
-      if System.Math.IsNaN(Num) then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
-
-      if Num > 0 then
-      begin
-        Result := TJSValue.CreateNumber(1);
-        Exit;
-      end;
-
-      if Num < 0 then
-      begin
-        Result := TJSValue.CreateNumber(-1);
-        Exit;
-      end;
-
-      Result := TJSValue.CreateNumber(0);
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Sign(Args[0].ToNumber));
     end)));
 
   FInterpreter.SetGlobalVariable(MATH_NAME, TJSValue.CreateObject(MathObj));
@@ -1338,61 +1261,35 @@ begin
   JSONObj.SetProperty(JSON_PARSE, TJSValue.CreateObject(TJSFunction.CreateNative(JSON_PARSE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const JSONString = ToText(Args[0]);
+      const JSONString = ToText(ArgumentAt(Args, 0));
 
       const IsValidJSON = TJSJsonSyntax.IsValid(JSONString);
       if not IsValidJSON then
         raise TJSErrorFactory.SyntaxError(INVALID_JSON_TEXT);
 
-      try
-        const JSONValue = TJSONObject.ParseJSONValue(JSONString);
+      Result := TJSJsonReader.Read(JSONString, FInterpreter.ObjectPrototype, FInterpreter.ArrayPrototype);
 
-        if JSONValue = nil then
-        begin
-          Result := TJSValue.CreateUndefined;
-          Exit;
-        end;
-
-        try
-          Result := ConvertJSONToJSValue(JSONValue);
-        finally
-          JSONValue.Free;
-        end;
-      except
-        on E: Exception do
-          Result := TJSValue.CreateUndefined;
-      end;
+      var Reviver: IJSFunction;
+      const ReviverArgument = ArgumentAt(Args, 1);
+      const HasReviver = (ReviverArgument.IsFunction and Supports(ReviverArgument.ToObject, IJSFunction, Reviver));
+      if HasReviver then
+        Result := TJSJsonReviver.Revive(Result, Reviver, FInterpreter.ObjectPrototype);
     end)));
 
   JSONObj.SetProperty(JSON_STRINGIFY, TJSValue.CreateObject(TJSFunction.CreateNative(JSON_STRINGIFY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Converter = TJSONConverter.Create(FInterpreter.Limits);
+      const Writer = TJSJsonWriter.Create(FInterpreter.Limits, FInterpreter.ObjectPrototype);
       try
-        const JSONValue = Converter.Convert(Args[0]);
-        try
-          const JSONText = JSONValue.ToJSON;
-          const JSONLength = Length(JSONText);
+        var JSONText: string;
+        const HasText = Writer.TryStringify(ArgumentAt(Args, 0), ArgumentAt(Args, 1), ArgumentAt(Args, 2), JSONText);
 
-          FInterpreter.Limits.EnsureStringLength(JSONLength);
-          Result := TJSValue.CreateString(JSONText);
-        finally
-          JSONValue.Free;
-        end;
+        if HasText then
+          Result := TJSValue.CreateString(JSONText)
+        else
+          Result := TJSValue.CreateUndefined;
       finally
-        Converter.Free;
+        Writer.Free;
       end;
     end)));
 
