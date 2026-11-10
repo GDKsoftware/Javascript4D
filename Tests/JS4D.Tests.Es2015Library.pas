@@ -148,6 +148,62 @@ type
     procedure ObjectGetOwnPropertyDescriptors_Undefined_RaisesTypeError;
 
     [Test]
+    [TestCase('KeysOfString', 'Object.keys("ab").join()#0,1', '#')]
+    [TestCase('KeysOfNumber', 'Object.keys(1).length#0', '#')]
+    [TestCase('KeysSkipsNonEnumerable', 'Object.keys(Object.defineProperty({a: 1}, "h", {value: 1})).join()#a', '#')]
+    [TestCase('ValuesOfString', 'Object.values("ab").join()#a,b', '#')]
+    [TestCase('ValuesSkipsNonEnumerable', 'Object.values(function () {}).length#0', '#')]
+    [TestCase('ValuesSkipsKeyRemovedByGetter', 'Object.values({get a() { delete this.b; return 1; }, b: 2}).join()#1', '#')]
+    [TestCase('ValuesOfPrimitiveNumber', 'Object.values(5).length#0', '#')]
+    [TestCase('EntriesOfString', 'Object.entries("a")[0].join()#0,a', '#')]
+    [TestCase('EntriesSkipsNonEnumerable', 'Object.entries(function () {}).length#0', '#')]
+    [TestCase('OwnPropertyNamesOfString', 'Object.getOwnPropertyNames("ab").join()#0,1,length', '#')]
+    [TestCase('OwnPropertyNamesOfBoolean', 'Object.getOwnPropertyNames(true).length#0', '#')]
+    [TestCase('PrototypeOfBoolean', 'Object.getPrototypeOf(true) === Boolean.prototype#true', '#')]
+    [TestCase('PrototypeOfNumber', 'Object.getPrototypeOf(0) === Number.prototype#true', '#')]
+    [TestCase('PrototypeOfString', 'Object.getPrototypeOf("abc") === String.prototype#true', '#')]
+    [TestCase('DescriptorOfStringIndex', 'Object.getOwnPropertyDescriptor("abc", 1).value#b', '#')]
+    [TestCase('DescriptorOfStringLength', 'Object.getOwnPropertyDescriptor("abc", "length").value#3', '#')]
+    [TestCase('DescriptorOfMissingOnNumber', 'Object.getOwnPropertyDescriptor(1, "x")#undefined', '#')]
+    [TestCase('FreezeReturnsPrimitive', 'Object.freeze(1)#1', '#')]
+    [TestCase('FreezeReturnsNull', 'Object.freeze(null)#null', '#')]
+    [TestCase('SealReturnsString', 'Object.seal("abc")#abc', '#')]
+    [TestCase('SealReturnsUndefined', 'Object.seal()#undefined', '#')]
+    [TestCase('PreventExtensionsReturnsBoolean', 'Object.preventExtensions(false)#false', '#')]
+    [TestCase('IsFrozenOfPrimitive', 'Object.isFrozen(1)#true', '#')]
+    [TestCase('IsSealedOfPrimitive', 'Object.isSealed("a")#true', '#')]
+    [TestCase('IsExtensibleOfPrimitive', 'Object.isExtensible(1)#false', '#')]
+    procedure ObjectStatics_Primitive_CoercesToObject(const Expression, Expected: string);
+
+    [Test]
+    [TestCase('Keys', 'Object.keys(null)#TypeError', '#')]
+    [TestCase('KeysUndefined', 'Object.keys(undefined)#TypeError', '#')]
+    [TestCase('Values', 'Object.values(null)#TypeError', '#')]
+    [TestCase('Entries', 'Object.entries(undefined)#TypeError', '#')]
+    [TestCase('GetOwnPropertyNames', 'Object.getOwnPropertyNames(null)#TypeError', '#')]
+    [TestCase('GetPrototypeOf', 'Object.getPrototypeOf(undefined)#TypeError', '#')]
+    [TestCase('GetPrototypeOfNoArgument', 'Object.getPrototypeOf()#TypeError', '#')]
+    [TestCase('GetOwnPropertyDescriptor', 'Object.getOwnPropertyDescriptor(null, "a")#TypeError', '#')]
+    [TestCase('AssignTargetUndefined', 'Object.assign(undefined)#TypeError', '#')]
+    [TestCase('AssignTargetNull', 'Object.assign(null, {})#TypeError', '#')]
+    [TestCase('AssignNoArguments', 'Object.assign()#TypeError', '#')]
+    [TestCase('AssignReadOnlyTarget', 'Object.assign(Object.defineProperty({}, "a", {value: 1}), {a: 2})#TypeError', '#')]
+    [TestCase('AssignNewKeyOnNonExtensibleTarget', 'Object.assign(Object.preventExtensions({}), {a: 2})#TypeError', '#')]
+    procedure ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
+
+    [Test]
+    [TestCase('PrimitiveTargetIsObject', 'typeof Object.assign(true)#object', '#')]
+    [TestCase('NumberTargetIsWrapped', 'Object.assign(1, {a: 2}).a#2', '#')]
+    [TestCase('StringSourceCopiesIndices', 'Object.assign({}, "ab")[1]#b', '#')]
+    [TestCase('NullAndUndefinedSourcesAreSkipped', 'Object.assign({a: 1}, null, undefined).a#1', '#')]
+    [TestCase('NumberSourceHasNoProperties', 'Object.keys(Object.assign({}, 5)).length#0', '#')]
+    [TestCase('SkipsNonEnumerableSource', 'Object.assign({}, Object.defineProperty({}, "h", {value: 1})).h#undefined', '#')]
+    [TestCase('CopiesEnumerableSource', 'Object.assign({}, {a: 1}, {b: 2}).b#2', '#')]
+    [TestCase('ReturnsTarget', '(function () { var t = {}; return Object.assign(t, {a: 1}) === t; })()#true', '#')]
+    [TestCase('InvokesSourceGetter', 'Object.assign({}, {get a() { return 7; }}).a#7', '#')]
+    procedure ObjectAssign_Sources_CopiesOwnEnumerable(const Expression, Expected: string);
+
+    [Test]
     [TestCase('IsGlobalObject', 'globalThis === this#true', '#')]
     [TestCase('ExposesGlobalVariable', '(function () { var scoped = 1; return typeof globalThis.Math; })()#object', '#')]
     [TestCase('NotEnumerable', '(function () { for (var key in this) { if (key === "globalThis") { return "enumerable"; } } return "hidden"; })()#hidden', '#')]
@@ -202,6 +258,23 @@ begin
   const ErrorName = Evaluate('(function () { try { Object.getOwnPropertyDescriptors(undefined); } catch (e) { return e.name; } })()');
 
   Assert.AreEqual('TypeError', ErrorName);
+end;
+
+procedure TEs2015LibraryTests.ObjectStatics_Primitive_CoercesToObject(const Expression, Expected: string);
+begin
+  Assert.AreEqual(Expected, Evaluate(Expression));
+end;
+
+procedure TEs2015LibraryTests.ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
+begin
+  const Guarded = Format('(function () { try { %s; } catch (e) { return e.name; } return "no error"; })()', [Expression]);
+
+  Assert.AreEqual(Expected, Evaluate(Guarded));
+end;
+
+procedure TEs2015LibraryTests.ObjectAssign_Sources_CopiesOwnEnumerable(const Expression, Expected: string);
+begin
+  Assert.AreEqual(Expected, Evaluate(Expression));
 end;
 
 procedure TEs2015LibraryTests.GlobalThis_Lookup_ReferencesGlobalObject(const Expression, Expected: string);
