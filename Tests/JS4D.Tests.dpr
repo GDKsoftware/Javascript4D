@@ -62,7 +62,8 @@ uses
   JS4D.Tests.LexicalGrammar in 'JS4D.Tests.LexicalGrammar.pas',
   JS4D.Tests.ArrayIterationLength in 'JS4D.Tests.ArrayIterationLength.pas',
   JS4D.Tests.RegExpMatching in 'JS4D.Tests.RegExpMatching.pas',
-  JS4D.Tests.NumberFormat in 'JS4D.Tests.NumberFormat.pas';
+  JS4D.Tests.NumberFormat in 'JS4D.Tests.NumberFormat.pas',
+  JS4D.Tests.FunctionObjects in 'JS4D.Tests.FunctionObjects.pas';
 
 var
   Runner: ITestRunner;

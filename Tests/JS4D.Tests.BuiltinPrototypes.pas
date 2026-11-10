@@ -104,7 +104,7 @@ end;
 procedure TBuiltinPrototypeTests.Function_IsGlobalFunction;
 begin
   Assert.IsTrue(EvaluateBoolean('typeof Function === "function"'));
-  Assert.IsTrue(EvaluateBoolean('typeof Function.prototype === "object"'));
+  Assert.IsTrue(EvaluateBoolean('typeof Function.prototype === "function"'));
 end;
 
 procedure TBuiltinPrototypeTests.InstanceOf_Function_IsTrueForFunctions;

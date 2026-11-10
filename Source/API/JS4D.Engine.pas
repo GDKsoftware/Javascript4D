@@ -150,6 +150,7 @@ const
   OBJECT_NAME = 'Object';
   REGEXP_NAME = 'RegExp';
   FUNCTION_NAME = 'Function';
+  ANONYMOUS_NAME = '';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   LENGTH_PROPERTY = 'length';
@@ -1542,7 +1543,14 @@ begin
       Result := FInterpreter.CreateFunctionFromSource(BuildFunctionSource(Args));
     end);
 
-  const PrototypeObj = TJSObject.Create;
+  const PrototypeObj: IJSFunction = TJSFunction.CreateNative(ANONYMOUS_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := TJSValue.CreateUndefined;
+    end);
+  PrototypeObj.IsConstructor := False;
+  TJSFunction.DefineLength(PrototypeObj, 0);
+  FInterpreter.RegisterFunction(PrototypeObj);
 
   for var MethodName in [FUNCTION_CALL, FUNCTION_APPLY, FUNCTION_BIND] do
   begin
@@ -1563,15 +1571,15 @@ begin
   const HasArguments = (Length(Args) > 0);
   if HasArguments then
   begin
-    Body := Args[High(Args)].ToString;
-
     for var Index := 0 to High(Args) - 1 do
     begin
       if Index > 0 then
         Parameters := Parameters + ',';
 
-      Parameters := Parameters + Args[Index].ToString;
+      Parameters := Parameters + ToText(Args[Index]);
     end;
+
+    Body := ToText(Args[High(Args)]);
   end;
 
   Result := Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);

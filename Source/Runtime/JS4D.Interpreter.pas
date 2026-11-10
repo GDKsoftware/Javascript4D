@@ -19,6 +19,7 @@ uses
   JS4D.PropertyDescriptors,
   JS4D.ArrayIteration,
   JS4D.ArrayGeneric,
+  JS4D.ArrayLike,
   JS4D.Operators;
 
 type
@@ -147,6 +148,10 @@ type
     function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
     function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
+    function ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
+    function UnwrapBoundFunction(const Func: IJSFunction): IJSFunction;
+    function CreateBoundFunction(const Target: IJSFunction; const BoundThis: IJSObject;
+                                 const BoundArgs: TArray<TJSValue>): IJSFunction;
 
     procedure BeginExecution;
     procedure ConsumeStep; inline;
@@ -314,6 +319,7 @@ const
   METHOD_CALL = 'call';
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
+  ARGUMENT_LIST_NOT_OBJECT = 'Function.prototype.apply requires an array-like object as argument list';
 
   CONSTRUCTOR_ERROR = 'Error';
   CONSTRUCTOR_TYPE_ERROR = 'TypeError';
@@ -1936,6 +1942,7 @@ begin
           Result := TJSValue.CreateBoolean(False);
           Exit;
         end;
+        RightFunc := UnwrapBoundFunction(RightFunc);
         const RightName = RightFunc.Name;
 
         if IsInPrototypeChain(LeftObj, RightFunc) then
@@ -2623,20 +2630,8 @@ begin
     if Length(Args) > 0 then
       ThisArg := ThisObjectFor(Func, Args[0]);
 
-    var FuncArgs: TArray<TJSValue>;
-    const HasArgsArray = (Length(Args) > 1) and Args[1].IsArray;
-    if HasArgsArray then
-    begin
-      var ArgsArrayIntf: IJSArray;
-      if Supports(Args[1].ToObject, IJSArray, ArgsArrayIntf) then
-      begin
-        SetLength(FuncArgs, ArgsArrayIntf.Length);
-        for var Index := 0 to ArgsArrayIntf.Length - 1 do
-        begin
-          FuncArgs[Index] := ArgsArrayIntf[Index];
-        end;
-      end;
-    end;
+    const ArgumentList = TJSArrayLike.Argument(Args, 1);
+    const FuncArgs = ArgumentsFromList(ArgumentList);
 
     Exit(CallFunction(Func, FuncArgs, ThisArg));
   end;
@@ -2655,39 +2650,69 @@ begin
         BoundArgs[Index - 1] := Args[Index];
     end;
 
-    const OriginalFunc = Func;
-    const CapturedThis = BoundThis;
-    const CapturedArgs = BoundArgs;
-    const Interp = Self;
-
-    const BoundFunc: IJSFunction = TJSFunction.CreateNative('bound',
-      function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
-      begin
-        var AllArgs: TArray<TJSValue>;
-        SetLength(AllArgs, Length(CapturedArgs) + Length(CallArgs));
-
-        for var Index := 0 to Length(CapturedArgs) - 1 do
-          AllArgs[Index] := CapturedArgs[Index];
-
-        for var Index := 0 to Length(CallArgs) - 1 do
-          AllArgs[Length(CapturedArgs) + Index] := CallArgs[Index];
-
-        Result := Interp.CallFunction(OriginalFunc, AllArgs, CapturedThis);
-      end);
-
-    BoundFunc.ClosureScope := nil;
-    BoundFunc.IsConstructor := OriginalFunc.IsConstructor;
-    TJSFunction.DefineLength(BoundFunc, BoundLength(OriginalFunc, Length(CapturedArgs)));
-    RegisterFunction(BoundFunc);
-    var BoundInfo: TJSBoundFunction;
-    BoundInfo.Target := OriginalFunc;
-    BoundInfo.Arguments := CapturedArgs;
-    FBoundFunctions.Add(Pointer(BoundFunc as IInterface), BoundInfo);
-    Result := TJSValue.CreateObject(BoundFunc);
-    Exit;
+    const BoundFunc = CreateBoundFunction(Func, BoundThis, BoundArgs);
+    Exit(TJSValue.CreateObject(BoundFunc));
   end;
 
   Result := TJSValue.CreateUndefined;
+end;
+
+function TJSInterpreter.CreateBoundFunction(const Target: IJSFunction; const BoundThis: IJSObject;
+                                            const BoundArgs: TArray<TJSValue>): IJSFunction;
+begin
+  const Interp = Self;
+
+  Result := TJSFunction.CreateNative('bound',
+    function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
+    begin
+      const AllArgs = BoundArgs + CallArgs;
+      Result := Interp.CallFunction(Target, AllArgs, BoundThis);
+    end);
+
+  Result.ClosureScope := nil;
+  Result.IsConstructor := Target.IsConstructor;
+  Result.Prototype := FFunctionPrototype;
+  TJSFunction.DefineLength(Result, BoundLength(Target, Length(BoundArgs)));
+  RegisterFunction(Result);
+
+  var BoundInfo: TJSBoundFunction;
+  BoundInfo.Target := Target;
+  BoundInfo.Arguments := BoundArgs;
+  FBoundFunctions.Add(Pointer(Result as IInterface), BoundInfo);
+end;
+
+function TJSInterpreter.UnwrapBoundFunction(const Func: IJSFunction): IJSFunction;
+begin
+  Result := Func;
+
+  var Bound: TJSBoundFunction;
+  while FBoundFunctions.TryGetValue(Pointer(Result as IInterface), Bound) do
+  begin
+    Result := Bound.Target;
+  end;
+end;
+
+function TJSInterpreter.ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
+begin
+  if ArgumentList.IsNullOrUndefined then
+    Exit(nil);
+
+  if not ArgumentList.IsObject then
+    raise TJSErrorFactory.TypeError(ARGUMENT_LIST_NOT_OBJECT);
+
+  const Source = ArgumentList.ToObject;
+  const Count = TJSArrayLike.ToLength(Source);
+  FLimits.EnsureArrayLength(Count);
+
+  SetLength(Result, Count);
+  for var Index := 0 to Count - 1 do
+  begin
+    var Element: TJSValue;
+    if TJSArrayLike.TryGetElement(Source, Index, Element) then
+      Result[Index] := Element
+    else
+      Result[Index] := TJSValue.CreateUndefined;
+  end;
 end;
 
 procedure TJSInterpreter.WriteMember(const Base: TJSValue; const PropName: string; const Value: TJSValue);
