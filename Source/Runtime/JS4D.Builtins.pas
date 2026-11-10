@@ -77,6 +77,8 @@ type
     class function StringSearch(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
 
     class function NumberToString(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
+    class function DigitCountArgument(const Args: TArray<TJSValue>): Integer; static;
+    class function HasDigitCountArgument(const Args: TArray<TJSValue>): Boolean; static;
     class function NumberToFixed(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
     class function NumberToPrecision(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
     class function NumberToExponential(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
@@ -112,7 +114,15 @@ type
 
 implementation
 
+uses
+  JS4D.Errors,
+  JS4D.NumberFormat;
+
 const
+  DIGIT_COUNT_LIMIT = 1000;
+  TO_FIXED_RANGE_MESSAGE = 'toFixed() digits argument must be between 0 and 20';
+  TO_PRECISION_RANGE_MESSAGE = 'toPrecision() argument must be between 1 and 21';
+  TO_EXPONENTIAL_RANGE_MESSAGE = 'toExponential() argument must be between 0 and 20';
   METHOD_PUSH = 'push';
   METHOD_POP = 'pop';
   METHOD_SHIFT = 'shift';
@@ -1525,48 +1535,60 @@ begin
   Result := TJSValue.CreateString(ResultStr);
 end;
 
+class function TJSBuiltins.DigitCountArgument(const Args: TArray<TJSValue>): Integer;
+begin
+  const Requested = Args[0].ToNumber;
+
+  if IsNan(Requested) then
+    Exit(0);
+
+  Result := Trunc(Max(-DIGIT_COUNT_LIMIT, Min(DIGIT_COUNT_LIMIT, Requested)));
+end;
+
+class function TJSBuiltins.HasDigitCountArgument(const Args: TArray<TJSValue>): Boolean;
+begin
+  Result := (Length(Args) > 0) and (Args[0].ValueType <> TJSValueType.Undefined);
+end;
+
 class function TJSBuiltins.NumberToFixed(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Digits := 0;
+  var FractionDigits := 0;
+  if HasDigitCountArgument(Args) then
+    FractionDigits := DigitCountArgument(Args);
 
-  if Length(Args) > 0 then
-    Digits := Max(0, Min(100, Trunc(Args[0].ToNumber)));
+  if not TJSNumberFormat.IsFractionDigitsInRange(FractionDigits) then
+    raise TJSErrorFactory.RangeError(TO_FIXED_RANGE_MESSAGE);
 
-  Result := TJSValue.CreateString(FormatFloat('0.' + System.StringOfChar('0', Digits), Num, TFormatSettings.Invariant));
+  Result := TJSValue.CreateString(TJSNumberFormat.ToFixed(Num, FractionDigits));
 end;
 
 class function TJSBuiltins.NumberToPrecision(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateString(TJSValue.CreateNumber(Num).ToString);
-    Exit;
-  end;
+  if not HasDigitCountArgument(Args) then
+    Exit(TJSValue.CreateString(TJSNumberFormat.ToDecimalString(Num)));
 
-  const Precision = Max(1, Min(100, Trunc(Args[0].ToNumber)));
+  const Precision = DigitCountArgument(Args);
+  const IsFinite = not (IsNan(Num) or IsInfinite(Num));
+  if IsFinite and not TJSNumberFormat.IsPrecisionInRange(Precision) then
+    raise TJSErrorFactory.RangeError(TO_PRECISION_RANGE_MESSAGE);
 
-  var FormatStr: string := '0';
-
-  if Precision > 1 then
-  begin
-    const DecimalPart: string = System.StringOfChar('#', Precision - 1);
-    FormatStr := FormatStr + '.' + DecimalPart;
-  end;
-
-  Result := TJSValue.CreateString(FormatFloat(FormatStr, Num, TFormatSettings.Invariant));
+  Result := TJSValue.CreateString(TJSNumberFormat.ToPrecision(Num, Precision));
 end;
 
 class function TJSBuiltins.NumberToExponential(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Digits := 6;
+  var FractionDigits := 0;
+  if HasDigitCountArgument(Args) then
+    FractionDigits := DigitCountArgument(Args);
 
-  if Length(Args) > 0 then
-    Digits := Max(0, Min(100, Trunc(Args[0].ToNumber)));
+  const IsFinite = not (IsNan(Num) or IsInfinite(Num));
+  if IsFinite and not TJSNumberFormat.IsFractionDigitsInRange(FractionDigits) then
+    raise TJSErrorFactory.RangeError(TO_EXPONENTIAL_RANGE_MESSAGE);
 
-  var FormatSettings := TFormatSettings.Create;
-  FormatSettings.DecimalSeparator := '.';
-
-  Result := TJSValue.CreateString(Format('%.' + IntToStr(Digits) + 'e', [Num], FormatSettings));
+  if HasDigitCountArgument(Args) then
+    Result := TJSValue.CreateString(TJSNumberFormat.ToExponential(Num, FractionDigits))
+  else
+    Result := TJSValue.CreateString(TJSNumberFormat.ToShortestExponential(Num));
 end;
 
 class function TJSBuiltins.NumberValueOf(const Num: Double; const Args: TArray<TJSValue>): TJSValue;

@@ -578,6 +578,7 @@ implementation
 uses
   System.Math,
   JS4D.Errors,
+  JS4D.NumberFormat,
   JS4D.RegExpSyntax;
 
 { TJSLimits }
@@ -932,11 +933,7 @@ begin
             Exit(INFINITY_STRING);
         end;
 
-        const IntValue = Trunc(FNumberValue);
-        if FNumberValue = IntValue then
-          Result := IntToStr(IntValue)
-        else
-          Result := FloatToStr(FNumberValue, TFormatSettings.Invariant);
+        Result := TJSNumberFormat.ToDecimalString(FNumberValue);
       end;
     TJSValueType.String_:
       Result := FStringValue;

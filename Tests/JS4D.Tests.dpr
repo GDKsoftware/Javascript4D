@@ -14,6 +14,7 @@ uses
   JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
   JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
+  JS4D.NumberFormat in '..\Source\Core\JS4D.NumberFormat.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
@@ -60,7 +61,8 @@ uses
   JS4D.Tests.GenericArrayMutators in 'JS4D.Tests.GenericArrayMutators.pas',
   JS4D.Tests.LexicalGrammar in 'JS4D.Tests.LexicalGrammar.pas',
   JS4D.Tests.ArrayIterationLength in 'JS4D.Tests.ArrayIterationLength.pas',
-  JS4D.Tests.RegExpMatching in 'JS4D.Tests.RegExpMatching.pas';
+  JS4D.Tests.RegExpMatching in 'JS4D.Tests.RegExpMatching.pas',
+  JS4D.Tests.NumberFormat in 'JS4D.Tests.NumberFormat.pas';
 
 var
   Runner: ITestRunner;
