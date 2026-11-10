@@ -7,7 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
-  System.RegularExpressions;
+  JS4D.PcreMatcher,
+  JS4D.SlotMap;
 
 type
   TJSValueType = (
@@ -55,6 +56,7 @@ type
   IJSObject = interface;
   IJSArray = interface;
   IJSScope = interface;
+  IJSFunction = interface;
 
   TJSValue = record
   private
@@ -89,6 +91,9 @@ type
     function IsNaN: Boolean;
     function IsInfinity: Boolean;
 
+    function SameValue(const Other: TJSValue): Boolean;
+    function StrictEquals(const Other: TJSValue): Boolean;
+
     function ToBoolean: Boolean;
     function ToNumber: Double;
     function ToInteger: Int64;
@@ -97,6 +102,7 @@ type
     function ToString: string;
     function ToLimitedString(const Limits: TJSLimits): string;
     function ToObject: IJSObject;
+    function ToPrimitive(const PreferString: Boolean): TJSValue;
 
     function Clone: TJSValue;
 
@@ -111,8 +117,11 @@ type
     ['{D5E6F7A8-B9C0-1234-5678-90ABCDEF0001}']
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
+    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
     procedure Clear;
@@ -123,13 +132,62 @@ type
 
   TNativeFunction = reference to function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
+  IJSAccessorPair = interface
+    ['{3F6C1B52-8E0A-4D7B-9A41-6C2D5E7F8A90}']
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+    property Getter: TJSValue read GetGetter;
+    property Setter: TJSValue read GetSetter;
+  end;
+
   TJSPropertyDescriptor = record
+  private
+    FAccessors: IJSAccessorPair;
+
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+    procedure SetGetter(const Value: TJSValue);
+    procedure SetSetter(const Value: TJSValue);
+
+  public
     Value: TJSValue;
+    IsAccessor: Boolean;
     Writable: Boolean;
     Enumerable: Boolean;
     Configurable: Boolean;
 
     class function Create(const AValue: TJSValue): TJSPropertyDescriptor; static;
+
+    property Getter: TJSValue read GetGetter write SetGetter;
+    property Setter: TJSValue read GetSetter write SetSetter;
+  end;
+
+  TJSPropertyMap = TJSSlotMap<TJSPropertyDescriptor>;
+  PJSPropertyDescriptor = TJSPropertyMap.PSlot;
+
+  TJSPropertyDefinition = record
+    HasValue: Boolean;
+    HasWritable: Boolean;
+    HasGetter: Boolean;
+    HasSetter: Boolean;
+    HasEnumerable: Boolean;
+    HasConfigurable: Boolean;
+    Value: TJSValue;
+    Getter: TJSValue;
+    Setter: TJSValue;
+    Writable: Boolean;
+    Enumerable: Boolean;
+    Configurable: Boolean;
+
+    function IsAccessorDefinition: Boolean;
+    function IsDataDefinition: Boolean;
+    function IsEmpty: Boolean;
+  end;
+
+  TJSCallHandler = class abstract
+  public
+    function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+      const ThisObj: IJSObject): TJSValue; virtual; abstract;
   end;
 
   IJSObject = interface
@@ -152,7 +210,10 @@ type
     procedure PreventExtensions;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
     function HasOwnProperty(const Name: string): Boolean;
+    function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
   end;
 
   IJSArray = interface(IJSObject)
@@ -162,6 +223,8 @@ type
     procedure SetElement(const Index: Integer; const Value: TJSValue);
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
+    function HasElement(const Index: Integer): Boolean;
+    procedure DeleteElement(const Index: Integer);
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
@@ -181,6 +244,11 @@ type
     function GetClosureScope: IJSScope;
     procedure SetClosureScope(const Value: IJSScope);
     procedure SetNativeFunction(const Value: TNativeFunction);
+    function GetCallHandler: TJSCallHandler;
+    procedure SetCallHandler(const Value: TJSCallHandler);
+    function GetIsConstructor: Boolean;
+    procedure SetIsConstructor(const Value: Boolean);
+    function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
     property BodyNode: TObject read GetBodyNode write SetBodyNode;
@@ -188,6 +256,8 @@ type
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
+    property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
+    property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
   end;
 
   IJSError = interface(IJSObject)
@@ -206,41 +276,17 @@ type
   IJSDate = interface(IJSObject)
     ['{E5F6A7B8-C9D0-1234-EFAB-567890123456}']
     function GetTime: Double;
-    function GetFullYear: Integer;
-    function GetMonth: Integer;
-    function GetDate: Integer;
-    function GetDay: Integer;
-    function GetHours: Integer;
-    function GetMinutes: Integer;
-    function GetSeconds: Integer;
-    function GetMilliseconds: Integer;
-    function GetUTCFullYear: Integer;
-    function GetUTCMonth: Integer;
-    function GetUTCDate: Integer;
-    function GetUTCDay: Integer;
-    function GetUTCHours: Integer;
-    function GetUTCMinutes: Integer;
-    function GetUTCSeconds: Integer;
-    function GetUTCMilliseconds: Integer;
-    function GetTimezoneOffset: Integer;
     procedure SetTime(const Value: Double);
-    procedure SetFullYear(const Value: Integer);
-    procedure SetMonth(const Value: Integer);
-    procedure SetDate(const Value: Integer);
-    procedure SetHours(const Value: Integer);
-    procedure SetMinutes(const Value: Integer);
-    procedure SetSeconds(const Value: Integer);
-    procedure SetMilliseconds(const Value: Integer);
-    function ToISOString: string;
-    function ToDateString: string;
-    function ToTimeString: string;
-    function ToLocaleString: string;
-    function GetDateTime: TDateTime;
-    procedure SetDateTime(const Value: TDateTime);
-    function GetTimestamp: Double;
-    procedure SetTimestamp(const Value: Double);
-    property DateTime: TDateTime read GetDateTime write SetDateTime;
-    property Timestamp: Double read GetTimestamp write SetTimestamp;
+    property Time: Double read GetTime write SetTime;
+  end;
+
+  TJSCallbackExecutor = reference to function(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+
+  TJSRegExpMatch = record
+    Found: Boolean;
+    Index: Integer;
+    Length: Integer;
+    Captures: TArray<TJSValue>;
   end;
 
   IJSRegExp = interface(IJSObject)
@@ -248,10 +294,9 @@ type
     function Test(const Str: string): Boolean;
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
-    function Replace(const Str: string; const Replacement: string): string;
+    function MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
     function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
-    function Split(const Str: string; const Limit: Integer = -1): IJSArray;
     function GetPattern: string;
     function GetFlags: string;
     function GetGlobal: Boolean;
@@ -267,18 +312,40 @@ type
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
+  IJSPrimitiveWrapper = interface(IJSObject)
+    ['{A7B8C9D0-E1F2-3456-ABCD-789012345678}']
+    function GetPrimitive: TJSValue;
+    function GetClassName: string;
+    property Primitive: TJSValue read GetPrimitive;
+  end;
+
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
-    FProperties: TDictionary<string, TJSPropertyDescriptor>;
+    FProperties: TJSPropertyMap;
     FOrderedKeys: TList<string>;
     FPrototype: IJSObject;
     FFrozen: Boolean;
     FSealed: Boolean;
     FExtensible: Boolean;
 
+    function InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
+    procedure InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
+    function AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    class procedure ReleaseClosure(const Value: TJSValue); static;
+
   protected
+    class function CanRedefine(const Current: TJSPropertyDescriptor;
+                               const Definition: TJSPropertyDefinition): Boolean; static;
+    class function ApplyDefinition(const Current: TJSPropertyDescriptor;
+                                   const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
+
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
+    function GetPropertyLayoutVersion: Cardinal;
+    function GetPropertyThroughDescriptor(const Name: string): TJSValue;
+    function HasStandardPropertyLookup: Boolean; virtual;
+
+    procedure StoreOwnValue(const Name: string; const Value: TJSValue);
 
     // Releasing a very deeply nested chain of arrays and objects would recurse through one destructor
     // per level and overflow the stack. A destructor calls ReleaseNested first, which empties the nested
@@ -291,25 +358,30 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    function HasProperty(const Name: string): Boolean;
+    function HasProperty(const Name: string): Boolean; virtual;
     function GetProperty(const Name: string): TJSValue;
-    procedure SetProperty(const Name: string; const Value: TJSValue);
+    procedure SetProperty(const Name: string; const Value: TJSValue); virtual;
     procedure SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
-    procedure DeleteProperty(const Name: string);
+    procedure DeleteProperty(const Name: string); virtual;
     function IsPropertyConfigurable(const Name: string): Boolean;
-    function GetOwnPropertyNames: TArray<string>;
+    function GetOwnPropertyNames: TArray<string>; virtual;
 
     function IsFrozen: Boolean;
     function IsSealed: Boolean;
     function IsExtensible: Boolean;
-    procedure Freeze;
+    procedure Freeze; virtual;
     procedure Seal;
     procedure PreventExtensions;
-    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
-    function HasOwnProperty(const Name: string): Boolean;
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
+    function HasOwnProperty(const Name: string): Boolean; virtual;
+    function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; virtual;
+    function TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
+    property PropertyLayoutVersion: Cardinal read GetPropertyLayoutVersion;
   end;
 
   TJSFunctionImpl = class(TJSObjectImpl, IJSFunction)
@@ -321,6 +393,8 @@ type
     FIsNative: Boolean;
     FIsStrict: Boolean;
     FClosureScope: IJSScope;
+    FCallHandler: TJSCallHandler;
+    FIsConstructor: Boolean;
 
   protected
     function GetName: string;
@@ -336,11 +410,20 @@ type
     procedure SetIsStrict(const Value: Boolean);
     function GetClosureScope: IJSScope;
     procedure SetClosureScope(const Value: IJSScope);
+    function GetCallHandler: TJSCallHandler;
+    procedure SetCallHandler(const Value: TJSCallHandler);
+    function GetIsConstructor: Boolean;
+    procedure SetIsConstructor(const Value: Boolean);
 
   public
     constructor Create;
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
     destructor Destroy; override;
+
+    class procedure DefineLength(const Target: IJSObject; const Count: Integer); static;
+    class procedure DefineName(const Target: IJSObject; const Name: string); static;
+
+    function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -349,13 +432,38 @@ type
     property IsNative: Boolean read GetIsNative;
     property IsStrict: Boolean read GetIsStrict write SetIsStrict;
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
+    property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
+    property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
   private
     FElements: TList<TJSValue>;
+    FHoles: TDictionary<Integer, Boolean>;
+    FLengthWritable: Boolean;
+
+    function GetLengthDescriptor: TJSPropertyDescriptor;
+    function PlainElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
+    function TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+    function DefineLength(const Definition: TJSPropertyDefinition): Boolean;
+    function DefineElement(const Index: Integer; const Name: string;
+                           const Definition: TJSPropertyDefinition): Boolean;
+    function RedefineElement(const Index: Integer; const Name: string;
+                             const Definition: TJSPropertyDefinition): Boolean;
+    function AddElement(const Index: Integer; const Name: string;
+                        const Definition: TJSPropertyDefinition): Boolean;
+    procedure MoveToSpecialElement(const Index: Integer; const Name: string;
+                                   const Descriptor: TJSPropertyDescriptor);
+    procedure ForgetSpecialElement(const Index: Integer);
+    function IsLockedElement(const Index: Integer): Boolean;
+    function ResizeTo(const NewLength: Integer): Boolean;
+    function ShrinkTo(const NewLength: Integer): Boolean;
+    procedure GrowTo(const NewLength: Integer);
+    procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
+    procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 
   protected
+    function HasStandardPropertyLookup: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     function GetLength: Integer;
@@ -363,11 +471,24 @@ type
     procedure SetElement(const Index: Integer; const Value: TJSValue);
 
   public
+    class function TryParseIndex(const Name: string; out Index: Integer): Boolean; static;
+
     constructor Create;
     destructor Destroy; override;
 
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
+    function HasElement(const Index: Integer): Boolean;
+    procedure DeleteElement(const Index: Integer);
+
+    procedure SetProperty(const Name: string; const Value: TJSValue); override;
+    procedure DeleteProperty(const Name: string); override;
+    function GetOwnPropertyNames: TArray<string>; override;
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
+    function HasOwnProperty(const Name: string): Boolean; override;
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
+    function HasProperty(const Name: string): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
 
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
@@ -378,6 +499,8 @@ type
     FErrorType: TJSErrorType;
     FMessage: string;
     FStack: string;
+
+    procedure DefineHiddenProperty(const Name: string; const Value: TJSValue);
 
   protected
     function GetErrorType: TJSErrorType;
@@ -397,73 +520,33 @@ type
 
   TJSDateImpl = class(TJSObjectImpl, IJSDate)
   private
-    FDateTime: TDateTime;
-    FTimestamp: Double;
-
-    procedure UpdateFromTimestamp;
-    procedure UpdateFromDateTime;
+    FTime: Double;
 
   protected
-    function GetDateTime: TDateTime;
-    procedure SetDateTime(const Value: TDateTime);
-    function GetTimestamp: Double;
-    procedure SetTimestamp(const Value: Double);
+    function GetTime: Double;
+    procedure SetTime(const Value: Double);
 
   public
-    constructor Create; overload;
-    constructor Create(const Timestamp: Double); overload;
-    constructor Create(const Year, Month: Integer; const Day: Integer = 1;
-      const Hours: Integer = 0; const Minutes: Integer = 0;
-      const Seconds: Integer = 0; const Milliseconds: Integer = 0); overload;
+    constructor Create(const Time: Double);
 
-    function GetTime: Double;
-    function GetFullYear: Integer;
-    function GetMonth: Integer;
-    function GetDate: Integer;
-    function GetDay: Integer;
-    function GetHours: Integer;
-    function GetMinutes: Integer;
-    function GetSeconds: Integer;
-    function GetMilliseconds: Integer;
-
-    function GetUTCFullYear: Integer;
-    function GetUTCMonth: Integer;
-    function GetUTCDate: Integer;
-    function GetUTCDay: Integer;
-    function GetUTCHours: Integer;
-    function GetUTCMinutes: Integer;
-    function GetUTCSeconds: Integer;
-    function GetUTCMilliseconds: Integer;
-
-    function GetTimezoneOffset: Integer;
-
-    procedure SetTime(const Value: Double);
-    procedure SetFullYear(const Value: Integer);
-    procedure SetMonth(const Value: Integer);
-    procedure SetDate(const Value: Integer);
-    procedure SetHours(const Value: Integer);
-    procedure SetMinutes(const Value: Integer);
-    procedure SetSeconds(const Value: Integer);
-    procedure SetMilliseconds(const Value: Integer);
-
-    function ToISOString: string;
-    function ToDateString: string;
-    function ToTimeString: string;
-    function ToLocaleString: string;
-
-    property DateTime: TDateTime read GetDateTime write SetDateTime;
-    property Timestamp: Double read GetTimestamp write SetTimestamp;
+    property Time: Double read GetTime write SetTime;
   end;
 
   TJSRegExpImpl = class(TJSObjectImpl, IJSRegExp)
   private
     FPattern: string;
     FFlags: string;
-    FRegEx: TRegEx;
+    FMatcher: TJSPcreMatcher;
     FGlobal: Boolean;
     FIgnoreCase: Boolean;
     FMultiline: Boolean;
-    FLastIndex: Integer;
+
+    function ReadLastIndex: Int64;
+    procedure WriteLastIndex(const Value: Integer);
+    function FindMatch(const Str: string): TJSRegExpMatch;
+    function CaptureValue(const Str: string; const GroupIndex: Integer): TJSValue;
+    function BuildExecResult(const Found: TJSRegExpMatch; const Str: string): TJSValue;
+    function MatchAllText(const Str: string): TJSValue;
 
   protected
     function GetPattern: string;
@@ -476,14 +559,14 @@ type
 
   public
     constructor Create(const Pattern: string; const Flags: string = '');
+    destructor Destroy; override;
 
     function Test(const Str: string): Boolean;
     function Exec(const Str: string): TJSValue;
     function Match(const Str: string): TJSValue;
-    function Replace(const Str: string; const Replacement: string): string;
+    function MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
     function CountReplacements(const Str: string): Integer;
     function Search(const Str: string): Integer;
-    function Split(const Str: string; const Limit: Integer = -1): IJSArray;
 
     property Pattern: string read GetPattern;
     property Flags: string read GetFlags;
@@ -493,20 +576,48 @@ type
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
+  TJSPrimitiveWrapperImpl = class(TJSObjectImpl, IJSPrimitiveWrapper)
+  private
+    FPrimitive: TJSValue;
+
+    function IsStringWrapper: Boolean;
+    function TryGetOwnStringDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+
+  protected
+    function HasStandardPropertyLookup: Boolean; override;
+    function GetPrimitive: TJSValue;
+    function GetClassName: string;
+
+  public
+    constructor Create(const Primitive: TJSValue);
+
+    function HasProperty(const Name: string): Boolean; override;
+    function GetOwnPropertyNames: TArray<string>; override;
+    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
+    function HasOwnProperty(const Name: string): Boolean; override;
+    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+
+    property Primitive: TJSValue read GetPrimitive;
+  end;
+
   TJSObject = TJSObjectImpl;
   TJSFunction = TJSFunctionImpl;
   TJSArray = TJSArrayImpl;
   TJSError = TJSErrorImpl;
   TJSDate = TJSDateImpl;
   TJSRegExp = TJSRegExpImpl;
+  TJSPrimitiveWrapper = TJSPrimitiveWrapperImpl;
 
 implementation
 
 uses
   System.Math,
-  System.DateUtils,
-  System.TimeSpan,
-  JS4D.Errors;
+  JS4D.Errors,
+  JS4D.NumberFormat,
+  JS4D.NumberParse,
+  JS4D.RegExpSyntax,
+  JS4D.RegExpTranslator;
 
 { TJSLimits }
 
@@ -544,16 +655,23 @@ end;
 
 const
   UNDEFINED_STRING = 'undefined';
+  EMPTY_PATTERN_GROUP = '(?:)';
   NULL_STRING = 'null';
   TRUE_STRING = 'true';
   FALSE_STRING = 'false';
   NAN_STRING = 'NaN';
+  VALUE_OF_METHOD = 'valueOf';
+  TO_STRING_METHOD = 'toString';
+  CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   INFINITY_STRING = 'Infinity';
   NEGATIVE_INFINITY_STRING = '-Infinity';
   OBJECT_STRING = '[object Object]';
   FUNCTION_STRING = '[object Function]';
   ARRAY_SEPARATOR = ',';
   LENGTH_PROPERTY = 'length';
+  CLASS_NAME_STRING = 'String';
+  CLASS_NAME_NUMBER = 'Number';
+  CLASS_NAME_BOOLEAN = 'Boolean';
 
   PROP_NAME = 'name';
   PROP_MESSAGE = 'message';
@@ -567,12 +685,88 @@ const
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
 
+type
+  TJSAccessorPair = class(TInterfacedObject, IJSAccessorPair)
+  private
+    FGetter: TJSValue;
+    FSetter: TJSValue;
+
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+
+  public
+    constructor Create(const Getter: TJSValue; const Setter: TJSValue);
+  end;
+
+constructor TJSAccessorPair.Create(const Getter: TJSValue; const Setter: TJSValue);
+begin
+  inherited Create;
+  FGetter := Getter;
+  FSetter := Setter;
+end;
+
+function TJSAccessorPair.GetGetter: TJSValue;
+begin
+  Result := FGetter;
+end;
+
+function TJSAccessorPair.GetSetter: TJSValue;
+begin
+  Result := FSetter;
+end;
+
+{ TJSPropertyDescriptor }
+
+function TJSPropertyDescriptor.GetGetter: TJSValue;
+begin
+  if Assigned(FAccessors) then
+    Result := FAccessors.Getter
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+function TJSPropertyDescriptor.GetSetter: TJSValue;
+begin
+  if Assigned(FAccessors) then
+    Result := FAccessors.Setter
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+procedure TJSPropertyDescriptor.SetGetter(const Value: TJSValue);
+begin
+  FAccessors := TJSAccessorPair.Create(Value, Setter);
+end;
+
+procedure TJSPropertyDescriptor.SetSetter(const Value: TJSValue);
+begin
+  FAccessors := TJSAccessorPair.Create(Getter, Value);
+end;
+
 class function TJSPropertyDescriptor.Create(const AValue: TJSValue): TJSPropertyDescriptor;
 begin
+  Result := Default(TJSPropertyDescriptor);
   Result.Value := AValue;
   Result.Writable := True;
   Result.Enumerable := True;
   Result.Configurable := True;
+end;
+
+{ TJSPropertyDefinition }
+
+function TJSPropertyDefinition.IsAccessorDefinition: Boolean;
+begin
+  Result := HasGetter or HasSetter;
+end;
+
+function TJSPropertyDefinition.IsDataDefinition: Boolean;
+begin
+  Result := HasValue or HasWritable;
+end;
+
+function TJSPropertyDefinition.IsEmpty: Boolean;
+begin
+  Result := not (HasValue or HasWritable or HasGetter or HasSetter or HasEnumerable or HasConfigurable);
 end;
 
 class function TJSValue.CreateUndefined: TJSValue;
@@ -693,6 +887,43 @@ begin
   Result := IsNumber and System.Math.IsNaN(FNumberValue);
 end;
 
+function TJSValue.SameValue(const Other: TJSValue): Boolean;
+begin
+  if FValueType <> Other.FValueType then
+    Exit(False);
+
+  case FValueType of
+    TJSValueType.Undefined,
+    TJSValueType.Null:
+      Result := True;
+    TJSValueType.Boolean_:
+      Result := FBooleanValue = Other.FBooleanValue;
+    TJSValueType.Number:
+      begin
+        const BothNaN = System.Math.IsNaN(FNumberValue) and System.Math.IsNaN(Other.FNumberValue);
+        const SameSign = FNumberValue.Sign = Other.FNumberValue.Sign;
+        Result := BothNaN or ((FNumberValue = Other.FNumberValue) and SameSign);
+      end;
+    TJSValueType.String_:
+      Result := FStringValue = Other.FStringValue;
+    TJSValueType.Object_,
+    TJSValueType.Function_,
+    TJSValueType.Array_:
+      Result := (FObjectRef as IInterface) = (Other.FObjectRef as IInterface);
+  else
+    raise ENotSupportedException.CreateFmt('Unsupported value type: %d', [Ord(FValueType)]);
+  end;
+end;
+
+function TJSValue.StrictEquals(const Other: TJSValue): Boolean;
+begin
+  const BothNumbers = IsNumber and Other.IsNumber;
+  if BothNumbers then
+    Exit(FNumberValue = Other.FNumberValue);
+
+  Result := SameValue(Other);
+end;
+
 function TJSValue.IsInfinity: Boolean;
 begin
   Result := IsNumber and System.Math.IsInfinite(FNumberValue);
@@ -732,23 +963,17 @@ begin
       Result := FNumberValue;
     TJSValueType.String_:
       begin
-        const TrimmedValue = Trim(FStringValue);
-
-        if TrimmedValue = '' then
-          Exit(0);
-
-        var NumberValue: Double;
-        if TryStrToFloat(TrimmedValue, NumberValue, TFormatSettings.Invariant) then
-          Result := NumberValue
-        else
-          Result := System.Math.NaN;
+        Result := TJSNumberParse.StringToNumber(FStringValue);
       end;
     TJSValueType.Object_:
       begin
         // Date objects coerce to their timestamp (ms since epoch) per ES spec.
         var DateObj: IJSDate;
+        var Wrapper: IJSPrimitiveWrapper;
         if Supports(FObjectRef, IJSDate, DateObj) then
           Result := DateObj.GetTime
+        else if Supports(FObjectRef, IJSPrimitiveWrapper, Wrapper) then
+          Result := Wrapper.Primitive.ToNumber
         else
           Result := System.Math.NaN;
       end;
@@ -795,16 +1020,18 @@ begin
             Exit(INFINITY_STRING);
         end;
 
-        const IntValue = Trunc(FNumberValue);
-        if FNumberValue = IntValue then
-          Result := IntToStr(IntValue)
-        else
-          Result := FloatToStr(FNumberValue, TFormatSettings.Invariant);
+        Result := TJSNumberFormat.ToDecimalString(FNumberValue);
       end;
     TJSValueType.String_:
       Result := FStringValue;
     TJSValueType.Object_:
-      Result := OBJECT_STRING;
+      begin
+        var Wrapper: IJSPrimitiveWrapper;
+        if Supports(FObjectRef, IJSPrimitiveWrapper, Wrapper) then
+          Result := Wrapper.Primitive.ToString
+        else
+          Result := OBJECT_STRING;
+      end;
     TJSValueType.Function_:
       Result := FUNCTION_STRING;
     TJSValueType.Array_:
@@ -883,6 +1110,32 @@ begin
     Result := nil;
 end;
 
+function TJSValue.ToPrimitive(const PreferString: Boolean): TJSValue;
+begin
+  if not IsObject then
+    Exit(Self);
+
+  var ConversionNames := [VALUE_OF_METHOD, TO_STRING_METHOD];
+  if PreferString then
+    ConversionNames := [TO_STRING_METHOD, VALUE_OF_METHOD];
+
+  for var ConversionName in ConversionNames do
+  begin
+    const Conversion = FObjectRef.GetProperty(ConversionName);
+
+    var Func: IJSFunction;
+    const IsCallable = Conversion.IsFunction and Supports(Conversion.ToObject, IJSFunction, Func);
+    if not IsCallable then
+      Continue;
+
+    const Converted = Func.Call(FObjectRef, nil);
+    if not Converted.IsObject then
+      Exit(Converted);
+  end;
+
+  raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
+end;
+
 function TJSValue.Clone: TJSValue;
 begin
   case FValueType of
@@ -904,7 +1157,7 @@ end;
 constructor TJSObjectImpl.Create;
 begin
   inherited Create;
-  FProperties := TDictionary<string, TJSPropertyDescriptor>.Create;
+  FProperties := TJSPropertyMap.Create;
   FOrderedKeys := TList<string>.Create;
   FFrozen := False;
   FSealed := False;
@@ -915,9 +1168,9 @@ function TJSObjectImpl.HoldsNested: Boolean;
 begin
   Result := False;
 
-  for var Entry in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    const PropertyValue = Entry.Value.Value;
+    const PropertyValue = FProperties.SlotAt(Position).Value;
 
     if PropertyValue.IsObject and (not PropertyValue.IsFunction) then
       Exit(True);
@@ -926,9 +1179,9 @@ end;
 
 procedure TJSObjectImpl.DetachNested(const Pending: TList<IJSObject>);
 begin
-  for var Entry in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    const PropertyValue = Entry.Value.Value;
+    const PropertyValue = FProperties.SlotAt(Position).Value;
     const PropertyObject = PropertyValue.ToObject;
     var Func: IJSFunction;
 
@@ -974,14 +1227,13 @@ begin
 
   ReleaseNested;
 
-  for var Pair in FProperties do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
-    if Pair.Value.Value.IsFunction then
-    begin
-      var Func: IJSFunction;
-      if Supports(Pair.Value.Value.ToObject, IJSFunction, Func) then
-        Func.ClosureScope := nil;
-    end;
+    const Slot = FProperties.SlotAt(Position);
+
+    ReleaseClosure(Slot.Value);
+    ReleaseClosure(Slot.Getter);
+    ReleaseClosure(Slot.Setter);
   end;
 
   FProperties.Clear;
@@ -1008,40 +1260,134 @@ begin
     Result := FPrototype.HasProperty(Name);
 end;
 
+class procedure TJSObjectImpl.ReleaseClosure(const Value: TJSValue);
+begin
+  var Func: IJSFunction;
+
+  if Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func) then
+    Func.ClosureScope := nil;
+end;
+
+function TJSObjectImpl.InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
+begin
+  var Func: IJSFunction;
+
+  const HasGetter = Descriptor.Getter.IsFunction and Supports(Descriptor.Getter.ToObject, IJSFunction, Func);
+  if not HasGetter then
+    Exit(TJSValue.CreateUndefined);
+
+  Result := Func.Call(Self, nil);
+end;
+
+procedure TJSObjectImpl.InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
+begin
+  var Func: IJSFunction;
+
+  const HasSetter = Descriptor.Setter.IsFunction and Supports(Descriptor.Setter.ToObject, IJSFunction, Func);
+  if HasSetter then
+    Func.Call(Self, [Value]);
+end;
+
+function TJSObjectImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := True;
+end;
+
 function TJSObjectImpl.GetProperty(const Name: string): TJSValue;
+begin
+  if HasStandardPropertyLookup then
+  begin
+    var Slot: PJSPropertyDescriptor;
+    const IsOwnDataProperty = FProperties.TryGetSlot(Name, Slot) and (not Slot.IsAccessor);
+    if IsOwnDataProperty then
+      Exit(Slot.Value);
+  end;
+
+  Result := GetPropertyThroughDescriptor(Name);
+end;
+
+function TJSObjectImpl.GetPropertyThroughDescriptor(const Name: string): TJSValue;
 var
   Descriptor: TJSPropertyDescriptor;
 begin
-  if FProperties.TryGetValue(Name, Descriptor) then
-    Exit(Descriptor.Value);
+  if not TryGetPropertyDescriptor(Name, Descriptor) then
+    Exit(TJSValue.CreateUndefined);
 
-  if FPrototype <> nil then
-    Exit(FPrototype.GetProperty(Name));
+  if Descriptor.IsAccessor then
+    Result := InvokeGetter(Descriptor)
+  else
+    Result := Descriptor.Value;
+end;
 
-  Result := TJSValue.CreateUndefined;
+function TJSObjectImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := FProperties.TryGetValue(Name, Descriptor);
+
+  if (not Result) and (FPrototype <> nil) then
+    Result := FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
+end;
+
+function TJSObjectImpl.GetPropertyLayoutVersion: Cardinal;
+begin
+  Result := FProperties.LayoutVersion;
+end;
+
+function TJSObjectImpl.TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
+begin
+  Result := FProperties.TryGetSlot(Name, Slot);
+end;
+
+function TJSObjectImpl.TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
+begin
+  var Slot: PJSPropertyDescriptor;
+  Result := FProperties.TryGetSlot(Name, Slot);
+
+  if not Result then
+    Exit;
+
+  if Slot.IsAccessor then
+  begin
+    const Accessor = Slot^;
+    InvokeSetter(Accessor, Value);
+  end
+  else if Slot.Writable then
+  begin
+    Slot.Value := Value;
+  end;
 end;
 
 procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
 var
+  PrototypeDescriptor: TJSPropertyDescriptor;
   Descriptor: TJSPropertyDescriptor;
 begin
-  if FProperties.TryGetValue(Name, Descriptor) then
-  begin
-    if Descriptor.Writable then
-    begin
-      Descriptor.Value := Value;
-      FProperties[Name] := Descriptor;
-    end;
-  end
-  else
-  begin
-    if not FExtensible then
-      Exit;
+  if TryAssignOwnProperty(Name, Value) then
+    Exit;
 
-    Descriptor := TJSPropertyDescriptor.Create(Value);
-    FProperties.Add(Name, Descriptor);
-    FOrderedKeys.Add(Name);
+  const HasInherited = (FPrototype <> nil) and FPrototype.TryGetPropertyDescriptor(Name, PrototypeDescriptor);
+  if HasInherited and PrototypeDescriptor.IsAccessor then
+  begin
+    InvokeSetter(PrototypeDescriptor, Value);
+    Exit;
   end;
+
+  const BlockedByInherited = HasInherited and (not PrototypeDescriptor.Writable);
+  if BlockedByInherited or (not FExtensible) then
+    Exit;
+
+  Descriptor := TJSPropertyDescriptor.Create(Value);
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+end;
+
+procedure TJSObjectImpl.StoreOwnValue(const Name: string; const Value: TJSValue);
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  if not FProperties.TryGetValue(Name, Descriptor) then
+    Exit;
+
+  Descriptor.Value := Value;
+  FProperties[Name] := Descriptor;
 end;
 
 procedure TJSObjectImpl.SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
@@ -1051,12 +1397,16 @@ begin
   if FProperties.TryGetValue(Name, Descriptor) then
   begin
     Descriptor.Value := Value;
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
     Descriptor.Configurable := False;
     FProperties[Name] := Descriptor;
   end
   else
   begin
     Descriptor := TJSPropertyDescriptor.Create(Value);
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
     Descriptor.Configurable := False;
     FProperties.Add(Name, Descriptor);
     FOrderedKeys.Add(Name);
@@ -1110,7 +1460,7 @@ begin
   FSealed := True;
   FExtensible := False;
 
-  for var Key in FProperties.Keys.ToArray do
+  for var Key in FProperties.Names do
   begin
     var Descriptor := FProperties[Key];
     Descriptor.Writable := False;
@@ -1124,7 +1474,7 @@ begin
   FSealed := True;
   FExtensible := False;
 
-  for var Key in FProperties.Keys.ToArray do
+  for var Key in FProperties.Names do
   begin
     var Descriptor := FProperties[Key];
     Descriptor.Configurable := False;
@@ -1172,10 +1522,147 @@ begin
   end;
 end;
 
+function TJSObjectImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  var Current: TJSPropertyDescriptor;
+
+  if not FProperties.TryGetValue(Name, Current) then
+    Exit(AddDefinedProperty(Name, Definition));
+
+  Result := CanRedefine(Current, Definition);
+  if Result then
+    FProperties[Name] := ApplyDefinition(Current, Definition);
+end;
+
+function TJSObjectImpl.AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if not FExtensible then
+    Exit(False);
+
+  var Descriptor := Default(TJSPropertyDescriptor);
+  Descriptor.Enumerable := Definition.Enumerable;
+  Descriptor.Configurable := Definition.Configurable;
+
+  if Definition.IsAccessorDefinition then
+  begin
+    Descriptor.IsAccessor := True;
+    Descriptor.Getter := Definition.Getter;
+    Descriptor.Setter := Definition.Setter;
+  end
+  else
+  begin
+    Descriptor.Value := Definition.Value;
+    Descriptor.Writable := Definition.Writable;
+  end;
+
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+  Result := True;
+end;
+
+class function TJSObjectImpl.CanRedefine(const Current: TJSPropertyDescriptor;
+                                         const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if Definition.IsEmpty or Current.Configurable then
+    Exit(True);
+
+  const BecomesConfigurable = Definition.HasConfigurable and Definition.Configurable;
+  const ChangesEnumerable = Definition.HasEnumerable and (Definition.Enumerable <> Current.Enumerable);
+  if BecomesConfigurable or ChangesEnumerable then
+    Exit(False);
+
+  const ChangesKind = (Definition.IsAccessorDefinition and (not Current.IsAccessor)) or
+                      (Definition.IsDataDefinition and Current.IsAccessor);
+  if ChangesKind then
+    Exit(False);
+
+  if Current.IsAccessor then
+  begin
+    const ChangesGetter = Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter));
+    const ChangesSetter = Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter));
+    Exit(not (ChangesGetter or ChangesSetter));
+  end;
+
+  if Current.Writable then
+    Exit(True);
+
+  const BecomesWritable = Definition.HasWritable and Definition.Writable;
+  const ChangesValue = Definition.HasValue and (not Definition.Value.SameValue(Current.Value));
+  Result := not (BecomesWritable or ChangesValue);
+end;
+
+class function TJSObjectImpl.ApplyDefinition(const Current: TJSPropertyDescriptor;
+                                             const Definition: TJSPropertyDefinition): TJSPropertyDescriptor;
+begin
+  Result := Current;
+
+  const ChangesKind = (Definition.IsAccessorDefinition and (not Current.IsAccessor)) or
+                      (Definition.IsDataDefinition and Current.IsAccessor);
+  if ChangesKind then
+  begin
+    Result.IsAccessor := Definition.IsAccessorDefinition;
+    Result.Value := TJSValue.CreateUndefined;
+    Result.Getter := TJSValue.CreateUndefined;
+    Result.Setter := TJSValue.CreateUndefined;
+    Result.Writable := False;
+  end;
+
+  if Definition.HasValue then
+    Result.Value := Definition.Value;
+
+  if Definition.HasWritable then
+    Result.Writable := Definition.Writable;
+
+  if Definition.HasGetter then
+    Result.Getter := Definition.Getter;
+
+  if Definition.HasSetter then
+    Result.Setter := Definition.Setter;
+
+  if Definition.HasEnumerable then
+    Result.Enumerable := Definition.Enumerable;
+
+  if Definition.HasConfigurable then
+    Result.Configurable := Definition.Configurable;
+end;
+
+function TJSFunctionImpl.Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if FIsNative then
+    Exit(FNativeFunction(ThisObj, Args));
+
+  if FCallHandler = nil then
+    raise TJSErrorFactory.TypeError(Format('Function %s cannot be called outside an interpreter', [FName]));
+
+  Result := FCallHandler.CallFunction(Self, Args, ThisObj);
+end;
+
+function TJSFunctionImpl.GetCallHandler: TJSCallHandler;
+begin
+  Result := FCallHandler;
+end;
+
+procedure TJSFunctionImpl.SetCallHandler(const Value: TJSCallHandler);
+begin
+  FCallHandler := Value;
+end;
+
+function TJSFunctionImpl.GetIsConstructor: Boolean;
+begin
+  Result := FIsConstructor;
+end;
+
+procedure TJSFunctionImpl.SetIsConstructor(const Value: Boolean);
+begin
+  FIsConstructor := Value;
+end;
+
 constructor TJSFunctionImpl.Create;
 begin
   inherited Create;
   FIsNative := False;
+  FIsConstructor := True;
+  DefineName(Self, '');
 end;
 
 constructor TJSFunctionImpl.CreateNative(const Name: string; const Func: TNativeFunction);
@@ -1184,6 +1671,8 @@ begin
   FName := Name;
   FNativeFunction := Func;
   FIsNative := True;
+  FIsConstructor := True;
+  DefineName(Self, Name);
 end;
 
 destructor TJSFunctionImpl.Destroy;
@@ -1201,6 +1690,7 @@ end;
 procedure TJSFunctionImpl.SetName(const Value: string);
 begin
   FName := Value;
+  DefineName(Self, Value);
 end;
 
 function TJSFunctionImpl.GetParameters: TArray<string>;
@@ -1211,6 +1701,25 @@ end;
 procedure TJSFunctionImpl.SetParameters(const Value: TArray<string>);
 begin
   FParameters := Value;
+  DefineLength(Self, Length(Value));
+end;
+
+class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Count));
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Target.DefineProperty(LENGTH_PROPERTY, Descriptor);
+end;
+
+class procedure TJSFunctionImpl.DefineName(const Target: IJSObject; const Name: string);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateString(Name));
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Target.DefineProperty(PROP_NAME, Descriptor);
 end;
 
 function TJSFunctionImpl.GetBodyNode: TObject;
@@ -1262,6 +1771,361 @@ constructor TJSArrayImpl.Create;
 begin
   inherited Create;
   FElements := TList<TJSValue>.Create;
+  FLengthWritable := True;
+end;
+
+class function TJSArrayImpl.TryParseIndex(const Name: string; out Index: Integer): Boolean;
+begin
+  Result := TryStrToInt(Name, Index) and (Index >= 0) and (IntToStr(Index) = Name);
+end;
+
+function TJSArrayImpl.GetLengthDescriptor: TJSPropertyDescriptor;
+begin
+  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(FElements.Count));
+  Result.Writable := FLengthWritable and (not FFrozen);
+  Result.Enumerable := False;
+  Result.Configurable := False;
+end;
+
+function TJSArrayImpl.PlainElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
+begin
+  Result := TJSPropertyDescriptor.Create(FElements[Index]);
+  Result.Writable := not FFrozen;
+  Result.Configurable := not FSealed;
+end;
+
+function TJSArrayImpl.TryGetElementDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := False;
+
+  if Name = LENGTH_PROPERTY then
+  begin
+    Descriptor := GetLengthDescriptor;
+    Exit(True);
+  end;
+
+  var Index: Integer;
+  if not (TryParseIndex(Name, Index) and HasElement(Index)) then
+    Exit;
+
+  Descriptor := PlainElementDescriptor(Index);
+  Result := True;
+end;
+
+procedure TJSArrayImpl.MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
+begin
+  if not Assigned(FHoles) then
+    FHoles := TDictionary<Integer, Boolean>.Create;
+
+  for var Index := FromIndex to ToIndex do
+  begin
+    FHoles.AddOrSetValue(Index, True);
+  end;
+end;
+
+procedure TJSArrayImpl.ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
+begin
+  if (not Assigned(FHoles)) or (FHoles.Count = 0) then
+    Exit;
+
+  for var Index := FromIndex to ToIndex do
+  begin
+    FHoles.Remove(Index);
+  end;
+end;
+
+procedure TJSArrayImpl.ForgetSpecialElement(const Index: Integer);
+begin
+  if FProperties.Count = 0 then
+    Exit;
+
+  const Name = IntToStr(Index);
+  if FProperties.ContainsKey(Name) then
+  begin
+    FProperties.Remove(Name);
+    FOrderedKeys.Remove(Name);
+  end;
+end;
+
+procedure TJSArrayImpl.MoveToSpecialElement(const Index: Integer; const Name: string;
+                                            const Descriptor: TJSPropertyDescriptor);
+begin
+  FElements[Index] := TJSValue.CreateUndefined;
+  MarkHoles(Index, Index);
+
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+end;
+
+function TJSArrayImpl.IsLockedElement(const Index: Integer): Boolean;
+begin
+  if HasElement(Index) then
+    Exit(FSealed);
+
+  var Descriptor: TJSPropertyDescriptor;
+  const IsSpecial = (FProperties.Count > 0) and FProperties.TryGetValue(IntToStr(Index), Descriptor);
+  Result := IsSpecial and (not Descriptor.Configurable);
+end;
+
+procedure TJSArrayImpl.GrowTo(const NewLength: Integer);
+begin
+  const OldLength = FElements.Count;
+
+  while FElements.Count < NewLength do
+  begin
+    FElements.Add(TJSValue.CreateUndefined);
+  end;
+
+  if NewLength > OldLength then
+    MarkHoles(OldLength, NewLength - 1);
+end;
+
+function TJSArrayImpl.ShrinkTo(const NewLength: Integer): Boolean;
+begin
+  const OldLength = FElements.Count;
+  var KeptLength := NewLength;
+
+  const MayBeLocked = FSealed or (FProperties.Count > 0);
+  if MayBeLocked then
+  begin
+    for var Index := OldLength - 1 downto NewLength do
+    begin
+      if IsLockedElement(Index) then
+      begin
+        KeptLength := Index + 1;
+        Break;
+      end;
+
+      ForgetSpecialElement(Index);
+    end;
+  end;
+
+  while FElements.Count > KeptLength do
+  begin
+    FElements.Delete(FElements.Count - 1);
+  end;
+
+  ForgetHolesBetween(KeptLength, OldLength - 1);
+
+  Result := (KeptLength = NewLength);
+end;
+
+function TJSArrayImpl.ResizeTo(const NewLength: Integer): Boolean;
+begin
+  Result := True;
+
+  if NewLength < FElements.Count then
+    Result := ShrinkTo(NewLength)
+  else
+    GrowTo(NewLength);
+end;
+
+function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+begin
+  var Index: Integer;
+
+  if Name = LENGTH_PROPERTY then
+    Result := GetLengthDescriptor
+  else if TryParseIndex(Name, Index) and HasElement(Index) then
+    Result := PlainElementDescriptor(Index)
+  else
+    Result := inherited GetOwnPropertyDescriptor(Name);
+end;
+
+function TJSArrayImpl.HasOwnProperty(const Name: string): Boolean;
+begin
+  var Index: Integer;
+
+  Result := (Name = LENGTH_PROPERTY) or
+            (TryParseIndex(Name, Index) and HasElement(Index)) or
+            inherited HasOwnProperty(Name);
+end;
+
+function TJSArrayImpl.GetOwnPropertyNames: TArray<string>;
+begin
+  const Names = TList<string>.Create;
+  try
+    const HasSpecialElements = (FProperties.Count > 0);
+
+    for var Index := 0 to FElements.Count - 1 do
+    begin
+      const Name = IntToStr(Index);
+      const IsOwnElement = HasElement(Index) or (HasSpecialElements and FProperties.ContainsKey(Name));
+      if IsOwnElement then
+        Names.Add(Name);
+    end;
+
+    for var Key in inherited GetOwnPropertyNames do
+    begin
+      var Index: Integer;
+      if not TryParseIndex(Key, Index) then
+        Names.Add(Key);
+    end;
+
+    Result := Names.ToArray;
+  finally
+    Names.Free;
+  end;
+end;
+
+function TJSArrayImpl.HasProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetElementDescriptor(Name, Descriptor) or inherited HasProperty(Name);
+end;
+
+function TJSArrayImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := False;
+end;
+
+function TJSArrayImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := TryGetElementDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
+end;
+
+procedure TJSArrayImpl.SetProperty(const Name: string; const Value: TJSValue);
+begin
+  if Name = LENGTH_PROPERTY then
+  begin
+    var Definition := Default(TJSPropertyDefinition);
+    Definition.HasValue := True;
+    Definition.Value := Value;
+    DefineLength(Definition);
+    Exit;
+  end;
+
+  var Index: Integer;
+  if not TryParseIndex(Name, Index) then
+  begin
+    inherited SetProperty(Name, Value);
+    Exit;
+  end;
+
+  if HasElement(Index) then
+  begin
+    if not FFrozen then
+      FElements[Index] := Value;
+
+    Exit;
+  end;
+
+  const LengthDescriptor = GetLengthDescriptor;
+  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  if LengthBlocksIndex then
+    Exit;
+
+  const IsSpecialElement = FProperties.ContainsKey(Name);
+  inherited SetProperty(Name, Value);
+
+  const WasAddedAsDataProperty = (not IsSpecialElement) and FProperties.ContainsKey(Name);
+  if WasAddedAsDataProperty then
+  begin
+    FProperties.Remove(Name);
+    FOrderedKeys.Remove(Name);
+    SetElement(Index, Value);
+  end;
+end;
+
+procedure TJSArrayImpl.DeleteProperty(const Name: string);
+begin
+  var Index: Integer;
+  const IsPlainElement = TryParseIndex(Name, Index) and HasElement(Index);
+
+  if IsPlainElement then
+  begin
+    if not FSealed then
+      DeleteElement(Index);
+
+    Exit;
+  end;
+
+  inherited DeleteProperty(Name);
+end;
+
+function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
+begin
+  const Current = GetLengthDescriptor;
+  Result := CanRedefine(Current, Definition);
+  if not Result then
+    Exit;
+
+  if Definition.HasValue then
+  begin
+    const NewLength = Definition.Value.ToNumber;
+    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
+                          (NewLength <= MaxInt);
+    if not IsValidLength then
+      raise TJSErrorFactory.InvalidArrayLength;
+
+    Result := ResizeTo(Trunc(NewLength));
+  end;
+
+  if Definition.HasWritable then
+    FLengthWritable := Definition.Writable;
+end;
+
+function TJSArrayImpl.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if Name = LENGTH_PROPERTY then
+    Exit(DefineLength(Definition));
+
+  var Index: Integer;
+  if not TryParseIndex(Name, Index) then
+    Exit(inherited DefineOwnProperty(Name, Definition));
+
+  Result := DefineElement(Index, Name, Definition);
+end;
+
+function TJSArrayImpl.DefineElement(const Index: Integer; const Name: string;
+                                    const Definition: TJSPropertyDefinition): Boolean;
+begin
+  const LengthDescriptor = GetLengthDescriptor;
+  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  if LengthBlocksIndex then
+    Exit(False);
+
+  if HasElement(Index) then
+    Result := RedefineElement(Index, Name, Definition)
+  else if FProperties.ContainsKey(Name) then
+    Result := inherited DefineOwnProperty(Name, Definition)
+  else
+    Result := AddElement(Index, Name, Definition);
+
+  if Result and (Index >= FElements.Count) then
+    GrowTo(Index + 1);
+end;
+
+function TJSArrayImpl.RedefineElement(const Index: Integer; const Name: string;
+                                      const Definition: TJSPropertyDefinition): Boolean;
+begin
+  const Current = PlainElementDescriptor(Index);
+  Result := CanRedefine(Current, Definition);
+  if not Result then
+    Exit;
+
+  const Updated = ApplyDefinition(Current, Definition);
+  const IsPlain = (not Updated.IsAccessor) and Updated.Writable and Updated.Enumerable and Updated.Configurable;
+  if IsPlain then
+    FElements[Index] := Updated.Value
+  else
+    MoveToSpecialElement(Index, Name, Updated);
+end;
+
+function TJSArrayImpl.AddElement(const Index: Integer; const Name: string;
+                                 const Definition: TJSPropertyDefinition): Boolean;
+begin
+  if not FExtensible then
+    Exit(False);
+
+  const IsPlain = (not Definition.IsAccessorDefinition) and Definition.Writable and Definition.Enumerable and
+                  Definition.Configurable;
+  if not IsPlain then
+    Exit(AddDefinedProperty(Name, Definition));
+
+  SetElement(Index, Definition.Value);
+  Result := True;
 end;
 
 function TJSArrayImpl.HoldsNested: Boolean;
@@ -1312,6 +2176,7 @@ begin
 
   FElements.Clear;
   FreeAndNil(FElements);
+  FreeAndNil(FHoles);
   inherited;
 end;
 
@@ -1330,12 +2195,37 @@ end;
 
 procedure TJSArrayImpl.SetElement(const Index: Integer; const Value: TJSValue);
 begin
+  const OldLength = FElements.Count;
+
   while FElements.Count <= Index do
   begin
     FElements.Add(TJSValue.CreateUndefined);
   end;
 
+  if Index > OldLength then
+    MarkHoles(OldLength, Index - 1);
+
+  if Assigned(FHoles) then
+    FHoles.Remove(Index);
+
+  ForgetSpecialElement(Index);
   FElements[Index] := Value;
+end;
+
+function TJSArrayImpl.HasElement(const Index: Integer): Boolean;
+begin
+  const InRange = (Index >= 0) and (Index < FElements.Count);
+  Result := InRange and ((not Assigned(FHoles)) or (not FHoles.ContainsKey(Index)));
+end;
+
+procedure TJSArrayImpl.DeleteElement(const Index: Integer);
+begin
+  const InRange = (Index >= 0) and (Index < FElements.Count);
+  if not InRange then
+    Exit;
+
+  FElements[Index] := TJSValue.CreateUndefined;
+  MarkHoles(Index, Index);
 end;
 
 procedure TJSArrayImpl.Push(const Value: TJSValue);
@@ -1348,7 +2238,9 @@ begin
   if FElements.Count > 0 then
   begin
     Result := FElements[FElements.Count - 1];
+    ForgetSpecialElement(FElements.Count - 1);
     FElements.Delete(FElements.Count - 1);
+    ForgetHolesBetween(FElements.Count, FElements.Count);
   end
   else
     Result := TJSValue.CreateUndefined;
@@ -1361,9 +2253,14 @@ begin
   FMessage := Message;
   FStack := GetErrorName + ': ' + Message + sLineBreak + '    at <anonymous>';
 
-  SetProperty(PROP_NAME, TJSValue.CreateString(GetErrorName));
-  SetProperty(PROP_MESSAGE, TJSValue.CreateString(Message));
-  SetProperty(PROP_STACK, TJSValue.CreateString(FStack));
+  DefineHiddenProperty(PROP_STACK, TJSValue.CreateString(FStack));
+end;
+
+procedure TJSErrorImpl.DefineHiddenProperty(const Name: string; const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  DefineProperty(Name, Descriptor);
 end;
 
 function TJSErrorImpl.GetErrorType: TJSErrorType;
@@ -1411,258 +2308,39 @@ begin
   end;
 end;
 
-const
-  UNIX_EPOCH: TDateTime = 25569.0;
-
-constructor TJSDateImpl.Create;
+constructor TJSDateImpl.Create(const Time: Double);
 begin
   inherited Create;
-  FDateTime := Now;
-  UpdateFromDateTime;
-end;
-
-constructor TJSDateImpl.Create(const Timestamp: Double);
-begin
-  inherited Create;
-  FTimestamp := Timestamp;
-  UpdateFromTimestamp;
-end;
-
-constructor TJSDateImpl.Create(const Year, Month, Day, Hours, Minutes, Seconds, Milliseconds: Integer);
-begin
-  inherited Create;
-  FDateTime := EncodeDateTime(Year, Month + 1, Day, Hours, Minutes, Seconds, Milliseconds);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.UpdateFromTimestamp;
-begin
-  const UTCDateTime = UNIX_EPOCH + (FTimestamp / 86400000.0);
-  FDateTime := TTimeZone.Local.ToLocalTime(UTCDateTime);
-end;
-
-procedure TJSDateImpl.UpdateFromDateTime;
-begin
-  FTimestamp := (FDateTime - UNIX_EPOCH) * 86400000.0;
-end;
-
-function TJSDateImpl.GetDateTime: TDateTime;
-begin
-  Result := FDateTime;
-end;
-
-procedure TJSDateImpl.SetDateTime(const Value: TDateTime);
-begin
-  FDateTime := Value;
-  UpdateFromDateTime;
-end;
-
-function TJSDateImpl.GetTimestamp: Double;
-begin
-  Result := FTimestamp;
-end;
-
-procedure TJSDateImpl.SetTimestamp(const Value: Double);
-begin
-  FTimestamp := Value;
-  UpdateFromTimestamp;
+  FTime := Time;
 end;
 
 function TJSDateImpl.GetTime: Double;
 begin
-  Result := FTimestamp;
-end;
-
-function TJSDateImpl.GetFullYear: Integer;
-begin
-  Result := YearOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMonth: Integer;
-begin
-  Result := MonthOf(FDateTime) - 1;
-end;
-
-function TJSDateImpl.GetDate: Integer;
-begin
-  Result := DayOf(FDateTime);
-end;
-
-function TJSDateImpl.GetDay: Integer;
-begin
-  Result := DayOfTheWeek(FDateTime) mod 7;
-end;
-
-function TJSDateImpl.GetHours: Integer;
-begin
-  Result := HourOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMinutes: Integer;
-begin
-  Result := MinuteOf(FDateTime);
-end;
-
-function TJSDateImpl.GetSeconds: Integer;
-begin
-  Result := SecondOf(FDateTime);
-end;
-
-function TJSDateImpl.GetMilliseconds: Integer;
-begin
-  Result := MilliSecondOf(FDateTime);
-end;
-
-function TJSDateImpl.GetUTCFullYear: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := YearOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMonth: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MonthOf(UTCTime) - 1;
-end;
-
-function TJSDateImpl.GetUTCDate: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := DayOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCDay: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := DayOfTheWeek(UTCTime) mod 7;
-end;
-
-function TJSDateImpl.GetUTCHours: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := HourOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMinutes: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MinuteOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCSeconds: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := SecondOf(UTCTime);
-end;
-
-function TJSDateImpl.GetUTCMilliseconds: Integer;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := MilliSecondOf(UTCTime);
-end;
-
-function TJSDateImpl.GetTimezoneOffset: Integer;
-begin
-  const Offset = TTimeZone.Local.GetUtcOffset(FDateTime);
-  Result := -Round(Offset.TotalMinutes);
+  Result := FTime;
 end;
 
 procedure TJSDateImpl.SetTime(const Value: Double);
 begin
-  FTimestamp := Value;
-  UpdateFromTimestamp;
-end;
-
-procedure TJSDateImpl.SetFullYear(const Value: Integer);
-begin
-  FDateTime := RecodeYear(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMonth(const Value: Integer);
-begin
-  FDateTime := RecodeMonth(FDateTime, Value + 1);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetDate(const Value: Integer);
-begin
-  FDateTime := RecodeDay(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetHours(const Value: Integer);
-begin
-  FDateTime := RecodeHour(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMinutes(const Value: Integer);
-begin
-  FDateTime := RecodeMinute(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetSeconds(const Value: Integer);
-begin
-  FDateTime := RecodeSecond(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-procedure TJSDateImpl.SetMilliseconds(const Value: Integer);
-begin
-  FDateTime := RecodeMilliSecond(FDateTime, Value);
-  UpdateFromDateTime;
-end;
-
-function TJSDateImpl.ToISOString: string;
-begin
-  const UTCTime = TTimeZone.Local.ToUniversalTime(FDateTime);
-  Result := FormatDateTime('yyyy"-"mm"-"dd"T"hh":"nn":"ss"."zzz"Z"', UTCTime);
-end;
-
-function TJSDateImpl.ToDateString: string;
-const
-  DayNames: array[1..7] of string = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
-  MonthNames: array[1..12] of string = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
-begin
-  const DayIdx = DayOfTheWeek(FDateTime);
-  const MonthIdx = MonthOf(FDateTime);
-
-  Result := DayNames[DayIdx] + ' ' + MonthNames[MonthIdx] + ' ' +
-            Format('%.2d', [DayOf(FDateTime)]) + ' ' + IntToStr(YearOf(FDateTime));
-end;
-
-function TJSDateImpl.ToTimeString: string;
-begin
-  Result := FormatDateTime('hh":"nn":"ss', FDateTime);
-end;
-
-function TJSDateImpl.ToLocaleString: string;
-begin
-  Result := DateTimeToStr(FDateTime);
+  FTime := Value;
 end;
 
 constructor TJSRegExpImpl.Create(const Pattern: string; const Flags: string);
 begin
   inherited Create;
+  TJSRegExpSyntax.ValidateFlags(Flags);
+  TJSRegExpSyntax.ValidatePattern(Pattern, Flags);
+
   FPattern := Pattern;
   FFlags := Flags;
   FGlobal := (Pos('g', Flags) > 0);
   FIgnoreCase := (Pos('i', Flags) > 0);
   FMultiline := (Pos('m', Flags) > 0);
-  FLastIndex := 0;
 
-  var Options: TRegExOptions := [];
+  var CompilablePattern := Pattern;
+  if Pattern.IsEmpty then
+    CompilablePattern := EMPTY_PATTERN_GROUP;
 
-  if FIgnoreCase then
-    Options := Options + [roIgnoreCase];
-
-  if FMultiline then
-    Options := Options + [roMultiLine];
-
-  FRegEx := TRegEx.Create(Pattern, Options);
+  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
 
   SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
   SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));
@@ -1670,6 +2348,12 @@ begin
   SetProperty(PROP_IGNORE_CASE, TJSValue.CreateBoolean(FIgnoreCase));
   SetProperty(PROP_MULTILINE, TJSValue.CreateBoolean(FMultiline));
   SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
+end;
+
+destructor TJSRegExpImpl.Destroy;
+begin
+  FMatcher.Free;
+  inherited Destroy;
 end;
 
 function TJSRegExpImpl.GetPattern: string;
@@ -1699,167 +2383,293 @@ end;
 
 function TJSRegExpImpl.GetLastIndex: Integer;
 begin
-  Result := FLastIndex;
+  Result := Integer(Min(Max(ReadLastIndex, 0), MaxInt));
 end;
 
 procedure TJSRegExpImpl.SetLastIndex(const Value: Integer);
 begin
-  FLastIndex := Value;
+  WriteLastIndex(Value);
+end;
+
+function TJSRegExpImpl.ReadLastIndex: Int64;
+begin
+  Result := GetProperty(PROP_LAST_INDEX).ToInteger;
+end;
+
+procedure TJSRegExpImpl.WriteLastIndex(const Value: Integer);
+begin
+  SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(Value));
+end;
+
+function TJSRegExpImpl.MatchAt(const Str: string; const Start: Integer): TJSRegExpMatch;
+begin
+  Result := Default(TJSRegExpMatch);
+
+  if not FMatcher.TryMatch(Str, Start) then
+    Exit;
+
+  const MatchStart = FMatcher.GroupStart(0);
+
+  Result.Found := True;
+  Result.Index := MatchStart;
+  Result.Length := FMatcher.GroupEnd(0) - MatchStart;
+
+  SetLength(Result.Captures, FMatcher.CaptureCount);
+  for var CaptureIndex := 0 to FMatcher.CaptureCount - 1 do
+  begin
+    Result.Captures[CaptureIndex] := CaptureValue(Str, CaptureIndex + 1);
+  end;
+end;
+
+function TJSRegExpImpl.CaptureValue(const Str: string; const GroupIndex: Integer): TJSValue;
+begin
+  if not FMatcher.HasParticipated(GroupIndex) then
+    Exit(TJSValue.CreateUndefined);
+
+  const CaptureStart = FMatcher.GroupStart(GroupIndex);
+  const CaptureLength = FMatcher.GroupEnd(GroupIndex) - CaptureStart;
+
+  Result := TJSValue.CreateString(Copy(Str, CaptureStart + 1, CaptureLength));
+end;
+
+function TJSRegExpImpl.FindMatch(const Str: string): TJSRegExpMatch;
+begin
+  var Start := ReadLastIndex;
+  if not FGlobal then
+    Start := 0;
+
+  const InRange = (Start >= 0) and (Start <= Length(Str));
+  if InRange then
+    Result := MatchAt(Str, Integer(Start))
+  else
+    Result := Default(TJSRegExpMatch);
+
+  if not Result.Found then
+  begin
+    WriteLastIndex(0);
+    Exit;
+  end;
+
+  if FGlobal then
+    WriteLastIndex(Result.Index + Result.Length);
 end;
 
 function TJSRegExpImpl.Test(const Str: string): Boolean;
 begin
-  if FGlobal then
+  Result := FindMatch(Str).Found;
+end;
+
+function TJSRegExpImpl.BuildExecResult(const Found: TJSRegExpMatch; const Str: string): TJSValue;
+begin
+  const ResultArr: IJSArray = TJSArrayImpl.Create;
+  ResultArr.Push(TJSValue.CreateString(Copy(Str, Found.Index + 1, Found.Length)));
+
+  for var Capture in Found.Captures do
   begin
-    const Match = FRegEx.Match(Str, FLastIndex + 1);
-    Result := Match.Success;
+    ResultArr.Push(Capture);
+  end;
 
-    if Result then
-      FLastIndex := Match.Index + Match.Length - 1
-    else
-      FLastIndex := 0;
+  ResultArr.SetProperty(PROP_INDEX, TJSValue.CreateNumber(Found.Index));
+  ResultArr.SetProperty(PROP_INPUT, TJSValue.CreateString(Str));
 
-    SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(FLastIndex));
-  end
-  else
-    Result := FRegEx.IsMatch(Str);
+  Result := TJSValue.CreateObject(ResultArr);
 end;
 
 function TJSRegExpImpl.Exec(const Str: string): TJSValue;
-var
-  Match: TMatch;
 begin
-  if FGlobal then
-  begin
-    Match := FRegEx.Match(Str, FLastIndex + 1);
+  const Found = FindMatch(Str);
+  if not Found.Found then
+    Exit(TJSValue.CreateNull);
 
-    if Match.Success then
-    begin
-      FLastIndex := Match.Index + Match.Length - 1;
-      SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(FLastIndex));
-    end
-    else
-    begin
-      FLastIndex := 0;
-      SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
-      Result := TJSValue.CreateNull;
-      Exit;
-    end;
-  end
-  else
-  begin
-    Match := FRegEx.Match(Str);
+  Result := BuildExecResult(Found, Str);
+end;
 
-    if not Match.Success then
-    begin
-      Result := TJSValue.CreateNull;
-      Exit;
-    end;
-  end;
+function TJSRegExpImpl.MatchAllText(const Str: string): TJSValue;
+begin
+  WriteLastIndex(0);
 
   const ResultArr: IJSArray = TJSArrayImpl.Create;
-  ResultArr.Push(TJSValue.CreateString(Match.Value));
+  var Position := 0;
 
-  for var GroupIdx := 1 to Match.Groups.Count - 1 do
+  while Position <= Length(Str) do
   begin
-    const Group = Match.Groups[GroupIdx];
+    const Found = MatchAt(Str, Position);
+    if not Found.Found then
+      Break;
 
-    if Group.Success then
-      ResultArr.Push(TJSValue.CreateString(Group.Value))
-    else
-      ResultArr.Push(TJSValue.CreateUndefined);
+    ResultArr.Push(TJSValue.CreateString(Copy(Str, Found.Index + 1, Found.Length)));
+
+    Position := Found.Index + Found.Length;
+    if Found.Length = 0 then
+      Inc(Position);
   end;
 
-  ResultArr.SetProperty(PROP_INDEX, TJSValue.CreateNumber(Match.Index - 1));
-  ResultArr.SetProperty(PROP_INPUT, TJSValue.CreateString(Str));
+  if ResultArr.Length = 0 then
+    Exit(TJSValue.CreateNull);
 
   Result := TJSValue.CreateObject(ResultArr);
 end;
 
 function TJSRegExpImpl.Match(const Str: string): TJSValue;
 begin
-  if not FGlobal then
-  begin
-    Result := Exec(Str);
-    Exit;
-  end;
-
-  const Matches = FRegEx.Matches(Str);
-
-  if Matches.Count = 0 then
-  begin
-    Result := TJSValue.CreateNull;
-    Exit;
-  end;
-
-  const ResultArr: IJSArray = TJSArrayImpl.Create;
-
-  for var MatchItem in Matches do
-  begin
-    ResultArr.Push(TJSValue.CreateString(MatchItem.Value));
-  end;
-
-  Result := TJSValue.CreateObject(ResultArr);
-end;
-
-function TJSRegExpImpl.Replace(const Str: string; const Replacement: string): string;
-begin
   if FGlobal then
-    Result := FRegEx.Replace(Str, Replacement)
+    Result := MatchAllText(Str)
   else
-    Result := FRegEx.Replace(Str, Replacement, 1);
+    Result := Exec(Str);
 end;
 
 function TJSRegExpImpl.CountReplacements(const Str: string): Integer;
 begin
-  Result := FRegEx.Matches(Str).Count;
+  Result := 0;
 
-  if (not FGlobal) and (Result > 1) then
-    Result := 1;
+  var Position := 0;
+  while Position <= Length(Str) do
+  begin
+    const Found = MatchAt(Str, Position);
+    if not Found.Found then
+      Break;
+
+    Inc(Result);
+    if not FGlobal then
+      Break;
+
+    Position := Found.Index + Found.Length;
+    if Found.Length = 0 then
+      Inc(Position);
+  end;
 end;
 
 function TJSRegExpImpl.Search(const Str: string): Integer;
 begin
-  const Match = FRegEx.Match(Str);
+  const Found = MatchAt(Str, 0);
 
-  if Match.Success then
-    Result := Match.Index - 1
+  if Found.Found then
+    Result := Found.Index
   else
     Result := -1;
 end;
 
-function TJSRegExpImpl.Split(const Str: string; const Limit: Integer): IJSArray;
+{ TJSPrimitiveWrapperImpl }
+
+constructor TJSPrimitiveWrapperImpl.Create(const Primitive: TJSValue);
 begin
-  Result := TJSArrayImpl.Create;
+  inherited Create;
+  FPrimitive := Primitive;
+end;
 
-  const Matches = FRegEx.Matches(Str);
+function TJSPrimitiveWrapperImpl.GetPrimitive: TJSValue;
+begin
+  Result := FPrimitive;
+end;
 
-  if Matches.Count = 0 then
-  begin
-    Result.Push(TJSValue.CreateString(Str));
+function TJSPrimitiveWrapperImpl.GetClassName: string;
+begin
+  if FPrimitive.IsString then
+    Result := CLASS_NAME_STRING
+  else if FPrimitive.IsNumber then
+    Result := CLASS_NAME_NUMBER
+  else
+    Result := CLASS_NAME_BOOLEAN;
+end;
+
+function TJSPrimitiveWrapperImpl.IsStringWrapper: Boolean;
+begin
+  Result := FPrimitive.IsString;
+end;
+
+function TJSPrimitiveWrapperImpl.TryGetOwnStringDescriptor(const Name: string;
+                                                           out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := False;
+
+  if not IsStringWrapper then
     Exit;
-  end;
 
-  var LastEnd := 1;
-  var Count := 0;
+  const Text = FPrimitive.AsString;
 
-  for var MatchItem in Matches do
+  if Name = LENGTH_PROPERTY then
   begin
-    if (Limit >= 0) and (Count >= Limit) then
-      Break;
-
-    const Part = Copy(Str, LastEnd, MatchItem.Index - LastEnd);
-    Result.Push(TJSValue.CreateString(Part));
-    Inc(Count);
-
-    LastEnd := MatchItem.Index + MatchItem.Length;
+    Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Text)));
+    Descriptor.Writable := False;
+    Descriptor.Enumerable := False;
+    Descriptor.Configurable := False;
+    Exit(True);
   end;
 
-  if (Limit < 0) or (Count < Limit) then
+  var CharIndex: Integer;
+  const IsCanonicalIndex = TryStrToInt(Name, CharIndex) and (IntToStr(CharIndex) = Name);
+  const IsInRange = IsCanonicalIndex and (CharIndex >= 0) and (CharIndex < Length(Text));
+  if not IsInRange then
+    Exit;
+
+  Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateString(Text[CharIndex + 1]));
+  Descriptor.Writable := False;
+  Descriptor.Configurable := False;
+  Result := True;
+end;
+
+function TJSPrimitiveWrapperImpl.HasProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited HasProperty(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.GetOwnPropertyNames: TArray<string>;
+begin
+  const OrdinaryNames = inherited GetOwnPropertyNames;
+  if not IsStringWrapper then
+    Exit(OrdinaryNames);
+
+  const CharCount = Length(FPrimitive.AsString);
+  SetLength(Result, CharCount + 1 + Length(OrdinaryNames));
+
+  for var CharIndex := 0 to CharCount - 1 do
   begin
-    const Remainder = Copy(Str, LastEnd, Length(Str) - LastEnd + 1);
-    Result.Push(TJSValue.CreateString(Remainder));
+    Result[CharIndex] := IntToStr(CharIndex);
   end;
+
+  Result[CharCount] := LENGTH_PROPERTY;
+
+  for var NameIndex := 0 to Length(OrdinaryNames) - 1 do
+  begin
+    Result[CharCount + 1 + NameIndex] := OrdinaryNames[NameIndex];
+  end;
+end;
+
+function TJSPrimitiveWrapperImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+begin
+  if not TryGetOwnStringDescriptor(Name, Result) then
+    Result := inherited GetOwnPropertyDescriptor(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.HasOwnProperty(const Name: string): Boolean;
+var
+  Descriptor: TJSPropertyDescriptor;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited HasOwnProperty(Name);
+end;
+
+function TJSPrimitiveWrapperImpl.DefineOwnProperty(const Name: string;
+                                                   const Definition: TJSPropertyDefinition): Boolean;
+var
+  Current: TJSPropertyDescriptor;
+begin
+  if TryGetOwnStringDescriptor(Name, Current) then
+    Exit(CanRedefine(Current, Definition));
+
+  Result := inherited DefineOwnProperty(Name, Definition);
+end;
+
+function TJSPrimitiveWrapperImpl.HasStandardPropertyLookup: Boolean;
+begin
+  Result := False;
+end;
+
+function TJSPrimitiveWrapperImpl.TryGetPropertyDescriptor(const Name: string;
+                                                          out Descriptor: TJSPropertyDescriptor): Boolean;
+begin
+  Result := TryGetOwnStringDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
 end.

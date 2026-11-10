@@ -10,6 +10,7 @@ uses
   DUnitX.TestFramework,
   JS4D.Interpreter,
   JS4D.Types,
+  JS4D.Builtins,
   JS4D.Engine;
 
 type
@@ -630,6 +631,69 @@ type
 
     [Test]
     procedure Function_Bind_ChainedBind;
+  end;
+
+  [TestFixture]
+  TMethodLookupTests = class
+  private
+    FEngine: TJSEngine;
+
+    function EvaluatesToTrue(const Script: string): Boolean;
+
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure HasArrayMethod_AcceptsEveryListedName;
+
+    [Test]
+    procedure HasStringMethod_AcceptsEveryListedName;
+
+    [Test]
+    procedure HasNumberMethod_AcceptsEveryListedName;
+
+    [Test]
+    procedure HasArrayMethod_RejectsUnknownAndMiscasedNames;
+
+    [Test]
+    procedure HasStringMethod_RejectsUnknownAndMiscasedNames;
+
+    [Test]
+    procedure HasNumberMethod_RejectsUnknownAndMiscasedNames;
+
+    [Test]
+    procedure ArrayPush_InFunction_AppendsInOrder;
+
+    [Test]
+    procedure PropertyRead_OwnDataProperty_ReturnsValue;
+
+    [Test]
+    procedure PropertyRead_InheritedProperty_ReturnsPrototypeValue;
+
+    [Test]
+    procedure PropertyRead_OwnPropertyShadowsInherited_ReturnsOwnValue;
+
+    [Test]
+    procedure PropertyRead_OwnAccessor_InvokesGetterWithObjectAsThis;
+
+    [Test]
+    procedure PropertyRead_MissingProperty_IsUndefined;
+
+    [Test]
+    procedure PropertyRead_NamedPropertyOnArray_KeepsElementsAndLength;
+
+    [Test]
+    procedure PropertyRead_LengthAndIndexOfStringWrapper_ReadsPrimitive;
+
+    [Test]
+    procedure PropertyRead_DeletedProperty_IsUndefined;
+
+    [Test]
+    procedure PropertyRead_ReadOnlyProperty_ReadsValueAndIgnoresWrite;
   end;
 
 implementation
@@ -2091,6 +2155,125 @@ begin
   Assert.AreEqual(Double(6), Result.AsNumber);
 end;
 
+procedure TMethodLookupTests.Setup;
+begin
+  FEngine := TJSEngine.Create;
+end;
+
+procedure TMethodLookupTests.TearDown;
+begin
+  FEngine.Free;
+end;
+
+function TMethodLookupTests.EvaluatesToTrue(const Script: string): Boolean;
+begin
+  Result := FEngine.Evaluate(Script).AsBoolean;
+end;
+
+procedure TMethodLookupTests.HasArrayMethod_AcceptsEveryListedName;
+begin
+  for var MethodName in TJSBuiltins.ArrayMethodNames do
+  begin
+    Assert.IsTrue(TJSBuiltins.HasArrayMethod(MethodName), MethodName);
+  end;
+end;
+
+procedure TMethodLookupTests.HasStringMethod_AcceptsEveryListedName;
+begin
+  for var MethodName in TJSBuiltins.StringMethodNames do
+  begin
+    Assert.IsTrue(TJSBuiltins.HasStringMethod(MethodName), MethodName);
+  end;
+end;
+
+procedure TMethodLookupTests.HasNumberMethod_AcceptsEveryListedName;
+begin
+  for var MethodName in TJSBuiltins.NumberMethodNames do
+  begin
+    Assert.IsTrue(TJSBuiltins.HasNumberMethod(MethodName), MethodName);
+  end;
+end;
+
+procedure TMethodLookupTests.HasArrayMethod_RejectsUnknownAndMiscasedNames;
+begin
+  Assert.IsFalse(TJSBuiltins.HasArrayMethod('notAMethod'));
+  Assert.IsFalse(TJSBuiltins.HasArrayMethod('Push'));
+  Assert.IsFalse(TJSBuiltins.HasArrayMethod(''));
+end;
+
+procedure TMethodLookupTests.HasStringMethod_RejectsUnknownAndMiscasedNames;
+begin
+  Assert.IsFalse(TJSBuiltins.HasStringMethod('notAMethod'));
+  Assert.IsFalse(TJSBuiltins.HasStringMethod('CharAt'));
+  Assert.IsFalse(TJSBuiltins.HasStringMethod(''));
+end;
+
+procedure TMethodLookupTests.HasNumberMethod_RejectsUnknownAndMiscasedNames;
+begin
+  Assert.IsFalse(TJSBuiltins.HasNumberMethod('notAMethod'));
+  Assert.IsFalse(TJSBuiltins.HasNumberMethod('ToFixed'));
+  Assert.IsFalse(TJSBuiltins.HasNumberMethod(''));
+end;
+
+procedure TMethodLookupTests.ArrayPush_InFunction_AppendsInOrder;
+begin
+  const Script = '(function () { var a = []; for (var i = 0; i < 5; i++) { a.push(i, i * 2); } ' +
+                 'return a.join(); })() === "0,0,1,2,2,4,3,6,4,8"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TMethodLookupTests.PropertyRead_OwnDataProperty_ReturnsValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1, b: "two" }; o.a === 1 && o.b === "two"'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_InheritedProperty_ReturnsPrototypeValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = Object.create({ inherited: 1 }); o.own = 2; o.inherited + o.own === 3'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_OwnPropertyShadowsInherited_ReturnsOwnValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = Object.create({ x: 1 }); o.x = 2; o.x === 2'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_OwnAccessor_InvokesGetterWithObjectAsThis;
+begin
+  const Script = 'var o = { base: 40 }; ' +
+                 'Object.defineProperty(o, "answer", { get: function() { return this.base + 2; }, configurable: true }); ' +
+                 'o.answer === 42';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TMethodLookupTests.PropertyRead_MissingProperty_IsUndefined;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1 }; o.missing === undefined'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_NamedPropertyOnArray_KeepsElementsAndLength;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var a = [7, 8]; a.extra = 5; a.extra === 5 && a.length === 2 && a[1] === 8'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_LengthAndIndexOfStringWrapper_ReadsPrimitive;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var s = new String("abc"); s.length === 3 && s[1] === "b"'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_DeletedProperty_IsUndefined;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1 }; var before = o.a; delete o.a; before === 1 && o.a === undefined'));
+end;
+
+procedure TMethodLookupTests.PropertyRead_ReadOnlyProperty_ReadsValueAndIgnoresWrite;
+begin
+  const Script = 'var o = {}; Object.defineProperty(o, "fixed", { value: 1, writable: false }); ' +
+                 'o.fixed = 2; o.fixed === 1';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
 initialization
   TDUnitX.RegisterTestFixture(TArrayMethodsTests);
   TDUnitX.RegisterTestFixture(TStringMethodsTests);
@@ -2102,5 +2285,6 @@ initialization
   TDUnitX.RegisterTestFixture(TErrorConstructorTests);
   TDUnitX.RegisterTestFixture(TStrictModeTests);
   TDUnitX.RegisterTestFixture(TFunctionMethodsTests);
+  TDUnitX.RegisterTestFixture(TMethodLookupTests);
 
 end.

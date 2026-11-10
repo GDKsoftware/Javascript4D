@@ -7,30 +7,47 @@ interface
 uses
   System.SysUtils,
   System.Math,
-  System.JSON,
   System.DateUtils,
-  System.NetEncoding,
   System.Generics.Collections,
   JS4D.Types,
   JS4D.Lexer,
   JS4D.Parser,
   JS4D.AST,
   JS4D.Interpreter,
+  JS4D.Operators,
+  JS4D.Builtins,
+  JS4D.ArrayIteration,
+  JS4D.ArrayGeneric,
+  JS4D.PropertyDescriptors,
+  JS4D.PrototypeMethods,
+  JS4D.DateBuiltins,
+  JS4D.BuiltinAttributes,
   JS4D.Json,
+  JS4D.JsonSyntax,
+  JS4D.JsonReader,
+  JS4D.JsonReviver,
+  JS4D.UriCoding,
+  JS4D.MathFunctions,
+  JS4D.NumberParse,
   JS4D.Errors;
 
 type
   TConsoleOutputHandler = reference to procedure(const Output: string);
+  TUriTransform = reference to function(const Text: string): string;
 
   TJSEngine = class
   private
     FInterpreter: TJSInterpreter;
+    FPrototypeMethods: TJSPrototypeMethods;
+    FDateBuiltins: TJSDateBuiltins;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
 
-    class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
-
     function ToText(const Value: TJSValue): string;
+    class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
+    function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
+    function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
+    function IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
@@ -41,7 +58,9 @@ type
     function GetMaxArrayLength: Integer;
     procedure SetMaxArrayLength(const Value: Integer);
 
+    function ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
     procedure RegisterBuiltInFunctions;
+    procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterConsole;
     procedure RegisterMath;
     procedure RegisterObject;
@@ -49,7 +68,29 @@ type
     procedure RegisterArray;
     procedure RegisterDate;
     procedure RegisterErrors;
+    function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
+    function ConstructError(const ErrorType: TJSErrorType; const PrototypeObj: IJSObject;
+                            const Args: TArray<TJSValue>): TJSValue;
+    class procedure DefineHiddenProperty(const Target: IJSObject; const Name: string;
+                                         const Value: TJSValue); static;
+    class procedure DefineConstant(const Target: IJSObject; const Name: string;
+                                   const Value: TJSValue); static;
     procedure RegisterRegExp;
+    procedure RegisterFunctionObject;
+    procedure RegisterPrototypeMethods;
+    procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
+    function GlobalPrototype(const ConstructorName: string): IJSObject;
+    procedure LinkIntrinsicPrototypes;
+    procedure ApplyBuiltinAttributes;
+    procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
+
+    function BuildFunctionSource(const Args: TArray<TJSValue>): string;
+    function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
+    function ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+    function ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+    function IsValidArrayLength(const Value: Double): Boolean;
 
   public
     constructor Create;
@@ -118,6 +159,21 @@ const
   CONSOLE_NAME = 'console';
   MATH_NAME = 'Math';
   OBJECT_NAME = 'Object';
+  REGEXP_NAME = 'RegExp';
+  FUNCTION_NAME = 'Function';
+  ANONYMOUS_NAME = '';
+  PROTOTYPE_PROPERTY = 'prototype';
+  CONSTRUCTOR_PROPERTY = 'constructor';
+  LENGTH_PROPERTY = 'length';
+  FUNCTION_CALL = 'call';
+  FUNCTION_APPLY = 'apply';
+  FUNCTION_BIND = 'bind';
+  FUNCTION_CALLER = 'caller';
+  FUNCTION_ARGUMENTS = 'arguments';
+  FUNCTION_SOURCE_FORMAT = '(function (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
+  NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
+  NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
+  NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
   JSON_NAME = 'JSON';
   ARRAY_NAME = 'Array';
   NUMBER_NAME = 'Number';
@@ -148,26 +204,15 @@ const
   OBJECT_GET_OWN_PROPERTY_NAMES = 'getOwnPropertyNames';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
   OBJECT_DEFINE_PROPERTY = 'defineProperty';
+  OBJECT_DEFINE_PROPERTIES = 'defineProperties';
   OBJECT_CREATE = 'create';
   OBJECT_HAS_OWN_PROPERTY = 'hasOwnProperty';
   JSON_PARSE = 'parse';
+  INVALID_JSON_TEXT = 'Unexpected token in JSON';
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_FROM = 'from';
   DATE_NAME = 'Date';
-  DATE_NOW = 'now';
-  DATE_PARSE = 'parse';
-  DATE_GET_TIME = 'getTime';
-  DATE_GET_FULL_YEAR = 'getFullYear';
-  DATE_GET_MONTH = 'getMonth';
-  DATE_GET_DATE = 'getDate';
-  DATE_GET_DAY = 'getDay';
-  DATE_GET_HOURS = 'getHours';
-  DATE_GET_MINUTES = 'getMinutes';
-  DATE_GET_SECONDS = 'getSeconds';
-  DATE_GET_MILLISECONDS = 'getMilliseconds';
-  DATE_TO_ISO_STRING = 'toISOString';
-  DATE_TO_STRING = 'toString';
   ERROR_NAME = 'Error';
   TYPE_ERROR_NAME = 'TypeError';
   RANGE_ERROR_NAME = 'RangeError';
@@ -179,74 +224,19 @@ const
   ERROR_NAME_PROP = 'name';
   ERROR_STACK = 'stack';
   ERROR_TO_STRING = 'toString';
-  DESC_VALUE = 'value';
-  DESC_WRITABLE = 'writable';
-  DESC_ENUMERABLE = 'enumerable';
-  DESC_CONFIGURABLE = 'configurable';
+  OBJECT_METHOD_CALLED_ON_NON_OBJECT = 'Object method called on a value that is not an object';
+  OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL = 'Object prototype may only be an Object or null';
 
 { TJSEngine }
-
-class function TJSEngine.ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue;
-begin
-  if JSONValue is TJSONNull then
-  begin
-    Result := TJSValue.CreateNull;
-    Exit;
-  end;
-
-  if JSONValue is TJSONBool then
-  begin
-    Result := TJSValue.CreateBoolean(TJSONBool(JSONValue).AsBoolean);
-    Exit;
-  end;
-
-  if JSONValue is TJSONNumber then
-  begin
-    Result := TJSValue.CreateNumber(TJSONNumber(JSONValue).AsDouble);
-    Exit;
-  end;
-
-  if JSONValue is TJSONString then
-  begin
-    Result := TJSValue.CreateString(TJSONString(JSONValue).Value);
-    Exit;
-  end;
-
-  if JSONValue is TJSONArray then
-  begin
-    const Arr = TJSArray.Create;
-
-    for var Index := 0 to TJSONArray(JSONValue).Count - 1 do
-    begin
-      Arr.Push(ConvertJSONToJSValue(TJSONArray(JSONValue).Items[Index]));
-    end;
-
-    Result := TJSValue.CreateObject(Arr);
-    Exit;
-  end;
-
-  if JSONValue is TJSONObject then
-  begin
-    const Obj = TJSObject.Create;
-
-    for var Pair in TJSONObject(JSONValue) do
-    begin
-      Obj.SetProperty(Pair.JsonString.Value, ConvertJSONToJSValue(Pair.JsonValue));
-    end;
-
-    Result := TJSValue.CreateObject(Obj);
-    Exit;
-  end;
-
-  Result := TJSValue.CreateUndefined;
-end;
 
 constructor TJSEngine.Create;
 begin
   inherited Create;
   FInterpreter := TJSInterpreter.Create;
+  FPrototypeMethods := TJSPrototypeMethods.Create(FInterpreter);
   FPrograms := TList<TJSProgram>.Create;
   FOnConsoleOutput := nil;
+  FInterpreter.RegisterEval(ParseProgram);
   RegisterBuiltInFunctions;
 end;
 
@@ -259,19 +249,25 @@ begin
 
   FPrograms.Free;
   FInterpreter.Free;
+  FPrototypeMethods.Free;
+  FDateBuiltins.Free;
   inherited;
+end;
+
+function TJSEngine.ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+begin
+  const Parser = TJSParser.Create(Source);
+  try
+    Result := Parser.Parse(IsStrictContext);
+    FPrograms.Add(Result);
+  finally
+    Parser.Free;
+  end;
 end;
 
 function TJSEngine.Execute(const Source: string): TJSValue;
 begin
-  const Parser = TJSParser.Create(Source);
-  try
-    const Program_ = Parser.Parse;
-    FPrograms.Add(Program_);
-    Result := FInterpreter.Execute(Program_);
-  finally
-    Parser.Free;
-  end;
+  Result := FInterpreter.Execute(ParseProgram(Source, False));
 end;
 
 procedure TJSEngine.CollectGarbage;
@@ -307,9 +303,25 @@ begin
   FInterpreter.Cancel;
 end;
 
+class function TJSEngine.ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
+begin
+  if Index < Length(Args) then
+    Result := Args[Index]
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
 function TJSEngine.ToText(const Value: TJSValue): string;
 begin
-  Result := Value.ToLimitedString(FInterpreter.Limits);
+  const IsArray = (Value.ValueType = TJSValueType.Array_);
+  if IsArray then
+  begin
+    Result := Value.ToLimitedString(FInterpreter.Limits);
+    Exit;
+  end;
+
+  const Primitive = Value.ToPrimitive(True);
+  Result := Primitive.ToLimitedString(FInterpreter.Limits);
 end;
 
 function TJSEngine.GetStepBudget: Int64;
@@ -404,131 +416,89 @@ end;
 
 procedure TJSEngine.RegisterBuiltInFunctions;
 begin
-  FInterpreter.SetGlobalVariable(NAN_NAME, TJSValue.CreateNaN);
-  FInterpreter.SetGlobalVariable(INFINITY_NAME, TJSValue.CreateInfinity);
-  FInterpreter.SetGlobalVariable(UNDEFINED_NAME, TJSValue.CreateUndefined);
+  FInterpreter.SetGlobalConstant(NAN_NAME, TJSValue.CreateNaN);
+  FInterpreter.SetGlobalConstant(INFINITY_NAME, TJSValue.CreateInfinity);
+  FInterpreter.SetGlobalConstant(UNDEFINED_NAME, TJSValue.CreateUndefined);
 
   FInterpreter.RegisterNativeFunction(PARSE_INT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      const Text = ToText(ArgumentAt(Args, 0));
+      const Radix = TJSOperators.ToInt32(ArgumentAt(Args, 1));
 
-      const Text = ToText(Args[0]);
-      const Str = Trim(Text);
-      var Radix := 10;
-
-      if Length(Args) > 1 then
-        Radix := Trunc(Args[1].ToNumber);
-
-      if (Radix < 2) or (Radix > 36) then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
-
-      var IntValue: Int64;
-
-      if (Radix = 10) and TryStrToInt64(Str, IntValue) then
-      begin
-        Result := TJSValue.CreateNumber(IntValue);
-        Exit;
-      end;
-
-      if (Radix = 16) and (Str.StartsWith('0x', True) or Str.StartsWith('0X', True)) then
-      begin
-        if TryStrToInt64('$' + Str.Substring(2), IntValue) then
-        begin
-          Result := TJSValue.CreateNumber(IntValue);
-          Exit;
-        end;
-      end;
-
-      Result := TJSValue.CreateNaN;
+      Result := TJSValue.CreateNumber(TJSNumberParse.ParseInt(Text, Radix));
     end);
 
   FInterpreter.RegisterNativeFunction(PARSE_FLOAT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      const Text = ToText(ArgumentAt(Args, 0));
 
-      const Text = ToText(Args[0]);
-      const Str = Trim(Text);
-      var FloatValue: Double;
-
-      if TryStrToFloat(Str, FloatValue, TFormatSettings.Invariant) then
-      begin
-        Result := TJSValue.CreateNumber(FloatValue);
-        Exit;
-      end;
-
-      Result := TJSValue.CreateNaN;
+      Result := TJSValue.CreateNumber(TJSNumberParse.ParseFloat(Text));
     end);
 
   FInterpreter.RegisterNativeFunction(IS_NAN_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateBoolean(True);
-        Exit;
-      end;
+      const Num = TJSOperators.ToNumber(ArgumentAt(Args, 0));
 
-      Result := TJSValue.CreateBoolean(System.Math.IsNaN(Args[0].ToNumber));
+      Result := TJSValue.CreateBoolean(System.Math.IsNaN(Num));
     end);
 
   FInterpreter.RegisterNativeFunction(IS_FINITE_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateBoolean(False);
-        Exit;
-      end;
+      const Num = TJSOperators.ToNumber(ArgumentAt(Args, 0));
+      const IsFiniteNumber = (not System.Math.IsNaN(Num)) and (not System.Math.IsInfinite(Num));
 
-      const Num = Args[0].ToNumber;
-      Result := TJSValue.CreateBoolean((not System.Math.IsNaN(Num)) and (not System.Math.IsInfinite(Num)));
+      Result := TJSValue.CreateBoolean(IsFiniteNumber);
     end);
+  const NumberPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateNumber(0));
 
   const NumberFunc = TJSFunction.CreateNative(NUMBER_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      var NumberValue := TJSValue.CreateNumber(0);
+
+      if Length(Args) > 0 then
+        NumberValue := TJSValue.CreateNumber(TJSOperators.ToNumber(Args[0]));
+
+      if TJSPrototypeMethods.IsConstructCall(This, NumberPrototype) then
       begin
-        Result := TJSValue.CreateNumber(0);
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(NumberValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      Result := TJSValue.CreateNumber(Args[0].ToNumber);
+      Result := NumberValue;
     end);
 
-  NumberFunc.SetProperty('MAX_VALUE', TJSValue.CreateNumber(1.7976931348623157e+308));
-  NumberFunc.SetProperty('MIN_VALUE', TJSValue.CreateNumber(5e-324));
-  NumberFunc.SetProperty('NaN', TJSValue.CreateNaN);
-  NumberFunc.SetProperty('POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
-  NumberFunc.SetProperty('NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
-
   FInterpreter.SetGlobalVariable(NUMBER_NAME, TJSValue.CreateObject(NumberFunc));
+
+  DefineConstant(NumberFunc, 'MAX_VALUE', TJSValue.CreateNumber(1.7976931348623157e+308));
+  DefineConstant(NumberFunc, 'MIN_VALUE', TJSValue.CreateNumber(5e-324));
+  DefineConstant(NumberFunc, 'NaN', TJSValue.CreateNaN);
+  DefineConstant(NumberFunc, 'POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
+  DefineConstant(NumberFunc, 'NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
+
+  AttachPrototypeObject(NumberFunc, NumberPrototype);
+
+  const StringPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateString(''));
 
   const StringFunc = TJSFunction.CreateNative(STRING_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      var StringValue := TJSValue.CreateString('');
+
+      if Length(Args) > 0 then
+        StringValue := TJSValue.CreateString(ToText(Args[0]));
+
+      if TJSPrototypeMethods.IsConstructCall(This, StringPrototype) then
       begin
-        Result := TJSValue.CreateString('');
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(StringValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      const Text = ToText(Args[0]);
-
-      Result := TJSValue.CreateString(Text);
+      Result := StringValue;
     end);
 
   StringFunc.SetProperty('fromCharCode', TJSValue.CreateObject(TJSFunction.CreateNative('fromCharCode',
@@ -546,113 +516,31 @@ begin
     end)));
 
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
+  AttachPrototypeObject(StringFunc, StringPrototype);
 
-  FInterpreter.RegisterNativeFunction(BOOLEAN_FUNC_NAME,
+  const BooleanPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateBoolean(False));
+
+  const BooleanFunc = TJSFunction.CreateNative(BOOLEAN_FUNC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
+      const BooleanValue = TJSValue.CreateBoolean((Length(Args) > 0) and Args[0].ToBoolean);
+
+      if TJSPrototypeMethods.IsConstructCall(This, BooleanPrototype) then
       begin
-        Result := TJSValue.CreateBoolean(False);
-        Exit;
+        const Wrapper = FInterpreter.WrapPrimitive(BooleanValue);
+        Exit(TJSValue.CreateObject(Wrapper));
       end;
 
-      Result := TJSValue.CreateBoolean(Args[0].ToBoolean);
+      Result := BooleanValue;
     end);
 
-  FInterpreter.RegisterNativeFunction(ENCODE_URI_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    const
-      URIReserved = [';', ',', '/', '?', ':', '@', '&', '=', '+', '$', '#'];
-      URIUnescaped = ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '!', '~', '*', '''', '(', ')'];
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+  FInterpreter.SetGlobalVariable(BOOLEAN_FUNC_NAME, TJSValue.CreateObject(BooleanFunc));
+  AttachPrototypeObject(BooleanFunc, BooleanPrototype);
 
-      const Str = ToText(Args[0]);
-      var EncodedString := '';
-      var CharIndex := 1;
-
-      while CharIndex <= Length(Str) do
-      begin
-        const Ch = Str[CharIndex];
-
-        if CharInSet(Ch, URIReserved + URIUnescaped) then
-          EncodedString := EncodedString + Ch
-        else
-        begin
-          const Bytes = TEncoding.UTF8.GetBytes(Ch);
-          for var ByteValue in Bytes do
-            EncodedString := EncodedString + '%' + IntToHex(ByteValue, 2);
-        end;
-
-        Inc(CharIndex);
-      end;
-
-      Result := TJSValue.CreateString(EncodedString);
-    end);
-
-  FInterpreter.RegisterNativeFunction(DECODE_URI_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
-    end);
-
-  FInterpreter.RegisterNativeFunction(ENCODE_URI_COMPONENT_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    const
-      URIUnescaped = ['A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.', '!', '~', '*', '''', '(', ')'];
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      var EncodedString := '';
-      var CharIndex := 1;
-
-      while CharIndex <= Length(Str) do
-      begin
-        const Ch = Str[CharIndex];
-
-        if CharInSet(Ch, URIUnescaped) then
-          EncodedString := EncodedString + Ch
-        else
-        begin
-          const Bytes = TEncoding.UTF8.GetBytes(Ch);
-          for var ByteValue in Bytes do
-            EncodedString := EncodedString + '%' + IntToHex(ByteValue, 2);
-        end;
-
-        Inc(CharIndex);
-      end;
-
-      Result := TJSValue.CreateString(EncodedString);
-    end);
-
-  FInterpreter.RegisterNativeFunction(DECODE_URI_COMPONENT_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Str = ToText(Args[0]);
-      Result := TJSValue.CreateString(TNetEncoding.URL.Decode(Str));
-    end);
+  RegisterUriFunction(ENCODE_URI_NAME, TJSUriCoding.EncodeURI);
+  RegisterUriFunction(DECODE_URI_NAME, TJSUriCoding.DecodeURI);
+  RegisterUriFunction(ENCODE_URI_COMPONENT_NAME, TJSUriCoding.EncodeURIComponent);
+  RegisterUriFunction(DECODE_URI_COMPONENT_NAME, TJSUriCoding.DecodeURIComponent);
 
   RegisterConsole;
   RegisterMath;
@@ -662,6 +550,38 @@ begin
   RegisterDate;
   RegisterErrors;
   RegisterRegExp;
+  RegisterFunctionObject;
+  RegisterPrototypeMethods;
+  LinkIntrinsicPrototypes;
+  ApplyBuiltinAttributes;
+end;
+
+procedure TJSEngine.RegisterUriFunction(const Name: string; const Transform: TUriTransform);
+begin
+  const UriFunction = TJSFunction.CreateNative(Name,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Argument := TJSValue.CreateUndefined;
+      if Length(Args) > 0 then
+        Argument := Args[0];
+
+      const Text = ToText(Argument);
+      const Transformed = Transform(Text);
+      Result := TJSValue.CreateString(Transformed);
+    end);
+
+  UriFunction.IsConstructor := False;
+  FInterpreter.RegisterFunction(UriFunction);
+  FInterpreter.SetGlobalVariable(Name, TJSValue.CreateObject(UriFunction));
+end;
+procedure TJSEngine.ApplyBuiltinAttributes;
+begin
+  const Attributes = TJSBuiltinAttributes.Create(FInterpreter);
+  try
+    Attributes.Apply;
+  finally
+    Attributes.Free;
+  end;
 end;
 
 procedure TJSEngine.RegisterConsole;
@@ -700,16 +620,16 @@ end;
 
 procedure TJSEngine.RegisterMath;
 begin
-  const MathObj = TJSObject.Create;
+  const MathObj: IJSObject = TJSObject.Create;
 
-  MathObj.SetProperty(MATH_PI, TJSValue.CreateNumber(Pi));
-  MathObj.SetProperty(MATH_E, TJSValue.CreateNumber(Exp(1)));
-  MathObj.SetProperty(MATH_LN2, TJSValue.CreateNumber(Ln(2)));
-  MathObj.SetProperty(MATH_LN10, TJSValue.CreateNumber(Ln(10)));
-  MathObj.SetProperty(MATH_LOG2E, TJSValue.CreateNumber(1 / Ln(2)));
-  MathObj.SetProperty(MATH_LOG10E, TJSValue.CreateNumber(1 / Ln(10)));
-  MathObj.SetProperty(MATH_SQRT2, TJSValue.CreateNumber(Sqrt(2)));
-  MathObj.SetProperty(MATH_SQRT1_2, TJSValue.CreateNumber(Sqrt(0.5)));
+  DefineConstant(MathObj, MATH_PI, TJSValue.CreateNumber(Pi));
+  DefineConstant(MathObj, MATH_E, TJSValue.CreateNumber(Exp(1)));
+  DefineConstant(MathObj, MATH_LN2, TJSValue.CreateNumber(Ln(2)));
+  DefineConstant(MathObj, MATH_LN10, TJSValue.CreateNumber(Ln(10)));
+  DefineConstant(MathObj, MATH_LOG2E, TJSValue.CreateNumber(1 / Ln(2)));
+  DefineConstant(MathObj, MATH_LOG10E, TJSValue.CreateNumber(1 / Ln(10)));
+  DefineConstant(MathObj, MATH_SQRT2, TJSValue.CreateNumber(Sqrt(2)));
+  DefineConstant(MathObj, MATH_SQRT1_2, TJSValue.CreateNumber(Sqrt(0.5)));
 
   MathObj.SetProperty(MATH_ABS, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ABS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -732,7 +652,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Floor(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Floor(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_CEIL, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_CEIL,
@@ -744,7 +664,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Ceil(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Ceil(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_ROUND, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ROUND,
@@ -756,7 +676,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Round(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Round(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_SQRT, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_SQRT,
@@ -788,7 +708,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Power(Args[0].ToNumber, Args[1].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Power(Args[0].ToNumber, Args[1].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_MIN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_MIN,
@@ -812,8 +732,7 @@ begin
           Exit;
         end;
 
-        if Value < MinValue then
-          MinValue := Value;
+        MinValue := TJSMathFunctions.Smaller(MinValue, Value);
       end;
 
       Result := TJSValue.CreateNumber(MinValue);
@@ -840,8 +759,7 @@ begin
           Exit;
         end;
 
-        if Value > MaxValue then
-          MaxValue := Value;
+        MaxValue := TJSMathFunctions.Larger(MaxValue, Value);
       end;
 
       Result := TJSValue.CreateNumber(MaxValue);
@@ -862,7 +780,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Sin(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Sin(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_COS, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_COS,
@@ -886,7 +804,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Tan(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Tan(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_ASIN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ASIN,
@@ -994,7 +912,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateNumber(Trunc(Args[0].ToNumber));
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Trunc(Args[0].ToNumber));
     end)));
 
   MathObj.SetProperty(MATH_SIGN, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_SIGN,
@@ -1006,27 +924,7 @@ begin
         Exit;
       end;
 
-      const Num = Args[0].ToNumber;
-
-      if System.Math.IsNaN(Num) then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
-
-      if Num > 0 then
-      begin
-        Result := TJSValue.CreateNumber(1);
-        Exit;
-      end;
-
-      if Num < 0 then
-      begin
-        Result := TJSValue.CreateNumber(-1);
-        Exit;
-      end;
-
-      Result := TJSValue.CreateNumber(0);
+      Result := TJSValue.CreateNumber(TJSMathFunctions.Sign(Args[0].ToNumber));
     end)));
 
   FInterpreter.SetGlobalVariable(MATH_NAME, TJSValue.CreateObject(MathObj));
@@ -1034,7 +932,13 @@ end;
 
 procedure TJSEngine.RegisterObject;
 begin
-  const ObjectObj = TJSObject.Create;
+  const PrototypeObj = TJSObject.Create;
+
+  const ObjectObj = TJSFunction.CreateNative(OBJECT_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructObject(Args, PrototypeObj);
+    end);
 
   ObjectObj.SetProperty(OBJECT_KEYS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_KEYS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1049,17 +953,10 @@ begin
 
       const Obj = Args[0].ToObject;
 
-      var ArrIntf: IJSArray;
-      if Supports(Obj, IJSArray, ArrIntf) then
+      for var PropName in Obj.GetOwnPropertyNames do
       begin
-        for var Index := 0 to ArrIntf.Length - 1 do
-          ResultArr.Push(TJSValue.CreateString(IntToStr(Index)));
-      end
-      else
-      begin
-        const PropertyNames = Obj.GetOwnPropertyNames;
-
-        for var PropName in PropertyNames do
+        const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
+        if Descriptor.Enumerable then
           ResultArr.Push(TJSValue.CreateString(PropName));
       end;
 
@@ -1165,12 +1062,36 @@ begin
   ObjectObj.SetProperty(OBJECT_CREATE, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_CREATE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const HasPrototypeArg = (Length(Args) > 0) and (Args[0].IsObject or Args[0].IsNull);
+      if not HasPrototypeArg then
+        raise TJSErrorFactory.TypeError(OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL);
+
       const NewObj = TJSObject.Create;
 
-      if (Length(Args) > 0) and Args[0].IsObject then
+      if Args[0].IsObject then
         NewObj.Prototype := Args[0].ToObject;
 
+      const HasProperties = (Length(Args) > 1) and (not Args[1].IsUndefined);
+      if HasProperties then
+        TJSPropertyDescriptors.DefineAll(NewObj, Args[1], FInterpreter.Limits);
+
       Result := TJSValue.CreateObject(NewObj);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTIES, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTIES,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const HasTarget = (Length(Args) > 0) and Args[0].IsObject;
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
+
+      var Properties := TJSValue.CreateUndefined;
+      if Length(Args) > 1 then
+        Properties := Args[1];
+
+      TJSPropertyDescriptors.DefineAll(Args[0].ToObject, Properties, FInterpreter.Limits);
+
+      Result := Args[0];
     end)));
 
   ObjectObj.SetProperty(OBJECT_GET_PROTOTYPE_OF, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_PROTOTYPE_OF,
@@ -1292,58 +1213,52 @@ begin
   ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) < 2) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const HasTarget = (Length(Args) > 0) and (not Args[0].IsNullOrUndefined);
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
+
+      if not Args[0].IsObject then
+        Exit(TJSValue.CreateUndefined);
+
+      var PropName := UNDEFINED_NAME;
+      if Length(Args) > 1 then
+        PropName := ToText(Args[1]);
 
       const Obj = Args[0].ToObject;
-      const PropName = ToText(Args[1]);
-
       if not Obj.HasOwnProperty(PropName) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+        Exit(TJSValue.CreateUndefined);
 
-      const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-      const DescObj: IJSObject = TJSObject.Create;
-
-      DescObj.SetProperty(DESC_VALUE, Descriptor.Value);
-      DescObj.SetProperty(DESC_WRITABLE, TJSValue.CreateBoolean(Descriptor.Writable));
-      DescObj.SetProperty(DESC_ENUMERABLE, TJSValue.CreateBoolean(Descriptor.Enumerable));
-      DescObj.SetProperty(DESC_CONFIGURABLE, TJSValue.CreateBoolean(Descriptor.Configurable));
-
+      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Obj.GetOwnPropertyDescriptor(PropName));
       Result := TJSValue.CreateObject(DescObj);
     end)));
 
   ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTY, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) < 3) or (not Args[0].IsObject) or (not Args[2].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const HasTarget = (Length(Args) > 0) and Args[0].IsObject;
+      if not HasTarget then
+        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
 
-      const Obj = Args[0].ToObject;
-      const PropName = ToText(Args[1]);
-      const DescObj = Args[2].ToObject;
+      var PropName := UNDEFINED_NAME;
+      var Description := TJSValue.CreateUndefined;
+      if Length(Args) > 1 then
+        PropName := ToText(Args[1]);
+      if Length(Args) > 2 then
+        Description := Args[2];
 
-      var Descriptor: TJSPropertyDescriptor;
-      Descriptor.Value := DescObj.GetProperty(DESC_VALUE);
-      Descriptor.Writable := DescObj.GetProperty(DESC_WRITABLE).ToBoolean;
-      Descriptor.Enumerable := DescObj.GetProperty(DESC_ENUMERABLE).ToBoolean;
-      Descriptor.Configurable := DescObj.GetProperty(DESC_CONFIGURABLE).ToBoolean;
+      const Definition = TJSPropertyDescriptors.ToDefinition(Description);
+      TJSPropertyDescriptors.Define(Args[0].ToObject, PropName, Definition, FInterpreter.Limits);
 
-      Obj.DefineProperty(PropName, Descriptor);
-
-      Result := TJSValue.CreateObject(Obj);
+      Result := Args[0];
     end)));
 
-  const PrototypeObj = TJSObject.Create;
-  ObjectObj.SetNonConfigurableProperty('prototype', TJSValue.CreateObject(PrototypeObj));
+  for var MethodName in TJSBuiltins.ObjectMethodNames do
+  begin
+    const Method = CreateObjectPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  AttachPrototypeObject(ObjectObj, PrototypeObj);
 
   FInterpreter.SetGlobalVariable(OBJECT_NAME, TJSValue.CreateObject(ObjectObj));
 end;
@@ -1355,57 +1270,35 @@ begin
   JSONObj.SetProperty(JSON_PARSE, TJSValue.CreateObject(TJSFunction.CreateNative(JSON_PARSE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const JSONString = ToText(ArgumentAt(Args, 0));
 
-      const JSONString = ToText(Args[0]);
+      const IsValidJSON = TJSJsonSyntax.IsValid(JSONString);
+      if not IsValidJSON then
+        raise TJSErrorFactory.SyntaxError(INVALID_JSON_TEXT);
 
-      try
-        const JSONValue = TJSONObject.ParseJSONValue(JSONString);
+      Result := TJSJsonReader.Read(JSONString, FInterpreter.ObjectPrototype, FInterpreter.ArrayPrototype);
 
-        if JSONValue = nil then
-        begin
-          Result := TJSValue.CreateUndefined;
-          Exit;
-        end;
-
-        try
-          Result := ConvertJSONToJSValue(JSONValue);
-        finally
-          JSONValue.Free;
-        end;
-      except
-        on E: Exception do
-          Result := TJSValue.CreateUndefined;
-      end;
+      var Reviver: IJSFunction;
+      const ReviverArgument = ArgumentAt(Args, 1);
+      const HasReviver = (ReviverArgument.IsFunction and Supports(ReviverArgument.ToObject, IJSFunction, Reviver));
+      if HasReviver then
+        Result := TJSJsonReviver.Revive(Result, Reviver, FInterpreter.ObjectPrototype);
     end)));
 
   JSONObj.SetProperty(JSON_STRINGIFY, TJSValue.CreateObject(TJSFunction.CreateNative(JSON_STRINGIFY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Converter = TJSONConverter.Create(FInterpreter.Limits);
+      const Writer = TJSJsonWriter.Create(FInterpreter.Limits, FInterpreter.ObjectPrototype);
       try
-        const JSONValue = Converter.Convert(Args[0]);
-        try
-          const JSONText = JSONValue.ToJSON;
-          const JSONLength = Length(JSONText);
+        var JSONText: string;
+        const HasText = Writer.TryStringify(ArgumentAt(Args, 0), ArgumentAt(Args, 1), ArgumentAt(Args, 2), JSONText);
 
-          FInterpreter.Limits.EnsureStringLength(JSONLength);
-          Result := TJSValue.CreateString(JSONText);
-        finally
-          JSONValue.Free;
-        end;
+        if HasText then
+          Result := TJSValue.CreateString(JSONText)
+        else
+          Result := TJSValue.CreateUndefined;
       finally
-        Converter.Free;
+        Writer.Free;
       end;
     end)));
 
@@ -1414,7 +1307,13 @@ end;
 
 procedure TJSEngine.RegisterArray;
 begin
-  const ArrayObj = TJSObject.Create;
+  const PrototypeObj = TJSObject.Create;
+
+  const ArrayObj = TJSFunction.CreateNative(ARRAY_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructArray(Args, PrototypeObj);
+    end);
 
   ArrayObj.SetProperty(ARRAY_IS_ARRAY, TJSValue.CreateObject(TJSFunction.CreateNative(ARRAY_IS_ARRAY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1486,388 +1385,247 @@ begin
       Result := TJSValue.CreateObject(ResultArr);
     end)));
 
+  for var MethodName in TJSBuiltins.ArrayMethodNames do
+  begin
+    const Method = CreateArrayPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  AttachPrototypeObject(ArrayObj, PrototypeObj);
+
   FInterpreter.SetGlobalVariable(ARRAY_NAME, TJSValue.CreateObject(ArrayObj));
 end;
 
-procedure TJSEngine.RegisterDate;
-const
-  UNIX_EPOCH: TDateTime = 25569.0;
+procedure TJSEngine.RegisterFunctionObject;
 begin
-  const DateFunc = TJSFunction.CreateNative(DATE_NAME,
+  const FunctionObj = TJSFunction.CreateNative(FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      var DateObj: IJSDate;
-
-      if Length(Args) = 0 then
-        DateObj := TJSDate.Create
-      else if Length(Args) = 1 then
-      begin
-        const Arg = Args[0];
-
-        if Arg.IsNumber then
-          DateObj := TJSDate.Create(Arg.AsNumber)
-        else if Arg.IsString then
-        begin
-          try
-            const ParsedDate = ISO8601ToDate(Arg.AsString, False);
-            const Timestamp = (ParsedDate - UNIX_EPOCH) * 86400000.0;
-            DateObj := TJSDate.Create(Timestamp);
-          except
-            on E: Exception do
-              DateObj := TJSDate.Create(System.Math.NaN);
-          end;
-        end
-        else
-          DateObj := TJSDate.Create;
-      end
-      else
-      begin
-        const Year = Trunc(Args[0].ToNumber);
-        const Month = Trunc(Args[1].ToNumber);
-        var Day := 1;
-        var Hours := 0;
-        var Minutes := 0;
-        var Seconds := 0;
-        var Milliseconds := 0;
-
-        if Length(Args) > 2 then Day := Trunc(Args[2].ToNumber);
-        if Length(Args) > 3 then Hours := Trunc(Args[3].ToNumber);
-        if Length(Args) > 4 then Minutes := Trunc(Args[4].ToNumber);
-        if Length(Args) > 5 then Seconds := Trunc(Args[5].ToNumber);
-        if Length(Args) > 6 then Milliseconds := Trunc(Args[6].ToNumber);
-
-        DateObj := TJSDate.Create(Year, Month, Day, Hours, Minutes, Seconds, Milliseconds);
-      end;
-
-      DateObj.SetProperty('getTime', TJSValue.CreateObject(TJSFunction.CreateNative('getTime',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetTime)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('getFullYear',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetFullYear)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getMonth', TJSValue.CreateObject(TJSFunction.CreateNative('getMonth',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetMonth)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getDate', TJSValue.CreateObject(TJSFunction.CreateNative('getDate',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetDate)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getDay', TJSValue.CreateObject(TJSFunction.CreateNative('getDay',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetDay)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getHours', TJSValue.CreateObject(TJSFunction.CreateNative('getHours',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetHours)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getMinutes', TJSValue.CreateObject(TJSFunction.CreateNative('getMinutes',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetMinutes)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getSeconds', TJSValue.CreateObject(TJSFunction.CreateNative('getSeconds',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetSeconds)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getMilliseconds', TJSValue.CreateObject(TJSFunction.CreateNative('getMilliseconds',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetMilliseconds)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getUTCFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('getUTCFullYear',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetUTCFullYear)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('getTimezoneOffset', TJSValue.CreateObject(TJSFunction.CreateNative('getTimezoneOffset',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateNumber(D.GetTimezoneOffset)
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setFullYear', TJSValue.CreateObject(TJSFunction.CreateNative('setFullYear',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetFullYear(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setMonth', TJSValue.CreateObject(TJSFunction.CreateNative('setMonth',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetMonth(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setDate', TJSValue.CreateObject(TJSFunction.CreateNative('setDate',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetDate(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setHours', TJSValue.CreateObject(TJSFunction.CreateNative('setHours',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetHours(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setMinutes', TJSValue.CreateObject(TJSFunction.CreateNative('setMinutes',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetMinutes(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('setSeconds', TJSValue.CreateObject(TJSFunction.CreateNative('setSeconds',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-          begin
-            if Length(Args) > 0 then
-              D.SetSeconds(Trunc(Args[0].ToNumber));
-            Result := TJSValue.CreateNumber(D.GetTime);
-          end
-          else
-            Result := TJSValue.CreateNaN;
-        end)));
-
-      DateObj.SetProperty('toISOString', TJSValue.CreateObject(TJSFunction.CreateNative('toISOString',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateString(D.ToISOString)
-          else
-            Result := TJSValue.CreateString('');
-        end)));
-
-      DateObj.SetProperty('toDateString', TJSValue.CreateObject(TJSFunction.CreateNative('toDateString',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateString(D.ToDateString)
-          else
-            Result := TJSValue.CreateString('');
-        end)));
-
-      DateObj.SetProperty('toTimeString', TJSValue.CreateObject(TJSFunction.CreateNative('toTimeString',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateString(D.ToTimeString)
-          else
-            Result := TJSValue.CreateString('');
-        end)));
-
-      DateObj.SetProperty('toString', TJSValue.CreateObject(TJSFunction.CreateNative('toString',
-        function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-        begin
-          var D: IJSDate;
-          if Supports(This, IJSDate, D) then
-            Result := TJSValue.CreateString(D.ToLocaleString)
-          else
-            Result := TJSValue.CreateString('');
-        end)));
-
-      Result := TJSValue.CreateObject(DateObj);
+      Result := FInterpreter.CreateFunctionFromSource(BuildFunctionSource(Args));
     end);
 
-  DateFunc.SetProperty(DATE_NOW, TJSValue.CreateObject(TJSFunction.CreateNative(DATE_NOW,
+  const PrototypeObj: IJSFunction = TJSFunction.CreateNative(ANONYMOUS_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSValue.CreateNumber((Now - UNIX_EPOCH) * 86400000.0);
-    end)));
+      Result := TJSValue.CreateUndefined;
+    end);
+  PrototypeObj.IsConstructor := False;
+  TJSFunction.DefineLength(PrototypeObj, 0);
+  FInterpreter.RegisterFunction(PrototypeObj);
 
-  DateFunc.SetProperty(DATE_PARSE, TJSValue.CreateObject(TJSFunction.CreateNative(DATE_PARSE,
+  for var MethodName in [FUNCTION_CALL, FUNCTION_APPLY, FUNCTION_BIND] do
+  begin
+    const Method = CreateFunctionPrototypeMethod(MethodName);
+    PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+  end;
+
+  AttachPrototypeObject(FunctionObj, PrototypeObj);
+
+  FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
+end;
+
+function TJSEngine.BuildFunctionSource(const Args: TArray<TJSValue>): string;
+begin
+  var Body := '';
+  var Parameters := '';
+
+  const HasArguments = (Length(Args) > 0);
+  if HasArguments then
+  begin
+    for var Index := 0 to High(Args) - 1 do
+    begin
+      if Index > 0 then
+        Parameters := Parameters + ',';
+
+      Parameters := Parameters + ToText(Args[Index]);
+    end;
+
+    Body := ToText(Args[High(Args)]);
+  end;
+
+  Result := Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
+end;
+
+function TJSEngine.CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      var Target: IJSFunction;
+      const IsFunction = Supports(This, IJSFunction, Target);
+      if not IsFunction then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_FUNCTION, [MethodName]));
 
-      const DateStr = ToText(Args[0]);
+      Result := FInterpreter.ExecuteFunctionMethod(Target, MethodName, Args);
+    end);
+end;
 
-      try
-        const ParsedDate = ISO8601ToDate(DateStr, True);
-        Result := TJSValue.CreateNumber((ParsedDate - UNIX_EPOCH) * 86400000.0);
-      except
-        on E: Exception do
-          Result := TJSValue.CreateNaN;
-      end;
-    end)));
-
-  DateFunc.SetProperty('UTC', TJSValue.CreateObject(TJSFunction.CreateNative('UTC',
+function TJSEngine.CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) < 2 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      if TJSArrayIteration.Handles(MethodName) then
+        Exit(FInterpreter.ExecuteArrayIterationMethod(This, MethodName, Args));
 
-      const Year = Trunc(Args[0].ToNumber);
-      const Month = Trunc(Args[1].ToNumber);
-      var Day := 1;
-      var Hours := 0;
-      var Minutes := 0;
-      var Seconds := 0;
-      var Milliseconds := 0;
+      var Target: IJSArray;
+      const IsArray = Supports(This, IJSArray, Target);
+      if IsArray then
+        Exit(FInterpreter.ExecuteArrayMethod(Target, MethodName, Args));
 
-      if Length(Args) > 2 then Day := Trunc(Args[2].ToNumber);
-      if Length(Args) > 3 then Hours := Trunc(Args[3].ToNumber);
-      if Length(Args) > 4 then Minutes := Trunc(Args[4].ToNumber);
-      if Length(Args) > 5 then Seconds := Trunc(Args[5].ToNumber);
-      if Length(Args) > 6 then Milliseconds := Trunc(Args[6].ToNumber);
+      if TJSArrayGeneric.Handles(MethodName) then
+        Exit(FInterpreter.ExecuteGenericArrayMethod(This, MethodName, Args));
 
-      const UTCDate = EncodeDateTime(Year, Month + 1, Day, Hours, Minutes, Seconds, Milliseconds);
-      Result := TJSValue.CreateNumber((UTCDate - UNIX_EPOCH) * 86400000.0);
-    end)));
+      raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_ARRAY, [MethodName]));
+    end);
+end;
 
-  FInterpreter.SetGlobalVariable(DATE_NAME, TJSValue.CreateObject(DateFunc));
+function TJSEngine.CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if not Assigned(This) then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+
+      Result := TJSBuiltins.CallObjectMethod(This, MethodName, Args, FInterpreter.Limits);
+    end);
+end;
+
+function TJSEngine.ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+begin
+  const ResultArr: IJSArray = TJSArray.Create;
+  ResultArr.Prototype := PrototypeObj;
+
+  const IsLengthForm = (Length(Args) = 1) and Args[0].IsNumber;
+  if IsLengthForm then
+  begin
+    const RequestedLength = Args[0].AsNumber;
+    if not IsValidArrayLength(RequestedLength) then
+      raise TJSErrorFactory.InvalidArrayLength;
+
+    const ElementCount = Trunc(RequestedLength);
+    FInterpreter.Limits.EnsureArrayLength(ElementCount);
+
+    var LengthDefinition := Default(TJSPropertyDefinition);
+    LengthDefinition.HasValue := True;
+    LengthDefinition.Value := TJSValue.CreateNumber(ElementCount);
+    ResultArr.DefineOwnProperty(LENGTH_PROPERTY, LengthDefinition);
+  end
+  else
+  begin
+    for var Arg in Args do
+      ResultArr.Push(Arg);
+  end;
+
+  Result := TJSValue.CreateObject(ResultArr);
+end;
+
+function TJSEngine.ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
+begin
+  const HasObjectArgument = (Length(Args) > 0) and Args[0].IsObject;
+  if HasObjectArgument then
+    Exit(Args[0]);
+
+  const HasPrimitiveArgument = (Length(Args) > 0) and (not Args[0].IsNullOrUndefined);
+  if HasPrimitiveArgument then
+  begin
+    const Wrapper = FInterpreter.WrapPrimitive(Args[0]);
+    Exit(TJSValue.CreateObject(Wrapper));
+  end;
+
+  const NewObj = TJSObject.Create;
+  NewObj.Prototype := PrototypeObj;
+
+  Result := TJSValue.CreateObject(NewObj);
+end;
+
+function TJSEngine.IsValidArrayLength(const Value: Double): Boolean;
+const
+  MAX_ARRAY_LENGTH = 4294967295.0;
+begin
+  const IsWholeNumber = (not System.Math.IsNaN(Value)) and (Frac(Value) = 0);
+
+  Result := IsWholeNumber and (Value >= 0) and (Value <= MAX_ARRAY_LENGTH);
+end;
+
+procedure TJSEngine.RegisterDate;
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+
+  FDateBuiltins := TJSDateBuiltins.Create(PrototypeObj);
+  const DateFunc = FDateBuiltins.CreateConstructor;
+
+  FInterpreter.SetGlobalVariable(DATE_NAME, TJSValue.CreateObject(DateFunc as IJSObject));
+  AttachPrototypeObject(DateFunc, PrototypeObj);
+end;
+
+procedure TJSEngine.AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
+begin
+  var ConstructorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Constructor_ as IJSObject));
+  ConstructorDescriptor.Enumerable := False;
+  PrototypeObj.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
+
+  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(PrototypeObj));
+  FInterpreter.RegisterFunction(Constructor_);
+end;
+
+class procedure TJSEngine.DefineHiddenProperty(const Target: IJSObject; const Name: string;
+                                               const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
+
+class procedure TJSEngine.DefineConstant(const Target: IJSObject; const Name: string; const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
+
+function TJSEngine.ConstructError(const ErrorType: TJSErrorType; const PrototypeObj: IJSObject;
+                                  const Args: TArray<TJSValue>): TJSValue;
+begin
+  const HasMessage = (Length(Args) > 0) and (not Args[0].IsUndefined);
+
+  var MessageText := '';
+  if HasMessage then
+    MessageText := ToText(Args[0]);
+
+  const ErrorObj: IJSError = TJSError.Create(ErrorType, MessageText);
+  ErrorObj.Prototype := PrototypeObj;
+
+  if HasMessage then
+  begin
+    const MessageValue = TJSValue.CreateString(MessageText);
+    DefineHiddenProperty(ErrorObj, ERROR_MESSAGE, MessageValue);
+  end;
+
+  Result := TJSValue.CreateObject(ErrorObj);
+end;
+
+function TJSEngine.CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+  const NameValue = TJSValue.CreateString(ErrorName);
+  const EmptyMessage = TJSValue.CreateString('');
+  DefineHiddenProperty(PrototypeObj, ERROR_NAME_PROP, NameValue);
+  DefineHiddenProperty(PrototypeObj, ERROR_MESSAGE, EmptyMessage);
+
+  Result := TJSFunction.CreateNative(ErrorName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ConstructError(ErrorType, PrototypeObj, Args);
+    end);
+
+  AttachPrototypeObject(Result, PrototypeObj);
 end;
 
 procedure TJSEngine.RegisterErrors;
-
-  function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSObject;
-  begin
-    Result := TJSFunction.CreateNative(ErrorName,
-      function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-      begin
-        var Msg := '';
-
-        if Length(Args) > 0 then
-          Msg := ToText(Args[0]);
-
-        const ErrorObj: IJSError = TJSError.Create(ErrorType, Msg);
-
-        ErrorObj.SetProperty(ERROR_TO_STRING, TJSValue.CreateObject(TJSFunction.CreateNative(ERROR_TO_STRING,
-          function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
-          begin
-            var E: IJSError;
-            if Supports(This, IJSError, E) then
-            begin
-              const Name = E.GetErrorName;
-              const Msg = E.Message;
-
-              if Msg = '' then
-                Result := TJSValue.CreateString(Name)
-              else
-                Result := TJSValue.CreateString(Name + ': ' + Msg);
-            end
-            else
-              Result := TJSValue.CreateString('Error');
-          end)));
-
-        Result := TJSValue.CreateObject(ErrorObj);
-      end);
-  end;
-
 begin
   FInterpreter.SetGlobalVariable(ERROR_NAME, TJSValue.CreateObject(
     CreateErrorConstructor(TJSErrorType.Error, ERROR_NAME)));
@@ -1891,66 +1649,166 @@ begin
     CreateErrorConstructor(TJSErrorType.EvalError, EVAL_ERROR_NAME)));
 end;
 
-procedure TJSEngine.RegisterRegExp;
-const
-  REGEXP_NAME = 'RegExp';
+function TJSEngine.RegExpPatternArgument(const Args: TArray<TJSValue>): string;
 begin
+  Result := '';
+
+  const HasPattern = (Length(Args) > 0) and (not Args[0].IsUndefined);
+  if not HasPattern then
+    Exit;
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  if IsRegExp then
+    Result := SourceRegExp.Pattern
+  else
+  begin
+    const PatternValue = Args[0].ToPrimitive(True);
+    Result := ToText(PatternValue);
+  end;
+end;
+
+function TJSEngine.RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
+begin
+  Result := '';
+
+  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
+  if HasFlags then
+  begin
+    const FlagsValue = Args[1].ToPrimitive(True);
+    Result := ToText(FlagsValue);
+    Exit;
+  end;
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = (Length(Args) > 0) and Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  if IsRegExp then
+    Result := SourceRegExp.Flags;
+end;
+
+function TJSEngine.IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
+begin
+  const HasPattern = (Length(Args) > 0) and Args[0].IsObject;
+  if not HasPattern then
+    Exit(False);
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
+  if (not IsRegExp) or HasFlags then
+    Exit(False);
+
+  const SourceObject = Args[0].ToObject;
+  const SourceConstructor = SourceObject.GetProperty(CONSTRUCTOR_PROPERTY);
+  const RegExpConstructor = PrototypeObj.GetProperty(CONSTRUCTOR_PROPERTY);
+
+  Result := SourceConstructor.StrictEquals(RegExpConstructor);
+end;
+
+procedure TJSEngine.RegisterRegExp;
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+
   const RegExpFunc = TJSFunction.CreateNative(REGEXP_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      var Pattern := '';
-      var Flags := '';
+      const IsCall = not TJSPrototypeMethods.IsConstructCall(This, PrototypeObj);
+      if IsCall and IsRegExpWithoutFlags(Args, PrototypeObj) then
+        Exit(Args[0]);
 
-      if Length(Args) > 0 then
-        Pattern := ToText(Args[0]);
-
-      if Length(Args) > 1 then
-        Flags := ToText(Args[1]);
+      const Pattern = RegExpPatternArgument(Args);
+      const Flags = RegExpFlagsArgument(Args);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
-
-      RegExpObj.SetProperty('test', TJSValue.CreateObject(TJSFunction.CreateNative('test',
-        function(const This: IJSObject; const TestArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) and (Length(TestArgs) > 0) then
-          begin
-            const Subject = ToText(TestArgs[0]);
-
-            Result := TJSValue.CreateBoolean(RE.Test(Subject));
-          end
-          else
-            Result := TJSValue.CreateBoolean(False);
-        end)));
-
-      RegExpObj.SetProperty('exec', TJSValue.CreateObject(TJSFunction.CreateNative('exec',
-        function(const This: IJSObject; const ExecArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) and (Length(ExecArgs) > 0) then
-          begin
-            const Subject = ToText(ExecArgs[0]);
-
-            Result := RE.Exec(Subject);
-          end
-          else
-            Result := TJSValue.CreateNull;
-        end)));
-
-      RegExpObj.SetProperty('toString', TJSValue.CreateObject(TJSFunction.CreateNative('toString',
-        function(const This: IJSObject; const ToStringArgs: TArray<TJSValue>): TJSValue
-        begin
-          var RE: IJSRegExp;
-          if Supports(This, IJSRegExp, RE) then
-            Result := TJSValue.CreateString('/' + RE.Pattern + '/' + RE.Flags)
-          else
-            Result := TJSValue.CreateString('/(?:)/');
-        end)));
-
+      RegExpObj.Prototype := PrototypeObj;
       Result := TJSValue.CreateObject(RegExpObj);
     end);
 
   FInterpreter.SetGlobalVariable(REGEXP_NAME, TJSValue.CreateObject(RegExpFunc));
+  AttachPrototypeObject(RegExpFunc, PrototypeObj);
+end;
+
+procedure TJSEngine.RegisterPrototypeMethods;
+begin
+  const MathObject = FInterpreter.GetGlobalVariable(MATH_NAME).ToObject;
+  const JSONObject = FInterpreter.GetGlobalVariable(JSON_NAME).ToObject;
+
+  FPrototypeMethods.RegisterObjectMethods(GlobalPrototype(OBJECT_NAME), MathObject, JSONObject);
+  FPrototypeMethods.RegisterStringMethods(GlobalPrototype(STRING_FUNC_NAME));
+  FPrototypeMethods.RegisterNumberMethods(GlobalPrototype(NUMBER_NAME));
+  FPrototypeMethods.RegisterBooleanMethods(GlobalPrototype(BOOLEAN_FUNC_NAME));
+  FPrototypeMethods.RegisterErrorMethods(GlobalPrototype(ERROR_NAME));
+  FPrototypeMethods.RegisterRegExpMethods(GlobalPrototype(REGEXP_NAME));
+  FPrototypeMethods.RegisterFunctionMethods(GlobalPrototype(FUNCTION_NAME));
+
+  FInterpreter.StringPrototype := GlobalPrototype(STRING_FUNC_NAME);
+  FInterpreter.NumberPrototype := GlobalPrototype(NUMBER_NAME);
+  FInterpreter.BooleanPrototype := GlobalPrototype(BOOLEAN_FUNC_NAME);
+end;
+
+function TJSEngine.GlobalPrototype(const ConstructorName: string): IJSObject;
+begin
+  Result := nil;
+
+  const ConstructorValue = FInterpreter.GetGlobalVariable(ConstructorName);
+  if not ConstructorValue.IsObject then
+    Exit;
+
+  const PrototypeValue = ConstructorValue.ToObject.GetProperty(PROTOTYPE_PROPERTY);
+  if PrototypeValue.IsObject then
+    Result := PrototypeValue.ToObject;
+end;
+
+procedure TJSEngine.LinkIntrinsicPrototypes;
+begin
+  const ObjectPrototype = GlobalPrototype(OBJECT_NAME);
+  const ErrorPrototype = GlobalPrototype(ERROR_NAME);
+  const ErrorConstructor = FInterpreter.GetGlobalVariable(ERROR_NAME).ToObject;
+
+  for var ConstructorName in [ERROR_NAME, ARRAY_NAME, FUNCTION_NAME, DATE_NAME, REGEXP_NAME, NUMBER_NAME,
+                              STRING_FUNC_NAME, BOOLEAN_FUNC_NAME] do
+  begin
+    const Prototype = GlobalPrototype(ConstructorName);
+    Prototype.Prototype := ObjectPrototype;
+  end;
+
+  for var ConstructorName in [TYPE_ERROR_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, SYNTAX_ERROR_NAME,
+                              URI_ERROR_NAME, EVAL_ERROR_NAME] do
+  begin
+    const Prototype = GlobalPrototype(ConstructorName);
+    Prototype.Prototype := ErrorPrototype;
+
+    const NativeErrorConstructor = FInterpreter.GetGlobalVariable(ConstructorName).ToObject;
+    NativeErrorConstructor.Prototype := ErrorConstructor;
+  end;
+
+  for var GlobalName in [MATH_NAME, JSON_NAME] do
+  begin
+    const GlobalValue = FInterpreter.GetGlobalVariable(GlobalName);
+    GlobalValue.ToObject.Prototype := ObjectPrototype;
+  end;
+
+  FInterpreter.ObjectPrototype := ObjectPrototype;
+  FInterpreter.ArrayPrototype := GlobalPrototype(ARRAY_NAME);
+  FInterpreter.FunctionPrototype := GlobalPrototype(FUNCTION_NAME);
+  FInterpreter.RegExpPrototype := GlobalPrototype(REGEXP_NAME);
+
+  DefineRestrictedFunctionProperties(GlobalPrototype(FUNCTION_NAME));
+end;
+
+procedure TJSEngine.DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
+begin
+  const Poison = TJSValue.CreateObject(FInterpreter.ThrowTypeErrorFunction);
+
+  for var PropertyName in [FUNCTION_CALLER, FUNCTION_ARGUMENTS] do
+  begin
+    var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateUndefined);
+    Descriptor.IsAccessor := True;
+    Descriptor.Getter := Poison;
+    Descriptor.Setter := Poison;
+    Descriptor.Enumerable := False;
+    PrototypeObj.DefineProperty(PropertyName, Descriptor);
+  end;
 end;
 
 end.

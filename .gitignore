@@ -59,3 +59,7 @@ dunitx-results.xml
 .claude/
 CLAUDE.md
 build.bat
+
+# test262 checkout and conformance results
+Conformance/test262/
+Conformance/results/

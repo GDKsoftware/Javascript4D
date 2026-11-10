@@ -35,6 +35,7 @@ type
     TryStatement,
     EmptyStatement,
     WithStatement,
+    LabeledStatement,
     DebuggerStatement,
 
     Identifier,
@@ -87,11 +88,19 @@ type
     property IsStrict: Boolean read FIsStrict write FIsStrict;
   end;
 
+  TJSBindingCache = record
+    Owner: TObject;
+    LayoutVersion: Cardinal;
+    Slot: Pointer;
+  end;
+
   TJSIdentifier = class(TJSExpression)
   private
     FName: string;
 
   public
+    BindingCache: TJSBindingCache;
+
     constructor Create(const Name: string);
 
     property Name: string read FName;
@@ -114,14 +123,12 @@ type
     FStringValue: string;
     FRegExpPattern: string;
     FRegExpFlags: string;
-    FIsOctal: Boolean;
 
   public
     class function CreateUndefined: TJSLiteral;
     class function CreateNull: TJSLiteral;
     class function CreateBoolean(const Value: Boolean): TJSLiteral;
     class function CreateNumber(const Value: Double): TJSLiteral;
-    class function CreateOctalNumber(const Value: Double): TJSLiteral;
     class function CreateString(const Value: string): TJSLiteral;
     class function CreateRegExp(const Pattern: string; const Flags: string): TJSLiteral;
 
@@ -131,7 +138,6 @@ type
     property StringValue: string read FStringValue;
     property RegExpPattern: string read FRegExpPattern;
     property RegExpFlags: string read FRegExpFlags;
-    property IsOctal: Boolean read FIsOctal;
   end;
 
   TJSArrayExpression = class(TJSExpression)
@@ -145,19 +151,24 @@ type
     property Elements: TObjectList<TJSExpression> read FElements;
   end;
 
+  TJSPropertyKind = (Data, Getter, Setter);
+
   TJSObjectProperty = class(TJSASTNode)
   private
     FKey: TJSExpression;
     FValue: TJSExpression;
     FComputed: Boolean;
+    FKind: TJSPropertyKind;
 
   public
-    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False);
+    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
+                       const Kind: TJSPropertyKind = TJSPropertyKind.Data);
     destructor Destroy; override;
 
     property Key: TJSExpression read FKey;
     property Value: TJSExpression read FValue;
     property Computed: Boolean read FComputed;
+    property Kind: TJSPropertyKind read FKind;
   end;
 
   TJSObjectExpression = class(TJSExpression)
@@ -397,12 +408,16 @@ type
   TJSBlockStatement = class(TJSStatement)
   private
     FBody: TObjectList<TJSStatement>;
+    FReferencesArguments: Boolean;
+    FDeclaresStrictMode: Boolean;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
+    property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
   end;
 
   TJSVariableDeclarator = class(TJSASTNode)
@@ -482,6 +497,19 @@ type
     destructor Destroy; override;
 
     property Test: TJSExpression read FTest;
+    property Body: TJSStatement read FBody;
+  end;
+
+  TJSWithStatement = class(TJSStatement)
+  private
+    FTarget: TJSExpression;
+    FBody: TJSStatement;
+
+  public
+    constructor Create(const Target: TJSExpression; const Body: TJSStatement);
+    destructor Destroy; override;
+
+    property Target: TJSExpression read FTarget;
     property Body: TJSStatement read FBody;
   end;
 
@@ -628,6 +656,19 @@ type
     property Finalizer: TJSBlockStatement read FFinalizer;
   end;
 
+  TJSLabeledStatement = class(TJSStatement)
+  private
+    FLabelName: string;
+    FBody: TJSStatement;
+
+  public
+    constructor Create(const LabelName: string; const Body: TJSStatement);
+    destructor Destroy; override;
+
+    property LabelName: string read FLabelName;
+    property Body: TJSStatement read FBody;
+  end;
+
   TJSEmptyStatement = class(TJSStatement)
   public
     constructor Create;
@@ -696,15 +737,6 @@ begin
   Result := TJSLiteral.Create(TJSASTNodeType.Literal);
   Result.FLiteralType := TJSLiteralType.Number;
   Result.FNumberValue := Value;
-  Result.FIsOctal := False;
-end;
-
-class function TJSLiteral.CreateOctalNumber(const Value: Double): TJSLiteral;
-begin
-  Result := TJSLiteral.Create(TJSASTNodeType.Literal);
-  Result.FLiteralType := TJSLiteralType.Number;
-  Result.FNumberValue := Value;
-  Result.FIsOctal := True;
 end;
 
 class function TJSLiteral.CreateString(const Value: string): TJSLiteral;
@@ -738,12 +770,14 @@ end;
 
 { TJSObjectProperty }
 
-constructor TJSObjectProperty.Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean);
+constructor TJSObjectProperty.Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean;
+                                     const Kind: TJSPropertyKind);
 begin
   inherited Create(TJSASTNodeType.ObjectProperty);
   FKey := Key;
   FValue := Value;
   FComputed := Computed;
+  FKind := Kind;
 end;
 
 destructor TJSObjectProperty.Destroy;
@@ -960,6 +994,7 @@ constructor TJSBlockStatement.Create;
 begin
   inherited Create(TJSASTNodeType.BlockStatement);
   FBody := TObjectList<TJSStatement>.Create(True);
+  FReferencesArguments := True;
 end;
 
 destructor TJSBlockStatement.Destroy;
@@ -1059,6 +1094,22 @@ end;
 destructor TJSWhileStatement.Destroy;
 begin
   FTest.Free;
+  FBody.Free;
+  inherited;
+end;
+
+{ TJSWithStatement }
+
+constructor TJSWithStatement.Create(const Target: TJSExpression; const Body: TJSStatement);
+begin
+  inherited Create(TJSASTNodeType.WithStatement);
+  FTarget := Target;
+  FBody := Body;
+end;
+
+destructor TJSWithStatement.Destroy;
+begin
+  FTarget.Free;
   FBody.Free;
   inherited;
 end;
@@ -1236,6 +1287,21 @@ begin
   FBlock.Free;
   FHandler.Free;
   FFinalizer.Free;
+  inherited;
+end;
+
+{ TJSLabeledStatement }
+
+constructor TJSLabeledStatement.Create(const LabelName: string; const Body: TJSStatement);
+begin
+  inherited Create(TJSASTNodeType.LabeledStatement);
+  FLabelName := LabelName;
+  FBody := Body;
+end;
+
+destructor TJSLabeledStatement.Destroy;
+begin
+  FBody.Free;
   inherited;
 end;
 

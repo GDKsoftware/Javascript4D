@@ -142,7 +142,7 @@ type
     procedure Execute_StringRelationalComparison_UsesLexicographicOrder;
 
     [Test]
-    procedure Execute_DatePlusDate_ProducesNumericSum;
+    procedure Execute_DatePlusDate_ConcatenatesTextForms;
 
     [Test]
     procedure Execute_DateTimesNumber_ProducesNumericProduct;
@@ -443,13 +443,10 @@ begin
   Assert.IsTrue(FEngine.Evaluate('"10" >= 5').ToBoolean);
 end;
 
-procedure TEngineTests.Execute_DatePlusDate_ProducesNumericSum;
+procedure TEngineTests.Execute_DatePlusDate_ConcatenatesTextForms;
 begin
-  // Date + Date goes through the numeric Add branch because neither operand
-  // is a String_. Diverges from browser JS (which does string concat via
-  // Date's "default" ToPrimitive hint); JS4D's Add does a literal IsString
-  // check rather than ToPrimitive.
-  Assert.AreEqual(Double(3000), FEngine.Evaluate('new Date(1000) + new Date(2000)').ToNumber);
+  Assert.AreEqual('string', FEngine.Evaluate('typeof (new Date(1000) + new Date(2000))').ToString);
+  Assert.IsTrue(FEngine.Evaluate('(new Date(1000) + new Date(2000)) === new Date(1000).toString() + new Date(2000).toString()').AsBoolean);
 end;
 
 procedure TEngineTests.Execute_DateTimesNumber_ProducesNumericProduct;
