@@ -51,6 +51,10 @@ type
 
     function IsIdentifierStart(const Ch: Char): Boolean;
     function IsIdentifierPart(const Ch: Char): Boolean;
+    function IsOtherIdentifierStart(const Ch: Char): Boolean;
+    function IsOtherIdentifierPart(const Ch: Char): Boolean;
+    function IsIdentifierCharacter(const CodePoint: string; const IsFirstChar: Boolean): Boolean;
+    function CurrentCodePoint: string;
     function IsDigit(const Ch: Char): Boolean;
     function IsLineTerminator(const Ch: Char): Boolean;
     function IsWhiteSpace(const Ch: Char): Boolean;
@@ -66,8 +70,9 @@ type
     function ParseEscapeSequence: string;
     function ParseOctalEscape(const FirstDigit: Char): string;
     function ParseLineContinuation(const Terminator: Char): string;
+    function ParseUnicodeEscape: string;
     function ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
-    function ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
+    function ParseIdentifierEscape(const IsFirstChar: Boolean): string;
     function HexDigitValue(const Ch: Char): Integer;
 
     function ScanTemplateChunk(const IsHead: Boolean; const StartLine: Integer; const StartColumn: Integer): TJSToken;
@@ -334,7 +339,7 @@ begin
 
   const Ch = CurrentChar;
 
-  if IsIdentifierStart(Ch) or (Ch = BACKSLASH) then
+  if IsIdentifierCharacter(CurrentCodePoint, True) or (Ch = BACKSLASH) then
     Exit(ScanIdentifier);
 
   const StartsNumber = IsDigit(Ch) or ((Ch = DOT_CHAR) and IsDigit(PeekChar));
@@ -401,10 +406,15 @@ begin
       Value := Value + ParseIdentifierEscape(Value.IsEmpty);
       HasEscape := True;
     end
-    else if IsIdentifierPart(CurrentChar) then
+    else if IsIdentifierCharacter(CurrentCodePoint, False) then
     begin
-      Value := Value + CurrentChar;
-      Advance;
+      const CodePoint = CurrentCodePoint;
+      Value := Value + CodePoint;
+
+      for var Index := 1 to Length(CodePoint) do
+      begin
+        Advance;
+      end;
     end
     else
       Break;
@@ -486,7 +496,8 @@ end;
 
 procedure TJSLexer.RejectIdentifierAfterNumber;
 begin
-  const StartsIdentifier = (IsIdentifierStart(CurrentChar) or (CurrentChar = BACKSLASH) or IsDigit(CurrentChar));
+  const StartsIdentifier = (IsIdentifierCharacter(CurrentCodePoint, True) or (CurrentChar = BACKSLASH) or
+                            IsDigit(CurrentChar));
   if StartsIdentifier then
     raise TJSErrorFactory.SyntaxError(SIdentifierAfterNumber, FLine, FColumn);
 end;
@@ -720,10 +731,20 @@ begin
     ESCAPE_X:
       Result := Char(ParseHexDigits(2, SInvalidHexEscapeSequence));
     ESCAPE_U:
-      Result := Char(ParseHexDigits(4, SInvalidUnicodeEscapeSequence));
+      Result := ParseUnicodeEscape;
   else
     Result := Ch;
   end;
+end;
+
+function TJSLexer.ParseUnicodeEscape: string;
+begin
+  const IsCodePointEscape = (CurrentChar = LEFT_BRACE);
+  if not IsCodePointEscape then
+    Exit(Char(ParseHexDigits(4, SInvalidUnicodeEscapeSequence)));
+
+  if not TryReadCodePointEscape(Result) then
+    raise TJSErrorFactory.SyntaxError(SInvalidUnicodeEscapeSequence, FLine, FColumn);
 end;
 
 function TJSLexer.ParseHexDigits(const DigitCount: Integer; const ErrorMessage: string): Integer;
@@ -742,7 +763,7 @@ begin
   end;
 end;
 
-function TJSLexer.ParseIdentifierEscape(const IsFirstChar: Boolean): Char;
+function TJSLexer.ParseIdentifierEscape(const IsFirstChar: Boolean): string;
 begin
   Advance;
 
@@ -751,10 +772,9 @@ begin
 
   Advance;
 
-  Result := Char(ParseHexDigits(4, SInvalidUnicodeEscapeSequence));
+  Result := ParseUnicodeEscape;
 
-  const IsValidChar = (IsIdentifierStart(Result) or ((not IsFirstChar) and IsIdentifierPart(Result)));
-  if not IsValidChar then
+  if not IsIdentifierCharacter(Result, IsFirstChar) then
     raise TJSErrorFactory.SyntaxError(SInvalidIdentifierEscape, FLine, FColumn);
 end;
 
@@ -1347,7 +1367,8 @@ function TJSLexer.IsIdentifierStart(const Ch: Char): Boolean;
 begin
   const IsLetterLike = Ch.IsLetter or (Ch.GetUnicodeCategory = TUnicodeCategory.ucLetterNumber);
 
-  Result := (IsLetterLike and (Ch <> VERTICAL_TILDE)) or (Ch = UNDERSCORE) or (Ch = DOLLAR_SIGN);
+  Result := (IsLetterLike and (Ch <> VERTICAL_TILDE)) or (Ch = UNDERSCORE) or (Ch = DOLLAR_SIGN) or
+            IsOtherIdentifierStart(Ch);
 end;
 
 function TJSLexer.IsIdentifierPart(const Ch: Char): Boolean;
@@ -1358,7 +1379,57 @@ begin
                                                            TUnicodeCategory.ucConnectPunctuation]);
   const IsJoiner = (Ch = ZERO_WIDTH_NON_JOINER) or (Ch = ZERO_WIDTH_JOINER);
 
-  Result := IsIdentifierStart(Ch) or IsCombiningOrConnector or IsJoiner;
+  Result := IsIdentifierStart(Ch) or IsCombiningOrConnector or IsJoiner or IsOtherIdentifierPart(Ch);
+end;
+
+function TJSLexer.IsOtherIdentifierStart(const Ch: Char): Boolean;
+begin
+  case Ord(Ch) of
+    $1885, $1886, $2118, $212E, $309B, $309C:
+      Result := True;
+  else
+    Result := False;
+  end;
+end;
+
+function TJSLexer.IsOtherIdentifierPart(const Ch: Char): Boolean;
+begin
+  case Ord(Ch) of
+    $00B7, $0387, $1369..$1371, $19DA, $30FB, $FF65:
+      Result := True;
+  else
+    Result := False;
+  end;
+end;
+
+function TJSLexer.CurrentCodePoint: string;
+begin
+  const IsSurrogatePair = CurrentChar.IsHighSurrogate and PeekChar.IsLowSurrogate;
+  if IsSurrogatePair then
+    Result := CurrentChar + PeekChar
+  else
+    Result := CurrentChar;
+end;
+
+function TJSLexer.IsIdentifierCharacter(const CodePoint: string; const IsFirstChar: Boolean): Boolean;
+begin
+  const IsBasicPlane = (Length(CodePoint) = 1);
+  if IsBasicPlane then
+    Exit(IsIdentifierStart(CodePoint[1]) or ((not IsFirstChar) and IsIdentifierPart(CodePoint[1])));
+
+  const Category = Char.GetUnicodeCategory(CodePoint, 0);
+  const IsStart = (Category in [TUnicodeCategory.ucUppercaseLetter,
+                                TUnicodeCategory.ucLowercaseLetter,
+                                TUnicodeCategory.ucTitlecaseLetter,
+                                TUnicodeCategory.ucModifierLetter,
+                                TUnicodeCategory.ucOtherLetter,
+                                TUnicodeCategory.ucLetterNumber]);
+  const IsContinuation = (Category in [TUnicodeCategory.ucNonSpacingMark,
+                                       TUnicodeCategory.ucCombiningMark,
+                                       TUnicodeCategory.ucDecimalNumber,
+                                       TUnicodeCategory.ucConnectPunctuation]);
+
+  Result := IsStart or ((not IsFirstChar) and IsContinuation);
 end;
 
 function TJSLexer.IsDigit(const Ch: Char): Boolean;
