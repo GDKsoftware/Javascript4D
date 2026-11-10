@@ -60,6 +60,8 @@ type
     property Parent: IJSScope read GetParent;
   end;
 
+  TJSFunctionNameScope = class(TJSScope);
+
   EJSControlFlowSignal = class(EAbort);
 
   TJSJumpSignal = class(EJSControlFlowSignal)
@@ -342,6 +344,8 @@ type
     function AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
     procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
     procedure GuardBindingStillExists(const StillExists: Boolean; const Name: string);
+    procedure RejectFunctionNameAssignment;
+    procedure BindFunctionName(const Func: IJSFunction; const Name: string);
     function AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
     function VisitUpdateExpression(const Node: TJSUpdateExpression): TJSValue;
     function UpdateIdentifier(const Node: TJSUpdateExpression): TJSValue;
@@ -448,6 +452,7 @@ const
   CANNOT_ASSIGN_PROPERTY = 'Cannot assign to property ''%s'' in strict mode';
   OBJECT_KEY_DESCRIPTION = '[object]';
   POISONED_PROPERTY = 'Restricted property cannot be accessed in strict mode';
+  FUNCTION_NAME_ASSIGNMENT = 'Assignment to the name of a function expression';
   CALLEE_PROPERTY = 'callee';
   EMPTY_NAME = '';
   INVALID_FUNCTION_SOURCE = 'Invalid function parameters or body';
@@ -2856,7 +2861,19 @@ begin
   const Func = CreateOrdinaryFunction(Node);
   AttachPrototype(Func);
 
+  if Assigned(Node.Id) then
+    BindFunctionName(Func, Node.Id.Name);
+
   Result := TJSValue.CreateObject(Func);
+end;
+
+procedure TJSInterpreter.BindFunctionName(const Func: IJSFunction; const Name: string);
+begin
+  const NameScope = TJSFunctionNameScope.Create(FCurrentScope);
+  NameScope.DeclareVariable(Name, TJSValue.CreateObject(Func));
+  RegisterScope(NameScope);
+
+  Func.ClosureScope := NameScope;
 end;
 
 function TJSInterpreter.CreateOrdinaryFunction(const Node: TJSFunctionExpression): IJSFunction;
@@ -3533,6 +3550,12 @@ begin
     Exit;
   end;
 
+  if Binding is TJSFunctionNameScope then
+  begin
+    RejectFunctionNameAssignment;
+    Exit;
+  end;
+
   var ObjectScope: IJSObjectScope;
   if Supports(Binding, IJSObjectScope, ObjectScope) then
   begin
@@ -3548,6 +3571,12 @@ begin
     GuardBindingStillExists(FGlobalBindings.HasVariable(Name), Name);
 
   Binding.AssignVariable(Name, Value);
+end;
+
+procedure TJSInterpreter.RejectFunctionNameAssignment;
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.TypeError(FUNCTION_NAME_ASSIGNMENT);
 end;
 
 procedure TJSInterpreter.GuardBindingStillExists(const StillExists: Boolean; const Name: string);
