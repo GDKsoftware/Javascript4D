@@ -24,7 +24,6 @@ exponentiation
 export-defer
 export-star-as-namespace-from-module
 for-in-order
-for-of
 generators
 hashbang
 import-attributes

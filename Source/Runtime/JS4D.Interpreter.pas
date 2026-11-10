@@ -123,9 +123,11 @@ type
 
   TJSArraySource = record
     Elements: IJSArray;
+    ArrayLike: IJSObject;
     Items: TArray<TJSValue>;
     Position: Integer;
 
+    function HasNext: Boolean;
     function Next: TJSValue;
     function Remaining: TArray<TJSValue>;
   end;
@@ -194,6 +196,8 @@ type
     procedure BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue; const Mode: TJSBindingMode);
     function OpenArraySource(const Value: TJSValue): TJSArraySource;
+    function TryOpenArraySource(const Value: TJSValue; out Source: TJSArraySource): Boolean;
+    function OpenStringSource(const Text: string): TJSArraySource;
     function CopyRestProperties(const Source: TJSValue; const Excluded: TList<string>): TJSValue;
     procedure CopyDataProperties(const Target: IJSObject; const Source: TJSValue; const Excluded: TList<string>);
     function AssignToPattern(const Node: TJSAssignmentExpression): TJSValue;
@@ -203,7 +207,6 @@ type
     function EvaluateArguments(const Nodes: TObjectList<TJSExpression>; const HasSpread: Boolean): TArray<TJSValue>;
     function EvaluateSpreadArguments(const Nodes: TObjectList<TJSExpression>): TArray<TJSValue>;
     procedure AppendSpreadValues(const Source: TJSValue; const Target: TList<TJSValue>);
-    procedure AppendArrayValues(const Source: IJSArray; const Target: TList<TJSValue>);
     procedure AppendStringValues(const Source: string; const Target: TList<TJSValue>);
     function CreateThrowTypeError: IJSFunction;
     function CreateCalleeDescriptor: TJSPropertyDescriptor;
@@ -252,9 +255,10 @@ type
     procedure AdvanceForLoop(const Node: TJSForStatement; const CopiesIterationScope: Boolean);
     procedure CopyIterationScope;
     function EvaluateForInSubject(const Node: TJSForInStatement): TJSValue;
-    procedure AssignForInVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const PropName: string);
+    procedure AssignLoopVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const Value: TJSValue);
     procedure BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
                                       const OuterScope: IJSScope; const Value: TJSValue);
+    function RunLoopBody(const Body: TJSStatement; const OwnLabels: TArray<string>; out KeepLooping: Boolean): TJSValue;
     function ExecuteSwitchCases(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): TJSValue;
     function VisitBlockStatement(const Node: TJSBlockStatement): TJSValue;
     function VisitVariableDeclaration(const Node: TJSVariableDeclaration): TJSValue;
@@ -274,6 +278,7 @@ type
     function WithObjectFor(const Callee: TJSExpression): IJSObject;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
     function VisitForInStatement(const Node: TJSForInStatement): TJSValue;
+    function VisitForOfStatement(const Node: TJSForOfStatement): TJSValue;
     function VisitReturnStatement(const Node: TJSReturnStatement): TJSValue;
     function VisitBreakStatement(const Node: TJSBreakStatement): TJSValue;
     function VisitContinueStatement(const Node: TJSContinueStatement): TJSValue;
@@ -384,6 +389,7 @@ type
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
     property GlobalScope: IJSScope read FGlobalScope;
+    property GlobalObject: IJSObject read FGlobalObject;
     property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
     property ArrayPrototype: IJSObject read FArrayPrototype write FArrayPrototype;
     property FunctionPrototype: IJSObject read FFunctionPrototype write SetFunctionPrototype;
@@ -448,6 +454,7 @@ const
                             TJSASTNodeType.EmptyStatement];
   REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
   NOT_ITERABLE = 'Spread syntax requires an iterable value';
+  NOT_ITERABLE_LOOP = 'Value is not iterable';
   PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
   HIGH_SURROGATE_FIRST = $D800;
@@ -683,19 +690,38 @@ end;
 
 { TJSArraySource }
 
+function TJSArraySource.HasNext: Boolean;
+begin
+  if Assigned(Elements) then
+    Exit(Position < Elements.Length);
+
+  if Assigned(ArrayLike) then
+    Exit(Position < TJSArrayLike.ToLength(ArrayLike));
+
+  Result := (Position < Length(Items));
+end;
+
 function TJSArraySource.Next: TJSValue;
 begin
   Result := TJSValue.CreateUndefined;
 
-  if Assigned(Elements) then
+  if HasNext then
   begin
-    const IsReadable = (Position < Elements.Length) and Elements.HasElement(Position);
-    if IsReadable then
-      Result := Elements.GetElement(Position);
-  end
-  else if Position < Length(Items) then
-  begin
-    Result := Items[Position];
+    if Assigned(Elements) then
+    begin
+      if Elements.HasElement(Position) then
+        Result := Elements.GetElement(Position)
+      else
+        Result := Elements.GetProperty(TJSArrayLike.IndexName(Position));
+    end
+    else if Assigned(ArrayLike) then
+    begin
+      Result := ArrayLike.GetProperty(TJSArrayLike.IndexName(Position));
+    end
+    else
+    begin
+      Result := Items[Position];
+    end;
   end;
 
   Inc(Position);
@@ -705,19 +731,9 @@ function TJSArraySource.Remaining: TArray<TJSValue>;
 begin
   const Values = TList<TJSValue>.Create;
   try
-    if Assigned(Elements) then
+    while HasNext do
     begin
-      while Position < Elements.Length do
-      begin
-        Values.Add(Next);
-      end;
-    end
-    else
-    begin
-      while Position < Length(Items) do
-      begin
-        Values.Add(Next);
-      end;
+      Values.Add(Next);
     end;
 
     Result := Values.ToArray;
@@ -885,9 +901,8 @@ end;
 
 function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
 begin
-  if Func.IsStrict then
-    Result := TJSObject.Create
-  else if Assigned(ParameterInfoOf(Func)) then
+  const IsUnmapped = (Func.IsStrict or Assigned(ParameterInfoOf(Func)));
+  if IsUnmapped then
     Result := TJSArgumentsObject.Create(FCurrentScope, nil, Length(Args))
   else
     Result := TJSArgumentsObject.Create(FCurrentScope, Func.Parameters, Length(Args));
@@ -1079,33 +1094,14 @@ end;
 
 procedure TJSInterpreter.AppendSpreadValues(const Source: TJSValue; const Target: TList<TJSValue>);
 begin
-  var SourceArray: IJSArray;
-  const IsArray = Source.IsArray and Supports(Source.ToObject, IJSArray, SourceArray);
-  if IsArray then
-  begin
-    AppendArrayValues(SourceArray, Target);
-    Exit;
-  end;
+  var Values: TJSArraySource;
+  if not TryOpenArraySource(Source, Values) then
+    raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 
-  if Source.IsString then
-  begin
-    AppendStringValues(Source.ToString, Target);
-    Exit;
-  end;
-
-  raise TJSErrorFactory.TypeError(NOT_ITERABLE);
-end;
-
-procedure TJSInterpreter.AppendArrayValues(const Source: IJSArray; const Target: TList<TJSValue>);
-begin
-  for var Index := 0 to Source.Length - 1 do
+  while Values.HasNext do
   begin
     FLimits.EnsureArrayLength(Target.Count + 1);
-
-    if Source.HasElement(Index) then
-      Target.Add(Source.GetElement(Index))
-    else
-      Target.Add(TJSValue.CreateUndefined);
+    Target.Add(Values.Next);
   end;
 end;
 
@@ -1382,6 +1378,8 @@ begin
       Result := VisitForStatement(TJSForStatement(Node));
     TJSASTNodeType.ForInStatement:
       Result := VisitForInStatement(TJSForInStatement(Node));
+    TJSASTNodeType.ForOfStatement:
+      Result := VisitForOfStatement(TJSForOfStatement(Node));
     TJSASTNodeType.ReturnStatement:
       Result := VisitReturnStatement(TJSReturnStatement(Node));
     TJSASTNodeType.BreakStatement:
@@ -1764,7 +1762,7 @@ begin
         HoistVarNames(TJSForStatement(Node).Init);
         HoistVarNames(TJSForStatement(Node).Body);
       end;
-    TJSASTNodeType.ForInStatement:
+    TJSASTNodeType.ForInStatement, TJSASTNodeType.ForOfStatement:
       begin
         HoistVarNames(TJSForInStatement(Node).Left);
         HoistVarNames(TJSForInStatement(Node).Body);
@@ -1992,7 +1990,8 @@ begin
   const BodyIsLoop = (Node.Body.NodeType in [TJSASTNodeType.WhileStatement,
                                              TJSASTNodeType.DoWhileStatement,
                                              TJSASTNodeType.ForStatement,
-                                             TJSASTNodeType.ForInStatement]);
+                                             TJSASTNodeType.ForInStatement,
+                                             TJSASTNodeType.ForOfStatement]);
   const BodyIsLabeled = (Node.Body.NodeType = TJSASTNodeType.LabeledStatement);
 
   if BodyIsLoop or BodyIsLabeled then
@@ -2216,11 +2215,9 @@ begin
     FCurrentScope.InitializeLexical(Declarator.Id.Name, Value);
 end;
 
-procedure TJSInterpreter.AssignForInVariable(const Node: TJSForInStatement; const OuterScope: IJSScope;
-                                             const PropName: string);
+procedure TJSInterpreter.AssignLoopVariable(const Node: TJSForInStatement; const OuterScope: IJSScope;
+                                            const Value: TJSValue);
 begin
-  const Value = TJSValue.CreateString(PropName);
-
   if Node.Left is TJSVariableDeclaration then
   begin
     const Declaration = TJSVariableDeclaration(Node.Left);
@@ -2237,11 +2234,42 @@ begin
   end
   else if Node.Left is TJSIdentifier then
   begin
-    FCurrentScope.SetVariable(TJSIdentifier(Node.Left).Name, Value);
+    const Identifier = TJSIdentifier(Node.Left);
+    const Binding = FCurrentScope.Resolve(Identifier.Name);
+
+    const IsUndeclaredInStrictCode = FStrictMode and (not Assigned(Binding));
+    if IsUndeclaredInStrictCode then
+      raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Identifier.Line, Identifier.Column);
+
+    PutIdentifierValue(Binding, Identifier.Name, Value);
   end
   else if Node.Left is TJSExpression then
   begin
     BindTarget(TJSExpression(Node.Left), Value, TJSBindingMode.Assign);
+  end;
+end;
+
+function TJSInterpreter.RunLoopBody(const Body: TJSStatement; const OwnLabels: TArray<string>;
+                                    out KeepLooping: Boolean): TJSValue;
+begin
+  KeepLooping := True;
+  Result := TJSValue.CreateUndefined;
+
+  try
+    Result := ExecuteStatement(Body);
+  except
+    on Signal: TJSBreakSignal do
+    begin
+      if Signal.IsLabelled then
+        raise;
+
+      KeepLooping := False;
+    end;
+    on Signal: TJSContinueSignal do
+    begin
+      if not Signal.AppliesTo(OwnLabels) then
+        raise;
+    end;
   end;
 end;
 
@@ -2266,26 +2294,39 @@ begin
       if not Descriptor.Enumerable then
         Continue;
 
-      AssignForInVariable(Node, OuterScope, PropName);
+      AssignLoopVariable(Node, OuterScope, TJSValue.CreateString(PropName));
 
-      try
-        Result := ExecuteStatement(Node.Body);
-      except
-        on Signal: TJSBreakSignal do
-        begin
-          if Signal.IsLabelled then
-            raise;
+      var KeepLooping: Boolean;
+      Result := RunLoopBody(Node.Body, OwnLabels, KeepLooping);
+      if not KeepLooping then
+        Break;
+    end;
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
 
-          Break;
-        end;
-        on Signal: TJSContinueSignal do
-        begin
-          if not Signal.AppliesTo(OwnLabels) then
-            raise;
+function TJSInterpreter.VisitForOfStatement(const Node: TJSForOfStatement): TJSValue;
+begin
+  const OwnLabels = TakeLoopLabels;
+  Result := TJSValue.CreateUndefined;
 
-          Continue;
-        end;
-      end;
+  const OuterScope = FCurrentScope;
+  try
+    const RightValue = EvaluateForInSubject(Node);
+
+    var Source: TJSArraySource;
+    if not TryOpenArraySource(RightValue, Source) then
+      raise TJSErrorFactory.TypeError(NOT_ITERABLE_LOOP);
+
+    while Source.HasNext do
+    begin
+      AssignLoopVariable(Node, OuterScope, Source.Next);
+
+      var KeepLooping: Boolean;
+      Result := RunLoopBody(Node.Body, OwnLabels, KeepLooping);
+      if not KeepLooping then
+        Break;
     end;
   finally
     FCurrentScope := OuterScope;
@@ -2568,7 +2609,7 @@ begin
 
   FLimits.EnsureArrayLength(Node.Elements.Count);
 
-  const Arr = TJSArray.Create;
+  const Arr: IJSArray = TJSArray.Create;
   Arr.Prototype := FArrayPrototype;
 
   for var Element in Node.Elements do
@@ -3109,10 +3150,6 @@ begin
   const IsRestrictedName = (TargetName = 'eval') or (TargetName = ARGUMENTS_NAME);
   if IsRestrictedName then
     raise TJSErrorFactory.SyntaxError('Assignment to ' + TargetName + ' in strict mode', Node.Line, Node.Column);
-
-  const IsDeclared = FCurrentScope.HasVariable(TargetName);
-  if not IsDeclared then
-    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + TargetName, Node.Line, Node.Column);
 end;
 
 function TJSInterpreter.VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
@@ -3256,28 +3293,62 @@ end;
 
 function TJSInterpreter.OpenArraySource(const Value: TJSValue): TJSArraySource;
 begin
-  Result := Default(TJSArraySource);
+  if not TryOpenArraySource(Value, Result) then
+    raise TJSErrorFactory.TypeError(PATTERN_NOT_ITERABLE);
+end;
 
-  var SourceArray: IJSArray;
-  const IsArray = Value.IsArray and Supports(Value.ToObject, IJSArray, SourceArray);
-  if IsArray then
+function TJSInterpreter.TryOpenArraySource(const Value: TJSValue; out Source: TJSArraySource): Boolean;
+begin
+  Source := Default(TJSArraySource);
+  Result := True;
+
+  if Value.IsString then
   begin
-    Result.Elements := SourceArray;
+    Source := OpenStringSource(Value.ToString);
     Exit;
   end;
 
-  if not Value.IsString then
-    raise TJSErrorFactory.TypeError(PATTERN_NOT_ITERABLE);
+  if not Value.IsObject then
+    Exit(False);
+
+  const Target = Value.ToObject;
+
+  var SourceArray: IJSArray;
+  if Supports(Target, IJSArray, SourceArray) then
+  begin
+    Source.Elements := SourceArray;
+    Exit;
+  end;
+
+  var Wrapper: IJSPrimitiveWrapper;
+  const IsStringWrapper = Supports(Target, IJSPrimitiveWrapper, Wrapper) and Wrapper.Primitive.IsString;
+  if IsStringWrapper then
+  begin
+    Source := OpenStringSource(Wrapper.Primitive.ToString);
+    Exit;
+  end;
+
+  if Supports(Target, IJSArgumentsScope) then
+  begin
+    Source.ArrayLike := Target;
+    Exit;
+  end;
+
+  Result := False;
+end;
+
+function TJSInterpreter.OpenStringSource(const Text: string): TJSArraySource;
+begin
+  Result := Default(TJSArraySource);
 
   const Items = TList<TJSValue>.Create;
   try
-    AppendStringValues(Value.ToString, Items);
+    AppendStringValues(Text, Items);
     Result.Items := Items.ToArray;
   finally
     Items.Free;
   end;
 end;
-
 procedure TJSInterpreter.BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue;
                                            const Mode: TJSBindingMode);
 begin
@@ -3406,6 +3477,10 @@ begin
     Exit(AssignToGlobalVariable(Node, Identifier));
 
   const Binding = FCurrentScope.Resolve(Identifier.Name);
+
+  const IsUndeclaredInStrictCode = FStrictMode and (not Assigned(Binding));
+  if IsUndeclaredInStrictCode then
+    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + Identifier.Name, Node.Line, Node.Column);
 
   var NewValue: TJSValue;
   if Node.Operator = TJSAssignmentOperator.Assign then

@@ -26,6 +26,7 @@ type
     DoWhileStatement,
     ForStatement,
     ForInStatement,
+    ForOfStatement,
     ReturnStatement,
     BreakStatement,
     ContinueStatement,
@@ -746,6 +747,10 @@ type
     FBody: TJSStatement;
     FMayCaptureScope: Boolean;
 
+  protected
+    constructor CreateOfType(const NodeType: TJSASTNodeType; const Left: TJSASTNode; const Right: TJSExpression;
+                             const Body: TJSStatement);
+
   public
     constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
     destructor Destroy; override;
@@ -754,6 +759,11 @@ type
     property Right: TJSExpression read FRight;
     property Body: TJSStatement read FBody;
     property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
+  end;
+
+  TJSForOfStatement = class(TJSForInStatement)
+  public
+    constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
   end;
 
   TJSReturnStatement = class(TJSStatement)
@@ -1577,7 +1587,13 @@ end;
 
 constructor TJSForInStatement.Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
 begin
-  inherited Create(TJSASTNodeType.ForInStatement);
+  CreateOfType(TJSASTNodeType.ForInStatement, Left, Right, Body);
+end;
+
+constructor TJSForInStatement.CreateOfType(const NodeType: TJSASTNodeType; const Left: TJSASTNode;
+                                           const Right: TJSExpression; const Body: TJSStatement);
+begin
+  inherited Create(NodeType);
   FLeft := Left;
   FRight := Right;
   FBody := Body;
@@ -1589,6 +1605,13 @@ begin
   FRight.Free;
   FBody.Free;
   inherited;
+end;
+
+{ TJSForOfStatement }
+
+constructor TJSForOfStatement.Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
+begin
+  CreateOfType(TJSASTNodeType.ForOfStatement, Left, Right, Body);
 end;
 
 { TJSReturnStatement }

@@ -27,7 +27,6 @@ language/statements/async-generator/
 language/statements/await-using/
 language/statements/class/
 language/statements/for-await-of/
-language/statements/for-of/
 language/statements/generators/
 language/statements/using/
 language/statements/switch/scope-lex-async-

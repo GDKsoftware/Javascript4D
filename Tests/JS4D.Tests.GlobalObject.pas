@@ -123,6 +123,27 @@ type
 
     [Test]
     procedure TwoEngines_RunningSameSource_KeepTheirOwnGlobals;
+
+    [Test]
+    procedure GlobalObject_InheritsFromObjectPrototype;
+
+    [Test]
+    procedure GlobalObject_HasOwnProperty_IsInherited;
+
+    [Test]
+    procedure GlobalObject_InheritedObjectPrototypeMethods_AreVisibleAsVariables;
+
+    [Test]
+    procedure GlobalObject_InheritedProperties_AreNotOwn;
+
+    [Test]
+    procedure StrictAssignment_ToUndeclaredName_IsReferenceError;
+
+    [Test]
+    procedure StrictAssignment_ToDeclaredGlobal_Succeeds;
+
+    [Test]
+    procedure StrictAssignment_ToInheritedGlobalName_AssignsWithoutError;
   end;
 
 implementation
@@ -409,6 +430,46 @@ begin
   finally
     Other.Free;
   end;
+end;
+
+procedure TGlobalObjectTests.GlobalObject_InheritsFromObjectPrototype;
+begin
+  Assert.IsTrue(EvaluatesToTrue('Object.getPrototypeOf(this) === Object.prototype'));
+end;
+
+procedure TGlobalObjectTests.GlobalObject_HasOwnProperty_IsInherited;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var answer = 1; this.hasOwnProperty("answer") && !this.hasOwnProperty("nothing")'));
+end;
+
+procedure TGlobalObjectTests.GlobalObject_InheritedObjectPrototypeMethods_AreVisibleAsVariables;
+begin
+  Assert.IsTrue(EvaluatesToTrue('typeof hasOwnProperty === "function" && typeof toString === "function"'));
+end;
+
+procedure TGlobalObjectTests.GlobalObject_InheritedProperties_AreNotOwn;
+begin
+  Assert.IsFalse(EvaluatesToTrue('this.hasOwnProperty("hasOwnProperty")'));
+end;
+
+procedure TGlobalObjectTests.StrictAssignment_ToUndeclaredName_IsReferenceError;
+begin
+  const Script = 'var caught = ""; try { (function () { "use strict"; undeclaredName = 1; })(); } ' +
+                 'catch (e) { caught = e.name; } caught === "ReferenceError"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.StrictAssignment_ToDeclaredGlobal_Succeeds;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var answer = 1; (function () { "use strict"; answer = 2; })(); answer === 2'));
+end;
+
+procedure TGlobalObjectTests.StrictAssignment_ToInheritedGlobalName_AssignsWithoutError;
+begin
+  const Script = '(function () { "use strict"; valueOf = 5; })(); this.valueOf === 5';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
 end;
 
 end.

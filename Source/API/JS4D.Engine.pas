@@ -1841,6 +1841,7 @@ begin
     GlobalValue.ToObject.Prototype := ObjectPrototype;
   end;
 
+  FInterpreter.GlobalObject.Prototype := ObjectPrototype;
   FInterpreter.ObjectPrototype := ObjectPrototype;
   FInterpreter.ArrayPrototype := GlobalPrototype(ARRAY_NAME);
   FInterpreter.FunctionPrototype := GlobalPrototype(FUNCTION_NAME);

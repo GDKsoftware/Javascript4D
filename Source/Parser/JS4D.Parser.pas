@@ -63,6 +63,11 @@ type
     procedure RejectMissingPatternInitializers(const Declaration: TJSVariableDeclaration);
     function ParseForVarDeclarations: TJSVariableDeclaration;
     function ParseForInStatementRest(const Left: TJSASTNode): TJSStatement;
+    function ParseForOfStatementRest(const Left: TJSASTNode; const IsDeclaration: Boolean): TJSStatement;
+    procedure RejectForOfInitializer(const Declaration: TJSVariableDeclaration);
+    function IsOfKeyword: Boolean;
+    function IsAsyncOfHead: Boolean;
+    function MatchOf: Boolean;
     function ConvertForInTarget(const Target: TJSExpression): TJSExpression;
     procedure RejectCoverInitializers(const CoverMark: Integer; const Node: TJSASTNode);
     function ParseLexicalDeclaration: TJSVariableDeclaration;
@@ -237,12 +242,16 @@ const
   MissingConstInitializerMessage = 'Missing initializer in const declaration';
   LetBindingNameMessage = 'let is disallowed as a lexically bound name';
   ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
+  ForOfHeadMessage = 'for-of loop head must declare a single binding without an initializer';
+  AsyncOfHeadMessage = 'The left-hand side of a for-of loop may not be async';
   DuplicateArrowParameterMessage = 'Duplicate parameter name not allowed in arrow functions';
   DuplicateNonSimpleParameterMessage = 'Duplicate parameter name not allowed with default or rest parameters';
   StrictNonSimpleParametersMessage = '''use strict'' directive not allowed in a function with default or rest parameters';
   RestParameterNotLastMessage = 'Rest parameter must be last formal parameter';
   InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
+  OF_NAME = 'of';
+  ASYNC_NAME = 'async';
   PATTERN_PARAMETER_FORMAT = '(pattern %d)';
   REST_PATTERN_NAME = '(rest pattern)';
   InvalidDestructuringTargetMessage = 'Invalid destructuring assignment target';
@@ -1001,12 +1010,16 @@ begin
     if Match(TJSTokenType.KeywordIn) then
       Exit(ParseForInStatementRest(Declaration));
 
+    if MatchOf then
+      Exit(ParseForOfStatementRest(Declaration, True));
+
     Init := Declaration;
   end
   else if not Check(TJSTokenType.Semicolon) then
   begin
     const CoverMark = FCoverInitializerCount;
     FInLiteralElement := True;
+    const StartsWithAsyncOf = IsAsyncOfHead;
     var Expr := ParseExpressionWithoutIn;
 
     if Match(TJSTokenType.KeywordIn) then
@@ -1014,6 +1027,19 @@ begin
       Expr := ConvertForInTarget(Expr);
       RejectCoverInitializers(CoverMark, Expr);
       Exit(ParseForInStatementRest(Expr));
+    end;
+
+    if MatchOf then
+    begin
+      if StartsWithAsyncOf then
+      begin
+        Expr.Free;
+        raise TJSErrorFactory.SyntaxError(AsyncOfHeadMessage, CurrentToken.Line, CurrentToken.Column);
+      end;
+
+      Expr := ConvertForInTarget(Expr);
+      RejectCoverInitializers(CoverMark, Expr);
+      Exit(ParseForOfStatementRest(Expr, False));
     end;
 
     RejectCoverInitializers(CoverMark, Expr);
@@ -1052,7 +1078,7 @@ begin
   try
     ParseVarDeclarator(Result);
 
-    if Check(TJSTokenType.KeywordIn) then
+    if Check(TJSTokenType.KeywordIn) or IsOfKeyword then
       Exit;
 
     while Match(TJSTokenType.Comma) do
@@ -1075,6 +1101,62 @@ begin
   const Body = ParseLoopBody([Left, Right]);
 
   Result := TJSForInStatement.Create(Left, Right, Body);
+end;
+
+function TJSParser.IsAsyncOfHead: Boolean;
+begin
+  const IsAsyncWord = (Check(TJSTokenType.Identifier) and (CurrentToken.Value = ASYNC_NAME) and
+                       (not CurrentToken.HasEscape));
+  if not IsAsyncWord then
+    Exit(False);
+
+  const FollowingToken = FLexer.PeekToken(1);
+  const IsOfWord = ((FollowingToken.TokenType = TJSTokenType.Identifier) and (FollowingToken.Value = OF_NAME) and
+                    (not FollowingToken.HasEscape));
+  const IsArrowParameter = (FLexer.PeekToken(2).TokenType = TJSTokenType.Arrow);
+
+  Result := IsOfWord and (not IsArrowParameter);
+end;
+
+function TJSParser.IsOfKeyword: Boolean;
+begin
+  Result := (Check(TJSTokenType.Identifier) and (CurrentToken.Value = OF_NAME) and (not CurrentToken.HasEscape));
+end;
+
+function TJSParser.MatchOf: Boolean;
+begin
+  Result := IsOfKeyword;
+
+  if Result then
+    Advance;
+end;
+
+function TJSParser.ParseForOfStatementRest(const Left: TJSASTNode; const IsDeclaration: Boolean): TJSStatement;
+begin
+  var Right: TJSExpression := nil;
+
+  try
+    if IsDeclaration then
+      RejectForOfInitializer(TJSVariableDeclaration(Left));
+
+    Right := ParseAssignmentExpression;
+    Expect(TJSTokenType.RightParen);
+  except
+    FreeOwned([Left, Right]);
+    raise;
+  end;
+
+  const Body = ParseLoopBody([Left, Right]);
+
+  Result := TJSForOfStatement.Create(Left, Right, Body);
+end;
+
+procedure TJSParser.RejectForOfInitializer(const Declaration: TJSVariableDeclaration);
+begin
+  const IsSingleBinding = (Declaration.Declarations.Count = 1);
+  const HasInitializer = IsSingleBinding and Assigned(Declaration.Declarations[0].Init);
+  if (not IsSingleBinding) or HasInitializer then
+    raise TJSErrorFactory.SyntaxError(ForOfHeadMessage, CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.ConvertForInTarget(const Target: TJSExpression): TJSExpression;
@@ -1133,6 +1215,7 @@ begin
   var Right: TJSExpression := nil;
   var Test: TJSExpression := nil;
   var Update: TJSExpression := nil;
+  var IsForOf := False;
 
   try
     ParseLexicalBinding(Declaration, False, False);
@@ -1143,6 +1226,12 @@ begin
         raise TJSErrorFactory.SyntaxError(ForInInitializerMessage, CurrentToken.Line, CurrentToken.Column);
 
       Right := ParseExpression;
+    end
+    else if MatchOf then
+    begin
+      IsForOf := True;
+      RejectForOfInitializer(Declaration);
+      Right := ParseAssignmentExpression;
     end
     else
     begin
@@ -1176,8 +1265,12 @@ begin
     raise;
   end;
 
-  const IsForIn = Assigned(Right);
-  if IsForIn then
+  if IsForOf then
+  begin
+    const ForOfBody = ParseLoopBody([Declaration, Right]);
+    Result := TJSForOfStatement.Create(Declaration, Right, ForOfBody);
+  end
+  else if Assigned(Right) then
   begin
     const ForInBody = ParseLoopBody([Declaration, Right]);
     Result := TJSForInStatement.Create(Declaration, Right, ForInBody);
