@@ -584,7 +584,8 @@ uses
   JS4D.Errors,
   JS4D.NumberFormat,
   JS4D.NumberParse,
-  JS4D.RegExpSyntax;
+  JS4D.RegExpSyntax,
+  JS4D.RegExpTranslator;
 
 { TJSLimits }
 
@@ -2207,7 +2208,7 @@ begin
   if Pattern.IsEmpty then
     CompilablePattern := EMPTY_PATTERN_GROUP;
 
-  FMatcher := TJSPcreMatcher.Create(CompilablePattern, FIgnoreCase, FMultiline);
+  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
 
   SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
   SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));

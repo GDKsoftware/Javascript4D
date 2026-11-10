@@ -47,6 +47,7 @@ type
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
     function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
+    function IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
@@ -1685,6 +1686,25 @@ begin
     Result := SourceRegExp.Flags;
 end;
 
+function TJSEngine.IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
+begin
+  const HasPattern = (Length(Args) > 0) and Args[0].IsObject;
+  if not HasPattern then
+    Exit(False);
+
+  var SourceRegExp: IJSRegExp;
+  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
+  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
+  if (not IsRegExp) or HasFlags then
+    Exit(False);
+
+  const SourceObject = Args[0].ToObject;
+  const SourceConstructor = SourceObject.GetProperty(CONSTRUCTOR_PROPERTY);
+  const RegExpConstructor = PrototypeObj.GetProperty(CONSTRUCTOR_PROPERTY);
+
+  Result := SourceConstructor.StrictEquals(RegExpConstructor);
+end;
+
 procedure TJSEngine.RegisterRegExp;
 begin
   const PrototypeObj: IJSObject = TJSObject.Create;
@@ -1692,6 +1712,10 @@ begin
   const RegExpFunc = TJSFunction.CreateNative(REGEXP_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const IsCall = not TJSPrototypeMethods.IsConstructCall(This, PrototypeObj);
+      if IsCall and IsRegExpWithoutFlags(Args, PrototypeObj) then
+        Exit(Args[0]);
+
       const Pattern = RegExpPatternArgument(Args);
       const Flags = RegExpFlagsArgument(Args);
 

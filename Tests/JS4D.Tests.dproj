@@ -93,6 +93,7 @@
         <DCCReference Include="..\Source\Core\JS4D.Types.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.RegExpSyntax.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.RegExpTranslator.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
@@ -143,6 +144,7 @@
         <DCCReference Include="JS4D.Tests.LexicalGrammar.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayIterationLength.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpMatching.pas"/>
+        <DCCReference Include="JS4D.Tests.RegExpPatternSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.NumberFormat.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionObjects.pas"/>
         <DCCReference Include="JS4D.Tests.NumberParsing.pas"/>

@@ -45,7 +45,7 @@ constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boole
 begin
   inherited Create;
   FPattern := Pattern;
-  FOptions := PCRE_UTF8 or PCRE_NEWLINE_ANY;
+  FOptions := PCRE_UTF8 or PCRE_NEWLINE_ANY or PCRE_JAVASCRIPT_COMPAT or PCRE_DOLLAR_ENDONLY;
 
   if IgnoreCase then
     FOptions := FOptions or PCRE_CASELESS;
