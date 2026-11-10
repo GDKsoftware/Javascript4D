@@ -26,6 +26,7 @@ type
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
+    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -77,6 +78,20 @@ begin
     Exit(FParent.GetVariable(Name));
 
   Result := TJSValue.CreateUndefined;
+end;
+
+function TJSObjectScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
+begin
+  Result := FBindingObject.HasProperty(Name);
+
+  if Result then
+  begin
+    Value := FBindingObject.GetProperty(Name);
+    Exit;
+  end;
+
+  if Assigned(FParent) then
+    Result := FParent.TryGetVariable(Name, Value);
 end;
 
 procedure TJSObjectScope.SetVariable(const Name: string; const Value: TJSValue);

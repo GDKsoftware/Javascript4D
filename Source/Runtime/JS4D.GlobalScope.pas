@@ -18,6 +18,7 @@ type
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
+    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -49,6 +50,20 @@ begin
   Result := FGlobalObject.GetProperty(Name);
 end;
 
+function TJSGlobalScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
+begin
+  var Descriptor: TJSPropertyDescriptor;
+  Result := FGlobalObject.TryGetPropertyDescriptor(Name, Descriptor);
+
+  if not Result then
+    Exit;
+
+  if Descriptor.IsAccessor then
+    Value := FGlobalObject.GetProperty(Name)
+  else
+    Value := Descriptor.Value;
+end;
+
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
   FGlobalObject.SetProperty(Name, Value);
@@ -56,12 +71,8 @@ end;
 
 procedure TJSGlobalScope.DeclareVariable(const Name: string; const Value: TJSValue);
 begin
-  const IsNewBinding = not FGlobalObject.HasOwnProperty(Name);
-  if not IsNewBinding then
-  begin
-    FGlobalObject.SetProperty(Name, Value);
+  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
     Exit;
-  end;
 
   var Descriptor := TJSPropertyDescriptor.Create(Value);
   Descriptor.Configurable := False;

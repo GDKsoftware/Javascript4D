@@ -71,6 +71,15 @@ type
 
     [Test]
     procedure StrictAssignment_ToUnresolvableName_ThrowsBeforeEvaluatingRightSide;
+
+    [Test]
+    procedure GlobalAccessor_ReadAsVariable_InvokesGetter;
+
+    [Test]
+    procedure GlobalAccessor_AssignedAsVariable_InvokesSetter;
+
+    [Test]
+    procedure GlobalReadOnlyProperty_AssignedAsVariable_KeepsValue;
   end;
 
 implementation
@@ -185,6 +194,31 @@ procedure TGlobalObjectTests.StrictAssignment_ToUnresolvableName_ThrowsBeforeEva
 begin
   const Script = 'var name = ""; try { (0, eval)("\"use strict\"; undeclared = (this.undeclared = 5);"); } ' +
                  'catch (e) { name = e.name; } name === "ReferenceError"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalAccessor_ReadAsVariable_InvokesGetter;
+begin
+  const Script = 'Object.defineProperty(this, "computed", { get: function() { return 7; }, configurable: true }); ' +
+                 'computed === 7';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalAccessor_AssignedAsVariable_InvokesSetter;
+begin
+  const Script = 'var stored = 0; ' +
+                 'Object.defineProperty(this, "sink", { set: function(v) { stored = v; }, configurable: true }); ' +
+                 'sink = 5; stored === 5';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TGlobalObjectTests.GlobalReadOnlyProperty_AssignedAsVariable_KeepsValue;
+begin
+  const Script = 'Object.defineProperty(this, "fixed", { value: 1, writable: false, configurable: true }); ' +
+                 'fixed = 2; fixed === 1';
 
   Assert.IsTrue(EvaluatesToTrue(Script));
 end;

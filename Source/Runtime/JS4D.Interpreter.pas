@@ -38,6 +38,7 @@ type
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
+    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -408,6 +409,14 @@ begin
     Exit(FParent.GetVariable(Name));
 
   Result := TJSValue.CreateUndefined;
+end;
+
+function TJSScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
+begin
+  Result := FVariables.TryGetValue(Name, Value);
+
+  if (not Result) and Assigned(FParent) then
+    Result := FParent.TryGetVariable(Name, Value);
 end;
 
 procedure TJSScope.SetVariable(const Name: string; const Value: TJSValue);
@@ -1626,10 +1635,8 @@ end;
 
 function TJSInterpreter.VisitIdentifier(const Node: TJSIdentifier): TJSValue;
 begin
-  if not FCurrentScope.HasVariable(Node.Name) then
+  if not FCurrentScope.TryGetVariable(Node.Name, Result) then
     raise TJSErrorFactory.UndefinedVariable(Node.Name, Node.Line, Node.Column);
-
-  Result := FCurrentScope.GetVariable(Node.Name);
 end;
 
 function TJSInterpreter.VisitLiteral(const Node: TJSLiteral): TJSValue;

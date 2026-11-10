@@ -116,6 +116,7 @@ type
     ['{D5E6F7A8-B9C0-1234-5678-90ABCDEF0001}']
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
+    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -130,16 +131,34 @@ type
 
   TNativeFunction = reference to function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 
+  IJSAccessorPair = interface
+    ['{3F6C1B52-8E0A-4D7B-9A41-6C2D5E7F8A90}']
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+    property Getter: TJSValue read GetGetter;
+    property Setter: TJSValue read GetSetter;
+  end;
+
   TJSPropertyDescriptor = record
+  private
+    FAccessors: IJSAccessorPair;
+
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+    procedure SetGetter(const Value: TJSValue);
+    procedure SetSetter(const Value: TJSValue);
+
+  public
     Value: TJSValue;
-    Getter: TJSValue;
-    Setter: TJSValue;
     IsAccessor: Boolean;
     Writable: Boolean;
     Enumerable: Boolean;
     Configurable: Boolean;
 
     class function Create(const AValue: TJSValue): TJSPropertyDescriptor; static;
+
+    property Getter: TJSValue read GetGetter write SetGetter;
+    property Setter: TJSValue read GetSetter write SetSetter;
   end;
 
   TJSPropertyDefinition = record
@@ -187,6 +206,7 @@ type
     procedure PreventExtensions;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
     function HasOwnProperty(const Name: string): Boolean;
+    function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
@@ -347,6 +367,7 @@ type
     procedure PreventExtensions;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
     function HasOwnProperty(const Name: string): Boolean; virtual;
+    function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; virtual;
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
@@ -652,6 +673,64 @@ const
   PROP_LAST_INDEX = 'lastIndex';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
+
+type
+  TJSAccessorPair = class(TInterfacedObject, IJSAccessorPair)
+  private
+    FGetter: TJSValue;
+    FSetter: TJSValue;
+
+    function GetGetter: TJSValue;
+    function GetSetter: TJSValue;
+
+  public
+    constructor Create(const Getter: TJSValue; const Setter: TJSValue);
+  end;
+
+constructor TJSAccessorPair.Create(const Getter: TJSValue; const Setter: TJSValue);
+begin
+  inherited Create;
+  FGetter := Getter;
+  FSetter := Setter;
+end;
+
+function TJSAccessorPair.GetGetter: TJSValue;
+begin
+  Result := FGetter;
+end;
+
+function TJSAccessorPair.GetSetter: TJSValue;
+begin
+  Result := FSetter;
+end;
+
+{ TJSPropertyDescriptor }
+
+function TJSPropertyDescriptor.GetGetter: TJSValue;
+begin
+  if Assigned(FAccessors) then
+    Result := FAccessors.Getter
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+function TJSPropertyDescriptor.GetSetter: TJSValue;
+begin
+  if Assigned(FAccessors) then
+    Result := FAccessors.Setter
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+procedure TJSPropertyDescriptor.SetGetter(const Value: TJSValue);
+begin
+  FAccessors := TJSAccessorPair.Create(Value, Setter);
+end;
+
+procedure TJSPropertyDescriptor.SetSetter(const Value: TJSValue);
+begin
+  FAccessors := TJSAccessorPair.Create(Getter, Value);
+end;
 
 class function TJSPropertyDescriptor.Create(const AValue: TJSValue): TJSPropertyDescriptor;
 begin
@@ -1217,25 +1296,33 @@ begin
     Result := FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
-procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
+function TJSObjectImpl.TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
 var
   Descriptor: TJSPropertyDescriptor;
-  PrototypeDescriptor: TJSPropertyDescriptor;
 begin
-  if FProperties.TryGetValue(Name, Descriptor) then
-  begin
-    if Descriptor.IsAccessor then
-    begin
-      InvokeSetter(Descriptor, Value);
-    end
-    else if Descriptor.Writable then
-    begin
-      Descriptor.Value := Value;
-      FProperties[Name] := Descriptor;
-    end;
+  Result := FProperties.TryGetValue(Name, Descriptor);
 
+  if not Result then
     Exit;
+
+  if Descriptor.IsAccessor then
+  begin
+    InvokeSetter(Descriptor, Value);
+  end
+  else if Descriptor.Writable then
+  begin
+    Descriptor.Value := Value;
+    FProperties[Name] := Descriptor;
   end;
+end;
+
+procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
+var
+  PrototypeDescriptor: TJSPropertyDescriptor;
+  Descriptor: TJSPropertyDescriptor;
+begin
+  if TryAssignOwnProperty(Name, Value) then
+    Exit;
 
   const HasInherited = (FPrototype <> nil) and FPrototype.TryGetPropertyDescriptor(Name, PrototypeDescriptor);
   if HasInherited and PrototypeDescriptor.IsAccessor then
