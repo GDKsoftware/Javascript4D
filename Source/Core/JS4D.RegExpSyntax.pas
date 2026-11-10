@@ -41,9 +41,14 @@ type
     function IsHexDigitAt(const Offset: Integer): Boolean;
 
     procedure Validate;
+
+    class function LineTerminatorEscape(const Character: Char): string; static;
+    class function EscapedCharacter(const Character: Char; const InClass: Boolean): string; static;
+    class function EscapedPair(const Character: Char): string; static;
   public
     class procedure ValidatePattern(const Pattern: string; const Flags: string; const Line: Integer = 0; const Column: Integer = 0);
     class procedure ValidateFlags(const Flags: string; const Line: Integer = 0; const Column: Integer = 0);
+    class function EscapePattern(const Pattern: string): string; static;
   end;
 
 implementation
@@ -55,6 +60,7 @@ uses
 
 const
   ValidFlagCharacters = 'gimuy';
+  EmptyPatternSource = '(?:)';
   ClassSetEscapes = 'dDsSwW';
   BackspaceCode = 8;
   InvalidFlagsMessage = 'Invalid regular expression flags: %s';
@@ -93,6 +99,74 @@ begin
       const Message = Format(InvalidFlagsMessage, [Flags]);
       raise TJSErrorFactory.SyntaxError(Message, Line, Column);
     end;
+  end;
+end;
+
+class function TJSRegExpSyntax.LineTerminatorEscape(const Character: Char): string;
+begin
+  case Character of
+    #10    : Result := '\n';
+    #13    : Result := '\r';
+    #$2028 : Result := '\u2028';
+    #$2029 : Result := '\u2029';
+  else
+    Result := '';
+  end;
+end;
+
+class function TJSRegExpSyntax.EscapedCharacter(const Character: Char; const InClass: Boolean): string;
+begin
+  const LineTerminator = LineTerminatorEscape(Character);
+  if not LineTerminator.IsEmpty then
+    Exit(LineTerminator);
+
+  const IsBareSlash = (Character = '/') and (not InClass);
+  if IsBareSlash then
+    Exit('\/');
+
+  Result := Character;
+end;
+
+class function TJSRegExpSyntax.EscapedPair(const Character: Char): string;
+begin
+  const LineTerminator = LineTerminatorEscape(Character);
+  if not LineTerminator.IsEmpty then
+    Exit(LineTerminator);
+
+  Result := '\' + Character;
+end;
+
+class function TJSRegExpSyntax.EscapePattern(const Pattern: string): string;
+begin
+  if Pattern.IsEmpty then
+    Exit(EmptyPatternSource);
+
+  var Escaped := TStringBuilder.Create;
+  try
+    var InClass := False;
+    var Index := 1;
+    while Index <= Length(Pattern) do
+    begin
+      const Character = Pattern[Index];
+      const IsEscapePair = (Character = '\') and (Index < Length(Pattern));
+
+      if IsEscapePair then
+      begin
+        Inc(Index);
+        Escaped.Append(EscapedPair(Pattern[Index]));
+      end
+      else
+      begin
+        InClass := (InClass or (Character = '[')) and (Character <> ']');
+        Escaped.Append(EscapedCharacter(Character, InClass));
+      end;
+
+      Inc(Index);
+    end;
+
+    Result := Escaped.ToString;
+  finally
+    Escaped.Free;
   end;
 end;
 

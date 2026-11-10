@@ -12,6 +12,8 @@ uses
   JS4D.Builtins;
 
 type
+  TRegExpReader = reference to function(const RegExpObj: IJSRegExp): TJSValue;
+
   TJSPrototypeMethods = class
   private
     FInterpreter: TJSInterpreter;
@@ -34,6 +36,13 @@ type
     function ObjectIsPrototypeOf(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function ErrorToString(const This: IJSObject): TJSValue;
     function RegExpToString(const This: IJSObject): TJSValue;
+    function RegExpFlags(const This: IJSObject): TJSValue;
+    function RegExpFlagValue(const This: IJSObject; const PrototypeObj: IJSObject; const PropertyName: string;
+                             const FromRegExp: TRegExpReader): TJSValue;
+    procedure DefineGetter(const Target: IJSObject; const PropertyName: string; const Getter: TNativeFunction);
+    procedure DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
+                                     const FromRegExp: TRegExpReader);
+    procedure RegisterRegExpAccessors(const PrototypeObj: IJSObject);
     function RegExpExec(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function FunctionToString(const This: IJSObject): TJSValue;
 
@@ -61,6 +70,12 @@ type
 
 implementation
 
+type
+  TRegExpFlagProperty = record
+    Name: string;
+    Flag: Char;
+  end;
+
 const
   METHOD_TO_STRING = 'toString';
   METHOD_VALUE_OF = 'valueOf';
@@ -86,6 +101,28 @@ const
   CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   NOT_A_REGEXP = 'RegExp.prototype.toString called on a value that is not a regular expression';
   NOT_A_REGEXP_RECEIVER = 'RegExp.prototype method called on a value that is not a regular expression';
+  NOT_A_REGEXP_GETTER_RECEIVER = 'RegExp.prototype.%s getter called on a value that is not a regular expression';
+  FLAGS_ON_NON_OBJECT = 'RegExp.prototype.flags getter called on a value that is not an object';
+  GETTER_NAME_FORMAT = 'get %s';
+  PROPERTY_FLAGS = 'flags';
+  PROPERTY_DOT_ALL = 'dotAll';
+  PROPERTY_GLOBAL = 'global';
+  PROPERTY_HAS_INDICES = 'hasIndices';
+  PROPERTY_IGNORE_CASE = 'ignoreCase';
+  PROPERTY_MULTILINE = 'multiline';
+  PROPERTY_STICKY = 'sticky';
+  PROPERTY_UNICODE = 'unicode';
+  PROPERTY_SOURCE = 'source';
+  EMPTY_PATTERN_SOURCE = '(?:)';
+  REGEXP_FLAG_PROPERTIES: array[0..6] of TRegExpFlagProperty = (
+    (Name: PROPERTY_HAS_INDICES; Flag: 'd'),
+    (Name: PROPERTY_GLOBAL; Flag: 'g'),
+    (Name: PROPERTY_IGNORE_CASE; Flag: 'i'),
+    (Name: PROPERTY_MULTILINE; Flag: 'm'),
+    (Name: PROPERTY_DOT_ALL; Flag: 's'),
+    (Name: PROPERTY_UNICODE; Flag: 'u'),
+    (Name: PROPERTY_STICKY; Flag: 'y')
+  );
   UNDEFINED_TEXT = 'undefined';
   NOT_A_FUNCTION = 'Function.prototype.toString called on a value that is not a function';
   ERROR_TO_STRING_ON_NON_OBJECT = 'Error.prototype.toString called on a value that is not an object';
@@ -340,9 +377,118 @@ begin
   if not Supports(This, IJSRegExp, RegExpObj) then
     raise TJSErrorFactory.TypeError(NOT_A_REGEXP);
 
-  const SourceText = Format(REGEXP_FORMAT, [RegExpObj.Pattern, RegExpObj.Flags]);
+  const FlagsText = RegExpFlags(This).ToString;
+  const SourceText = Format(REGEXP_FORMAT, [RegExpObj.Source, FlagsText]);
 
   Result := TJSValue.CreateString(SourceText);
+end;
+
+function TJSPrototypeMethods.RegExpFlags(const This: IJSObject): TJSValue;
+begin
+  if not Assigned(This) or Supports(This, IJSPrimitiveWrapper) then
+    raise TJSErrorFactory.TypeError(FLAGS_ON_NON_OBJECT);
+
+  var Flags := '';
+  for var FlagProperty in REGEXP_FLAG_PROPERTIES do
+  begin
+    if This.GetProperty(FlagProperty.Name).ToBoolean then
+      Flags := Flags + FlagProperty.Flag;
+  end;
+
+  Result := TJSValue.CreateString(Flags);
+end;
+
+function TJSPrototypeMethods.RegExpFlagValue(const This: IJSObject; const PrototypeObj: IJSObject;
+                                             const PropertyName: string;
+                                             const FromRegExp: TRegExpReader): TJSValue;
+begin
+  var RegExpObj: IJSRegExp;
+  if Supports(This, IJSRegExp, RegExpObj) then
+    Exit(FromRegExp(RegExpObj));
+
+  const IsPrototype = Assigned(This) and ((This as IInterface) = (PrototypeObj as IInterface));
+  if IsPrototype then
+    Exit(TJSValue.CreateUndefined);
+
+  raise TJSErrorFactory.TypeError(Format(NOT_A_REGEXP_GETTER_RECEIVER, [PropertyName]));
+end;
+
+procedure TJSPrototypeMethods.DefineGetter(const Target: IJSObject; const PropertyName: string;
+                                           const Getter: TNativeFunction);
+begin
+  const Func: IJSFunction = TJSFunction.CreateNative(Format(GETTER_NAME_FORMAT, [PropertyName]), Getter);
+  Func.IsConstructor := False;
+  TJSFunction.DefineLength(Func, 0);
+
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateUndefined);
+  Descriptor.IsAccessor := True;
+  Descriptor.Getter := TJSValue.CreateObject(Func);
+  Descriptor.Setter := TJSValue.CreateUndefined;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Target.DefineProperty(PropertyName, Descriptor);
+end;
+
+procedure TJSPrototypeMethods.DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
+                                                     const FromRegExp: TRegExpReader);
+begin
+  DefineGetter(PrototypeObj, PropertyName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := RegExpFlagValue(This, PrototypeObj, PropertyName, FromRegExp);
+    end);
+end;
+
+procedure TJSPrototypeMethods.RegisterRegExpAccessors(const PrototypeObj: IJSObject);
+begin
+  DefineGetter(PrototypeObj, PROPERTY_FLAGS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := RegExpFlags(This);
+    end);
+
+  DefineGetter(PrototypeObj, PROPERTY_SOURCE,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := RegExpFlagValue(This, PrototypeObj, PROPERTY_SOURCE,
+        function(const RegExpObj: IJSRegExp): TJSValue
+        begin
+          Result := TJSValue.CreateString(RegExpObj.Source);
+        end);
+
+      if Result.IsUndefined then
+        Result := TJSValue.CreateString(EMPTY_PATTERN_SOURCE);
+    end);
+
+  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_GLOBAL,
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      Result := TJSValue.CreateBoolean(RegExpObj.Global);
+    end);
+
+  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_IGNORE_CASE,
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      Result := TJSValue.CreateBoolean(RegExpObj.IgnoreCase);
+    end);
+
+  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_MULTILINE,
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      Result := TJSValue.CreateBoolean(RegExpObj.Multiline);
+    end);
+
+  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_UNICODE,
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      Result := TJSValue.CreateBoolean(RegExpObj.Unicode);
+    end);
+
+  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_STICKY,
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      Result := TJSValue.CreateBoolean(RegExpObj.Sticky);
+    end);
 end;
 
 function TJSPrototypeMethods.RegExpExec(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -484,6 +630,8 @@ end;
 
 procedure TJSPrototypeMethods.RegisterRegExpMethods(const PrototypeObj: IJSObject);
 begin
+  RegisterRegExpAccessors(PrototypeObj);
+
   DefineMethod(PrototypeObj, METHOD_TO_STRING,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin

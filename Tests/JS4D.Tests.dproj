@@ -155,6 +155,7 @@
         <DCCReference Include="JS4D.Tests.LexicalGrammar.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayIterationLength.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpMatching.pas"/>
+        <DCCReference Include="JS4D.Tests.RegExpAccessors.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpPatternSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.NumberFormat.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionObjects.pas"/>

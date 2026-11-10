@@ -312,13 +312,19 @@ type
     function GetGlobal: Boolean;
     function GetIgnoreCase: Boolean;
     function GetMultiline: Boolean;
+    function GetUnicode: Boolean;
+    function GetSticky: Boolean;
+    function GetSource: string;
     function GetLastIndex: Integer;
     procedure SetLastIndex(const Value: Integer);
     property Pattern: string read GetPattern;
+    property Source: string read GetSource;
     property Flags: string read GetFlags;
     property Global: Boolean read GetGlobal;
     property IgnoreCase: Boolean read GetIgnoreCase;
     property Multiline: Boolean read GetMultiline;
+    property Unicode: Boolean read GetUnicode;
+    property Sticky: Boolean read GetSticky;
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
@@ -560,6 +566,8 @@ type
     FGlobal: Boolean;
     FIgnoreCase: Boolean;
     FMultiline: Boolean;
+    FUnicode: Boolean;
+    FSticky: Boolean;
 
     function ReadLastIndex: Int64;
     procedure WriteLastIndex(const Value: Integer);
@@ -574,6 +582,9 @@ type
     function GetGlobal: Boolean;
     function GetIgnoreCase: Boolean;
     function GetMultiline: Boolean;
+    function GetUnicode: Boolean;
+    function GetSticky: Boolean;
+    function GetSource: string;
     function GetLastIndex: Integer;
     procedure SetLastIndex(const Value: Integer);
 
@@ -589,10 +600,13 @@ type
     function Search(const Str: string): Integer;
 
     property Pattern: string read GetPattern;
+    property Source: string read GetSource;
     property Flags: string read GetFlags;
     property Global: Boolean read GetGlobal;
     property IgnoreCase: Boolean read GetIgnoreCase;
     property Multiline: Boolean read GetMultiline;
+    property Unicode: Boolean read GetUnicode;
+    property Sticky: Boolean read GetSticky;
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
@@ -696,11 +710,6 @@ const
   PROP_NAME = 'name';
   PROP_MESSAGE = 'message';
   PROP_STACK = 'stack';
-  PROP_SOURCE = 'source';
-  PROP_FLAGS = 'flags';
-  PROP_GLOBAL = 'global';
-  PROP_IGNORE_CASE = 'ignoreCase';
-  PROP_MULTILINE = 'multiline';
   PROP_LAST_INDEX = 'lastIndex';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
@@ -2389,6 +2398,8 @@ begin
   FGlobal := (Pos('g', Flags) > 0);
   FIgnoreCase := (Pos('i', Flags) > 0);
   FMultiline := (Pos('m', Flags) > 0);
+  FUnicode := (Pos('u', Flags) > 0);
+  FSticky := (Pos('y', Flags) > 0);
 
   var CompilablePattern := Pattern;
   if Pattern.IsEmpty then
@@ -2396,12 +2407,10 @@ begin
 
   FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
 
-  SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
-  SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));
-  SetProperty(PROP_GLOBAL, TJSValue.CreateBoolean(FGlobal));
-  SetProperty(PROP_IGNORE_CASE, TJSValue.CreateBoolean(FIgnoreCase));
-  SetProperty(PROP_MULTILINE, TJSValue.CreateBoolean(FMultiline));
-  SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
+  var LastIndexDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(0));
+  LastIndexDescriptor.Enumerable := False;
+  LastIndexDescriptor.Configurable := False;
+  DefineProperty(PROP_LAST_INDEX, LastIndexDescriptor);
 end;
 
 destructor TJSRegExpImpl.Destroy;
@@ -2433,6 +2442,21 @@ end;
 function TJSRegExpImpl.GetMultiline: Boolean;
 begin
   Result := FMultiline;
+end;
+
+function TJSRegExpImpl.GetUnicode: Boolean;
+begin
+  Result := FUnicode;
+end;
+
+function TJSRegExpImpl.GetSticky: Boolean;
+begin
+  Result := FSticky;
+end;
+
+function TJSRegExpImpl.GetSource: string;
+begin
+  Result := TJSRegExpSyntax.EscapePattern(FPattern);
 end;
 
 function TJSRegExpImpl.GetLastIndex: Integer;
@@ -2488,8 +2512,10 @@ end;
 
 function TJSRegExpImpl.FindMatch(const Str: string): TJSRegExpMatch;
 begin
+  const UsesLastIndex = FGlobal or FSticky;
+
   var Start := ReadLastIndex;
-  if not FGlobal then
+  if not UsesLastIndex then
     Start := 0;
 
   const InRange = (Start >= 0) and (Start <= Length(Str));
@@ -2498,13 +2524,17 @@ begin
   else
     Result := Default(TJSRegExpMatch);
 
+  const MissedStickyPosition = FSticky and Result.Found and (Result.Index <> Start);
+  if MissedStickyPosition then
+    Result := Default(TJSRegExpMatch);
+
   if not Result.Found then
   begin
     WriteLastIndex(0);
     Exit;
   end;
 
-  if FGlobal then
+  if UsesLastIndex then
     WriteLastIndex(Result.Index + Result.Length);
 end;
 
