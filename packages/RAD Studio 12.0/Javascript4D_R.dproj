@@ -120,6 +120,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.GlobalScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.LexicalStates.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.MathFunctions.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.NumericBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectKeys.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Operators.pas"/>

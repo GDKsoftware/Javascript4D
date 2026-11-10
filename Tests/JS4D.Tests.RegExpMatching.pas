@@ -25,6 +25,12 @@ type
     procedure TearDown;
 
     [Test]
+    procedure Quantifier_BoundBeyondEngineLimit_StillCompiles;
+
+    [Test]
+    procedure Quantifier_HugeNumberInEscapeOrClass_IsLeftAlone;
+
+    [Test]
     procedure Exec_TrailingGroupDidNotParticipate_IsUndefinedAndCounted;
 
     [Test]
@@ -145,6 +151,20 @@ end;
 procedure TRegExpMatchingTests.AssertScript(const Script: string);
 begin
   Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean, Script);
+end;
+
+procedure TRegExpMatchingTests.Quantifier_BoundBeyondEngineLimit_StillCompiles;
+begin
+  AssertScript(
+    '!new RegExp("b{9007199254740991}").test("") && !new RegExp("b{9007199254740991,}?").test("a") &&' +
+    '!new RegExp("b{9007199254740991,9007199254740991}").test("b") && /^b{0,9007199254740991}$/.test("bbb") &&' +
+    '/^b{00000002}$/.test("bb")');
+end;
+
+procedure TRegExpMatchingTests.Quantifier_HugeNumberInEscapeOrClass_IsLeftAlone;
+begin
+  AssertScript(
+    '/\{99999999\}/.test("{99999999}") && /[{99999999}]/.test("9")');
 end;
 
 procedure TRegExpMatchingTests.Exec_TrailingGroupDidNotParticipate_IsUndefinedAndCounted;

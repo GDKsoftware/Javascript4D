@@ -31,7 +31,7 @@ type
         (Owner: 'Object';
          Entries: 'getPrototypeOf:1 getOwnPropertyDescriptor:2 getOwnPropertyNames:1 create:2 defineProperty:3 ' +
                   'defineProperties:2 seal:1 freeze:1 preventExtensions:1 isSealed:1 isFrozen:1 isExtensible:1 ' +
-                  'keys:1 assign:2 entries:1 values:1 is:2'),
+                  'keys:1 assign:2 entries:1 values:1 is:2 getOwnPropertyDescriptors:1'),
         (Owner: 'Object.prototype';
          Entries: 'toString:0 toLocaleString:0 valueOf:0 hasOwnProperty:1 isPrototypeOf:1 propertyIsEnumerable:1'),
         (Owner: 'Function';

@@ -58,6 +58,7 @@ const
   ClassSetEscapes = 'dDsSwW';
   BackspaceCode = 8;
   InvalidFlagsMessage = 'Invalid regular expression flags: %s';
+  SaturatedQuantifierBound = 100000000000000000;
 
 constructor TJSRegExpSyntax.Create(const Pattern: string; const Flags: string; const Line: Integer; const Column: Integer);
 begin
@@ -293,7 +294,7 @@ begin
 
   while CharInSet(Current, ['0'..'9']) do
   begin
-    if Result < High(Integer) then
+    if Result < SaturatedQuantifierBound then
       Result := (Result * 10) + (Ord(Current) - Ord('0'));
 
     Inc(FPosition);
@@ -322,7 +323,7 @@ begin
       if HasMaximum then
         Maximum := ReadDigits
       else
-        Maximum := High(Integer);
+        Maximum := High(Int64);
     end;
 
     if Current <> '}' then

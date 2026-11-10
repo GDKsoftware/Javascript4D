@@ -67,6 +67,7 @@ contains
   JS4D.GlobalScope in '..\..\Source\Runtime\JS4D.GlobalScope.pas',
   JS4D.LexicalStates in '..\..\Source\Runtime\JS4D.LexicalStates.pas',
   JS4D.MathFunctions in '..\..\Source\Runtime\JS4D.MathFunctions.pas',
+  JS4D.NumericBuiltins in '..\..\Source\Runtime\JS4D.NumericBuiltins.pas',
   JS4D.ObjectKeys in '..\..\Source\Runtime\JS4D.ObjectKeys.pas',
   JS4D.ObjectScope in '..\..\Source\Runtime\JS4D.ObjectScope.pas',
   JS4D.Operators in '..\..\Source\Runtime\JS4D.Operators.pas',

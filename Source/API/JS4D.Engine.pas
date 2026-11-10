@@ -29,6 +29,7 @@ uses
   JS4D.JsonReviver,
   JS4D.UriCoding,
   JS4D.MathFunctions,
+  JS4D.NumericBuiltins,
   JS4D.NumberParse,
   JS4D.Errors;
 
@@ -209,6 +210,9 @@ const
   OBJECT_GET_PROTOTYPE_OF = 'getPrototypeOf';
   OBJECT_GET_OWN_PROPERTY_NAMES = 'getOwnPropertyNames';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
+  OBJECT_GET_OWN_PROPERTY_DESCRIPTORS = 'getOwnPropertyDescriptors';
+  OBJECT_IS = 'is';
+  GLOBAL_THIS_NAME = 'globalThis';
   OBJECT_DEFINE_PROPERTY = 'defineProperty';
   OBJECT_DEFINE_PROPERTIES = 'defineProperties';
   OBJECT_CREATE = 'create';
@@ -485,6 +489,9 @@ begin
   DefineConstant(NumberFunc, 'NaN', TJSValue.CreateNaN);
   DefineConstant(NumberFunc, 'POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
   DefineConstant(NumberFunc, 'NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
+  TJSNumericBuiltins.RegisterNumber(NumberFunc,
+                                    FInterpreter.GetGlobalVariable(PARSE_INT_NAME),
+                                    FInterpreter.GetGlobalVariable(PARSE_FLOAT_NAME));
 
   AttachPrototypeObject(NumberFunc, NumberPrototype);
 
@@ -549,6 +556,9 @@ begin
   RegisterUriFunction(DECODE_URI_NAME, TJSUriCoding.DecodeURI);
   RegisterUriFunction(ENCODE_URI_COMPONENT_NAME, TJSUriCoding.EncodeURIComponent);
   RegisterUriFunction(DECODE_URI_COMPONENT_NAME, TJSUriCoding.DecodeURIComponent);
+
+  DefineHiddenProperty(FInterpreter.GlobalObject, GLOBAL_THIS_NAME,
+                       TJSValue.CreateObject(FInterpreter.GlobalObject));
 
   RegisterConsole;
   RegisterMath;
@@ -980,6 +990,8 @@ begin
       Result := TJSValue.CreateNumber(TJSMathFunctions.Sign(Args[0].ToNumber));
     end)));
 
+  TJSNumericBuiltins.RegisterMath(MathObj);
+
   FInterpreter.SetGlobalVariable(MATH_NAME, TJSValue.CreateObject(MathObj));
 end;
 
@@ -1283,6 +1295,33 @@ begin
 
       const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Obj.GetOwnPropertyDescriptor(PropName));
       Result := TJSValue.CreateObject(DescObj);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_DESCRIPTORS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_DESCRIPTORS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Target = ArgumentAt(Args, 0);
+      const Source = CoerceToObject(Target);
+
+      const Descriptors = TJSObject.Create;
+      Descriptors.Prototype := PrototypeObj;
+
+      for var PropName in Source.GetOwnPropertyNames do
+      begin
+        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Source.GetOwnPropertyDescriptor(PropName));
+        Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
+      end;
+
+      Result := TJSValue.CreateObject(Descriptors);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_IS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_IS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Left = ArgumentAt(Args, 0);
+      const Right = ArgumentAt(Args, 1);
+
+      Result := TJSValue.CreateBoolean(Left.SameValue(Right));
     end)));
 
   ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTY, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTY,
