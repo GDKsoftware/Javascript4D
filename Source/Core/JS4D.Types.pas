@@ -579,6 +579,7 @@ uses
   System.Math,
   JS4D.Errors,
   JS4D.NumberFormat,
+  JS4D.NumberParse,
   JS4D.RegExpSyntax;
 
 { TJSLimits }
@@ -867,16 +868,7 @@ begin
       Result := FNumberValue;
     TJSValueType.String_:
       begin
-        const TrimmedValue = Trim(FStringValue);
-
-        if TrimmedValue = '' then
-          Exit(0);
-
-        var NumberValue: Double;
-        if TryStrToFloat(TrimmedValue, NumberValue, TFormatSettings.Invariant) then
-          Result := NumberValue
-        else
-          Result := System.Math.NaN;
+        Result := TJSNumberParse.StringToNumber(FStringValue);
       end;
     TJSValueType.Object_:
       begin

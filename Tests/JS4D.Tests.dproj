@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</ProjectGuid>
@@ -96,6 +96,7 @@
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
@@ -142,6 +143,7 @@
         <DCCReference Include="JS4D.Tests.RegExpMatching.pas"/>
         <DCCReference Include="JS4D.Tests.NumberFormat.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionObjects.pas"/>
+        <DCCReference Include="JS4D.Tests.NumberParsing.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

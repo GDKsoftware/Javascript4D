@@ -15,6 +15,7 @@ uses
   JS4D.Parser,
   JS4D.AST,
   JS4D.Interpreter,
+  JS4D.Operators,
   JS4D.Builtins,
   JS4D.ArrayIteration,
   JS4D.ArrayGeneric,
@@ -25,6 +26,7 @@ uses
   JS4D.Json,
   JS4D.JsonSyntax,
   JS4D.UriCoding,
+  JS4D.NumberParse,
   JS4D.Errors;
 
 type
@@ -42,6 +44,7 @@ type
     class function ConvertJSONToJSValue(const JSONValue: TJSONValue): TJSValue; static;
 
     function ToText(const Value: TJSValue): string;
+    class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
     function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
     function GetStepBudget: Int64;
@@ -347,6 +350,14 @@ begin
   FInterpreter.Cancel;
 end;
 
+class function TJSEngine.ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
+begin
+  if Index < Length(Args) then
+    Result := Args[Index]
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
 function TJSEngine.ToText(const Value: TJSValue): string;
 begin
   const IsArray = (Value.ValueType = TJSValueType.Array_);
@@ -459,92 +470,36 @@ begin
   FInterpreter.RegisterNativeFunction(PARSE_INT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      const Text = ToText(ArgumentAt(Args, 0));
+      const Radix = TJSOperators.ToInt32(ArgumentAt(Args, 1));
 
-      const Text = ToText(Args[0]);
-      const Str = Trim(Text);
-      var Radix := 10;
-
-      if Length(Args) > 1 then
-        Radix := Trunc(Args[1].ToNumber);
-
-      if (Radix < 2) or (Radix > 36) then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
-
-      var IntValue: Int64;
-
-      if (Radix = 10) and TryStrToInt64(Str, IntValue) then
-      begin
-        Result := TJSValue.CreateNumber(IntValue);
-        Exit;
-      end;
-
-      if (Radix = 16) and (Str.StartsWith('0x', True) or Str.StartsWith('0X', True)) then
-      begin
-        if TryStrToInt64('$' + Str.Substring(2), IntValue) then
-        begin
-          Result := TJSValue.CreateNumber(IntValue);
-          Exit;
-        end;
-      end;
-
-      Result := TJSValue.CreateNaN;
+      Result := TJSValue.CreateNumber(TJSNumberParse.ParseInt(Text, Radix));
     end);
 
   FInterpreter.RegisterNativeFunction(PARSE_FLOAT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateNaN;
-        Exit;
-      end;
+      const Text = ToText(ArgumentAt(Args, 0));
 
-      const Text = ToText(Args[0]);
-      const Str = Trim(Text);
-      var FloatValue: Double;
-
-      if TryStrToFloat(Str, FloatValue, TFormatSettings.Invariant) then
-      begin
-        Result := TJSValue.CreateNumber(FloatValue);
-        Exit;
-      end;
-
-      Result := TJSValue.CreateNaN;
+      Result := TJSValue.CreateNumber(TJSNumberParse.ParseFloat(Text));
     end);
 
   FInterpreter.RegisterNativeFunction(IS_NAN_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateBoolean(True);
-        Exit;
-      end;
+      const Num = TJSOperators.ToNumber(ArgumentAt(Args, 0));
 
-      Result := TJSValue.CreateBoolean(System.Math.IsNaN(Args[0].ToNumber));
+      Result := TJSValue.CreateBoolean(System.Math.IsNaN(Num));
     end);
 
   FInterpreter.RegisterNativeFunction(IS_FINITE_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateBoolean(False);
-        Exit;
-      end;
+      const Num = TJSOperators.ToNumber(ArgumentAt(Args, 0));
+      const IsFiniteNumber = (not System.Math.IsNaN(Num)) and (not System.Math.IsInfinite(Num));
 
-      const Num = Args[0].ToNumber;
-      Result := TJSValue.CreateBoolean((not System.Math.IsNaN(Num)) and (not System.Math.IsInfinite(Num)));
+      Result := TJSValue.CreateBoolean(IsFiniteNumber);
     end);
-
   const NumberPrototype: IJSObject = TJSPrimitiveWrapper.Create(TJSValue.CreateNumber(0));
 
   const NumberFunc = TJSFunction.CreateNative(NUMBER_NAME,
@@ -553,7 +508,7 @@ begin
       var NumberValue := TJSValue.CreateNumber(0);
 
       if Length(Args) > 0 then
-        NumberValue := TJSValue.CreateNumber(Args[0].ToNumber);
+        NumberValue := TJSValue.CreateNumber(TJSOperators.ToNumber(Args[0]));
 
       if TJSPrototypeMethods.IsConstructCall(This, NumberPrototype) then
       begin

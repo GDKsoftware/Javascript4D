@@ -86,6 +86,9 @@ type
 
 implementation
 
+uses
+  JS4D.NumberParse;
+
 const
   NULL_CHAR = #0;
   TAB_CHAR = #9;
@@ -516,7 +519,7 @@ begin
 
   NumberStr := NumberStr + ReadExponent;
 
-  Result := StrToFloat(NumberStr, TFormatSettings.Invariant);
+  Result := TJSNumberParse.DecimalToDouble(NumberStr);
 end;
 
 function TJSLexer.ScanString(const Quote: Char): TJSToken;

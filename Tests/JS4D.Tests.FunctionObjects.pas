@@ -71,7 +71,7 @@ type
     [Test]
     [TestCase('true', 'true')]
     [TestCase('number', '1')]
-    [TestCase('string', '"1,2,3"')]
+    [TestCase('string', '"abc"')]
     procedure Apply_PrimitiveArgumentList_ThrowsTypeError(const ArgumentList: string);
 
     [Test]

@@ -116,7 +116,8 @@ implementation
 
 uses
   JS4D.Errors,
-  JS4D.NumberFormat;
+  JS4D.NumberFormat,
+  JS4D.NumberParse;
 
 const
   DIGIT_COUNT_LIMIT = 1000;
@@ -1163,17 +1164,17 @@ end;
 
 class function TJSBuiltins.StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(Trim(Str));
+  Result := TJSValue.CreateString(TJSNumberParse.Trim(Str));
 end;
 
 class function TJSBuiltins.StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(TrimLeft(Str));
+  Result := TJSValue.CreateString(TJSNumberParse.TrimStart(Str));
 end;
 
 class function TJSBuiltins.StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(TrimRight(Str));
+  Result := TJSValue.CreateString(TJSNumberParse.TrimEnd(Str));
 end;
 
 class function TJSBuiltins.BuildPadding(const PadStr: string; const PadLength: Integer): string;
