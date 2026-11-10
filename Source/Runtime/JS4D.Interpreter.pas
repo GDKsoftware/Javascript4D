@@ -223,6 +223,10 @@ type
     function CreateCalleeDescriptor: TJSPropertyDescriptor;
     procedure DetachProperties(const Func: IJSFunction);
     function IsInPrototypeChain(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
+    function IsInstanceOfBuiltinConstructor(const Instance: IJSObject; const Constructor_: IJSFunction): Boolean;
+    function IsInstanceOfErrorConstructor(const Instance: IJSObject; const ConstructorName: string): Boolean;
+    function EvaluateInstanceOf(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
+    function EvaluateIn(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
     function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
     function ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
@@ -470,6 +474,10 @@ const
   REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
   NOT_ITERABLE = 'Spread syntax requires an iterable value';
   NOT_ITERABLE_LOOP = 'Value is not iterable';
+  INSTANCEOF_NOT_OBJECT = 'Right-hand side of instanceof is not an object';
+  INSTANCEOF_NOT_CALLABLE = 'Right-hand side of instanceof is not callable';
+  INSTANCEOF_PROTOTYPE_NOT_OBJECT = 'Function has non-object prototype in instanceof check';
+  IN_NOT_OBJECT = 'Cannot use the in operator to search for a property in a non-object';
   PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
   HIGH_SURROGATE_FIRST = $D800;
@@ -3007,6 +3015,77 @@ begin
   Result := not FCurrentScope.HasVariable(Name);
 end;
 
+function TJSInterpreter.IsInstanceOfErrorConstructor(const Instance: IJSObject; const ConstructorName: string): Boolean;
+begin
+  Result := False;
+
+  var ErrorIntf: IJSError;
+  if not Supports(Instance, IJSError, ErrorIntf) then
+    Exit;
+
+  const ErrorType = ErrorIntf.ErrorType;
+  Result := (ConstructorName = CONSTRUCTOR_ERROR) or
+            ((ConstructorName = CONSTRUCTOR_TYPE_ERROR) and (ErrorType = TJSErrorType.TypeError)) or
+            ((ConstructorName = CONSTRUCTOR_RANGE_ERROR) and (ErrorType = TJSErrorType.RangeError)) or
+            ((ConstructorName = CONSTRUCTOR_REFERENCE_ERROR) and (ErrorType = TJSErrorType.ReferenceError)) or
+            ((ConstructorName = CONSTRUCTOR_SYNTAX_ERROR) and (ErrorType = TJSErrorType.SyntaxError)) or
+            ((ConstructorName = CONSTRUCTOR_URI_ERROR) and (ErrorType = TJSErrorType.URIError)) or
+            ((ConstructorName = CONSTRUCTOR_EVAL_ERROR) and (ErrorType = TJSErrorType.EvalError));
+end;
+
+function TJSInterpreter.IsInstanceOfBuiltinConstructor(const Instance: IJSObject;
+                                                       const Constructor_: IJSFunction): Boolean;
+begin
+  const ConstructorName = Constructor_.Name;
+
+  Result := IsInstanceOfErrorConstructor(Instance, ConstructorName) or
+            (Supports(Instance, IJSArray) and (ConstructorName = CONSTRUCTOR_ARRAY)) or
+            (Supports(Instance, IJSFunction) and (ConstructorName = CONSTRUCTOR_FUNCTION)) or
+            (Supports(Instance, IJSRegExp) and (ConstructorName = CONSTRUCTOR_REGEXP)) or
+            (Supports(Instance, IJSDate) and (ConstructorName = CONSTRUCTOR_DATE));
+end;
+
+function TJSInterpreter.EvaluateInstanceOf(const Left: TJSValue; const Right: TJSValue;
+                                           const Node: TJSBinaryExpression): Boolean;
+begin
+  if not Right.IsObject then
+    raise TJSErrorFactory.TypeError(INSTANCEOF_NOT_OBJECT, Node.Line, Node.Column);
+
+  const RightObject = Right.ToObject;
+  var RightFunc: IJSFunction;
+  const IsCallable = Right.IsFunction and Supports(RightObject, IJSFunction, RightFunc);
+  if not IsCallable then
+    raise TJSErrorFactory.TypeError(INSTANCEOF_NOT_CALLABLE, Node.Line, Node.Column);
+
+  if not Left.IsObject then
+    Exit(False);
+
+  RightFunc := UnwrapBoundFunction(RightFunc);
+  const LeftObj = Left.ToObject;
+
+  const IsInstance = IsInPrototypeChain(LeftObj, RightFunc) or IsInstanceOfBuiltinConstructor(LeftObj, RightFunc);
+  if IsInstance then
+    Exit(True);
+
+  const PrototypeValue = RightFunc.GetProperty(PROTOTYPE_PROPERTY);
+  const HasObjectPrototype = PrototypeValue.IsObject;
+  if not HasObjectPrototype then
+    raise TJSErrorFactory.TypeError(INSTANCEOF_PROTOTYPE_NOT_OBJECT, Node.Line, Node.Column);
+
+  Result := False;
+end;
+
+function TJSInterpreter.EvaluateIn(const Left: TJSValue; const Right: TJSValue;
+                                   const Node: TJSBinaryExpression): Boolean;
+begin
+  if not Right.IsObject then
+    raise TJSErrorFactory.TypeError(IN_NOT_OBJECT, Node.Line, Node.Column);
+
+  const PropertyName = ToText(Left);
+
+  Result := Right.ToObject.HasProperty(PropertyName);
+end;
+
 function TJSInterpreter.VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
 begin
   const Left = Visit(Node.Left);
@@ -3038,118 +3117,9 @@ begin
     TJSBinaryOperator.StrictNotEqual:
       Result := TJSValue.CreateBoolean(not StrictEquals(Left, Right));
     TJSBinaryOperator.InstanceOf:
-      begin
-        if not Left.IsObject then
-        begin
-          Result := TJSValue.CreateBoolean(False);
-          Exit;
-        end;
-
-        if not Right.IsFunction then
-        begin
-          Result := TJSValue.CreateBoolean(False);
-          Exit;
-        end;
-
-        const LeftObj = Left.ToObject;
-        var RightFunc: IJSFunction;
-        if not Supports(Right.ToObject, IJSFunction, RightFunc) then
-        begin
-          Result := TJSValue.CreateBoolean(False);
-          Exit;
-        end;
-        RightFunc := UnwrapBoundFunction(RightFunc);
-        const RightName = RightFunc.Name;
-
-        if IsInPrototypeChain(LeftObj, RightFunc) then
-        begin
-          Result := TJSValue.CreateBoolean(True);
-          Exit;
-        end;
-
-        var ErrorIntf: IJSError;
-        if Supports(LeftObj, IJSError, ErrorIntf) then
-        begin
-          if RightName = CONSTRUCTOR_ERROR then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_TYPE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.TypeError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_RANGE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.RangeError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_REFERENCE_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.ReferenceError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_SYNTAX_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.SyntaxError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_URI_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.URIError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-
-          if (RightName = CONSTRUCTOR_EVAL_ERROR) and (ErrorIntf.ErrorType = TJSErrorType.EvalError) then
-          begin
-            Result := TJSValue.CreateBoolean(True);
-            Exit;
-          end;
-        end;
-
-        if Supports(LeftObj, IJSArray) and (RightName = CONSTRUCTOR_ARRAY) then
-        begin
-          Result := TJSValue.CreateBoolean(True);
-          Exit;
-        end;
-
-        if Supports(LeftObj, IJSFunction) and (RightName = CONSTRUCTOR_FUNCTION) then
-        begin
-          Result := TJSValue.CreateBoolean(True);
-          Exit;
-        end;
-
-        if Supports(LeftObj, IJSRegExp) and (RightName = CONSTRUCTOR_REGEXP) then
-        begin
-          Result := TJSValue.CreateBoolean(True);
-          Exit;
-        end;
-
-        if Supports(LeftObj, IJSDate) and (RightName = CONSTRUCTOR_DATE) then
-        begin
-          Result := TJSValue.CreateBoolean(True);
-          Exit;
-        end;
-
-        Result := TJSValue.CreateBoolean(False);
-      end;
+      Result := TJSValue.CreateBoolean(EvaluateInstanceOf(Left, Right, Node));
     TJSBinaryOperator.In_:
-      begin
-        if Right.IsObject then
-        begin
-          const PropertyName = ToText(Left);
-
-          Result := TJSValue.CreateBoolean(Right.ToObject.HasProperty(PropertyName));
-        end
-        else
-          Result := TJSValue.CreateBoolean(False);
-      end;
+      Result := TJSValue.CreateBoolean(EvaluateIn(Left, Right, Node));
     else
       Result := TJSValue.CreateUndefined;
   end;

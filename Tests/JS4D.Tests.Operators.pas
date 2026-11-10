@@ -172,6 +172,28 @@ type
     [TestCase('Inherited writable', 'var o = Object.create({p: 1}); o.p = 2; result = o.p#2', '#')]
     [TestCase('Array element', 'var a = [1]; a[0] = 2; a[1] = 3; result = a.join()#2,3', '#')]
     procedure StrictMode_SuccessfulPut_StillWorks(const Script: string; const Expected: string);
+
+    [Test]
+    [TestCase('Primitive right operand', 'true instanceof true')]
+    [TestCase('Null right operand', 'null instanceof null')]
+    [TestCase('Plain object right operand', '({}) instanceof {}')]
+    [TestCase('Math right operand', '1 instanceof Math')]
+    [TestCase('This as right operand', '({}) instanceof this')]
+    [TestCase('Function without prototype object', 'var F = function () {}; F.prototype = undefined; ({}) instanceof F')]
+    [TestCase('Non object prototype on Function prototype', 'Function.prototype.prototype = ""; [] instanceof Function.prototype')]
+    [TestCase('In with boolean right operand', '"toString" in true')]
+    [TestCase('In with string right operand', '"length" in "abc"')]
+    [TestCase('In with null right operand', '"x" in null')]
+    procedure RelationalOperator_OnInvalidRightOperand_ThrowsTypeError(const Expression: string);
+
+    [Test]
+    [TestCase('Primitive left operand', 'result = 1 instanceof Object#false', '#')]
+    [TestCase('Primitive left operand with invalid prototype',
+      'var F = function () {}; F.prototype = 1; result = "s" instanceof F#false', '#')]
+    [TestCase('Instance', 'result = [] instanceof Array#true', '#')]
+    [TestCase('Own property through in', 'result = "a" in {a: 1}#true', '#')]
+    [TestCase('Array index through in', 'result = 0 in [1]#true', '#')]
+    procedure RelationalOperator_OnValidOperands_ReturnsBoolean(const Script: string; const Expected: string);
   end;
 
 implementation
@@ -257,6 +279,19 @@ end;
 procedure TOperatorsTests.StrictMode_SuccessfulPut_StillWorks(const Script: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, RunStrictScript(Script));
+end;
+
+procedure TOperatorsTests.RelationalOperator_OnInvalidRightOperand_ThrowsTypeError(const Expression: string);
+begin
+  const Guarded = Format('var caught = ""; try { %s; } catch (e) { caught = e.name; } result = caught;', [Expression]);
+
+  Assert.AreEqual('TypeError', RunScript(Guarded));
+end;
+
+procedure TOperatorsTests.RelationalOperator_OnValidOperands_ReturnsBoolean(const Script: string;
+                                                                            const Expected: string);
+begin
+  Assert.AreEqual(Expected, RunScript(Script));
 end;
 
 end.

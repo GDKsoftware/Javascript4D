@@ -6,6 +6,7 @@ interface
 
 uses
   DUnitX.TestFramework,
+  JS4D.Errors,
   JS4D.Tokens,
   JS4D.Lexer;
 
@@ -39,6 +40,21 @@ type
 
     [Test]
     procedure Tokenize_HexNumber_ReturnsCorrectValue;
+
+    [Test]
+    [TestCase('Binary lower', '0b101,5')]
+    [TestCase('Binary upper', '0B11,3')]
+    [TestCase('Binary leading zeros', '0b0011,3')]
+    [TestCase('Octal lower', '0o17,15')]
+    [TestCase('Octal upper', '0O777,511')]
+    procedure Tokenize_RadixPrefixedNumber_ReturnsCorrectValue(const Source: string; const Expected: Integer);
+
+    [Test]
+    [TestCase('Binary without digits', '0b')]
+    [TestCase('Binary with invalid digit', '0b12')]
+    [TestCase('Octal without digits', '0o')]
+    [TestCase('Octal with invalid digit', '0o8')]
+    procedure Tokenize_InvalidRadixPrefixedNumber_RaisesSyntaxError(const Source: string);
 
     [Test]
     procedure Tokenize_FloatNumber_ReturnsCorrectValue;
@@ -160,6 +176,29 @@ begin
 
   Assert.AreEqual(TJSTokenType.NumberLiteral, Token.TokenType);
   Assert.AreEqual(Double(255), Token.NumberValue);
+end;
+
+procedure TLexerTests.Tokenize_RadixPrefixedNumber_ReturnsCorrectValue(const Source: string; const Expected: Integer);
+begin
+  FLexer := TJSLexer.Create(Source);
+  FLexer.Tokenize;
+
+  const Token = FLexer.NextToken;
+
+  Assert.AreEqual(TJSTokenType.NumberLiteral, Token.TokenType);
+  Assert.AreEqual(Double(Expected), Token.NumberValue);
+end;
+
+procedure TLexerTests.Tokenize_InvalidRadixPrefixedNumber_RaisesSyntaxError(const Source: string);
+begin
+  FLexer := TJSLexer.Create(Source);
+
+  Assert.WillRaise(
+    procedure
+    begin
+      FLexer.Tokenize;
+    end,
+    EJSSyntaxError);
 end;
 
 procedure TLexerTests.Tokenize_FloatNumber_ReturnsCorrectValue;

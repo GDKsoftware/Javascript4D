@@ -63,7 +63,9 @@ type
     function IsHexDigit(const Ch: Char): Boolean;
     function IsOctalDigit(const Ch: Char): Boolean;
 
-    function ParseHexNumber: Double;
+    function RadixOfPrefix(const Ch: Char): Integer;
+    function DigitValueInRadix(const Ch: Char; const Radix: Integer): Integer;
+    function ParseRadixNumber(const Radix: Integer): Double;
     function ParseOctalNumber: Double;
     function ReadDigits: string;
     function ReadExponent: string;
@@ -157,8 +159,12 @@ const
   RIGHT_BRACE = '}';
   LEFT_BRACKET = '[';
   RIGHT_BRACKET = ']';
-  HEX_PREFIX_LOWER = 'x';
-  HEX_PREFIX_UPPER = 'X';
+  HEX_RADIX = 16;
+  OCTAL_RADIX = 8;
+  BINARY_RADIX = 2;
+  NO_RADIX = 0;
+  NOT_A_DIGIT = -1;
+  LETTER_DIGIT_OFFSET = 10;
   ZERO_CHAR = '0';
   UNDERSCORE = '_';
   DOLLAR_SIGN = '$';
@@ -193,7 +199,7 @@ const
   SEscapeInRegularExpressionFlags = 'Regular expression flags cannot contain escape sequences';
   SIdentifierAfterNumber = 'Identifier starts immediately after a numeric literal';
   SInvalidIdentifierEscape = 'Unicode escape is not a valid identifier character';
-  SMissingHexDigits = 'Hexadecimal literal has no digits';
+  SMissingRadixDigits = 'Numeric literal has no digits after its radix prefix';
   SMissingExponentDigits = 'Numeric literal exponent has no digits';
 
 { TJSLexer }
@@ -460,9 +466,11 @@ function TJSLexer.ScanNumberLiteral: TJSToken;
 begin
   const StartColumn = FColumn;
 
-  if (CurrentChar = ZERO_CHAR) and CharInSet(PeekChar, [HEX_PREFIX_LOWER, HEX_PREFIX_UPPER]) then
+  const PrefixRadix = RadixOfPrefix(PeekChar);
+  const HasRadixPrefix = (CurrentChar = ZERO_CHAR) and (PrefixRadix <> NO_RADIX);
+  if HasRadixPrefix then
   begin
-    const NumberValue = ParseHexNumber;
+    const NumberValue = ParseRadixNumber(PrefixRadix);
     Result := CreateToken(TJSTokenType.NumberLiteral, '');
     Result.NumberValue := NumberValue;
     Exit;
@@ -506,36 +514,56 @@ begin
     raise TJSErrorFactory.SyntaxError(SIdentifierAfterNumber, FLine, FColumn);
 end;
 
-function TJSLexer.ParseHexNumber: Double;
+function TJSLexer.RadixOfPrefix(const Ch: Char): Integer;
+begin
+  case Ch of
+    'x', 'X' : Result := HEX_RADIX;
+    'o', 'O' : Result := OCTAL_RADIX;
+    'b', 'B' : Result := BINARY_RADIX;
+  else
+    Result := NO_RADIX;
+  end;
+end;
+
+function TJSLexer.DigitValueInRadix(const Ch: Char; const Radix: Integer): Integer;
+begin
+  Result := NOT_A_DIGIT;
+
+  if CharInSet(Ch, ['0'..'9']) then
+    Result := Ord(Ch) - Ord('0')
+  else if CharInSet(Ch, ['a'..'f']) then
+    Result := LETTER_DIGIT_OFFSET + Ord(Ch) - Ord('a')
+  else if CharInSet(Ch, ['A'..'F']) then
+    Result := LETTER_DIGIT_OFFSET + Ord(Ch) - Ord('A');
+
+  const IsOutsideRadix = (Result >= Radix);
+  if IsOutsideRadix then
+    Result := NOT_A_DIGIT;
+end;
+
+function TJSLexer.ParseRadixNumber(const Radix: Integer): Double;
 begin
   Advance;
   Advance;
 
-  var Value: Int64 := 0;
+  Result := 0;
   var DigitCount := 0;
 
-  while (not IsAtEnd) and IsHexDigit(CurrentChar) do
+  while not IsAtEnd do
   begin
-    const Ch = CurrentChar;
-    var Digit: Integer;
+    const Digit = DigitValueInRadix(CurrentChar, Radix);
+    const IsDigitOfRadix = (Digit <> NOT_A_DIGIT);
+    if not IsDigitOfRadix then
+      Break;
 
-    if CharInSet(Ch, ['0'..'9']) then
-      Digit := Ord(Ch) - Ord('0')
-    else if CharInSet(Ch, ['a'..'f']) then
-      Digit := 10 + Ord(Ch) - Ord('a')
-    else
-      Digit := 10 + Ord(Ch) - Ord('A');
-
-    Value := Value * 16 + Digit;
+    Result := Result * Radix + Digit;
     Inc(DigitCount);
     Advance;
   end;
 
   const HasNoDigits = (DigitCount = 0);
   if HasNoDigits then
-    raise TJSErrorFactory.SyntaxError(SMissingHexDigits, FLine, FColumn);
-
-  Result := Value;
+    raise TJSErrorFactory.SyntaxError(SMissingRadixDigits, FLine, FColumn);
 end;
 
 function TJSLexer.ParseOctalNumber: Double;
