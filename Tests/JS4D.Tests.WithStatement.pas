@@ -77,6 +77,21 @@ type
 
     [Test]
     procedure With_LetIdentifierFollowedByNewline_IsExpressionStatement;
+
+    [Test]
+    procedure With_AssignmentWritesBindingResolvedBeforeRightHandSide;
+
+    [Test]
+    procedure With_AssignmentRecreatesPropertyDeletedByRightHandSide;
+
+    [Test]
+    procedure With_CompoundAssignmentRecreatesPropertyDeletedByGetter;
+
+    [Test]
+    procedure With_IncrementRecreatesPropertyDeletedByGetter;
+
+    [Test]
+    procedure Assignment_WritesVariableResolvedBeforeEvalDeclaresShadow;
   end;
 
 implementation
@@ -227,6 +242,56 @@ begin
   const Script = 'var let = 4; var r; with ({}) let' + sLineBreak + 'r = let; r';
 
   Assert.AreEqual(4.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_AssignmentWritesBindingResolvedBeforeRightHandSide;
+begin
+  const Script =
+    'var outer = {x: 0}; var inner = {x: 1};' + sLineBreak +
+    'with (outer) { with (inner) { x = (delete inner.x, 2); } }' + sLineBreak +
+    'inner.x * 10 + outer.x';
+
+  Assert.AreEqual(20.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_AssignmentRecreatesPropertyDeletedByRightHandSide;
+begin
+  const Script =
+    'var x = 0; var scope = {x: 1};' + sLineBreak +
+    'with (scope) { x = (delete scope.x, 5); }' + sLineBreak +
+    'scope.x * 10 + x';
+
+  Assert.AreEqual(50.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_CompoundAssignmentRecreatesPropertyDeletedByGetter;
+begin
+  const Script =
+    'var x = 0; var scope = { get x() { delete this.x; return 2; } };' + sLineBreak +
+    'with (scope) { x *= 3; }' + sLineBreak +
+    'scope.x * 10 + x';
+
+  Assert.AreEqual(60.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_IncrementRecreatesPropertyDeletedByGetter;
+begin
+  const Script =
+    'var x = 0; var scope = { get x() { delete this.x; return 2; } };' + sLineBreak +
+    'with (scope) { x++; }' + sLineBreak +
+    'scope.x * 10 + x';
+
+  Assert.AreEqual(30.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.Assignment_WritesVariableResolvedBeforeEvalDeclaresShadow;
+begin
+  const Script =
+    'var x = 0;' + sLineBreak +
+    'var innerX = (function() { x = (eval("var x = 2;"), 1); return x; })();' + sLineBreak +
+    'innerX * 10 + x';
+
+  Assert.AreEqual(21.0, FEngine.Evaluate(Script).AsNumber);
 end;
 
 end.

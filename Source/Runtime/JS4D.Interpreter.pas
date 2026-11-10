@@ -220,6 +220,7 @@ type
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
     function AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
+    procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
     function AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
     function VisitUpdateExpression(const Node: TJSUpdateExpression): TJSValue;
     function UpdateIdentifier(const Node: TJSUpdateExpression): TJSValue;
@@ -2102,6 +2103,8 @@ function TJSInterpreter.AssignToIdentifier(const Node: TJSAssignmentExpression):
 begin
   const Identifier = TJSIdentifier(Node.Left);
 
+  const Binding = FCurrentScope.Resolve(Identifier.Name);
+
   var NewValue: TJSValue;
   if Node.Operator = TJSAssignmentOperator.Assign then
   begin
@@ -2109,17 +2112,35 @@ begin
   end
   else
   begin
-    if not FCurrentScope.HasVariable(Identifier.Name) then
+    if not Assigned(Binding) then
       raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Node.Line, Node.Column);
 
-    const Current = FCurrentScope.GetVariable(Identifier.Name);
+    const Current = Binding.GetVariable(Identifier.Name);
     const Right = Visit(Node.Right);
     const BinaryOperator = TJSOperators.BinaryOperatorFor(Node.Operator);
     NewValue := TJSOperators.Apply(BinaryOperator, Current, Right, FLimits);
   end;
 
-  FCurrentScope.SetVariable(Identifier.Name, NewValue);
+  PutIdentifierValue(Binding, Identifier.Name, NewValue);
   Result := NewValue;
+end;
+
+procedure TJSInterpreter.PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
+begin
+  if not Assigned(Binding) then
+  begin
+    FCurrentScope.SetVariable(Name, Value);
+    Exit;
+  end;
+
+  var ObjectScope: IJSObjectScope;
+  if Supports(Binding, IJSObjectScope, ObjectScope) then
+  begin
+    ObjectScope.BindingObject.SetProperty(Name, Value);
+    Exit;
+  end;
+
+  Binding.DeclareVariable(Name, Value);
 end;
 
 function TJSInterpreter.AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
@@ -2163,6 +2184,7 @@ end;
 function TJSInterpreter.UpdateIdentifier(const Node: TJSUpdateExpression): TJSValue;
 begin
   const Identifier = TJSIdentifier(Node.Argument);
+  const Binding = FCurrentScope.Resolve(Identifier.Name);
   const OldValue = FCurrentScope.GetVariable(Identifier.Name);
   const OldNumber = TJSOperators.ToNumber(OldValue);
 
@@ -2171,7 +2193,7 @@ begin
     NewNumber := OldNumber + 1;
 
   const NewValue = TJSValue.CreateNumber(NewNumber);
-  FCurrentScope.SetVariable(Identifier.Name, NewValue);
+  PutIdentifierValue(Binding, Identifier.Name, NewValue);
 
   if Node.Prefix then
     Result := NewValue
