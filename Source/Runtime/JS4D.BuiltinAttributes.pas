@@ -51,7 +51,7 @@ type
          Entries: 'toString:0 valueOf:0 charAt:1 charCodeAt:1 concat:1 indexOf:1 lastIndexOf:1 localeCompare:1 ' +
                   'match:1 replace:2 search:1 slice:2 split:2 substring:2 toLowerCase:0 toLocaleLowerCase:0 ' +
                   'toUpperCase:0 toLocaleUpperCase:0 trim:0 substr:2 startsWith:1 endsWith:1 includes:1 repeat:1 ' +
-                  'padStart:1 padEnd:1 trimStart:0 trimEnd:0 trimLeft:0 trimRight:0'),
+                  'padStart:1 padEnd:1 trimStart:0 trimEnd:0 trimLeft:0 trimRight:0 codePointAt:1 normalize:0'),
         (Owner: 'Number';
          Entries: 'isFinite:1 isInteger:1 isNaN:1 isSafeInteger:1 parseFloat:1 parseInt:2'),
         (Owner: 'Number.prototype';

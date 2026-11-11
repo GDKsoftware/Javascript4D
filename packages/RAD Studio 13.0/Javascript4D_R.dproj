@@ -126,6 +126,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectKeys.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Operators.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.UnicodeNormalization.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PropertyDescriptors.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PrototypeMethods.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Interpreter.pas"/>

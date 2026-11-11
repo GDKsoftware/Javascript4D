@@ -10,9 +10,11 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   System.RegularExpressions,
+  System.Character,
   JS4D.Types,
   JS4D.ArrayLike,
-  JS4D.PatternOperations;
+  JS4D.PatternOperations,
+  JS4D.UnicodeNormalization;
 
 type
   TJSBuiltins = class
@@ -45,6 +47,8 @@ type
     class function EndPosition(const Args: TArray<TJSValue>; const Index: Integer; const Count: Integer): Double; static;
     class function StringCharAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringCharCodeAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringCodePointAt(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
+    class function StringNormalize(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
     class function StringIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringLastIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue; static;
     class function StringSubstring(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
@@ -126,6 +130,8 @@ const
   TO_FIXED_RANGE_MESSAGE = 'toFixed() digits argument must be between 0 and 20';
   TO_PRECISION_RANGE_MESSAGE = 'toPrecision() argument must be between 1 and 21';
   TO_EXPONENTIAL_RANGE_MESSAGE = 'toExponential() argument must be between 0 and 20';
+  INVALID_NORMALIZATION_FORM_MESSAGE = 'The normalization form should be one of NFC, NFD, NFKC, NFKD';
+  INVALID_REPEAT_COUNT_MESSAGE = 'Invalid count value for String.prototype.repeat';
   METHOD_PUSH = 'push';
   METHOD_POP = 'pop';
   METHOD_SHIFT = 'shift';
@@ -143,6 +149,8 @@ const
   METHOD_TO_STRING = 'toString';
   METHOD_CHAR_AT = 'charAt';
   METHOD_CHAR_CODE_AT = 'charCodeAt';
+  METHOD_CODE_POINT_AT = 'codePointAt';
+  METHOD_NORMALIZE = 'normalize';
   METHOD_SUBSTRING = 'substring';
   METHOD_SUBSTR = 'substr';
   METHOD_SPLIT = 'split';
@@ -186,6 +194,7 @@ const
   METHOD_PROPERTY_IS_ENUMERABLE = 'propertyIsEnumerable';
   DEFAULT_SEPARATOR: string = ',';
   EMPTY_STRING: string = '';
+  DEFAULT_NORMALIZATION_FORM = 'NFC';
   SPACE_CHAR: string = ' ';
 
   ARRAY_METHOD_NAMES: array[0..25] of string = (
@@ -195,13 +204,14 @@ const
     METHOD_FOR_EACH, METHOD_REDUCE, METHOD_REDUCE_RIGHT, METHOD_SOME, METHOD_EVERY, METHOD_FIND,
     METHOD_FIND_INDEX, METHOD_SORT);
 
-  STRING_METHOD_NAMES: array[0..29] of string = (
+  STRING_METHOD_NAMES: array[0..31] of string = (
     METHOD_CHAR_AT, METHOD_CHAR_CODE_AT, METHOD_INDEX_OF, METHOD_LAST_INDEX_OF, METHOD_SUBSTRING,
     METHOD_SUBSTR, METHOD_SLICE, METHOD_SPLIT, METHOD_TO_LOWER_CASE, METHOD_TO_UPPER_CASE, METHOD_TRIM,
     METHOD_TRIM_START, METHOD_TRIM_LEFT, METHOD_TRIM_END, METHOD_TRIM_RIGHT, METHOD_REPLACE,
     METHOD_MATCH, METHOD_SEARCH, METHOD_CONCAT, METHOD_REPEAT, METHOD_STARTS_WITH, METHOD_ENDS_WITH,
     METHOD_INCLUDES, METHOD_PAD_START, METHOD_PAD_END, METHOD_TO_STRING, METHOD_VALUE_OF,
-    METHOD_TO_LOCALE_LOWER_CASE, METHOD_TO_LOCALE_UPPER_CASE, METHOD_LOCALE_COMPARE);
+    METHOD_TO_LOCALE_LOWER_CASE, METHOD_TO_LOCALE_UPPER_CASE, METHOD_LOCALE_COMPARE,
+    METHOD_CODE_POINT_AT, METHOD_NORMALIZE);
 
   NUMBER_METHOD_NAMES: array[0..4] of string = (
     METHOD_TO_STRING, METHOD_TO_FIXED, METHOD_TO_PRECISION, METHOD_TO_EXPONENTIAL, METHOD_VALUE_OF);
@@ -761,6 +771,41 @@ begin
     Result := TJSValue.CreateNaN;
 end;
 
+class function TJSBuiltins.StringCodePointAt(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Position = IntegerArgument(Args, 0);
+
+  const IsInRange = (Position >= 0) and (Position < Length(Str));
+  if not IsInRange then
+    Exit(TJSValue.CreateUndefined);
+
+  const Index = Trunc(Position) + 1;
+  const First = Str[Index];
+
+  const HasTrailUnit = Index < Length(Str);
+  const IsSurrogatePair = HasTrailUnit and First.IsHighSurrogate and Str[Index + 1].IsLowSurrogate;
+  if not IsSurrogatePair then
+    Exit(TJSValue.CreateNumber(Ord(First)));
+
+  const CodePoint = Char.ConvertToUtf32(First, Str[Index + 1]);
+  Result := TJSValue.CreateNumber(CodePoint);
+end;
+
+class function TJSBuiltins.StringNormalize(const Str: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var FormName := DEFAULT_NORMALIZATION_FORM;
+
+  const HasForm = (Length(Args) > 0) and not Args[0].IsUndefined;
+  if HasForm then
+    FormName := Args[0].ToString;
+
+  var Form: TJSNormalizationForm;
+  if not TJSUnicodeNormalization.TryParseForm(FormName, Form) then
+    raise TJSErrorFactory.RangeError(INVALID_NORMALIZATION_FORM_MESSAGE);
+
+  Result := TJSValue.CreateString(TJSUnicodeNormalization.Normalize(Str, Form));
+end;
+
 class function TJSBuiltins.StringIndexOf(const Str: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   const SearchStr = ArgumentOrUndefined(Args, 0).ToLimitedString(Limits);
@@ -1060,9 +1105,15 @@ begin
     Exit;
   end;
 
-  const Count = Trunc(Args[0].ToNumber);
+  const CountNumber = IntegerArgument(Args, 0);
 
-  if (Count <= 0) or (Str = EMPTY_STRING) then
+  const IsInvalidCount = (CountNumber < 0) or IsInfinite(CountNumber);
+  if IsInvalidCount then
+    raise TJSErrorFactory.RangeError(INVALID_REPEAT_COUNT_MESSAGE);
+
+  const Count = Trunc(CountNumber);
+
+  if (Count = 0) or (Str = EMPTY_STRING) then
   begin
     Result := TJSValue.CreateString(EMPTY_STRING);
     Exit;
@@ -1449,6 +1500,12 @@ begin
   if MethodName = METHOD_CHAR_CODE_AT then
     Exit(StringCharCodeAt(Str, Args));
 
+  if MethodName = METHOD_CODE_POINT_AT then
+    Exit(StringCodePointAt(Str, Args));
+
+  if MethodName = METHOD_NORMALIZE then
+    Exit(StringNormalize(Str, Args));
+
   if MethodName = METHOD_INDEX_OF then
     Exit(StringIndexOf(Str, Args, Limits));
 
@@ -1620,6 +1677,7 @@ class function TJSBuiltins.IsNumericStringArgument(const MethodName: string; con
 begin
   const IsFirstNumeric = (MethodName = METHOD_CHAR_AT) or
                          (MethodName = METHOD_CHAR_CODE_AT) or
+                         (MethodName = METHOD_CODE_POINT_AT) or
                          (MethodName = METHOD_REPEAT) or
                          (MethodName = METHOD_PAD_START) or
                          (MethodName = METHOD_PAD_END);

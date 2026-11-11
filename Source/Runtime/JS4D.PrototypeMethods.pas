@@ -30,6 +30,7 @@ type
     function ConvertStringArgument(const MethodName: string; const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
     function ConvertStringArguments(const MethodName: string; const Args: TArray<TJSValue>): TArray<TJSValue>;
     function ThisToText(const This: IJSObject; const MethodName: string): string;
+    procedure RejectRegExpSearchString(const MethodName: string; const Args: TArray<TJSValue>);
     function ThisToPrimitive(const This: IJSObject; const TypeName: string; const MethodName: string): TJSValue;
     function ClassTagOf(const Source: IJSObject): string;
 
@@ -87,6 +88,10 @@ const
   METHOD_EXEC = 'exec';
   METHOD_TEST = 'test';
   METHOD_SPLIT = 'split';
+  METHOD_STARTS_WITH = 'startsWith';
+  METHOD_ENDS_WITH = 'endsWith';
+  METHOD_INCLUDES = 'includes';
+  REGEXP_SEARCH_STRING_MESSAGE = 'First argument to String.prototype.%s must not be a regular expression';
   TYPE_NAME_STRING = 'String';
   TYPE_NAME_NUMBER = 'Number';
   TYPE_NAME_BOOLEAN = 'Boolean';
@@ -557,6 +562,20 @@ begin
   Result := TJSValue.CreateString(SourceText);
 end;
 
+procedure TJSPrototypeMethods.RejectRegExpSearchString(const MethodName: string; const Args: TArray<TJSValue>);
+begin
+  const IsSearchMethod = (MethodName = METHOD_STARTS_WITH) or
+                         (MethodName = METHOD_ENDS_WITH) or
+                         (MethodName = METHOD_INCLUDES);
+  const HasSearchString = (Length(Args) > 0) and Args[0].IsObject;
+  if not (IsSearchMethod and HasSearchString) then
+    Exit;
+
+  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp);
+  if IsRegExp then
+    raise TJSErrorFactory.TypeError(Format(REGEXP_SEARCH_STRING_MESSAGE, [MethodName]));
+end;
+
 function TJSPrototypeMethods.CallStringMethod(const This: IJSObject; const MethodName: string;
                                                  const Args: TArray<TJSValue>): TJSValue;
 begin
@@ -565,6 +584,8 @@ begin
     Exit(ThisToPrimitive(This, TYPE_NAME_STRING, MethodName));
 
   const Text = ThisToText(This, MethodName);
+
+  RejectRegExpSearchString(MethodName, Args);
 
   const PrimitiveArgs = ConvertStringArguments(MethodName, Args);
 
