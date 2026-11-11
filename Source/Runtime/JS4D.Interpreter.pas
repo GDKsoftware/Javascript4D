@@ -1915,8 +1915,8 @@ begin
   Result := TJSValue.CreateUndefined;
 
   const OuterScope = FCurrentScope;
-  EnterLexicalScope(Node.ScopeInfo);
   try
+    EnterLexicalScope(Node.ScopeInfo);
     for var Statement in Node.Body do
     begin
       if Statement.NodeType in EMPTY_COMPLETION_NODES then
@@ -2480,8 +2480,8 @@ begin
   end;
 
   const OuterScope = FCurrentScope;
-  EnterLexicalScope(Node.ScopeInfo);
   try
+    EnterLexicalScope(Node.ScopeInfo);
     Result := ExecuteSwitchCases(Node, DiscriminantValue);
   finally
     FCurrentScope := OuterScope;
