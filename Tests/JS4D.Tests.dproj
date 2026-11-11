@@ -188,6 +188,7 @@
         <DCCReference Include="JS4D.Tests.LibraryMethods.pas"/>
         <DCCReference Include="JS4D.Tests.Collections.pas"/>
         <DCCReference Include="JS4D.Tests.TypedArrays.pas"/>
+        <DCCReference Include="JS4D.Tests.SparseArrays.pas"/>
         <DCCReference Include="JS4D.Tests.Proxy.pas"/>
         <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">

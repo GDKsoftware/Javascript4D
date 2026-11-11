@@ -110,6 +110,7 @@ uses
   JS4D.Tests.Collections in 'JS4D.Tests.Collections.pas',
   JS4D.Tests.TypedArrays in 'JS4D.Tests.TypedArrays.pas',
   JS4D.Tests.Proxy in 'JS4D.Tests.Proxy.pas',
+  JS4D.Tests.SparseArrays in 'JS4D.Tests.SparseArrays.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
 var

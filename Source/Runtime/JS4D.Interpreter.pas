@@ -4296,7 +4296,7 @@ begin
     begin
       if PropName = LENGTH_PROPERTY then
       begin
-        Result := TJSValue.CreateNumber(ArrIntf.Length);
+        Result := TJSValue.CreateNumber(ArrIntf.LogicalLength);
         Exit;
       end;
 

@@ -245,6 +245,7 @@ type
   IJSArray = interface(IJSObject)
     ['{B2C3D4E5-F6A7-8901-BCDE-F23456789012}']
     function GetLength: Integer;
+    function GetLogicalLength: Int64;
     function GetElement(const Index: Integer): TJSValue;
     procedure SetElement(const Index: Integer; const Value: TJSValue);
     procedure Push(const Value: TJSValue);
@@ -253,6 +254,7 @@ type
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
     property Length: Integer read GetLength;
+    property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
 
@@ -514,6 +516,7 @@ type
   private
     FElements: TList<TJSValue>;
     FHoles: TDictionary<Integer, Boolean>;
+    FSparseLength: Int64;
     FLengthWritable: Boolean;
 
     function GetLengthDescriptor: TJSPropertyDescriptor;
@@ -530,9 +533,13 @@ type
                                    const Descriptor: TJSPropertyDescriptor);
     procedure ForgetSpecialElement(const Index: Integer);
     function IsLockedElement(const Index: Integer): Boolean;
-    function ResizeTo(const NewLength: Integer): Boolean;
+    function ResizeTo(const NewLength: Int64): Boolean;
     function ShrinkTo(const NewLength: Integer): Boolean;
+    function ShrinkSparsePart(const NewLength: Int64): Int64;
     procedure GrowTo(const NewLength: Integer);
+    function IsSparseIndex(const Index: Int64): Boolean;
+    function SparseElementIndexes: TList<Int64>;
+    procedure AppendSparseNames(const Names: TList<string>);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
 
@@ -541,11 +548,13 @@ type
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     function GetLength: Integer;
+    function GetLogicalLength: Int64;
     function GetElement(const Index: Integer): TJSValue;
     procedure SetElement(const Index: Integer; const Value: TJSValue);
 
   public
     class function TryParseIndex(const Name: string; out Index: Integer): Boolean; static;
+    class function CoerceLength(const Value: TJSValue): Int64; static;
 
     constructor Create;
     destructor Destroy; override;
@@ -566,6 +575,7 @@ type
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
 
     property Length: Integer read GetLength;
+    property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
 
@@ -2143,12 +2153,86 @@ end;
 
 class function TJSArrayImpl.TryParseIndex(const Name: string; out Index: Integer): Boolean;
 begin
-  Result := TryStrToInt(Name, Index) and (Index >= 0) and (IntToStr(Index) = Name);
+  var ElementIndex: Int64;
+  Result := TryParseArrayIndex(Name, ElementIndex) and (ElementIndex <= MaxInt);
+
+  if Result then
+    Index := Integer(ElementIndex)
+  else
+    Index := 0;
+end;
+
+class function TJSArrayImpl.CoerceLength(const Value: TJSValue): Int64;
+const
+  UINT32_RANGE = 4294967296.0;
+begin
+  const FirstPrimitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const FirstNumber = FirstPrimitive.ToNumber;
+  const IsFinite = (not System.Math.IsNaN(FirstNumber)) and (not System.Math.IsInfinite(FirstNumber));
+
+  var Unsigned := 0.0;
+  if IsFinite then
+  begin
+    const Whole = Int(FirstNumber);
+    Unsigned := Whole - (Int(Whole / UINT32_RANGE) * UINT32_RANGE);
+    if Unsigned < 0 then
+      Unsigned := Unsigned + UINT32_RANGE;
+  end;
+
+  const SecondPrimitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const SecondNumber = SecondPrimitive.ToNumber;
+  if SecondNumber <> Unsigned then
+    raise TJSErrorFactory.InvalidArrayLength;
+
+  Result := Trunc(Unsigned);
+end;
+
+function TJSArrayImpl.GetLogicalLength: Int64;
+begin
+  Result := FElements.Count;
+
+  if FSparseLength > Result then
+    Result := FSparseLength;
+end;
+
+function TJSArrayImpl.IsSparseIndex(const Index: Int64): Boolean;
+const
+  MAX_DENSE_GAP = 1024 * 1024;
+begin
+  Result := (Index - FElements.Count) > MAX_DENSE_GAP;
+end;
+
+function TJSArrayImpl.SparseElementIndexes: TList<Int64>;
+begin
+  Result := TList<Int64>.Create;
+
+  for var Name in FOrderedKeys do
+  begin
+    var Index: Int64;
+    const IsSparseElement = TryParseArrayIndex(Name, Index) and (Index >= FElements.Count);
+    if IsSparseElement then
+      Result.Add(Index);
+  end;
+end;
+
+procedure TJSArrayImpl.AppendSparseNames(const Names: TList<string>);
+begin
+  const Indexes = SparseElementIndexes;
+  try
+    Indexes.Sort;
+
+    for var Index in Indexes do
+    begin
+      Names.Add(IntToStr(Index));
+    end;
+  finally
+    Indexes.Free;
+  end;
 end;
 
 function TJSArrayImpl.GetLengthDescriptor: TJSPropertyDescriptor;
 begin
-  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(FElements.Count));
+  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(GetLogicalLength));
   Result.Writable := FLengthWritable and (not FFrozen);
   Result.Enumerable := False;
   Result.Configurable := False;
@@ -2276,14 +2360,62 @@ begin
   Result := (KeptLength = NewLength);
 end;
 
-function TJSArrayImpl.ResizeTo(const NewLength: Integer): Boolean;
+function TJSArrayImpl.ShrinkSparsePart(const NewLength: Int64): Int64;
+begin
+  Result := NewLength;
+
+  const Indexes = SparseElementIndexes;
+  try
+    Indexes.Sort;
+
+    for var Position := Indexes.Count - 1 downto 0 do
+    begin
+      const Index = Indexes[Position];
+      if Index < NewLength then
+        Break;
+
+      const Name = IntToStr(Index);
+      if not FProperties[Name].Configurable then
+        Exit(Index + 1);
+
+      RemoveProperty(Name);
+    end;
+  finally
+    Indexes.Free;
+  end;
+end;
+
+function TJSArrayImpl.ResizeTo(const NewLength: Int64): Boolean;
 begin
   Result := True;
 
-  if NewLength < FElements.Count then
-    Result := ShrinkTo(NewLength)
-  else
-    GrowTo(NewLength);
+  const OldLength = GetLogicalLength;
+  if NewLength = OldLength then
+    Exit;
+
+  if NewLength > OldLength then
+  begin
+    if IsSparseIndex(NewLength) then
+      FSparseLength := NewLength
+    else
+      GrowTo(Integer(NewLength));
+
+    Exit;
+  end;
+
+  var KeptLength := NewLength;
+  const HasSparsePart = (FSparseLength > FElements.Count);
+  if HasSparsePart then
+    KeptLength := ShrinkSparsePart(NewLength);
+
+  if KeptLength > FElements.Count then
+  begin
+    FSparseLength := KeptLength;
+    Exit(KeptLength = NewLength);
+  end;
+
+  FSparseLength := 0;
+  Result := ShrinkTo(Integer(KeptLength)) and (KeptLength = NewLength);
 end;
 
 function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
@@ -2321,12 +2453,15 @@ begin
         Names.Add(Name);
     end;
 
+    if FSparseLength > FElements.Count then
+      AppendSparseNames(Names);
+
     Names.Add(LENGTH_PROPERTY);
 
     for var Key in inherited GetOwnPropertyNames do
     begin
-      var Index: Integer;
-      if not TryParseIndex(Key, Index) then
+      var Index: Int64;
+      if not TryParseArrayIndex(Key, Index) then
         Names.Add(Key);
     end;
 
@@ -2367,13 +2502,29 @@ begin
     Exit;
   end;
 
-  var Index: Integer;
-  if not TryParseIndex(Name, Index) then
+  var ElementIndex: Int64;
+  if not TryParseArrayIndex(Name, ElementIndex) then
   begin
     inherited SetProperty(Name, Value);
     Exit;
   end;
 
+  if IsSparseIndex(ElementIndex) then
+  begin
+    const SparseLengthBlocksIndex = (ElementIndex >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
+    if SparseLengthBlocksIndex then
+      Exit;
+
+    inherited SetProperty(Name, Value);
+
+    const IsStored = FProperties.ContainsKey(Name);
+    if IsStored and (ElementIndex >= GetLogicalLength) then
+      FSparseLength := ElementIndex + 1;
+
+    Exit;
+  end;
+
+  const Index = Integer(ElementIndex);
   if HasElement(Index) then
   begin
     if not FFrozen then
@@ -2382,8 +2533,7 @@ begin
     Exit;
   end;
 
-  const LengthDescriptor = GetLengthDescriptor;
-  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  const LengthBlocksIndex = (Index >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
   if LengthBlocksIndex then
     Exit;
 
@@ -2417,24 +2567,22 @@ end;
 
 function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
 begin
-  var NewLength := 0.0;
+  var NewLength: Int64 := 0;
+  var Coerced := Definition;
 
   if Definition.HasValue then
   begin
-    NewLength := Definition.Value.ToNumber;
-    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
-                          (NewLength <= MaxInt);
-    if not IsValidLength then
-      raise TJSErrorFactory.InvalidArrayLength;
+    NewLength := CoerceLength(Definition.Value);
+    Coerced.Value := TJSValue.CreateNumber(NewLength);
   end;
 
   const Current = GetLengthDescriptor;
-  Result := CanRedefine(Current, Definition);
+  Result := CanRedefine(Current, Coerced);
   if not Result then
     Exit;
 
   if Definition.HasValue then
-    Result := ResizeTo(Trunc(NewLength));
+    Result := ResizeTo(NewLength);
 
   if Definition.HasWritable then
     FLengthWritable := Definition.Writable;
@@ -2445,18 +2593,31 @@ begin
   if Name = LENGTH_PROPERTY then
     Exit(DefineLength(Definition));
 
-  var Index: Integer;
-  if not TryParseIndex(Name, Index) then
+  var ElementIndex: Int64;
+  if not TryParseArrayIndex(Name, ElementIndex) then
     Exit(inherited DefineOwnProperty(Name, Definition));
 
-  Result := DefineElement(Index, Name, Definition);
+  if IsSparseIndex(ElementIndex) then
+  begin
+    const LengthBlocksIndex = (ElementIndex >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
+    if LengthBlocksIndex then
+      Exit(False);
+
+    Result := inherited DefineOwnProperty(Name, Definition);
+    if Result and (ElementIndex >= GetLogicalLength) then
+      FSparseLength := ElementIndex + 1;
+
+    Exit;
+  end;
+
+  Result := DefineElement(Integer(ElementIndex), Name, Definition);
 end;
 
 function TJSArrayImpl.DefineElement(const Index: Integer; const Name: string;
                                     const Definition: TJSPropertyDefinition): Boolean;
 begin
   const LengthDescriptor = GetLengthDescriptor;
-  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  const LengthBlocksIndex = (Index >= GetLogicalLength) and (not LengthDescriptor.Writable);
   if LengthBlocksIndex then
     Exit(False);
 
@@ -2581,7 +2742,7 @@ end;
 
 function TJSArrayImpl.IsDenseAndMutable: Boolean;
 begin
-  const HasHoles = Assigned(FHoles) and (FHoles.Count > 0);
+  const HasHoles = (Assigned(FHoles) and (FHoles.Count > 0)) or (FSparseLength > FElements.Count);
   const IsLocked = FFrozen or FSealed or (not FExtensible) or (not FLengthWritable);
 
   Result := not (HasHoles or IsLocked);
@@ -2599,6 +2760,13 @@ end;
 
 procedure TJSArrayImpl.Push(const Value: TJSValue);
 begin
+  const HasSparsePart = (FSparseLength > FElements.Count);
+  if HasSparsePart then
+  begin
+    SetProperty(IntToStr(FSparseLength), Value);
+    Exit;
+  end;
+
   FElements.Add(Value);
 end;
 

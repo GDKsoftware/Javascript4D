@@ -97,7 +97,7 @@ begin
   var TargetArray: IJSArray;
   const IsArray = Supports(Target, IJSArray, TargetArray);
   if IsArray then
-    Exit(TargetArray.Length);
+    Exit(TargetArray.LogicalLength);
 
   const Number = ToInteger(Target.GetProperty(LENGTH_PROPERTY));
   Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_LENGTH));

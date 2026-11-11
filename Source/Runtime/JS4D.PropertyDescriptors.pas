@@ -130,12 +130,10 @@ begin
   if not SetsArrayLength then
     Exit;
 
-  const RequestedLength = TJSArrayLike.ToNumber(Definition.Value);
+  const RequestedLength = TJSArray.CoerceLength(Definition.Value);
   Result.Value := TJSValue.CreateNumber(RequestedLength);
 
-  const IsStorableLength = (not IsNaN(RequestedLength)) and (RequestedLength >= 0) and (RequestedLength <= MaxInt);
-  if IsStorableLength then
-    Limits.EnsureArrayLength(Trunc(RequestedLength));
+  Limits.EnsureArrayLength(RequestedLength);
 end;
 
 class procedure TJSPropertyDescriptors.Define(const Target: IJSObject; const Name: string;
