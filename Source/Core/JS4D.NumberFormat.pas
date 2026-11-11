@@ -5,6 +5,11 @@ unit JS4D.NumberFormat;
 interface
 
 type
+  TJSRoundedDecimal = record
+    IntegerDigits: string;
+    FractionDigits: string;
+  end;
+
   TJSNumberFormat = class
   private
     type
@@ -47,6 +52,8 @@ type
     class function ToExponential(const Value: Double; const FractionDigits: Integer): string; static;
     class function ToShortestExponential(const Value: Double): string; static;
     class function ToPrecision(const Value: Double; const Precision: Integer): string; static;
+    class function ToRoundedDecimal(const Magnitude: Double; const FractionDigits: Integer;
+                                    const PointShift: Integer = 0): TJSRoundedDecimal; static;
 
     class function IsFractionDigitsInRange(const FractionDigits: Integer): Boolean; static;
     class function IsPrecisionInRange(const Precision: Integer): Boolean; static;
@@ -350,6 +357,43 @@ begin
     Result := ExponentialText(Digits)
   else
     Result := PositionalText(Digits);
+end;
+
+
+class function TJSNumberFormat.ToRoundedDecimal(const Magnitude: Double; const FractionDigits: Integer;
+                                                 const PointShift: Integer): TJSRoundedDecimal;
+begin
+  Result.IntegerDigits := '0';
+  Result.FractionDigits := '';
+
+  const IsZero = (Magnitude = 0);
+  if IsZero then
+    Exit;
+
+  var Digits := ShortestDigits(Magnitude);
+  Digits.PointPosition := Digits.PointPosition + PointShift;
+
+  const KeptCount = Digits.PointPosition + FractionDigits;
+  const IsBelowPrecision = (KeptCount < 0);
+  if IsBelowPrecision then
+    Exit;
+
+  const Rounded = RoundToCount(Digits, KeptCount);
+  const HasIntegerDigits = (Rounded.PointPosition > 0);
+  if HasIntegerDigits then
+  begin
+    const Padded = PadDigits(Rounded.Digits, Rounded.PointPosition);
+    const Fraction = Copy(Padded, Rounded.PointPosition + 1, Length(Padded));
+
+    Result.IntegerDigits := Copy(Padded, 1, Rounded.PointPosition);
+    Result.FractionDigits := Fraction.TrimRight(['0']);
+  end
+  else
+  begin
+    const Fraction = StringOfChar('0', -Rounded.PointPosition) + Rounded.Digits;
+
+    Result.FractionDigits := Fraction.TrimRight(['0']);
+  end;
 end;
 
 end.

@@ -106,6 +106,8 @@
         <DCCReference Include="..\..\Source\API\JS4D.JsonSyntax.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberParse.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.BuiltInLocales.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.LocaleNumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArgumentsObject.pas"/>
@@ -119,6 +121,8 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.DateMath.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.DateParser.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.DateText.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.LocaleDateFormat.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.LocaleArguments.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.GlobalScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.LexicalStates.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.MathFunctions.pas"/>
