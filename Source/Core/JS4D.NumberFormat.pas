@@ -22,8 +22,8 @@ type
       MIN_PLAIN_POINT = -6;
       MAX_FIXED_VALUE = 1e21;
       MAX_EXACT_INTEGER_TEXT = 1e15;
-      MAX_FRACTION_DIGITS = 20;
-      MAX_PRECISION = 21;
+      MAX_FRACTION_DIGITS = 100;
+      MAX_PRECISION = 100;
       DECIMAL_BASE = 10;
       EXPONENT_BIAS = 1075;
       DENORMAL_EXPONENT = -1074;
@@ -57,7 +57,8 @@ implementation
 uses
   System.SysUtils,
   System.StrUtils,
-  System.Math;
+  System.Math,
+  JS4D.DecimalConversion;
 
 { TJSNumberFormat }
 
@@ -192,11 +193,10 @@ end;
 
 class function TJSNumberFormat.RoundTrips(const Digits: TDecimalDigits; const Value: Double): Boolean;
 begin
-  var Parsed: Double;
-  const Scientific = Format('0.%se%d', [Digits.Digits, Digits.PointPosition]);
-  const IsParsed = TryStrToFloat(Scientific, Parsed, TFormatSettings.Invariant);
+  const Scale = Digits.PointPosition - Length(Digits.Digits);
+  const Parsed = TJSDecimalConversion.ToDouble(Digits.Digits, Scale);
 
-  Result := IsParsed and (Parsed = Value);
+  Result := (Parsed = Value);
 end;
 
 class function TJSNumberFormat.ShortestDigits(const Value: Double): TDecimalDigits;

@@ -97,6 +97,8 @@
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.SlotMap.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.BigNatural.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>

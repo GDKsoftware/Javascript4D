@@ -22,6 +22,7 @@ type
   public
     [Test]
     [TestCase('Empty program', '', '#')]
+    [TestCase('Number conversions', 'Number("1.797693134862315807e+308"); (0.1).toFixed(40); (123.456).toPrecision(30); 0.1 + 0.2 + ""; (255).toString(16);', '#')]
     [TestCase('Regular expression accessors', 'var re = /a/g; re.source + re.flags + re.global;', '#')]
     [TestCase('Closure in a block', '{ let a = 1; var f = function () { return a; }; }', '#')]
     [TestCase('Function shared with discarded objects', '(function () { var f = function () { return f; }; Object.keys({ x: f, y: {} }); Object.keys([f, {}]); Object.freeze({ get: f }); return f(); })();', '#')]

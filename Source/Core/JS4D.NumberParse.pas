@@ -39,7 +39,6 @@ type
     class function PrefixedLiteralRadix(const Text: string): Integer; static;
     class function ExponentMarkPosition(const Literal: string): Integer; static;
     class function ExponentOf(const Literal: string): Integer; static;
-    class function OutOfRangeValue(const Literal: string): Double; static;
     class function ConvertSignedLiteral(const Literal: string): Double; static;
     class function AccumulateDigits(const Digits: string; const Radix: Integer): Double; static;
     class function TryResolveRadix(const Radix: Integer; out EffectiveRadix: Integer;
@@ -60,7 +59,8 @@ implementation
 
 uses
   System.SysUtils,
-  System.Math;
+  System.Math,
+  JS4D.DecimalConversion;
 
 class function TJSNumberParse.IsAsciiDigit(const Ch: Char): Boolean;
 begin
@@ -245,36 +245,25 @@ begin
     Result := -Result;
 end;
 
-class function TJSNumberParse.OutOfRangeValue(const Literal: string): Double;
+class function TJSNumberParse.DecimalToDouble(const Literal: string): Double;
 begin
   var Mantissa := Literal;
   const MarkPosition = ExponentMarkPosition(Literal);
   if MarkPosition >= 0 then
     Mantissa := Mantissa.Substring(0, MarkPosition);
 
-  const PointPosition = Mantissa.IndexOf(DECIMAL_POINT);
   var IntegerPart := Mantissa;
+  var FractionPart := '';
+  const PointPosition = Mantissa.IndexOf(DECIMAL_POINT);
   if PointPosition >= 0 then
+  begin
     IntegerPart := Mantissa.Substring(0, PointPosition);
+    FractionPart := Mantissa.Substring(PointPosition + 1);
+  end;
 
-  const SignificantInteger = IntegerPart.TrimLeft(['0']);
-  const HasMagnitude = (Length(SignificantInteger) + ExponentOf(Literal) > 0);
+  const Scale = ExponentOf(Literal) - Length(FractionPart);
 
-  const MantissaDigits = Mantissa.Replace(DECIMAL_POINT, '');
-  const IsAllZero = MantissaDigits.TrimLeft(['0']).IsEmpty;
-
-  if IsAllZero or not HasMagnitude then
-    Result := 0
-  else
-    Result := Infinity;
-end;
-
-class function TJSNumberParse.DecimalToDouble(const Literal: string): Double;
-begin
-  if TryStrToFloat(Literal, Result, TFormatSettings.Invariant) then
-    Exit;
-
-  Result := OutOfRangeValue(Literal);
+  Result := TJSDecimalConversion.ToDouble(IntegerPart + FractionPart, Scale);
 end;
 
 class function TJSNumberParse.ConvertSignedLiteral(const Literal: string): Double;

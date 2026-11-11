@@ -71,6 +71,7 @@ type
     class function StringValueOf(const Str: string; const Args: TArray<TJSValue>): TJSValue; static;
 
     class function NumberToString(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
+    class function RadixArgument(const Argument: TJSValue): Integer; static;
     class function DigitCountArgument(const Args: TArray<TJSValue>): Integer; static;
     class function HasDigitCountArgument(const Args: TArray<TJSValue>): Boolean; static;
     class function NumberToFixed(const Num: Double; const Args: TArray<TJSValue>): TJSValue; static;
@@ -111,15 +112,20 @@ implementation
 
 uses
   JS4D.Errors,
+  JS4D.Conversions,
   JS4D.ObjectOperations,
   JS4D.NumberFormat,
   JS4D.NumberParse;
 
 const
   DIGIT_COUNT_LIMIT = 1000;
-  TO_FIXED_RANGE_MESSAGE = 'toFixed() digits argument must be between 0 and 20';
-  TO_PRECISION_RANGE_MESSAGE = 'toPrecision() argument must be between 1 and 21';
-  TO_EXPONENTIAL_RANGE_MESSAGE = 'toExponential() argument must be between 0 and 20';
+  DEFAULT_RADIX = 10;
+  MIN_RADIX = 2;
+  MAX_RADIX = 36;
+  RADIX_RANGE_MESSAGE = 'toString() radix must be between 2 and 36';
+  TO_FIXED_RANGE_MESSAGE = 'toFixed() digits argument must be between 0 and 100';
+  TO_PRECISION_RANGE_MESSAGE = 'toPrecision() argument must be between 1 and 100';
+  TO_EXPONENTIAL_RANGE_MESSAGE = 'toExponential() argument must be between 0 and 100';
   INVALID_NORMALIZATION_FORM_MESSAGE = 'The normalization form should be one of NFC, NFD, NFKC, NFKD';
   INVALID_REPEAT_COUNT_MESSAGE = 'Invalid count value for String.prototype.repeat';
   METHOD_PUSH = 'push';
@@ -1011,21 +1017,12 @@ end;
 
 class function TJSBuiltins.NumberToString(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
 begin
-  if Length(Args) = 0 then
-  begin
-    Result := TJSValue.CreateString(TJSValue.CreateNumber(Num).ToString);
-    Exit;
-  end;
+  const HasRadix = (Length(Args) > 0) and (Args[0].ValueType <> TJSValueType.Undefined);
+  var Radix := DEFAULT_RADIX;
+  if HasRadix then
+    Radix := RadixArgument(Args[0]);
 
-  const Radix = Trunc(Args[0].ToNumber);
-
-  if (Radix < 2) or (Radix > 36) then
-  begin
-    Result := TJSValue.CreateString(TJSValue.CreateNumber(Num).ToString);
-    Exit;
-  end;
-
-  if Radix = 10 then
+  if Radix = DEFAULT_RADIX then
   begin
     Result := TJSValue.CreateString(TJSValue.CreateNumber(Num).ToString);
     Exit;
@@ -1073,12 +1070,20 @@ begin
   Result := TJSValue.CreateString(ResultStr);
 end;
 
+class function TJSBuiltins.RadixArgument(const Argument: TJSValue): Integer;
+begin
+  const Requested = TJSConversions.ToIntegerOrInfinity(Argument);
+
+  const IsInRange = (Requested >= MIN_RADIX) and (Requested <= MAX_RADIX);
+  if not IsInRange then
+    raise TJSErrorFactory.RangeError(RADIX_RANGE_MESSAGE);
+
+  Result := Trunc(Requested);
+end;
+
 class function TJSBuiltins.DigitCountArgument(const Args: TArray<TJSValue>): Integer;
 begin
-  const Requested = Args[0].ToNumber;
-
-  if IsNan(Requested) then
-    Exit(0);
+  const Requested = TJSConversions.ToIntegerOrInfinity(Args[0]);
 
   Result := Trunc(Max(-DIGIT_COUNT_LIMIT, Min(DIGIT_COUNT_LIMIT, Requested)));
 end;

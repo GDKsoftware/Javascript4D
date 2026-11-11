@@ -51,6 +51,8 @@ contains
   JS4D.JsonReader in '..\..\Source\API\JS4D.JsonReader.pas',
   JS4D.JsonReviver in '..\..\Source\API\JS4D.JsonReviver.pas',
   JS4D.JsonSyntax in '..\..\Source\API\JS4D.JsonSyntax.pas',
+  JS4D.BigNatural in '..\..\Source\Core\JS4D.BigNatural.pas',
+  JS4D.DecimalConversion in '..\..\Source\Core\JS4D.DecimalConversion.pas',
   JS4D.NumberFormat in '..\..\Source\Core\JS4D.NumberFormat.pas',
   JS4D.NumberParse in '..\..\Source\Core\JS4D.NumberParse.pas',
   JS4D.UriCoding in '..\..\Source\Core\JS4D.UriCoding.pas',
