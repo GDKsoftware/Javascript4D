@@ -63,6 +63,14 @@ type
     procedure Bind_Construct_IsInstanceOfBoundAndTarget;
 
     [Test]
+    [TestCase('Keys of an object literal', 'Object.keys({ x: f });')]
+    [TestCase('Keys of an accessor-named literal', 'Object.keys({ get: f });')]
+    [TestCase('Keys of an array literal', 'Object.keys([f]);')]
+    [TestCase('Frozen object literal', 'Object.freeze({ x: f });')]
+    [TestCase('Object literal assigned and dropped', 'var holder = { x: f }; holder = null;')]
+    procedure Closure_HeldByDiscardedObject_KeepsItsScope(const Discard: string);
+
+    [Test]
     procedure Apply_ArgumentsObject_PassesElements;
 
     [Test]
@@ -171,6 +179,14 @@ begin
   Assert.IsTrue(EvaluateBoolean(
     '(function () { var bound = (function () {}).bind(null);' +
     ' return !bound.hasOwnProperty("caller") && !bound.hasOwnProperty("arguments"); })()'));
+end;
+
+procedure TFunctionObjectTests.Closure_HeldByDiscardedObject_KeepsItsScope(const Discard: string);
+begin
+  const Script = Format('(function () { var captured = 5; var f = function () { return captured; }; %s' +
+                        ' return f() === 5; })()', [Discard]);
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TFunctionObjectTests.Bind_Construct_IsInstanceOfBoundAndTarget;

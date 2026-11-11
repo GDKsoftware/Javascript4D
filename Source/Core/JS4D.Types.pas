@@ -387,7 +387,6 @@ type
     class function TryParseArrayIndex(const Name: string; out Index: Int64): Boolean; static;
     class function CompareIndexNames(const Left, Right: string): Integer; static;
     function HasIndexKey(const Keys: TArray<string>): Boolean;
-    class procedure ReleaseClosure(const Value: TJSValue); static;
     procedure RememberSymbol(const Key: string);
     function OrderedStringKeys: TArray<string>;
 
@@ -1387,13 +1386,10 @@ begin
   for var Position := 0 to FProperties.Count - 1 do
   begin
     const PropertyValue = FProperties.SlotAt(Position).Value;
-    const PropertyObject = PropertyValue.ToObject;
-    var Func: IJSFunction;
+    const IsNestedObject = PropertyValue.IsObject and (not PropertyValue.IsFunction);
 
-    if PropertyValue.IsFunction and Supports(PropertyObject, IJSFunction, Func) then
-      Func.ClosureScope := nil
-    else if PropertyValue.IsObject then
-      Pending.Add(PropertyObject);
+    if IsNestedObject then
+      Pending.Add(PropertyValue.ToObject);
   end;
 
   FProperties.Clear;
@@ -1434,15 +1430,6 @@ begin
   FPrototype := nil;
 
   ReleaseNested;
-
-  for var Position := 0 to FProperties.Count - 1 do
-  begin
-    const Slot = FProperties.SlotAt(Position);
-
-    ReleaseClosure(Slot.Value);
-    ReleaseClosure(Slot.Getter);
-    ReleaseClosure(Slot.Setter);
-  end;
 
   FProperties.Clear;
   FProperties.Free;
@@ -1499,14 +1486,6 @@ begin
 
   if (not Result) and (FPrototype <> nil) then
     Result := FPrototype.HasProperty(Name);
-end;
-
-class procedure TJSObjectImpl.ReleaseClosure(const Value: TJSValue);
-begin
-  var Func: IJSFunction;
-
-  if Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func) then
-    Func.ClosureScope := nil;
 end;
 
 function TJSObjectImpl.InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
@@ -2533,13 +2512,10 @@ procedure TJSArrayImpl.DetachNested(const Pending: TList<IJSObject>);
 begin
   for var Element in FElements do
   begin
-    const ElementObject = Element.ToObject;
-    var Func: IJSFunction;
+    const IsNestedObject = Element.IsObject and (not Element.IsFunction);
 
-    if Element.IsFunction and Supports(ElementObject, IJSFunction, Func) then
-      Func.ClosureScope := nil
-    else if Element.IsObject then
-      Pending.Add(ElementObject);
+    if IsNestedObject then
+      Pending.Add(Element.ToObject);
   end;
 
   FElements.Clear;
@@ -2550,16 +2526,6 @@ end;
 destructor TJSArrayImpl.Destroy;
 begin
   ReleaseNested;
-
-  for var Element in FElements do
-  begin
-    if Element.IsFunction then
-    begin
-      var Func: IJSFunction;
-      if Supports(Element.ToObject, IJSFunction, Func) then
-        Func.ClosureScope := nil;
-    end;
-  end;
 
   FElements.Clear;
   FreeAndNil(FElements);

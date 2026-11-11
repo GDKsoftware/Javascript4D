@@ -24,6 +24,7 @@ type
     [TestCase('Empty program', '', '#')]
     [TestCase('Regular expression accessors', 'var re = /a/g; re.source + re.flags + re.global;', '#')]
     [TestCase('Closure in a block', '{ let a = 1; var f = function () { return a; }; }', '#')]
+    [TestCase('Function shared with discarded objects', '(function () { var f = function () { return f; }; Object.keys({ x: f, y: {} }); Object.keys([f, {}]); Object.freeze({ get: f }); return f(); })();', '#')]
     [TestCase('Closures per loop iteration', 'var fs = []; for (let i = 0; i < 3; i++) { fs.push(function () { return i; }); }', '#')]
     [TestCase('Closures in for-in', 'var fs = []; for (let k in {a: 1, b: 2}) { fs.push(() => k); }', '#')]
     [TestCase('Closures in for-of', 'var fs = []; for (const v of [1, 2]) { fs.push(() => v); }', '#')]
