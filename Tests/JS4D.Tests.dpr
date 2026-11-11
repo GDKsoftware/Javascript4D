@@ -66,6 +66,7 @@ uses
   JS4D.Tests.TemplateLiterals in 'JS4D.Tests.TemplateLiterals.pas',
   JS4D.Tests.SlashContext in 'JS4D.Tests.SlashContext.pas',
   JS4D.Tests.Date in 'JS4D.Tests.Date.pas',
+  JS4D.Tests.LocaleFormatting in 'JS4D.Tests.LocaleFormatting.pas',
   JS4D.Tests.BuiltinAttributes in 'JS4D.Tests.BuiltinAttributes.pas',
   JS4D.Tests.LabelledStatements in 'JS4D.Tests.LabelledStatements.pas',
   JS4D.Tests.SyntaxEarlyErrors in 'JS4D.Tests.SyntaxEarlyErrors.pas',

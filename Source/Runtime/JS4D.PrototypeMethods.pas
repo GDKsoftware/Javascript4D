@@ -33,6 +33,7 @@ type
     function ThisToText(const This: IJSObject; const MethodName: string): string;
     procedure RejectRegExpSearchString(const MethodName: string; const Args: TArray<TJSValue>);
     function ThisToPrimitive(const This: IJSObject; const TypeName: string; const MethodName: string): TJSValue;
+    function TryFormatLocaleNumber(const NumberValue: Double; const Args: TArray<TJSValue>; out Text: string): Boolean;
     function ClassTagOf(const Source: IJSObject): string;
 
     function ObjectToString(const This: IJSObject): TJSValue;
@@ -74,6 +75,10 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.LocaleArguments,
+  JS4D.LocaleNumberFormat;
 
 type
   TRegExpFlagProperty = record
@@ -608,14 +613,34 @@ begin
   Result := TJSBuiltins.CallStringMethod(Text, MethodName, PrimitiveArgs, Executor, FInterpreter.Limits);
 end;
 
+function TJSPrototypeMethods.TryFormatLocaleNumber(const NumberValue: Double; const Args: TArray<TJSValue>;
+                                                   out Text: string): Boolean;
+begin
+  var Request: TJSLocaleRequest;
+  Result := TJSLocaleArguments.TryCreateRequest(Args, Request);
+  if not Result then
+    Exit;
+
+  const Options = TJSLocaleArguments.ReadNumberOptions(Request);
+
+  Text := TJSLocaleNumberFormatter.FormatNumber(NumberValue, Request.Locale, Options);
+end;
+
 function TJSPrototypeMethods.CallNumberMethod(const This: IJSObject; const MethodName: string;
                                                  const Args: TArray<TJSValue>): TJSValue;
 begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_NUMBER, MethodName);
   const NumberValue = Primitive.AsNumber;
 
+  const IsLocaleString = (MethodName = METHOD_TO_LOCALE_STRING);
+
+  var LocaleText: string;
+  const IsLocaleFormatted = IsLocaleString and TryFormatLocaleNumber(NumberValue, Args, LocaleText);
+  if IsLocaleFormatted then
+    Exit(TJSValue.CreateString(LocaleText));
+
   var BuiltinName := MethodName;
-  if MethodName = METHOD_TO_LOCALE_STRING then
+  if IsLocaleString then
     BuiltinName := METHOD_TO_STRING;
 
   const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, False);
