@@ -34,6 +34,7 @@ uses
   JS4D.SymbolBuiltins,
   JS4D.Conversions,
   JS4D.IteratorBuiltins,
+  JS4D.CollectionBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
   JS4D.StringPatternMethods,
@@ -54,6 +55,7 @@ type
     FDateBuiltins: TJSDateBuiltins;
     FSymbolBuiltins: TJSSymbolBuiltins;
     FIteratorBuiltins: TJSIteratorBuiltins;
+    FCollectionBuiltins: TJSCollectionBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
     FStringPatternMethods: TJSStringPatternMethods;
@@ -302,10 +304,15 @@ begin
     Program_.Free;
 
   FPrograms.Free;
+
+  if Assigned(FCollectionBuiltins) then
+    FCollectionBuiltins.ReleaseCollections;
+
   FInterpreter.Free;
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
+  FCollectionBuiltins.Free;
   FRegExpProtocol.Free;
   FObjectBuiltins.Free;
   FStringPatternMethods.Free;
@@ -649,6 +656,9 @@ begin
 
   FIteratorBuiltins := TJSIteratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype);
   FIteratorBuiltins.Register;
+
+  FCollectionBuiltins := TJSCollectionBuiltins.Create(FInterpreter);
+  FCollectionBuiltins.Register;
 end;
 
 function TJSEngine.CodePointsToString(const Args: TArray<TJSValue>): string;

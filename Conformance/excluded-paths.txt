@@ -51,14 +51,10 @@ built-ins/FinalizationRegistry/
 built-ins/GeneratorFunction/
 built-ins/GeneratorPrototype/
 built-ins/Iterator/
-built-ins/Map/
-built-ins/MapIteratorPrototype/
 built-ins/Promise/
 built-ins/Proxy/
 built-ins/Reflect/
 built-ins/RegExpStringIteratorPrototype/
-built-ins/Set/
-built-ins/SetIteratorPrototype/
 built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/
 built-ins/SuppressedError/
@@ -66,6 +62,4 @@ built-ins/Temporal/
 built-ins/TypedArray/
 built-ins/TypedArrayConstructors/
 built-ins/Uint8Array/
-built-ins/WeakMap/
 built-ins/WeakRef/
-built-ins/WeakSet/

@@ -65,6 +65,13 @@ type
     [TestCase('RegExp species constructor', 'var r = /b/; r.constructor = { [Symbol.species]: RegExp }; "abc".split(r);', '#')]
     [TestCase('Custom symbol methods on search values', 'var o = {}; o[Symbol.replace] = function () { return o; }; o[Symbol.split] = function () { return o; }; "a".replace(o, "b"); "a".split(o); "a".replaceAll(o, "b");', '#')]
     [TestCase('Library methods', 'Object.fromEntries([["a", () => 1]]); Object.setPrototypeOf({}, {}); Object.hasOwn({}, "a"); [1, [2]].flat(); [1].flatMap(x => [x]); [1].at(0); [1].includes(1); "a".at(0); String.fromCodePoint(65); "a".replaceAll("a", "b"); 2 ** 3;', '#')]
+    [TestCase('Map and Set', 'var m = new Map([[1, {}], ["a", []]]); var s = new Set([1, "a", NaN]); m.set(m, s); m.forEach(function () {}); [...m]; [...s.entries()]; m.delete(1); s.clear();', '#')]
+    [TestCase('Map and Set containing themselves', 'var m = new Map(); m.set(m, m); var s = new Set(); s.add(s); s.add(m);', '#')]
+    [TestCase('Map holding a closure over itself', 'var m = new Map(); m.set("f", function () { return m; }); m.get("f")();', '#')]
+    [TestCase('Unfinished collection iterators', 'var s = new Set([1, 2, 3]); var it = s.values(); it.next(); var m = new Map([[1, 2]]); var e = m.entries(); var k = m.keys(); k.next(); k.next();', '#')]
+    [TestCase('Weak collections referencing their keys', 'var w = new WeakMap(); var k = {}; k.w = w; w.set(k, k); var ws = new WeakSet(); ws.add(k); k.ws = ws; w.set(w, ws);', '#')]
+    [TestCase('Collection species and iterator accessors', 'Map[Symbol.species]; Set[Symbol.species]; Set.prototype[Symbol.iterator]; Object.getPrototypeOf(new Map().keys()).next.call(new Map().keys());', '#')]
+    [TestCase('Collection constructor with an erroring iterable', 'var o = { [Symbol.iterator]() { return { next() { return { done: false, value: 1 }; }, return() { return {}; } }; } }; try { new Map(o); } catch (e) {} try { new WeakSet(o); } catch (e) {}', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]

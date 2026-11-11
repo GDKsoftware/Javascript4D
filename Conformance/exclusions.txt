@@ -67,19 +67,15 @@ __setter__
 array-grouping
 cross-realm
 FinalizationRegistry
-Map
 Proxy
 proxy-missing-checks
 Reflect
 Reflect.construct
 Reflect.set
 Reflect.setPrototypeOf
-Set
 set-methods
 upsert
-WeakMap
 WeakRef
-WeakSet
 
 # Array and String additions
 array-find-from-last
