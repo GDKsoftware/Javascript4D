@@ -962,22 +962,23 @@ begin
         Exit;
       end;
 
-      var MinValue := Args[0].ToNumber;
+      var MinValue := TJSConversions.ToNumber(Args[0]);
+      var SawNaN := System.Math.IsNaN(MinValue);
 
       for var Index := 1 to Length(Args) - 1 do
       begin
-        const Value = Args[Index].ToNumber;
+        const Value = TJSConversions.ToNumber(Args[Index]);
 
         if System.Math.IsNaN(Value) then
-        begin
-          Result := TJSValue.CreateNaN;
-          Exit;
-        end;
-
-        MinValue := TJSMathFunctions.Smaller(MinValue, Value);
+          SawNaN := True
+        else
+          MinValue := TJSMathFunctions.Smaller(MinValue, Value);
       end;
 
-      Result := TJSValue.CreateNumber(MinValue);
+      if SawNaN then
+        Result := TJSValue.CreateNaN
+      else
+        Result := TJSValue.CreateNumber(MinValue);
     end)));
 
   MathObj.SetProperty(MATH_MAX, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_MAX,
@@ -989,22 +990,23 @@ begin
         Exit;
       end;
 
-      var MaxValue := Args[0].ToNumber;
+      var MaxValue := TJSConversions.ToNumber(Args[0]);
+      var SawNaN := System.Math.IsNaN(MaxValue);
 
       for var Index := 1 to Length(Args) - 1 do
       begin
-        const Value = Args[Index].ToNumber;
+        const Value = TJSConversions.ToNumber(Args[Index]);
 
         if System.Math.IsNaN(Value) then
-        begin
-          Result := TJSValue.CreateNaN;
-          Exit;
-        end;
-
-        MaxValue := TJSMathFunctions.Larger(MaxValue, Value);
+          SawNaN := True
+        else
+          MaxValue := TJSMathFunctions.Larger(MaxValue, Value);
       end;
 
-      Result := TJSValue.CreateNumber(MaxValue);
+      if SawNaN then
+        Result := TJSValue.CreateNaN
+      else
+        Result := TJSValue.CreateNumber(MaxValue);
     end)));
 
   MathObj.SetProperty(MATH_RANDOM, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_RANDOM,
@@ -1136,7 +1138,13 @@ begin
 
       const Num = Args[0].ToNumber;
 
-      if Num <= 0 then
+      if Num = 0 then
+      begin
+        Result := TJSValue.CreateNumber(NegInfinity);
+        Exit;
+      end;
+
+      if Num < 0 then
       begin
         Result := TJSValue.CreateNaN;
         Exit;

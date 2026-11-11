@@ -489,7 +489,8 @@ type
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
     destructor Destroy; override;
 
-    class procedure DefineLength(const Target: IJSObject; const Count: Integer); static;
+    class procedure DefineLength(const Target: IJSObject; const Count: Integer); overload; static;
+    class procedure DefineLength(const Target: IJSObject; const Count: Double); overload; static;
     class procedure DefineName(const Target: IJSObject; const Name: string); static;
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -2015,6 +2016,7 @@ begin
   inherited Create;
   FIsNative := False;
   FIsConstructor := True;
+  DefineLength(Self, 0);
   DefineName(Self, '');
 end;
 
@@ -2025,6 +2027,7 @@ begin
   FNativeFunction := Func;
   FIsNative := True;
   FIsConstructor := True;
+  DefineLength(Self, 0);
   DefineName(Self, Name);
 end;
 
@@ -2064,6 +2067,11 @@ begin
 end;
 
 class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);
+begin
+  DefineLength(Target, Double(Count));
+end;
+
+class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Double);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Count));
   Descriptor.Writable := False;

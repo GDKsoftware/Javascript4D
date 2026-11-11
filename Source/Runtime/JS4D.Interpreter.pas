@@ -463,7 +463,7 @@ type
     function ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
     function CopyToSpeciesResult(const Species: IJSFunction; const Plain: TJSValue; const MethodName: string): TJSValue;
     function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
-    function BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
+    function BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Double;
 
   public
     constructor Create;
@@ -1410,18 +1410,26 @@ begin
   Result.Prototype := PrimitivePrototypeFor(Value);
 end;
 
-function TJSInterpreter.BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
+function TJSInterpreter.BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Double;
 begin
+  if not Target.HasOwnProperty(LENGTH_PROPERTY) then
+    Exit(0);
+
   const TargetLength = Target.GetProperty(LENGTH_PROPERTY);
   if not TargetLength.IsNumber then
     Exit(0);
 
   const LengthNumber = TargetLength.AsNumber;
-  const IsUsableLength = not (IsNaN(LengthNumber) or IsInfinite(LengthNumber));
+  const IsUsableLength = (not IsNaN(LengthNumber));
   if not IsUsableLength then
     Exit(0);
 
-  Result := Max(0, Trunc(LengthNumber) - BoundArgumentCount);
+  const RemainingLength = Int(LengthNumber) - BoundArgumentCount;
+  const HasRemainingLength = (RemainingLength > 0);
+  if HasRemainingLength then
+    Result := RemainingLength
+  else
+    Result := 0;
 end;
 
 function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;

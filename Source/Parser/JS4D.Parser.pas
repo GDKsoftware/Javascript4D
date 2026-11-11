@@ -2134,7 +2134,10 @@ end;
 
 function TJSParser.ParseMemberExpression: TJSExpression;
 begin
-  Result := ParsePrimaryExpression;
+  if Check(TJSTokenType.KeywordNew) then
+    Result := ParseNewExpression
+  else
+    Result := ParsePrimaryExpression;
 
   while True do
   begin

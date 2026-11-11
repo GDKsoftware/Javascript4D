@@ -29,6 +29,8 @@ language/statements/class/
 language/statements/for-await-of/
 language/statements/generators/
 language/statements/using/
+language/eval-code/direct/gen-
+language/eval-code/direct/async-gen-
 language/statements/switch/scope-lex-async-
 language/statements/switch/scope-lex-class.js
 language/statements/switch/scope-lex-generator.js
