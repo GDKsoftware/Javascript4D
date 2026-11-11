@@ -38,7 +38,6 @@ language/statements/switch/scope-lex-generator.js
 built-ins/AbstractModuleSource/
 built-ins/AggregateError/
 built-ins/ArrayBuffer/
-built-ins/ArrayIteratorPrototype/
 built-ins/AsyncDisposableStack/
 built-ins/AsyncFromSyncIteratorPrototype/
 built-ins/AsyncFunction/
@@ -63,7 +62,6 @@ built-ins/Set/
 built-ins/SetIteratorPrototype/
 built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/
-built-ins/StringIteratorPrototype/
 built-ins/SuppressedError/
 built-ins/Temporal/
 built-ins/TypedArray/

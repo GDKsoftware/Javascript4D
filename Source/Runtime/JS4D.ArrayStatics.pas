@@ -17,7 +17,9 @@ type
   TJSMapCallback = reference to function(const Mapper: IJSFunction; const Args: TArray<TJSValue>;
                                          const ThisValue: TJSValue): TJSValue;
   TJSSequenceReader = reference to function(out Item: TJSValue): Boolean;
-  TJSSequenceOpener = reference to function(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
+  TJSSequenceCloser = reference to procedure(const AfterThrow: Boolean);
+  TJSSequenceOpener = reference to function(const Source: TJSValue; out Reader: TJSSequenceReader;
+                                            out Closer: TJSSequenceCloser): Boolean;
 
   TJSArrayStaticsContext = record
     ArrayPrototype: IJSObject;
@@ -47,8 +49,11 @@ type
     class function MapItem(const Mapper: IJSFunction; const Item: TJSValue; const Index: Int64;
                            const ThisArg: TJSValue; const Context: TJSArrayStaticsContext): TJSValue; static;
     class function CopySequence(const ThisObj: IJSObject; const Reader: TJSSequenceReader;
-                                const Mapper: IJSFunction; const ThisArg: TJSValue;
-                                const Context: TJSArrayStaticsContext): TJSValue; static;
+                                const Closer: TJSSequenceCloser; const Mapper: IJSFunction;
+                                const ThisArg: TJSValue; const Context: TJSArrayStaticsContext): TJSValue; static;
+    class procedure CopyItem(const Target: IJSObject; const Item: TJSValue; const Index: Int64;
+                             const Mapper: IJSFunction; const ThisArg: TJSValue;
+                             const Closer: TJSSequenceCloser; const Context: TJSArrayStaticsContext); static;
     class function CopyArrayLike(const ThisObj: IJSObject; const Items: TJSValue; const Mapper: IJSFunction;
                                  const ThisArg: TJSValue; const Context: TJSArrayStaticsContext): TJSValue; static;
 
@@ -148,8 +153,9 @@ begin
     raise TJSErrorFactory.TypeError(SOURCE_NOT_COERCIBLE);
 
   var Reader: TJSSequenceReader;
-  if Context.OpenSequence(Items, Reader) then
-    Exit(CopySequence(ThisObj, Reader, Mapper, ThisArg, Context));
+  var Closer: TJSSequenceCloser;
+  if Context.OpenSequence(Items, Reader, Closer) then
+    Exit(CopySequence(ThisObj, Reader, Closer, Mapper, ThisArg, Context));
 
   Result := CopyArrayLike(ThisObj, Items, Mapper, ThisArg, Context);
 end;
@@ -177,7 +183,8 @@ begin
 end;
 
 class function TJSArrayStatics.CopySequence(const ThisObj: IJSObject; const Reader: TJSSequenceReader;
-                                            const Mapper: IJSFunction; const ThisArg: TJSValue;
+                                            const Closer: TJSSequenceCloser; const Mapper: IJSFunction;
+                                            const ThisArg: TJSValue;
                                             const Context: TJSArrayStaticsContext): TJSValue;
 begin
   const Target = CreateTarget(ThisObj, nil, Context);
@@ -186,13 +193,30 @@ begin
   var Item: TJSValue;
   while Reader(Item) do
   begin
-    const Mapped = MapItem(Mapper, Item, Index, ThisArg, Context);
-    DefineElement(Target, Index, Mapped, Context);
+    CopyItem(Target, Item, Index, Mapper, ThisArg, Closer, Context);
     Inc(Index);
   end;
 
   TJSArrayLike.WriteLength(Target, Index);
   Result := TJSValue.CreateObject(Target);
+end;
+
+class procedure TJSArrayStatics.CopyItem(const Target: IJSObject; const Item: TJSValue; const Index: Int64;
+                                         const Mapper: IJSFunction; const ThisArg: TJSValue;
+                                         const Closer: TJSSequenceCloser; const Context: TJSArrayStaticsContext);
+begin
+  try
+    const Mapped = MapItem(Mapper, Item, Index, ThisArg, Context);
+    DefineElement(Target, Index, Mapped, Context);
+  except
+    on EJSExecutionInterrupted do
+      raise;
+    on Exception do
+    begin
+      Closer(True);
+      raise;
+    end;
+  end;
 end;
 
 class function TJSArrayStatics.CopyArrayLike(const ThisObj: IJSObject; const Items: TJSValue;

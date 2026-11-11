@@ -8,7 +8,8 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Errors,
-  JS4D.ArrayLike;
+  JS4D.ArrayLike,
+  JS4D.IteratorProtocol;
 
 type
   TJSArrayIteratorKind = (Keys, Values, Entries);
@@ -24,10 +25,6 @@ type
   // object on every step, so elements added before the iterator is exhausted are still visited.
   TJSArrayIterator = class(TJSObjectImpl, IJSArrayIterator)
   private
-    const
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
-
     var
       FTarget: IJSObject;
       FKind: TJSArrayIteratorKind;
@@ -118,12 +115,7 @@ end;
 
 function TJSArrayIterator.CreateResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
 begin
-  const ResultObject = TJSObject.Create;
-  ResultObject.Prototype := FObjectPrototype;
-  ResultObject.SetProperty(VALUE_PROPERTY, Value);
-  ResultObject.SetProperty(DONE_PROPERTY, TJSValue.CreateBoolean(IsDone));
-
-  Result := TJSValue.CreateObject(ResultObject);
+  Result := TJSIteratorResults.CreateResult(FObjectPrototype, Value, IsDone);
 end;
 
 end.

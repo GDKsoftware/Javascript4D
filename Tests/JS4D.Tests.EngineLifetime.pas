@@ -53,6 +53,13 @@ type
     [TestCase('Array species constructor', 'function C() {} var a = [1, 2]; a.constructor = { [Symbol.species]: C }; a.map(function (x) { return x; }); a.slice(); a.concat(a);', '#')]
     [TestCase('Unscopables in with', 'var o = { x: 1, y: 2, [Symbol.unscopables]: { x: true } }; with (o) { y; }', '#')]
     [TestCase('Symbols copied between objects', 'var s = Symbol(); var a = { [s]: () => a }; var b = Object.assign({}, a); var { [s]: f, ...r } = { ...a };', '#')]
+    [TestCase('Array iterators', 'var it = [1, 2][Symbol.iterator](); it.next(); [...it]; [...[1].entries()]; for (var x of [1, 2].keys()) {}', '#')]
+    [TestCase('String iterators', 'var it = "ab"[Symbol.iterator](); it.next(); [...it]; for (var c of "xy") {}', '#')]
+    [TestCase('Iterator prototype chain', 'var p = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())); p[Symbol.iterator](); Object.getPrototypeOf(""[Symbol.iterator]());', '#')]
+    [TestCase('Arguments iterator', '(function () { var o = { f: arguments }; return [...arguments, ...o.f]; })(1, 2);', '#')]
+    [TestCase('Custom iterable closing over itself', 'var o = { [Symbol.iterator]() { var i = 0; var self = this; return { next() { return { done: i++ > 1, value: self }; }, return() { return {}; } }; } }; for (var x of o) { break; } var [a] = o; Array.from(o); [...o];', '#')]
+    [TestCase('Iterator replaced on built-in prototypes', 'var p = Object.getPrototypeOf([][Symbol.iterator]()); var n = p.next; p.next = function () { return n.call(this); }; [...[1, 2]]; p.next = n; var s = String.prototype[Symbol.iterator]; String.prototype[Symbol.iterator] = function () { return s.call(this); }; [..."ab"]; String.prototype[Symbol.iterator] = s;', '#')]
+    [TestCase('Iterator error thrown while iterating', 'var o = { [Symbol.iterator]() { return { next() { throw new Error("x"); }, return() { return {}; } }; } }; try { for (var x of o) {} } catch (e) {} try { var [a] = o; } catch (e) {} var p = { [Symbol.iterator]() { return { next() { return { done: false }; }, return() { throw 1; } }; } }; try { for (var y of p) { break; } } catch (e) {}', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]

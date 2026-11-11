@@ -32,6 +32,7 @@ uses
   JS4D.Symbols,
   JS4D.SymbolRegistry,
   JS4D.SymbolBuiltins,
+  JS4D.IteratorBuiltins,
   JS4D.UriCoding,
   JS4D.MathFunctions,
   JS4D.NumericBuiltins,
@@ -48,6 +49,8 @@ type
     FPrototypeMethods: TJSPrototypeMethods;
     FDateBuiltins: TJSDateBuiltins;
     FSymbolBuiltins: TJSSymbolBuiltins;
+    FIteratorBuiltins: TJSIteratorBuiltins;
+    FArrayIteratorPrototype: IJSObject;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
 
@@ -285,7 +288,9 @@ begin
   FInterpreter.Free;
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
+  FIteratorBuiltins.Free;
   FSymbolBuiltins.Free;
+  FArrayIteratorPrototype := nil;
   inherited;
 end;
 
@@ -610,6 +615,9 @@ begin
 
   FSymbolBuiltins := TJSSymbolBuiltins.Create(FInterpreter);
   FSymbolBuiltins.Register;
+
+  FIteratorBuiltins := TJSIteratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype);
+  FIteratorBuiltins.Register;
 end;
 
 procedure TJSEngine.RegisterStringRaw(const StringFunc: IJSFunction);
@@ -1509,9 +1517,9 @@ end;
 
 procedure TJSEngine.RegisterArrayIterators(const PrototypeObj: IJSObject);
 begin
-  const IteratorPrototype = TJSObject.Create;
+  const IteratorPrototype: IJSObject = TJSObject.Create;
   IteratorPrototype.Prototype := FInterpreter.ObjectPrototype;
-  IteratorPrototype.SetProperty(ITERATOR_NEXT, TJSValue.CreateObject(TJSFunction.CreateNative(ITERATOR_NEXT,
+  DefineHiddenProperty(IteratorPrototype, ITERATOR_NEXT, TJSValue.CreateObject(TJSFunction.CreateNative(ITERATOR_NEXT,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Iterator: IJSArrayIterator;
@@ -1520,6 +1528,7 @@ begin
 
       Result := Iterator.NextResult;
     end)));
+  FArrayIteratorPrototype := IteratorPrototype;
 
   const KeysMethod = CreateArrayIteratorFactory(ARRAY_KEYS, TJSArrayIteratorKind.Keys, IteratorPrototype);
   const ValuesMethod = CreateArrayIteratorFactory(ARRAY_VALUES, TJSArrayIteratorKind.Values, IteratorPrototype);

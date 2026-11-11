@@ -128,6 +128,9 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectKeys.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.SymbolBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorProtocol.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.StringIterator.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Operators.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.UnicodeNormalization.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PropertyDescriptors.pas"/>

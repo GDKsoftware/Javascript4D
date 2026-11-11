@@ -21,6 +21,8 @@ uses
   JS4D.LexicalStates,
   JS4D.ArrayIteration,
   JS4D.ArrayIterator,
+  JS4D.IteratorProtocol,
+  JS4D.StringIterator,
   JS4D.ArrayStatics,
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
@@ -137,16 +139,39 @@ type
     Reference: TJSMemberReference;
   end;
 
-  TJSArraySource = record
+  // The built-in functions and prototypes that the iteration fast paths compare against, to see that a
+  // script has not replaced the iterator protocol of arrays, arguments objects or strings.
+  TJSIterationIntrinsics = record
+    ArrayIteratorPrototype: IJSObject;
+    ArrayValues: IInterface;
+    ArrayIteratorNext: IInterface;
+    StringIteratorPrototype: IJSObject;
+    StringIterator: IInterface;
+    StringIteratorNext: IInterface;
+  end;
+
+  // Remembers where a built-in method sits in the property storage of its holder, so that checking it again
+  // costs no hash lookup while the holder keeps the same layout.
+  TJSIntrinsicSlot = record
+    Holder: TJSObjectImpl;
+    Version: Cardinal;
+    Slot: PJSPropertyDescriptor;
+  end;
+
+  // Where the values of an iterable come from: the elements of an array or arguments object and the code
+  // points of a string are read directly, anything else goes through the iterator protocol.
+  TJSIterationSource = record
     Elements: IJSArray;
     ArrayLike: IJSObject;
-    Iterator: IJSArrayIterator;
+    Protocol: IJSIteratorRecord;
     Items: TArray<TJSValue>;
     Position: Integer;
 
     function HasNext: Boolean;
     function Next: TJSValue;
     function Remaining: TArray<TJSValue>;
+    procedure Close;
+    procedure CloseAfterThrow;
   end;
 
   TJSInterpreter = class(TJSCallHandler)
@@ -167,6 +192,11 @@ type
     FNumberPrototype: IJSObject;
     FBooleanPrototype: IJSObject;
     FSymbolPrototype: IJSObject;
+    FIteration: TJSIterationIntrinsics;
+    FArrayValuesSlot: TJSIntrinsicSlot;
+    FArrayNextSlot: TJSIntrinsicSlot;
+    FStringIteratorSlot: TJSIntrinsicSlot;
+    FStringNextSlot: TJSIntrinsicSlot;
     FOrdinaryHasInstance: IJSFunction;
     FArrayConstructor: IJSFunction;
     FArraySpeciesGetter: IJSFunction;
@@ -199,6 +229,7 @@ type
     procedure AttachPrototype(const Func: IJSFunction);
     function ReferencesArguments(const Func: IJSFunction): Boolean;
     function CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
+    procedure DefineArgumentsIterator(const ArgumentsObject: IJSObject);
     procedure AssignParameters(const Func: TJSFunction; const Params: TObjectList<TJSIdentifier>;
                                const Info: TJSParameterInfo);
     function ParameterInfoOf(const Func: IJSFunction): TJSParameterInfo;
@@ -218,9 +249,24 @@ type
     procedure StoreIdentifier(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue; const Mode: TJSBindingMode);
-    function OpenArraySource(const Value: TJSValue): TJSArraySource;
-    function TryOpenArraySource(const Value: TJSValue; out Source: TJSArraySource): Boolean;
-    function OpenStringSource(const Text: string): TJSArraySource;
+    procedure BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
+                                const Mode: TJSBindingMode);
+    function OpenIterationSource(const Value: TJSValue): TJSIterationSource;
+    function TryOpenIterationSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
+    function TryOpenFastSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
+    function TryOpenProtocolSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
+    function FindIteratorMethod(const Value: TJSValue; out IteratorFunction: IJSFunction): Boolean;
+    function OpenProtocolSource(const Value: TJSValue; const IteratorFunction: IJSFunction): TJSIterationSource;
+    function IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean;
+    function IsIntrinsicProperty(const Start: IJSObject; const Key: string; const Original: IInterface): Boolean;
+    function HoldsIntrinsic(var Cache: TJSIntrinsicSlot; const Holder: IJSObject; const Key: string;
+                            const Original: IInterface): Boolean;
+    function HasPlainArrayPrototype(const Target: IJSObject; const Key: string): Boolean;
+    function HasUntouchedArrayIteration(const Target: IJSObject): Boolean;
+    function HasUntouchedStringIteration: Boolean;
+    function RunForOfLoop(const Node: TJSForOfStatement; const OuterScope: IJSScope;
+                          const OwnLabels: TArray<string>; var Source: TJSIterationSource): TJSValue;
+    function OpenStringSource(const Text: string): TJSIterationSource;
     function CopyRestProperties(const Source: TJSValue; const Excluded: TList<string>): TJSValue;
     procedure CopyDataProperties(const Target: IJSObject; const Source: TJSValue; const Excluded: TList<string>);
     function AssignToPattern(const Node: TJSAssignmentExpression): TJSValue;
@@ -395,7 +441,8 @@ type
     procedure AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
     procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
-    function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
+    function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
+                                out Closer: TJSSequenceCloser): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -443,6 +490,7 @@ type
     property NumberPrototype: IJSObject read FNumberPrototype write FNumberPrototype;
     property BooleanPrototype: IJSObject read FBooleanPrototype write FBooleanPrototype;
     property SymbolPrototype: IJSObject read FSymbolPrototype write FSymbolPrototype;
+    property Iteration: TJSIterationIntrinsics read FIteration write FIteration;
     property OrdinaryHasInstanceFunction: IJSFunction read FOrdinaryHasInstance write FOrdinaryHasInstance;
     property ArrayConstructor: IJSFunction read FArrayConstructor write FArrayConstructor;
     property ArraySpeciesGetter: IJSFunction read FArraySpeciesGetter write FArraySpeciesGetter;
@@ -517,11 +565,10 @@ const
   INSTANCEOF_PROTOTYPE_NOT_OBJECT = 'Function has non-object prototype in instanceof check';
   IN_NOT_OBJECT = 'Cannot use the in operator to search for a property in a non-object';
   PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
+  ITERATOR_METHOD_NOT_CALLABLE = 'The Symbol.iterator property is not a function';
+  ITERATOR_NOT_AN_OBJECT = 'The Symbol.iterator method did not return an object';
+  ITERATOR_NEXT_PROPERTY = 'next';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
-  HIGH_SURROGATE_FIRST = $D800;
-  HIGH_SURROGATE_LAST = $DBFF;
-  LOW_SURROGATE_FIRST = $DC00;
-  LOW_SURROGATE_LAST = $DFFF;
 
 { TJSScope }
 
@@ -757,12 +804,12 @@ begin
   FValue := Value;
 end;
 
-{ TJSArraySource }
+{ TJSIterationSource }
 
-function TJSArraySource.HasNext: Boolean;
+function TJSIterationSource.HasNext: Boolean;
 begin
-  if Assigned(Iterator) then
-    Exit(Iterator.HasNext);
+  if Assigned(Protocol) then
+    Exit(Protocol.HasNext);
 
   if Assigned(Elements) then
     Exit(Position < Elements.Length);
@@ -773,12 +820,12 @@ begin
   Result := (Position < Length(Items));
 end;
 
-function TJSArraySource.Next: TJSValue;
+function TJSIterationSource.Next: TJSValue;
 begin
-  Result := TJSValue.CreateUndefined;
+  if Assigned(Protocol) then
+    Exit(Protocol.Next);
 
-  if Assigned(Iterator) then
-    Exit(Iterator.Next);
+  Result := TJSValue.CreateUndefined;
 
   if HasNext then
   begin
@@ -802,7 +849,7 @@ begin
   Inc(Position);
 end;
 
-function TJSArraySource.Remaining: TArray<TJSValue>;
+function TJSIterationSource.Remaining: TArray<TJSValue>;
 begin
   const Values = TList<TJSValue>.Create;
   try
@@ -815,6 +862,18 @@ begin
   finally
     Values.Free;
   end;
+end;
+
+procedure TJSIterationSource.Close;
+begin
+  if Assigned(Protocol) then
+    Protocol.Close;
+end;
+
+procedure TJSIterationSource.CloseAfterThrow;
+begin
+  if Assigned(Protocol) then
+    Protocol.CloseAfterThrow;
 end;
 
 { TJSInterpreter }
@@ -882,6 +941,7 @@ begin
   FFunctionPrototype := nil;
   FRegExpPrototype := nil;
   FSymbolPrototype := nil;
+  FIteration := Default(TJSIterationIntrinsics);
   FOrdinaryHasInstance := nil;
   FArrayConstructor := nil;
   FArraySpeciesGetter := nil;
@@ -978,6 +1038,16 @@ begin
   Result := (not (Body is TJSBlockStatement)) or TJSBlockStatement(Body).ReferencesArguments;
 end;
 
+procedure TJSInterpreter.DefineArgumentsIterator(const ArgumentsObject: IJSObject);
+begin
+  if not Assigned(FIteration.ArrayValues) then
+    Exit;
+
+  var IteratorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(FIteration.ArrayValues as IJSObject));
+  IteratorDescriptor.Enumerable := False;
+  ArgumentsObject.DefineProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator), IteratorDescriptor);
+end;
+
 function TJSInterpreter.CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
 begin
   const IsUnmapped = (Func.IsStrict or Assigned(ParameterInfoOf(Func)));
@@ -996,6 +1066,8 @@ begin
   var LengthDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Length(Args)));
   LengthDescriptor.Enumerable := False;
   Result.DefineProperty(LENGTH_PROPERTY, LengthDescriptor);
+
+  DefineArgumentsIterator(Result);
 
   if Func.IsStrict then
   begin
@@ -1182,8 +1254,8 @@ end;
 
 procedure TJSInterpreter.AppendSpreadValues(const Source: TJSValue; const Target: TList<TJSValue>);
 begin
-  var Values: TJSArraySource;
-  if not TryOpenArraySource(Source, Values) then
+  var Values: TJSIterationSource;
+  if not TryOpenIterationSource(Source, Values) then
     raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 
   while Values.HasNext do
@@ -1199,11 +1271,7 @@ begin
 
   while Position <= Length(Source) do
   begin
-    const HasLowSurrogateNext = (Position < Length(Source)) and
-                                InRange(Ord(Source[Position + 1]), LOW_SURROGATE_FIRST, LOW_SURROGATE_LAST);
-    const IsSurrogatePair = InRange(Ord(Source[Position]), HIGH_SURROGATE_FIRST, HIGH_SURROGATE_LAST) and
-                            HasLowSurrogateNext;
-    const CodeUnitCount = 1 + Ord(IsSurrogatePair);
+    const CodeUnitCount = TJSStringIterator.CodePointLength(Source, Position);
 
     Target.Add(TJSValue.CreateString(Copy(Source, Position, CodeUnitCount)));
     Inc(Position, CodeUnitCount);
@@ -2454,10 +2522,22 @@ begin
   try
     const RightValue = EvaluateForInSubject(Node);
 
-    var Source: TJSArraySource;
-    if not TryOpenArraySource(RightValue, Source) then
+    var Source: TJSIterationSource;
+    if not TryOpenIterationSource(RightValue, Source) then
       raise TJSErrorFactory.TypeError(NOT_ITERABLE_LOOP);
 
+    Result := RunForOfLoop(Node, OuterScope, OwnLabels, Source);
+  finally
+    FCurrentScope := OuterScope;
+  end;
+end;
+
+function TJSInterpreter.RunForOfLoop(const Node: TJSForOfStatement; const OuterScope: IJSScope;
+                                     const OwnLabels: TArray<string>; var Source: TJSIterationSource): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  try
     while Source.HasNext do
     begin
       AssignLoopVariable(Node, OuterScope, Source.Next);
@@ -2465,10 +2545,24 @@ begin
       var KeepLooping: Boolean;
       Result := RunLoopBody(Node.Body, OwnLabels, KeepLooping);
       if not KeepLooping then
+      begin
+        Source.Close;
         Break;
+      end;
     end;
-  finally
-    FCurrentScope := OuterScope;
+  except
+    on EJSExecutionInterrupted do
+      raise;
+    on EJSControlFlowSignal do
+    begin
+      Source.Close;
+      raise;
+    end;
+    on Exception do
+    begin
+      Source.CloseAfterThrow;
+      raise;
+    end;
   end;
 end;
 
@@ -3424,8 +3518,28 @@ end;
 procedure TJSInterpreter.BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
                                           const Mode: TJSBindingMode);
 begin
-  var Source := OpenArraySource(Value);
+  var Source := OpenIterationSource(Value);
 
+  try
+    BindArrayElements(Pattern, Source, Mode);
+  except
+    on EJSExecutionInterrupted do
+      raise;
+    on EJSControlFlowSignal do
+      raise;
+    on Exception do
+    begin
+      Source.CloseAfterThrow;
+      raise;
+    end;
+  end;
+
+  Source.Close;
+end;
+
+procedure TJSInterpreter.BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
+                                           const Mode: TJSBindingMode);
+begin
   for var Element in Pattern.Elements do
   begin
     const IsHole = (Element = nil);
@@ -3450,21 +3564,33 @@ begin
   end;
 end;
 
-function TJSInterpreter.OpenArraySource(const Value: TJSValue): TJSArraySource;
+function TJSInterpreter.OpenIterationSource(const Value: TJSValue): TJSIterationSource;
 begin
-  if not TryOpenArraySource(Value, Result) then
+  if not TryOpenIterationSource(Value, Result) then
     raise TJSErrorFactory.TypeError(PATTERN_NOT_ITERABLE);
 end;
 
-function TJSInterpreter.TryOpenArraySource(const Value: TJSValue; out Source: TJSArraySource): Boolean;
+function TJSInterpreter.TryOpenIterationSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
 begin
-  Source := Default(TJSArraySource);
+  Source := Default(TJSIterationSource);
+
+  if Value.IsNullOrUndefined then
+    Exit(False);
+
+  Result := TryOpenFastSource(Value, Source) or TryOpenProtocolSource(Value, Source);
+end;
+
+function TJSInterpreter.TryOpenFastSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
+begin
   Result := True;
 
   if Value.IsString then
   begin
-    Source := OpenStringSource(Value.ToString);
-    Exit;
+    const IsUntouched = HasUntouchedStringIteration;
+    if IsUntouched then
+      Source := OpenStringSource(Value.ToString);
+
+    Exit(IsUntouched);
   end;
 
   if not Value.IsObject then
@@ -3473,39 +3599,142 @@ begin
   const Target = Value.ToObject;
 
   var SourceArray: IJSArray;
-  if Supports(Target, IJSArray, SourceArray) then
-  begin
-    Source.Elements := SourceArray;
-    Exit;
-  end;
+  const IsArray = Supports(Target, IJSArray, SourceArray);
+  const IsArguments = (not IsArray) and Supports(Target, IJSArgumentsScope);
+  if not (IsArray or IsArguments) then
+    Exit(False);
 
-  var Wrapper: IJSPrimitiveWrapper;
-  const IsStringWrapper = Supports(Target, IJSPrimitiveWrapper, Wrapper) and Wrapper.Primitive.IsString;
-  if IsStringWrapper then
-  begin
-    Source := OpenStringSource(Wrapper.Primitive.ToString);
-    Exit;
-  end;
+  const IsUntouched = HasUntouchedArrayIteration(Target);
+  if not IsUntouched then
+    Exit(False);
 
-  var SourceIterator: IJSArrayIterator;
-  if Supports(Target, IJSArrayIterator, SourceIterator) then
-  begin
-    Source.Iterator := SourceIterator;
-    Exit;
-  end;
-
-  if Supports(Target, IJSArgumentsScope) then
-  begin
+  if IsArray then
+    Source.Elements := SourceArray
+  else
     Source.ArrayLike := Target;
-    Exit;
-  end;
-
-  Result := False;
 end;
 
-function TJSInterpreter.OpenStringSource(const Text: string): TJSArraySource;
+function TJSInterpreter.TryOpenProtocolSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
 begin
-  Result := Default(TJSArraySource);
+  var IteratorFunction: IJSFunction;
+  Result := FindIteratorMethod(Value, IteratorFunction);
+  if Result then
+    Source := OpenProtocolSource(Value, IteratorFunction);
+end;
+
+function TJSInterpreter.FindIteratorMethod(const Value: TJSValue; out IteratorFunction: IJSFunction): Boolean;
+begin
+  IteratorFunction := nil;
+
+  const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
+  const Method = ReadMember(Value, IteratorKey);
+  if Method.IsNullOrUndefined then
+    Exit(False);
+
+  const IsCallable = Method.IsFunction and Supports(Method.ToObject, IJSFunction, IteratorFunction);
+  if not IsCallable then
+    raise TJSErrorFactory.TypeError(ITERATOR_METHOD_NOT_CALLABLE);
+
+  Result := True;
+end;
+
+function TJSInterpreter.OpenProtocolSource(const Value: TJSValue; const IteratorFunction: IJSFunction): TJSIterationSource;
+begin
+  Result := Default(TJSIterationSource);
+
+  const IteratorValue = CallFunction(IteratorFunction, nil, ThisObjectFor(IteratorFunction, Value));
+  if not IteratorValue.IsObject then
+    raise TJSErrorFactory.TypeError(ITERATOR_NOT_AN_OBJECT);
+
+  Result.Protocol := TJSIteratorRecord.Create(Self, IteratorValue.ToObject);
+end;
+
+function TJSInterpreter.IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean;
+begin
+  Result := Assigned(Original) and Candidate.IsObject and ((Candidate.ToObject as IInterface) = Original);
+end;
+
+function TJSInterpreter.IsIntrinsicProperty(const Start: IJSObject; const Key: string;
+                                            const Original: IInterface): Boolean;
+begin
+  Result := False;
+  if not Assigned(Original) then
+    Exit;
+
+  var Current := Start;
+  while Assigned(Current) do
+  begin
+    const IsOrdinaryObject = Current is TJSObjectImpl;
+    if not IsOrdinaryObject then
+      Exit;
+
+    var Slot: PJSPropertyDescriptor;
+    if TJSObjectImpl(Current).TryGetOwnSlot(Key, Slot) then
+      Exit((not Slot.IsAccessor) and IsIntrinsic(Slot.Value, Original));
+
+    Current := Current.Prototype;
+  end;
+end;
+
+function TJSInterpreter.HoldsIntrinsic(var Cache: TJSIntrinsicSlot; const Holder: IJSObject; const Key: string;
+                                       const Original: IInterface): Boolean;
+begin
+  const IsOrdinaryObject = Assigned(Original) and (Holder is TJSObjectImpl);
+  if not IsOrdinaryObject then
+    Exit(False);
+
+  const HolderObject = TJSObjectImpl(Holder);
+  const IsCached = (Cache.Holder = HolderObject) and (Cache.Version = HolderObject.PropertyLayoutVersion);
+  if not IsCached then
+  begin
+    Cache.Holder := nil;
+    if not HolderObject.TryGetOwnSlot(Key, Cache.Slot) then
+      Exit(False);
+
+    Cache.Holder := HolderObject;
+    Cache.Version := HolderObject.PropertyLayoutVersion;
+  end;
+
+  Result := (not Cache.Slot.IsAccessor) and IsIntrinsic(Cache.Slot.Value, Original);
+end;
+
+function TJSInterpreter.HasPlainArrayPrototype(const Target: IJSObject; const Key: string): Boolean;
+begin
+  Result := False;
+
+  const HasArrayPrototype = (Target.Prototype = FArrayPrototype);
+  if not (HasArrayPrototype and (Target is TJSObjectImpl)) then
+    Exit;
+
+  var OwnSlot: PJSPropertyDescriptor;
+  Result := not TJSObjectImpl(Target).TryGetOwnSlot(Key, OwnSlot);
+end;
+
+function TJSInterpreter.HasUntouchedArrayIteration(const Target: IJSObject): Boolean;
+begin
+  const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
+
+  const IsOriginalValues = (HasPlainArrayPrototype(Target, IteratorKey) and
+                            HoldsIntrinsic(FArrayValuesSlot, FArrayPrototype, IteratorKey, FIteration.ArrayValues)) or
+                           IsIntrinsicProperty(Target, IteratorKey, FIteration.ArrayValues);
+
+  Result := IsOriginalValues and
+            HoldsIntrinsic(FArrayNextSlot, FIteration.ArrayIteratorPrototype, ITERATOR_NEXT_PROPERTY,
+                           FIteration.ArrayIteratorNext);
+end;
+
+function TJSInterpreter.HasUntouchedStringIteration: Boolean;
+begin
+  const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
+
+  Result := HoldsIntrinsic(FStringIteratorSlot, FStringPrototype, IteratorKey, FIteration.StringIterator) and
+            HoldsIntrinsic(FStringNextSlot, FIteration.StringIteratorPrototype, ITERATOR_NEXT_PROPERTY,
+                           FIteration.StringIteratorNext);
+end;
+
+function TJSInterpreter.OpenStringSource(const Text: string): TJSIterationSource;
+begin
+  Result := Default(TJSIterationSource);
 
   const Items = TList<TJSValue>.Create;
   try
@@ -4440,20 +4669,42 @@ begin
   Result := TJSArrayStatics.Call(MethodName, ThisObj, Args, Context);
 end;
 
-function TJSInterpreter.OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
+function TJSInterpreter.OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
+                                           out Closer: TJSSequenceCloser): Boolean;
 begin
-  var Values: TJSArraySource;
-  Result := TryOpenArraySource(Source, Values);
-  if not Result then
-    Exit;
+  if Source.IsNullOrUndefined then
+    Exit(False);
+
+  var Values := Default(TJSIterationSource);
+  var IteratorFunction: IJSFunction := nil;
+  var IsOpened := TryOpenFastSource(Source, Values);
+  if (not IsOpened) and (not FindIteratorMethod(Source, IteratorFunction)) then
+    Exit(False);
 
   Reader :=
     function(out Item: TJSValue): Boolean
     begin
+      if not IsOpened then
+      begin
+        Values := OpenProtocolSource(Source, IteratorFunction);
+        IsOpened := True;
+      end;
+
       Result := Values.HasNext;
       if Result then
         Item := Values.Next;
     end;
+
+  Closer :=
+    procedure(const AfterThrow: Boolean)
+    begin
+      if AfterThrow then
+        Values.CloseAfterThrow
+      else
+        Values.Close;
+    end;
+
+  Result := True;
 end;
 
 function TJSInterpreter.ExecuteFunctionMethod(const Func: IJSFunction; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

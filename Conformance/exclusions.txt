@@ -58,7 +58,6 @@ RegExp.escape
 
 # Symbols
 Symbol.asyncIterator
-Symbol.iterator
 Symbol.match
 Symbol.matchAll
 Symbol.replace

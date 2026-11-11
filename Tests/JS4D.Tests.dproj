@@ -178,6 +178,7 @@
         <DCCReference Include="JS4D.Tests.FunctionSourceText.pas"/>
         <DCCReference Include="JS4D.Tests.StringEs2015Methods.pas"/>
         <DCCReference Include="JS4D.Tests.Symbols.pas"/>
+        <DCCReference Include="JS4D.Tests.IteratorProtocol.pas"/>
         <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
