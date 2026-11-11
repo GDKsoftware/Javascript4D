@@ -276,6 +276,7 @@ type
     procedure AdvanceForLoop(const Node: TJSForStatement; const CopiesIterationScope: Boolean);
     procedure CopyIterationScope;
     function EvaluateForInSubject(const Node: TJSForInStatement): TJSValue;
+    function CollectEnumerableKeys(const Subject: IJSObject): TArray<string>;
     procedure AssignLoopVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const Value: TJSValue);
     procedure BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
                                       const OuterScope: IJSScope; const Value: TJSValue);
@@ -2276,6 +2277,35 @@ begin
   end;
 end;
 
+function TJSInterpreter.CollectEnumerableKeys(const Subject: IJSObject): TArray<string>;
+begin
+  const Keys = TList<string>.Create;
+  const Visited = THashSet<string>.Create;
+  try
+    var Current := Subject;
+
+    while Assigned(Current) do
+    begin
+      for var Name in Current.GetOwnPropertyNames do
+      begin
+        const IsShadowed = not Visited.Add(Name);
+        if IsShadowed then
+          Continue;
+
+        if Current.GetOwnPropertyDescriptor(Name).Enumerable then
+          Keys.Add(Name);
+      end;
+
+      Current := Current.Prototype;
+    end;
+
+    Result := Keys.ToArray;
+  finally
+    Visited.Free;
+    Keys.Free;
+  end;
+end;
+
 procedure TJSInterpreter.BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
                                                  const OuterScope: IJSScope; const Value: TJSValue);
 begin
@@ -2360,16 +2390,15 @@ begin
   try
     const RightValue = EvaluateForInSubject(Node);
 
-    if not RightValue.IsObject then
+    if RightValue.IsNullOrUndefined then
       Exit;
 
-    const Obj = RightValue.ToObject;
-    const PropertyNames = Obj.GetOwnPropertyNames;
+    const Obj = ToScopeObject(RightValue);
 
-    for var PropName in PropertyNames do
+    for var PropName in CollectEnumerableKeys(Obj) do
     begin
-      const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-      if not Descriptor.Enumerable then
+      const IsDeleted = not Obj.HasProperty(PropName);
+      if IsDeleted then
         Continue;
 
       AssignLoopVariable(Node, OuterScope, TJSValue.CreateString(PropName));

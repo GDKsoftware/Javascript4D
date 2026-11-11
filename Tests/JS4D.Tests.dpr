@@ -56,6 +56,7 @@ uses
   JS4D.Tests.DeleteIdentifier in 'JS4D.Tests.DeleteIdentifier.pas',
   JS4D.Tests.Destructuring in 'JS4D.Tests.Destructuring.pas',
   JS4D.Tests.ForOf in 'JS4D.Tests.ForOf.pas',
+  JS4D.Tests.ForIn in 'JS4D.Tests.ForIn.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',
   JS4D.Tests.ArrowFunctions in 'JS4D.Tests.ArrowFunctions.pas',
