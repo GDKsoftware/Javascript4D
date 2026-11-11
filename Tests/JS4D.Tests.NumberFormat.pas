@@ -135,8 +135,7 @@ type
 
     [Test]
     [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
-    [TestCase('LocaleAndOptions', '1234.5.toLocaleString("nl-NL", { minimumFractionDigits: 2 })|1234.5', '|')]
-    procedure ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
+    [TestCase('UnknownLocale', '1234.5.toLocaleString("xx-XX")|1234.5', '|')]    procedure ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
 
     [Test]
     procedure ToExponential_InfiniteValueWithBadDigits_ReturnsInfinity;

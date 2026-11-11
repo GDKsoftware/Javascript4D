@@ -19,6 +19,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
+- **Locale-aware formatting**: `toLocaleString` on numbers (decimal, percent and currency styles) and on dates (`toLocaleString`, `toLocaleDateString`, `toLocaleTimeString`) for en-US, en-GB, nl-NL, nl-BE, de-DE, fr-FR, es-ES and it-IT, from built-in tables that give the same output on every platform. The `Intl` object is not provided
 - **Higher-Order Functions**: map, filter, reduce, forEach, find, some, every
 - **Closures**: Full support for lexical scoping and closures
 - **Error Handling**: Try/catch/finally with TypeError, RangeError, SyntaxError, etc.

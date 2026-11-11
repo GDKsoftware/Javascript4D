@@ -6,7 +6,8 @@ interface
 
 uses
   System.SysUtils,
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.LocaleDateFormat;
 
 type
   // The Date constructor and Date.prototype of ES5 15.9.
@@ -42,6 +43,7 @@ type
     function BindGetter(const Field: TDateField; const IsLocal: Boolean): TNativeFunction;
     function BindSetter(const Field: TDateField; const IsLocal: Boolean): TNativeFunction;
     function BindFormatter(const Form: TTextForm): TNativeFunction;
+    function BindLocaleFormatter(const Form: TTextForm; const Scope: TJSDateFormatScope): TNativeFunction;
     function BindTimeValue: TNativeFunction;
 
     function ApplySetter(const Target: IJSDate; const OriginalTime: Double; const Field: TDateField;
@@ -78,7 +80,8 @@ uses
   JS4D.PrototypeMethods,
   JS4D.DateMath,
   JS4D.DateText,
-  JS4D.DateParser;
+  JS4D.DateParser,
+  JS4D.LocaleArguments;
 
 const
   INVALID_DATE = 'Invalid Date';
@@ -353,6 +356,34 @@ begin
     end;
 end;
 
+function TJSDateBuiltins.BindLocaleFormatter(const Form: TTextForm;
+                                             const Scope: TJSDateFormatScope): TNativeFunction;
+begin
+  Result := function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Time = ThisDate(This).Time;
+      if System.Math.IsNaN(Time) then
+        Exit(TJSValue.CreateString(INVALID_DATE));
+
+      var Request: TJSLocaleRequest;
+      const IsLocaleRequested = TJSLocaleArguments.TryCreateRequest(Args, Request);
+      if not IsLocaleRequested then
+      begin
+        const FormattedTime = FormatTime(Form, Time);
+
+        Exit(TJSValue.CreateString(FormattedTime));
+      end;
+
+      const RequestedOptions = TJSLocaleArguments.ReadDateOptions(Request);
+      const Options = TJSLocaleDateFormatter.WithDefaults(RequestedOptions, Scope);
+      const UsesUtc = TJSLocaleArguments.UsesUtcZone(Request);
+      const Moment = IfThen(UsesUtc, Time, TJSDateMath.LocalTime(Time));
+      const Text = TJSLocaleDateFormatter.FormatMoment(Moment, Request.Locale, Options);
+
+      Result := TJSValue.CreateString(Text);
+    end;
+end;
+
 function TJSDateBuiltins.BindTimeValue: TNativeFunction;
 begin
   Result := function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -464,9 +495,9 @@ begin
   DefineMethod(METHOD_TO_STRING, 0, BindFormatter(TTextForm.Full));
   DefineMethod(METHOD_TO_DATE_STRING, 0, BindFormatter(TTextForm.DateOnly));
   DefineMethod(METHOD_TO_TIME_STRING, 0, BindFormatter(TTextForm.TimeOnly));
-  DefineMethod('toLocaleString', 0, BindFormatter(TTextForm.Full));
-  DefineMethod('toLocaleDateString', 0, BindFormatter(TTextForm.DateOnly));
-  DefineMethod('toLocaleTimeString', 0, BindFormatter(TTextForm.TimeOnly));
+  DefineMethod('toLocaleString', 0, BindLocaleFormatter(TTextForm.Full, TJSDateFormatScope.DateAndTime));
+  DefineMethod('toLocaleDateString', 0, BindLocaleFormatter(TTextForm.DateOnly, TJSDateFormatScope.DateOnly));
+  DefineMethod('toLocaleTimeString', 0, BindLocaleFormatter(TTextForm.TimeOnly, TJSDateFormatScope.TimeOnly));
 
   const UtcConverter = DefineMethod(METHOD_TO_UTC_STRING, 0, BindFormatter(TTextForm.Utc));
   var GmtDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(UtcConverter));
