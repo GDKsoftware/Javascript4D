@@ -134,6 +134,11 @@ type
     procedure ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 
     [Test]
+    [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
+    [TestCase('LocaleAndOptions', '1234.5.toLocaleString("nl-NL", { minimumFractionDigits: 2 })|1234.5', '|')]
+    procedure ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
+
+    [Test]
     procedure ToExponential_InfiniteValueWithBadDigits_ReturnsInfinity;
   end;
 
@@ -205,6 +210,13 @@ end;
 procedure TNumberFormatTests.ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 begin
   const Actual = StringOf(Format('(255).toString(%s)', [Radix]));
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TNumberFormatTests.ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
+begin
+  const Actual = StringOf(Expression);
 
   Assert.AreEqual(Expected, Actual);
 end;

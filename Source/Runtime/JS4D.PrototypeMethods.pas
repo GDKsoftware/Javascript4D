@@ -595,13 +595,12 @@ begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_NUMBER, MethodName);
   const NumberValue = Primitive.AsNumber;
 
-  var BuiltinName := MethodName;
   if MethodName = METHOD_TO_LOCALE_STRING then
-    BuiltinName := METHOD_TO_STRING;
+    Exit(TJSBuiltins.CallNumberMethod(NumberValue, METHOD_TO_STRING, []));
 
   const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, False);
 
-  Result := TJSBuiltins.CallNumberMethod(NumberValue, BuiltinName, PrimitiveArgs);
+  Result := TJSBuiltins.CallNumberMethod(NumberValue, MethodName, PrimitiveArgs);
 end;
 
 function TJSPrototypeMethods.CallBooleanMethod(const This: IJSObject; const MethodName: string): TJSValue;
