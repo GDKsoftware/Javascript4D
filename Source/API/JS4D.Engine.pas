@@ -28,6 +28,10 @@ uses
   JS4D.JsonSyntax,
   JS4D.JsonReader,
   JS4D.JsonReviver,
+  JS4D.ObjectKeys,
+  JS4D.Symbols,
+  JS4D.SymbolRegistry,
+  JS4D.SymbolBuiltins,
   JS4D.UriCoding,
   JS4D.MathFunctions,
   JS4D.NumericBuiltins,
@@ -43,10 +47,12 @@ type
     FInterpreter: TJSInterpreter;
     FPrototypeMethods: TJSPrototypeMethods;
     FDateBuiltins: TJSDateBuiltins;
+    FSymbolBuiltins: TJSSymbolBuiltins;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
 
     function ToText(const Value: TJSValue): string;
+    function ToKeyText(const Value: TJSValue): string;
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
     function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
@@ -220,6 +226,7 @@ const
   OBJECT_IS_EXTENSIBLE = 'isExtensible';
   OBJECT_GET_PROTOTYPE_OF = 'getPrototypeOf';
   OBJECT_GET_OWN_PROPERTY_NAMES = 'getOwnPropertyNames';
+  OBJECT_GET_OWN_PROPERTY_SYMBOLS = 'getOwnPropertySymbols';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTORS = 'getOwnPropertyDescriptors';
   OBJECT_IS = 'is';
@@ -278,6 +285,7 @@ begin
   FInterpreter.Free;
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
+  FSymbolBuiltins.Free;
   inherited;
 end;
 
@@ -349,6 +357,11 @@ begin
 
   const Primitive = Value.ToPrimitive(True);
   Result := Primitive.ToLimitedString(FInterpreter.Limits);
+end;
+
+function TJSEngine.ToKeyText(const Value: TJSValue): string;
+begin
+  Result := Value.ToPropertyKey(FInterpreter.Limits);
 end;
 
 function TJSEngine.GetStepBudget: Int64;
@@ -519,6 +532,11 @@ begin
     begin
       var StringValue := TJSValue.CreateString('');
 
+      const IsSymbolConversion = (Length(Args) > 0) and Args[0].IsSymbol and
+                                 (not TJSPrototypeMethods.IsConstructCall(This, StringPrototype));
+      if IsSymbolConversion then
+        Exit(TJSValue.CreateString(Args[0].SymbolDescriptiveString));
+
       if Length(Args) > 0 then
         StringValue := TJSValue.CreateString(ToText(Args[0]));
 
@@ -589,6 +607,9 @@ begin
   RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
   ApplyBuiltinAttributes;
+
+  FSymbolBuiltins := TJSSymbolBuiltins.Create(FInterpreter);
+  FSymbolBuiltins.Register;
 end;
 
 procedure TJSEngine.RegisterStringRaw(const StringFunc: IJSFunction);
@@ -652,7 +673,7 @@ end;
 
 procedure TJSEngine.CopyEnumerableOwn(const Source: IJSObject; const Target: IJSObject);
 begin
-  for var PropName in Source.GetOwnPropertyNames do
+  for var PropName in TJSObjectKeys.All(Source) do
   begin
     if IsEnumerableOwn(Source, PropName) then
       PutChecked(Target, PropName, Source.GetProperty(PropName));
@@ -702,7 +723,10 @@ begin
         if Index > 0 then
           Output := Output + ' ';
 
-        Output := Output + ToText(Args[Index]);
+        if Args[Index].IsSymbol then
+          Output := Output + Args[Index].SymbolDescriptiveString
+        else
+          Output := Output + ToText(Args[Index]);
       end;
 
       if Assigned(Engine.FOnConsoleOutput) then
@@ -1168,6 +1192,22 @@ begin
       Result := TJSValue.CreateObject(ResultArr);
     end)));
 
+  ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_SYMBOLS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_SYMBOLS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
+      const ResultArr: IJSArray = TJSArray.Create;
+
+      for var SymbolKey in Obj.GetOwnSymbolKeys do
+      begin
+        const Found: IJSSymbol = TJSSymbolImpl(TJSSymbolRegistry.Find(SymbolKey));
+        const SymbolValue = TJSValue.CreateSymbol(Found);
+        ResultArr.Push(SymbolValue);
+      end;
+
+      Result := TJSValue.CreateObject(ResultArr);
+    end)));
+
   ObjectObj.SetProperty(OBJECT_FREEZE, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_FREEZE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -1244,7 +1284,7 @@ begin
 
       var PropName := UNDEFINED_NAME;
       if Length(Args) > 1 then
-        PropName := ToText(Args[1]);
+        PropName := ToKeyText(Args[1]);
 
       if not Obj.HasOwnProperty(PropName) then
         Exit(TJSValue.CreateUndefined);
@@ -1262,7 +1302,7 @@ begin
       const Descriptors = TJSObject.Create;
       Descriptors.Prototype := PrototypeObj;
 
-      for var PropName in Source.GetOwnPropertyNames do
+      for var PropName in TJSObjectKeys.All(Source) do
       begin
         const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Source.GetOwnPropertyDescriptor(PropName));
         Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
@@ -1290,7 +1330,7 @@ begin
       var PropName := UNDEFINED_NAME;
       var Description := TJSValue.CreateUndefined;
       if Length(Args) > 1 then
-        PropName := ToText(Args[1]);
+        PropName := ToKeyText(Args[1]);
       if Length(Args) > 2 then
         Description := Args[2];
 
@@ -1540,7 +1580,13 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       if not Assigned(This) then
+      begin
+        const TakesPropertyKey = TJSBuiltins.HasObjectMethod(MethodName) and (Length(Args) > 0);
+        if TakesPropertyKey then
+          ToKeyText(Args[0]);
+
         raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+      end;
 
       Result := TJSBuiltins.CallObjectMethod(This, MethodName, Args, FInterpreter.Limits);
     end);

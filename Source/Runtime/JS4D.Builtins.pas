@@ -1750,7 +1750,7 @@ begin
   if Length(Args) = 0 then
     Exit(TJSValue.CreateBoolean(False));
 
-  const PropertyName = Args[0].ToLimitedString(Limits);
+  const PropertyName = Args[0].ToPropertyKey(Limits);
 
   if MethodName = METHOD_HAS_OWN_PROPERTY then
   begin

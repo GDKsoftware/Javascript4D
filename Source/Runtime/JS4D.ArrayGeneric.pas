@@ -9,6 +9,7 @@ uses
   System.Math,
   JS4D.Types,
   JS4D.Errors,
+  JS4D.SymbolRegistry,
   JS4D.Builtins,
   JS4D.ArrayLike;
 
@@ -68,6 +69,8 @@ type
     class procedure ShiftTailDown(const Target: IJSObject; const Count, Start, DeleteCount, ItemCount: Int64); static;
     class procedure ShiftTailUp(const Target: IJSObject; const Count, Start, DeleteCount, ItemCount: Int64); static;
     class procedure SwapMirroredElements(const Target: IJSObject; const LowerIndex, UpperIndex: Int64); static;
+    class function HasSpreadabilityFlag(const Item: TJSValue): Boolean; static;
+    class function IsConcatSpreadable(const Item: TJSValue): Boolean; static;
     class procedure AppendConcatItem(const Item: TJSValue; const Combined: IJSArray; var NextIndex: Int64;
                                      const Context: TJSArrayGenericContext); static;
     class procedure WriteSortedElements(const Target: IJSObject; const Sorted: IJSArray;
@@ -77,6 +80,8 @@ type
     class function Handles(const MethodName: string): Boolean; static;
     class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
+                                      const Args: TArray<TJSValue>): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
   end;
@@ -110,6 +115,44 @@ begin
   Result := (MethodName = METHOD_SPLICE) or
             (MethodName = METHOD_SLICE) or
             (MethodName = METHOD_CONCAT);
+end;
+
+class function TJSArrayGeneric.ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
+                                                  const Args: TArray<TJSValue>): Boolean;
+begin
+  Result := False;
+
+  if MethodName <> METHOD_CONCAT then
+    Exit;
+
+  if HasSpreadabilityFlag(TJSValue.CreateObject(Target)) then
+    Exit(True);
+
+  for var Item in Args do
+  begin
+    if HasSpreadabilityFlag(Item) then
+      Exit(True);
+  end;
+end;
+
+class function TJSArrayGeneric.HasSpreadabilityFlag(const Item: TJSValue): Boolean;
+begin
+  const IsItemObject = Item.IsObject;
+
+  Result := IsItemObject and
+            (not Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable)).IsUndefined);
+end;
+
+class function TJSArrayGeneric.IsConcatSpreadable(const Item: TJSValue): Boolean;
+begin
+  if not Item.IsObject then
+    Exit(False);
+
+  const Flag = Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable));
+  if not Flag.IsUndefined then
+    Exit(Flag.ToBoolean);
+
+  Result := Item.IsArray;
 end;
 
 class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: string;
@@ -473,9 +516,7 @@ end;
 class procedure TJSArrayGeneric.AppendConcatItem(const Item: TJSValue; const Combined: IJSArray;
                                                  var NextIndex: Int64; const Context: TJSArrayGenericContext);
 begin
-  var Source: IJSArray;
-  const IsSpreadable = Item.IsArray and Supports(Item.ToObject, IJSArray, Source);
-  if not IsSpreadable then
+  if not IsConcatSpreadable(Item) then
   begin
     Context.Limits.EnsureArrayLength(NextIndex + 1);
     Combined[Integer(NextIndex)] := Item;
@@ -483,8 +524,11 @@ begin
     Exit;
   end;
 
-  Context.Limits.EnsureArrayLength(NextIndex + Source.Length);
-  for var Index: Int64 := 0 to Source.Length - 1 do
+  const Source = Item.ToObject;
+  const SourceLength = TJSArrayLike.ToLength(Source);
+
+  Context.Limits.EnsureArrayLength(NextIndex + SourceLength);
+  for var Index: Int64 := 0 to SourceLength - 1 do
   begin
     var Element: TJSValue;
     if TJSArrayLike.TryGetElement(Source, Index, Element) then

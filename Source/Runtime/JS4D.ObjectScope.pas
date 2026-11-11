@@ -5,7 +5,8 @@ unit JS4D.ObjectScope;
 interface
 
 uses
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.SymbolRegistry;
 
 type
   IJSObjectScope = interface
@@ -18,6 +19,8 @@ type
   private
     FBindingObject: IJSObject;
     FParent: IJSScope;
+
+    function HasBinding(const Name: string): Boolean;
 
   public
     class function DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean; static;
@@ -64,9 +67,23 @@ begin
   FBindingObject := BindingObject;
 end;
 
-function TJSObjectScope.HasVariable(const Name: string): Boolean;
+function TJSObjectScope.HasBinding(const Name: string): Boolean;
 begin
   Result := FBindingObject.HasProperty(Name);
+  if not Result then
+    Exit;
+
+  const Unscopables = FBindingObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Unscopables));
+  if not Unscopables.IsObject then
+    Exit;
+
+  const IsBlocked = Unscopables.ToObject.GetProperty(Name).ToBoolean;
+  Result := not IsBlocked;
+end;
+
+function TJSObjectScope.HasVariable(const Name: string): Boolean;
+begin
+  Result := HasBinding(Name);
 
   if (not Result) and Assigned(FParent) then
     Result := FParent.HasVariable(Name);
@@ -74,7 +91,7 @@ end;
 
 function TJSObjectScope.GetVariable(const Name: string): TJSValue;
 begin
-  if FBindingObject.HasProperty(Name) then
+  if HasBinding(Name) then
     Exit(FBindingObject.GetProperty(Name));
 
   if Assigned(FParent) then
@@ -85,7 +102,7 @@ end;
 
 function TJSObjectScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
 begin
-  Result := FBindingObject.HasProperty(Name);
+  Result := HasBinding(Name);
 
   if Result then
   begin
@@ -99,7 +116,7 @@ end;
 
 procedure TJSObjectScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
-  if FBindingObject.HasProperty(Name) then
+  if HasBinding(Name) then
     FBindingObject.SetProperty(Name, Value)
   else if Assigned(FParent) then
     FParent.SetVariable(Name, Value);
@@ -136,7 +153,7 @@ end;
 
 function TJSObjectScope.Resolve(const Name: string): IJSScope;
 begin
-  if FBindingObject.HasProperty(Name) then
+  if HasBinding(Name) then
     Exit(Self);
 
   if Assigned(FParent) then

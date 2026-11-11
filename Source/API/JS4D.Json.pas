@@ -294,7 +294,7 @@ begin
   Current := ApplyReplacer(Key, Holder, Current);
   Prepared := Unwrapped(Current);
 
-  const IsOmitted = (Prepared.IsUndefined or Prepared.IsFunction);
+  const IsOmitted = (Prepared.IsUndefined or Prepared.IsFunction or Prepared.IsSymbol);
   Result := not IsOmitted;
 end;
 

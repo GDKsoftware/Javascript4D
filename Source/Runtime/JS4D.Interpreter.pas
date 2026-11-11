@@ -24,6 +24,8 @@ uses
   JS4D.ArrayStatics,
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
+  JS4D.ObjectKeys,
+  JS4D.SymbolRegistry,
   JS4D.Operators;
 
 type
@@ -164,6 +166,10 @@ type
     FStringPrototype: IJSObject;
     FNumberPrototype: IJSObject;
     FBooleanPrototype: IJSObject;
+    FSymbolPrototype: IJSObject;
+    FOrdinaryHasInstance: IJSFunction;
+    FArrayConstructor: IJSFunction;
+    FArraySpeciesGetter: IJSFunction;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
@@ -321,7 +327,8 @@ type
     function VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
     function VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
     procedure DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
-    function LiteralPropertyName(const Prop: TJSObjectProperty): string;
+    function LiteralPropertyName(const Prop: TJSObjectProperty; out KeyHolder: TJSValue): string;
+    class function FunctionNameForKey(const Key: string): string; static;
     procedure DefineLiteralData(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
     procedure DefineLiteralMethod(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
     procedure DefineLiteralAccessor(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
@@ -390,6 +397,12 @@ type
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    function ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function CreatesSpeciesResult(const MethodName: string): Boolean;
+    function ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
+    function CopyToSpeciesResult(const Species: IJSFunction; const Plain: TJSValue; const MethodName: string): TJSValue;
     function GetCalleeDescription(const Callee: TJSASTNode; const CalleeValue: TJSValue): string;
     function BoundLength(const Target: IJSFunction; const BoundArgumentCount: Integer): Integer;
 
@@ -401,6 +414,8 @@ type
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
+    function OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
+                                 const Line: Integer = 0; const Column: Integer = 0): Boolean;
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
     procedure RegisterEval(const ProgramParser: TJSProgramParser);
     function CreateFunctionFromSource(const Source: string): TJSValue;
@@ -427,6 +442,10 @@ type
     property StringPrototype: IJSObject read FStringPrototype write FStringPrototype;
     property NumberPrototype: IJSObject read FNumberPrototype write FNumberPrototype;
     property BooleanPrototype: IJSObject read FBooleanPrototype write FBooleanPrototype;
+    property SymbolPrototype: IJSObject read FSymbolPrototype write FSymbolPrototype;
+    property OrdinaryHasInstanceFunction: IJSFunction read FOrdinaryHasInstance write FOrdinaryHasInstance;
+    property ArrayConstructor: IJSFunction read FArrayConstructor write FArrayConstructor;
+    property ArraySpeciesGetter: IJSFunction read FArraySpeciesGetter write FArraySpeciesGetter;
     property Limits: TJSLimits read FLimits;
     property StepBudget: Int64 read FStepBudget write FStepBudget;
     property StepCount: Int64 read GetStepCount;
@@ -440,14 +459,20 @@ implementation
 const
   NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
   UNDEFINED_TYPE = 'undefined';
+  SYMBOL_TYPE = 'symbol';
   OBJECT_TYPE = 'object';
   BOOLEAN_TYPE = 'boolean';
   NUMBER_TYPE = 'number';
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
   LENGTH_PROPERTY = 'length';
+  NAME_PROPERTY = 'name';
+  BOUND_NAME_PREFIX = 'bound ';
   GETTER_NAME_FORMAT = 'get %s';
   SETTER_NAME_FORMAT = 'set %s';
+  SYMBOL_FUNCTION_NAME = '[%s]';
+  METHOD_FILTER = 'filter';
+  METHOD_CONCAT = 'concat';
   RAW_PROPERTY = 'raw';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
@@ -488,6 +513,7 @@ const
   NOT_ITERABLE_LOOP = 'Value is not iterable';
   INSTANCEOF_NOT_OBJECT = 'Right-hand side of instanceof is not an object';
   INSTANCEOF_NOT_CALLABLE = 'Right-hand side of instanceof is not callable';
+  HAS_INSTANCE_NOT_CALLABLE = 'Symbol.hasInstance is not a function';
   INSTANCEOF_PROTOTYPE_NOT_OBJECT = 'Function has non-object prototype in instanceof check';
   IN_NOT_OBJECT = 'Cannot use the in operator to search for a property in a non-object';
   PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
@@ -855,6 +881,10 @@ begin
   FArrayPrototype := nil;
   FFunctionPrototype := nil;
   FRegExpPrototype := nil;
+  FSymbolPrototype := nil;
+  FOrdinaryHasInstance := nil;
+  FArrayConstructor := nil;
+  FArraySpeciesGetter := nil;
   inherited;
 end;
 
@@ -1219,7 +1249,7 @@ end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
 begin
-  for var PropName in Func.GetOwnPropertyNames do
+  for var PropName in TJSObjectKeys.All(Func) do
   begin
     Func.DeleteProperty(PropName);
   end;
@@ -1263,6 +1293,8 @@ begin
     Result := FNumberPrototype
   else if Value.IsBoolean then
     Result := FBooleanPrototype
+  else if Value.IsSymbol then
+    Result := FSymbolPrototype
   else
     Result := nil;
 end;
@@ -2757,7 +2789,8 @@ begin
     Exit;
   end;
 
-  const KeyName = LiteralPropertyName(Prop);
+  var KeyHolder: TJSValue;
+  const KeyName = LiteralPropertyName(Prop, KeyHolder);
 
   case Prop.Kind of
     TJSPropertyKind.Getter,
@@ -2771,12 +2804,15 @@ begin
   end;
 end;
 
-function TJSInterpreter.LiteralPropertyName(const Prop: TJSObjectProperty): string;
+function TJSInterpreter.LiteralPropertyName(const Prop: TJSObjectProperty; out KeyHolder: TJSValue): string;
 begin
+  KeyHolder := TJSValue.CreateUndefined;
+
   if Prop.Computed then
   begin
-    const KeyValue = Visit(Prop.Key);
-    Exit(ToPropertyKey(KeyValue));
+    // A symbol key stays registered only while the symbol lives, so the caller keeps it until the property exists.
+    KeyHolder := Visit(Prop.Key);
+    Exit(ToPropertyKey(KeyHolder));
   end;
 
   if Prop.Key is TJSIdentifier then
@@ -2785,17 +2821,33 @@ begin
   Result := VisitText(Prop.Key);
 end;
 
+class function TJSInterpreter.FunctionNameForKey(const Key: string): string;
+begin
+  Result := Key;
+
+  if not TJSSymbolRegistry.IsKey(Key) then
+    Exit;
+
+  const Found = TJSSymbolRegistry.Find(Key);
+  const IsLiveSymbol = Found is TJSSymbolImpl;
+  const HasDescription = IsLiveSymbol and TJSSymbolImpl(Found).HasDescription;
+  if HasDescription then
+    Result := Format(SYMBOL_FUNCTION_NAME, [TJSSymbolImpl(Found).Description])
+  else
+    Result := '';
+end;
+
 procedure TJSInterpreter.DefineLiteralData(const Target: IJSObject; const Name: string;
                                            const Prop: TJSObjectProperty);
 begin
-  const Value = VisitNamed(Prop.Value, Name);
+  const Value = VisitNamed(Prop.Value, FunctionNameForKey(Name));
   Target.DefineProperty(Name, TJSPropertyDescriptor.Create(Value));
 end;
 
 procedure TJSInterpreter.DefineLiteralMethod(const Target: IJSObject; const Name: string;
                                              const Prop: TJSObjectProperty);
 begin
-  const Method = CreateMethodFunction(TJSFunctionExpression(Prop.Value), Name);
+  const Method = CreateMethodFunction(TJSFunctionExpression(Prop.Value), FunctionNameForKey(Name));
   Target.DefineProperty(Name, TJSPropertyDescriptor.Create(TJSValue.CreateObject(Method)));
 end;
 
@@ -2844,7 +2896,7 @@ begin
 
   const IsGetter = (Prop.Kind = TJSPropertyKind.Getter);
   const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
-  const AccessorName = Format(NameFormat, [Name]);
+  const AccessorName = Format(NameFormat, [FunctionNameForKey(Name)]);
   const AccessorFunction = CreateMethodFunction(TJSFunctionExpression(Prop.Value), AccessorName);
   const Accessor = TJSValue.CreateObject(AccessorFunction);
 
@@ -2979,7 +3031,7 @@ begin
   var PropName: string;
 
   if MemberExpr.Computed then
-    PropName := VisitText(MemberExpr.Property_)
+    PropName := ToPropertyKey(Visit(MemberExpr.Property_))
   else
     PropName := TJSIdentifier(MemberExpr.Property_).Name;
 
@@ -3045,6 +3097,8 @@ begin
             Result := TJSValue.CreateString(NUMBER_TYPE);
           TJSValueType.String_:
             Result := TJSValue.CreateString(STRING_TYPE);
+          TJSValueType.Symbol:
+            Result := TJSValue.CreateString(SYMBOL_TYPE);
           TJSValueType.Function_:
             Result := TJSValue.CreateString(FUNCTION_TYPE);
           else
@@ -3126,16 +3180,38 @@ begin
     raise TJSErrorFactory.TypeError(INSTANCEOF_NOT_OBJECT, Node.Line, Node.Column);
 
   const RightObject = Right.ToObject;
+  const Handler = RightObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.HasInstance));
+  if not Handler.IsNullOrUndefined then
+  begin
+    var HandlerFunc: IJSFunction;
+    const IsCallable = Handler.IsFunction and Supports(Handler.ToObject, IJSFunction, HandlerFunc);
+    if not IsCallable then
+      raise TJSErrorFactory.TypeError(HAS_INSTANCE_NOT_CALLABLE, Node.Line, Node.Column);
+
+    const IsOrdinary = Assigned(FOrdinaryHasInstance) and (HandlerFunc as IInterface = FOrdinaryHasInstance as IInterface);
+    if not IsOrdinary then
+    begin
+      const Verdict = CallFunction(HandlerFunc, [Left], RightObject);
+      Exit(Verdict.ToBoolean);
+    end;
+  end;
+
   var RightFunc: IJSFunction;
-  const IsCallable = Right.IsFunction and Supports(RightObject, IJSFunction, RightFunc);
-  if not IsCallable then
+  const IsCallableTarget = Right.IsFunction and Supports(RightObject, IJSFunction, RightFunc);
+  if not IsCallableTarget then
     raise TJSErrorFactory.TypeError(INSTANCEOF_NOT_CALLABLE, Node.Line, Node.Column);
 
-  if not Left.IsObject then
+  Result := OrdinaryHasInstance(RightFunc, Left, Node.Line, Node.Column);
+end;
+
+function TJSInterpreter.OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
+                                            const Line: Integer; const Column: Integer): Boolean;
+begin
+  if not Value.IsObject then
     Exit(False);
 
-  RightFunc := UnwrapBoundFunction(RightFunc);
-  const LeftObj = Left.ToObject;
+  const RightFunc = UnwrapBoundFunction(Constructor_);
+  const LeftObj = Value.ToObject;
 
   const IsInstance = IsInPrototypeChain(LeftObj, RightFunc) or IsInstanceOfBuiltinConstructor(LeftObj, RightFunc);
   if IsInstance then
@@ -3144,7 +3220,7 @@ begin
   const PrototypeValue = RightFunc.GetProperty(PROTOTYPE_PROPERTY);
   const HasObjectPrototype = PrototypeValue.IsObject;
   if not HasObjectPrototype then
-    raise TJSErrorFactory.TypeError(INSTANCEOF_PROTOTYPE_NOT_OBJECT, Node.Line, Node.Column);
+    raise TJSErrorFactory.TypeError(INSTANCEOF_PROTOTYPE_NOT_OBJECT, Line, Column);
 
   Result := False;
 end;
@@ -3155,7 +3231,7 @@ begin
   if not Right.IsObject then
     raise TJSErrorFactory.TypeError(IN_NOT_OBJECT, Node.Line, Node.Column);
 
-  const PropertyName = ToText(Left);
+  const PropertyName = ToPropertyKey(Left);
 
   Result := Right.ToObject.HasProperty(PropertyName);
 end;
@@ -3452,7 +3528,8 @@ begin
 
     for var Prop in Pattern.Properties do
     begin
-      const KeyName = LiteralPropertyName(Prop);
+      var KeyHolder: TJSValue;
+      const KeyName = LiteralPropertyName(Prop, KeyHolder);
       if Assigned(Excluded) then
         Excluded.Add(KeyName);
 
@@ -3505,7 +3582,7 @@ begin
 
   const Obj = Source.ToObject;
 
-  for var PropName in Obj.GetOwnPropertyNames do
+  for var PropName in TJSObjectKeys.All(Obj) do
   begin
     const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName);
     if IsExcluded or (not Obj.GetOwnPropertyDescriptor(PropName).Enumerable) then
@@ -3758,17 +3835,18 @@ begin
   var ThisValue := TJSValue.CreateUndefined;
   var Args: TArray<TJSValue>;
   var ArgsEvaluated := False;
+  var CalleeValue := TJSValue.CreateUndefined;
+  var MethodName := '';
 
-  if Node.Callee is TJSMemberExpression then
+  const IsMemberCall = Node.Callee is TJSMemberExpression;
+  if IsMemberCall then
   begin
     const MemberExpr = TJSMemberExpression(Node.Callee);
     const ObjValue = Visit(MemberExpr.Object_);
     ThisValue := ObjValue;
 
-    var MethodName: string;
-
     if MemberExpr.Computed then
-      MethodName := VisitText(MemberExpr.Property_)
+      MethodName := ToPropertyKey(Visit(MemberExpr.Property_))
     else
       MethodName := TJSIdentifier(MemberExpr.Property_).Name;
 
@@ -3794,9 +3872,14 @@ begin
 
     if ObjValue.IsObject then
       ThisObj := ObjValue.ToObject;
-  end;
 
-  const CalleeValue = Visit(Node.Callee);
+    RequireObjectCoercible(ObjValue, MethodName);
+    CalleeValue := ReadMember(ObjValue, MethodName);
+  end
+  else
+  begin
+    CalleeValue := Visit(Node.Callee);
+  end;
 
   if not CalleeValue.IsFunction then
     raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
@@ -3852,20 +3935,15 @@ begin
   if Reference.Key.IsObject then
     Exit(OBJECT_KEY_DESCRIPTION);
 
+  if Reference.Key.IsSymbol then
+    Exit(Reference.Key.SymbolDescriptiveString);
+
   Result := ToText(Reference.Key);
 end;
 
 function TJSInterpreter.ToPropertyKey(const Key: TJSValue): string;
 begin
-  const NeedsConversion = Key.IsObject and (not Key.IsArray);
-  if NeedsConversion then
-  begin
-    const Primitive = Key.ToPrimitive(True);
-    Result := ToText(Primitive);
-    Exit;
-  end;
-
-  Result := ToText(Key);
+  Result := Key.ToPropertyKey(FLimits);
 end;
 
 procedure TJSInterpreter.ResolveReferenceKey(var Reference: TJSMemberReference);
@@ -4227,18 +4305,96 @@ begin
     end;
 end;
 
+function TJSInterpreter.CreatesSpeciesResult(const MethodName: string): Boolean;
+begin
+  Result := TJSArrayGeneric.CreatesResultArray(MethodName) or TJSArrayIteration.CreatesResultArray(MethodName);
+end;
+
+function TJSInterpreter.ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
+begin
+  Result := nil;
+
+  if CreatesSpeciesResult(MethodName) then
+    Result := TJSArrayLike.SpeciesConstructor(Target, FArrayConstructor, FArraySpeciesGetter);
+end;
+
+function TJSInterpreter.CopyToSpeciesResult(const Species: IJSFunction; const Plain: TJSValue;
+                                            const MethodName: string): TJSValue;
+begin
+  const Source = Plain.ToObject as IJSArray;
+  const SourceLength = Source.Length;
+
+  const SetsLength = TJSArrayGeneric.CreatesResultArray(MethodName);
+
+  var InitialLength := SourceLength;
+  if (MethodName = METHOD_FILTER) or (MethodName = METHOD_CONCAT) then
+    InitialLength := 0;
+
+  Result := Construct(Species, [TJSValue.CreateNumber(InitialLength)]);
+
+  const Created = Result.ToObject;
+  var Definition := Default(TJSPropertyDefinition);
+  Definition.HasWritable := True;
+  Definition.Writable := True;
+  Definition.HasEnumerable := True;
+  Definition.Enumerable := True;
+  Definition.HasConfigurable := True;
+  Definition.Configurable := True;
+  Definition.HasValue := True;
+
+  for var Index := 0 to SourceLength - 1 do
+  begin
+    if not Source.HasElement(Index) then
+      Continue;
+
+    Definition.Value := Source[Index];
+    TJSPropertyDescriptors.Define(Created, IntToStr(Index), Definition, FLimits);
+  end;
+
+  if SetsLength then
+    TJSArrayLike.WriteLength(Created, SourceLength);
+end;
+
 function TJSInterpreter.ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
+  const Species = ResolveArraySpecies(Arr, MethodName);
+
+  Result := ExecuteArrayMethodCore(Arr, MethodName, Args);
+
+  if Assigned(Species) then
+    Result := CopyToSpeciesResult(Species, Result, MethodName);
+end;
+
+function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Species = ResolveArraySpecies(Target, MethodName);
+
+  Result := ExecuteArrayIterationMethodCore(Target, MethodName, Args);
+
+  if Assigned(Species) then
+    Result := CopyToSpeciesResult(Species, Result, MethodName);
+end;
+
+function TJSInterpreter.ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Species = ResolveArraySpecies(Target, MethodName);
+
+  Result := ExecuteGenericArrayMethodCore(Target, MethodName, Args);
+
+  if Assigned(Species) then
+    Result := CopyToSpeciesResult(Species, Result, MethodName);
+end;
+
+function TJSInterpreter.ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
   if TJSArrayIteration.Handles(MethodName) then
-    Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
+    Exit(ExecuteArrayIterationMethodCore(Arr, MethodName, Args));
 
-  if TJSArrayGeneric.CreatesResultArray(MethodName) then
-    TJSArrayLike.RequireResultConstructor(Arr);
-
-  const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName);
+  const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName) or
+                                TJSArrayGeneric.ConcatsCustomItems(MethodName, Arr, Args);
   const NeedsPropertyLevelSemantics = UsesPropertySemantics and TJSArrayGeneric.Handles(MethodName);
   if NeedsPropertyLevelSemantics then
-    Exit(ExecuteGenericArrayMethod(Arr, MethodName, Args));
+    Exit(ExecuteGenericArrayMethodCore(Arr, MethodName, Args));
 
   if not TJSBuiltins.RequiresCallback(MethodName) then
     Exit(WithArrayPrototype(TJSBuiltins.CallArrayMethod(Arr, MethodName, Args, FLimits)));
@@ -4247,16 +4403,13 @@ begin
   Result := WithArrayPrototype(TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits));
 end;
 
-function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+function TJSInterpreter.ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  if TJSArrayIteration.CreatesResultArray(MethodName) then
-    TJSArrayLike.RequireResultConstructor(Target);
-
   const Executor = CreateCallbackExecutor(MethodName, Args);
   Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype);
 end;
 
-function TJSInterpreter.ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+function TJSInterpreter.ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
   var Context: TJSArrayGenericContext;
   Context.ArrayPrototype := FArrayPrototype;
@@ -4362,7 +4515,12 @@ function TJSInterpreter.CreateBoundFunction(const Target: IJSFunction; const Bou
 begin
   const Interp = Self;
 
-  Result := TJSFunction.CreateNative('bound',
+  const TargetName = Target.GetProperty(NAME_PROPERTY);
+  var BoundName := BOUND_NAME_PREFIX;
+  if TargetName.IsString then
+    BoundName := BoundName + TargetName.AsString;
+
+  Result := TJSFunction.CreateNative(BoundName,
     function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
     begin
       const AllArgs = BoundArgs + CallArgs;
@@ -4541,14 +4699,14 @@ begin
   if Right.IsBoolean then
     Exit(AbstractEquals(Left, TJSValue.CreateNumber(Right.ToNumber)));
 
-  const IsObjectAgainstPrimitive = Left.IsObject and (Right.IsString or Right.IsNumber);
+  const IsObjectAgainstPrimitive = Left.IsObject and (Right.IsString or Right.IsNumber or Right.IsSymbol);
   if IsObjectAgainstPrimitive then
   begin
     const LeftPrimitive = TJSOperators.ToPrimitive(Left);
     Exit(AbstractEquals(LeftPrimitive, Right));
   end;
 
-  const IsPrimitiveAgainstObject = Right.IsObject and (Left.IsString or Left.IsNumber);
+  const IsPrimitiveAgainstObject = Right.IsObject and (Left.IsString or Left.IsNumber or Left.IsSymbol);
   if IsPrimitiveAgainstObject then
   begin
     const RightPrimitive = TJSOperators.ToPrimitive(Right);
@@ -4646,7 +4804,7 @@ end;
 
 procedure TJSInterpreter.GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
 begin
-  for var PropName in Obj.GetOwnPropertyNames do
+  for var PropName in TJSObjectKeys.All(Obj) do
   begin
     const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
 

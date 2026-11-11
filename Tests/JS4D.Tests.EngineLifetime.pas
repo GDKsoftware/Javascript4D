@@ -44,6 +44,15 @@ type
     [TestCase('Destructuring with defaults', 'let { a = () => a, b: [c = () => c] = [] } = {};', '#')]
     [TestCase('Rest parameter and spread', 'function f(...r) { return () => r; } let g = f(...[1, 2], ...''ab'');', '#')]
     [TestCase('Function constructor', 'var f = new Function("a", "b", "return () => a + b");  f(1, 2)();', '#')]
+    [TestCase('Symbol registry', 'var a = Symbol.for("a"); Symbol.keyFor(a); Symbol("x").description; String(Symbol("y"));', '#')]
+    [TestCase('Symbol keyed closure', 'var o = {}; var s = Symbol(); o[s] = function () { return o; }; o[s]();', '#')]
+    [TestCase('Symbol keyed method holding its own key', 'var s = Symbol(); var o = { [s]() { return s; }, get [Symbol("g")]() { return o; } };', '#')]
+    [TestCase('Symbol keyed property on a function', 'function f() {} f[Symbol()] = f; Object.getOwnPropertySymbols(f);', '#')]
+    [TestCase('Symbol keyed array and wrapper', 'var s = Symbol("w"); var a = [s]; a[s] = [s]; Object(s)[s] = Object(s); JSON.stringify(a);', '#')]
+    [TestCase('Well-known symbol hooks', 'var o = { [Symbol.toPrimitive]() { return 1; }, [Symbol.hasInstance]() { return true; }, [Symbol.toStringTag]: "T" }; +o; 1 instanceof o; Object.prototype.toString.call(o);', '#')]
+    [TestCase('Array species constructor', 'function C() {} var a = [1, 2]; a.constructor = { [Symbol.species]: C }; a.map(function (x) { return x; }); a.slice(); a.concat(a);', '#')]
+    [TestCase('Unscopables in with', 'var o = { x: 1, y: 2, [Symbol.unscopables]: { x: true } }; with (o) { y; }', '#')]
+    [TestCase('Symbols copied between objects', 'var s = Symbol(); var a = { [s]: () => a }; var b = Object.assign({}, a); var { [s]: f, ...r } = { ...a };', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]
@@ -63,6 +72,8 @@ type
     [TestCase('Error in a default parameter', 'function f(a = () => a, b = null.x) { } f();', '#')]
     [TestCase('Error in an arrow parameter', 'var f = (a = () => a, [b] = null) => 1; f();', '#')]
     [TestCase('Error in tagged template', 'function t(s) { throw s; } t`a${() => 1}b`;', '#')]
+    [TestCase('Symbol conversion error', 'var s = Symbol("e"); var o = { [s]: () => o }; s + 1;', '#')]
+    [TestCase('Error in a symbol hook', 'var o = { [Symbol.toPrimitive]() { throw new Error("x"); } }; +o;', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

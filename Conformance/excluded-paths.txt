@@ -5,6 +5,7 @@
 # Language features introduced after ES5.1
 language/export/
 language/import/
+language/computed-property-names/class/
 language/module-code/
 language/literals/bigint/
 language/expressions/async-arrow-function/
@@ -64,7 +65,6 @@ built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/
 built-ins/StringIteratorPrototype/
 built-ins/SuppressedError/
-built-ins/Symbol/
 built-ins/Temporal/
 built-ins/TypedArray/
 built-ins/TypedArrayConstructors/

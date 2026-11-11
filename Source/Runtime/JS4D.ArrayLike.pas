@@ -9,6 +9,7 @@ uses
   System.Math,
   JS4D.Types,
   JS4D.Errors,
+  JS4D.SymbolRegistry,
   JS4D.PropertyDescriptors;
 
 type
@@ -23,12 +24,15 @@ type
       MAX_ARRAY_LENGTH = 4294967295;
       CONSTRUCTOR_PROPERTY = 'constructor';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
+      SPECIES_NOT_A_CONSTRUCTOR = 'The species of an array constructor must be a constructor, null or undefined';
       CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
     class function TryCallConversion(const Source: IJSObject; const MethodName: string;
                                      out Primitive: TJSValue): Boolean; static;
     class procedure PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
+    class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
+                             const IntrinsicSpeciesGetter: IJSFunction): TJSValue; static;
 
   public
     class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
@@ -43,7 +47,10 @@ type
     class procedure MoveElement(const Target: IJSObject; const FromIndex, ToIndex: Int64); static;
     class procedure WriteLength(const Target: IJSObject; const Count: Int64); static;
     class procedure RequireArrayLength(const Count: Int64); static;
-    class procedure RequireResultConstructor(const Target: IJSObject); static;
+    // The constructor that creates the result of map, filter, slice, splice and concat for an array. Nil
+    // means a plain array: the receiver is no array, has no constructor or uses the intrinsic Array.
+    class function SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
+                                      const IntrinsicSpeciesGetter: IJSFunction): IJSFunction; static;
   end;
 
 implementation
@@ -180,16 +187,52 @@ begin
     raise TJSErrorFactory.InvalidArrayLength;
 end;
 
-class procedure TJSArrayLike.RequireResultConstructor(const Target: IJSObject);
+class function TJSArrayLike.SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
+                                      const IntrinsicSpeciesGetter: IJSFunction): TJSValue;
 begin
+  const ConstructorObject = ConstructorValue.ToObject;
+
+  var Descriptor: TJSPropertyDescriptor;
+  const IsIntrinsicGetter = Assigned(IntrinsicSpeciesGetter) and
+                            ConstructorObject.TryGetPropertyDescriptor(SpeciesKey, Descriptor) and
+                            Descriptor.IsAccessor and Descriptor.Getter.IsFunction and
+                            ((Descriptor.Getter.ToObject as IInterface) = (IntrinsicSpeciesGetter as IInterface));
+  if IsIntrinsicGetter then
+    Exit(ConstructorValue);
+
+  Result := ConstructorObject.GetProperty(SpeciesKey);
+end;
+
+class function TJSArrayLike.SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
+                                               const IntrinsicSpeciesGetter: IJSFunction): IJSFunction;
+begin
+  Result := nil;
+
   const IsArray = Supports(Target, IJSArray);
   if not IsArray then
     Exit;
 
   const ConstructorValue = Target.GetProperty(CONSTRUCTOR_PROPERTY);
-  const IsUsable = ConstructorValue.IsUndefined or ConstructorValue.IsObject;
-  if not IsUsable then
+  if ConstructorValue.IsUndefined then
+    Exit;
+
+  if not ConstructorValue.IsObject then
     raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
+
+  const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
+  const Species = SpeciesOf(ConstructorValue, SpeciesKey, IntrinsicSpeciesGetter);
+  if Species.IsNullOrUndefined then
+    Exit;
+
+  var Candidate: IJSFunction;
+  const IsConstructor = Species.IsFunction and Supports(Species.ToObject, IJSFunction, Candidate) and
+                        Candidate.IsConstructor;
+  if not IsConstructor then
+    raise TJSErrorFactory.TypeError(SPECIES_NOT_A_CONSTRUCTOR);
+
+  const IsIntrinsic = Assigned(IntrinsicArray) and ((Candidate as IInterface) = (IntrinsicArray as IInterface));
+  if not IsIntrinsic then
+    Result := Candidate;
 end;
 
 end.

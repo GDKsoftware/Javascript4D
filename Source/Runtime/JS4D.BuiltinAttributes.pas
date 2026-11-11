@@ -29,7 +29,8 @@ type
                   'eval:1 parseInt:2 parseFloat:1 isNaN:1 isFinite:1 decodeURI:1 decodeURIComponent:1 ' +
                   'encodeURI:1 encodeURIComponent:1'),
         (Owner: 'Object';
-         Entries: 'getPrototypeOf:1 getOwnPropertyDescriptor:2 getOwnPropertyNames:1 create:2 defineProperty:3 ' +
+         Entries: 'getPrototypeOf:1 getOwnPropertyDescriptor:2 getOwnPropertyNames:1 getOwnPropertySymbols:1 ' +
+                  'create:2 defineProperty:3 ' +
                   'defineProperties:2 seal:1 freeze:1 preventExtensions:1 isSealed:1 isFrozen:1 isExtensible:1 ' +
                   'keys:1 assign:2 entries:1 values:1 is:2 getOwnPropertyDescriptors:1'),
         (Owner: 'Object.prototype';

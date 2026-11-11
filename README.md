@@ -10,6 +10,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over arrays and strings
+- **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species` (`Symbol.iterator` is defined but not used yet)
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
@@ -272,22 +273,22 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators, Symbol and Proxy, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators, Symbol.iterator and Proxy, are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2468 | 2426 | 98.3% |
-| built-ins/Date | 492 | 492 | 100.0% |
-| built-ins/Function | 413 | 382 | 92.5% |
-| built-ins/JSON | 108 | 105 | 97.2% |
-| built-ins/Math | 276 | 268 | 97.1% |
-| built-ins/Number | 280 | 268 | 95.7% |
-| built-ins/Object | 3080 | 3019 | 98.0% |
-| built-ins/RegExp | 581 | 562 | 96.7% |
-| built-ins/String | 905 | 879 | 97.1% |
-| language/expressions | 3330 | 3276 | 98.4% |
-| language/statements | 2293 | 2259 | 98.5% |
-| **Total** | 16551 | 16118 | 97.4% |
+| built-ins/Array | 2568 | 2519 | 98.1% |
+| built-ins/Date | 550 | 549 | 99.8% |
+| built-ins/Function | 425 | 397 | 93.4% |
+| built-ins/JSON | 113 | 110 | 97.3% |
+| built-ins/Math | 277 | 269 | 97.1% |
+| built-ins/Number | 291 | 279 | 95.9% |
+| built-ins/Object | 3136 | 3079 | 98.2% |
+| built-ins/RegExp | 597 | 571 | 95.6% |
+| built-ins/String | 933 | 910 | 97.5% |
+| language/expressions | 3388 | 3343 | 98.7% |
+| language/statements | 2309 | 2276 | 98.6% |
+| **Total** | 16974 | 16572 | 97.6% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

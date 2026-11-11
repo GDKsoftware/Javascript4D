@@ -108,6 +108,8 @@
         <DCCReference Include="..\..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.SymbolRegistry.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.Symbols.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArgumentsObject.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayGeneric.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayIterator.pas"/>
@@ -125,6 +127,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.NumericBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectKeys.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectScope.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.SymbolBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Operators.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.UnicodeNormalization.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PropertyDescriptors.pas"/>

@@ -57,21 +57,13 @@ regexp-v-flag
 RegExp.escape
 
 # Symbols
-Symbol
 Symbol.asyncIterator
-Symbol.hasInstance
-Symbol.isConcatSpreadable
 Symbol.iterator
 Symbol.match
 Symbol.matchAll
-Symbol.prototype.description
 Symbol.replace
 Symbol.search
-Symbol.species
 Symbol.split
-Symbol.toPrimitive
-Symbol.toStringTag
-Symbol.unscopables
 symbols-as-weakmap-keys
 
 # Collections and objects

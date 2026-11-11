@@ -45,6 +45,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectKeys,
   JS4D.ArrayLike;
 
 class function TJSPropertyDescriptors.ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean;
@@ -156,7 +157,7 @@ begin
   var Names: TArray<string> := nil;
   var Definitions: TArray<TJSPropertyDefinition> := nil;
 
-  for var Name in Source.GetOwnPropertyNames do
+  for var Name in TJSObjectKeys.All(Source) do
   begin
     const Descriptor = Source.GetOwnPropertyDescriptor(Name);
     if not Descriptor.Enumerable then

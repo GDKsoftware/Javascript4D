@@ -13,9 +13,20 @@ type
   TJSObjectKeys = class
   public
     class function Enumerable(const Target: IJSObject): TArray<string>; static;
+    class function All(const Target: IJSObject): TArray<string>; static;
   end;
 
 implementation
+
+class function TJSObjectKeys.All(const Target: IJSObject): TArray<string>;
+begin
+  const Names = Target.GetOwnPropertyNames;
+  const SymbolKeys = Target.GetOwnSymbolKeys;
+  if Length(SymbolKeys) = 0 then
+    Exit(Names);
+
+  Result := Names + SymbolKeys;
+end;
 
 class function TJSObjectKeys.Enumerable(const Target: IJSObject): TArray<string>;
 begin
