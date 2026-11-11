@@ -555,6 +555,7 @@ type
     procedure AppendSparseNames(const Names: TList<string>);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
+    function TryReadNamedDataProperty(const Name: string; out Value: TJSValue): Boolean;
 
   protected
     function HasStandardPropertyLookup: Boolean; override;
@@ -572,6 +573,7 @@ type
     constructor Create;
     destructor Destroy; override;
 
+    function GetProperty(const Name: string): TJSValue; override;
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
@@ -2516,6 +2518,53 @@ end;
 function TJSArrayImpl.HasStandardPropertyLookup: Boolean;
 begin
   Result := False;
+end;
+
+function TJSArrayImpl.GetProperty(const Name: string): TJSValue;
+begin
+  if TryReadNamedDataProperty(Name, Result) then
+    Exit;
+
+  Result := inherited GetProperty(Name);
+end;
+
+// Reads a data property that is neither an element nor the length by walking the prototype chain slots
+// directly, which avoids building a property descriptor for every step.
+function TJSArrayImpl.TryReadNamedDataProperty(const Name: string; out Value: TJSValue): Boolean;
+begin
+  Result := False;
+
+  const CanBeElementKey = (Name = '') or CharInSet(Name[1], ['0'..'9', '-', 'I', 'N']) or (Name = LENGTH_PROPERTY);
+  if CanBeElementKey then
+    Exit;
+
+  var Current: TJSObjectImpl := Self;
+  while True do
+  begin
+    var Slot: PJSPropertyDescriptor;
+    if Current.FProperties.TryGetSlot(Name, Slot) then
+    begin
+      if Slot.IsAccessor then
+        Exit;
+
+      Value := Slot.Value;
+      Exit(True);
+    end;
+
+    const Next = Current.FPrototype;
+    if Next = nil then
+    begin
+      Value := TJSValue.CreateUndefined;
+      Exit(True);
+    end;
+
+    const IsPlainHolder = (Next is TJSObjectImpl) and
+                          (TJSObjectImpl(Next).HasStandardPropertyLookup or (Next is TJSArrayImpl));
+    if not IsPlainHolder then
+      Exit;
+
+    Current := TJSObjectImpl(Next);
+  end;
 end;
 
 function TJSArrayImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;

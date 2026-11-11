@@ -90,7 +90,7 @@ end;
 function TJSSlotMap<T>.TryGetSlot(const Name: string; out Slot: PSlot): Boolean;
 begin
   var Position: Integer;
-  Result := FIndexByName.TryGetValue(Name, Position);
+  Result := (FCount > 0) and FIndexByName.TryGetValue(Name, Position);
 
   if Result then
     Slot := @FValues[Position]

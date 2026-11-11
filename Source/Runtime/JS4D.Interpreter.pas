@@ -167,6 +167,17 @@ type
     Slot: PJSPropertyDescriptor;
   end;
 
+  // Remembers where push or pop sits in Array.prototype and which function is the built-in one, so that
+  // calling it on a plain array needs neither a hash lookup nor a property read.
+  TJSMutatorCache = record
+    Holder: TJSObjectImpl;
+    Prototype: IJSObject;
+    Version: Cardinal;
+    Slot: PJSPropertyDescriptor;
+    Original: IJSObject;
+    PrototypeElements: IJSArray;
+  end;
+
   // Where the values of an iterable come from: the elements of an array or arguments object and the code
   // points of a string are read directly, anything else goes through the iterator protocol.
   TJSIterationSource = record
@@ -203,6 +214,8 @@ type
     FSymbolPrototype: IJSObject;
     FIteration: TJSIterationIntrinsics;
     FIntrinsicMethods: array[TJSIntrinsicGroup] of TDictionary<string, IJSObject>;
+    FPushCache: TJSMutatorCache;
+    FPopCache: TJSMutatorCache;
     FArrayValuesSlot: TJSIntrinsicSlot;
     FArrayNextSlot: TJSIntrinsicSlot;
     FStringIteratorSlot: TJSIntrinsicSlot;
@@ -482,6 +495,14 @@ type
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Method: IJSObject);
     function IsIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Callee: TJSValue): Boolean;
+    function TryCallMutator(var Cache: TJSMutatorCache; const StoresNewElements: Boolean; const Arr: IJSArray;
+                            const Name: string; const Args: TArray<TJSValue>; out Value: TJSValue): Boolean;
+    function TryCallRegisteredMethod(const Arr: IJSArray; const Name: string; const Args: TArray<TJSValue>;
+                                     out Value: TJSValue): Boolean;
+    function HoldsMutator(var Cache: TJSMutatorCache; const Name: string): Boolean;
+    function FillMutatorCache(var Cache: TJSMutatorCache; const Name: string): Boolean;
+    function TryCallUntouchedArrayMethod(const Target: TJSValue; const Name: string; const Args: TArray<TJSValue>;
+                                         out Value: TJSValue): Boolean;
     function OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
                                  const Line: Integer = 0; const Column: Integer = 0): Boolean;
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
@@ -545,6 +566,8 @@ const
   GETTER_NAME_FORMAT = 'get %s';
   SETTER_NAME_FORMAT = 'set %s';
   SYMBOL_FUNCTION_NAME = '[%s]';
+  METHOD_PUSH = 'push';
+  METHOD_POP = 'pop';
   METHOD_FILTER = 'filter';
   METHOD_CONCAT = 'concat';
   METHOD_FLAT = 'flat';
@@ -991,6 +1014,8 @@ begin
   FThisValue := nil;
   FObjectPrototype := nil;
   FArrayPrototype := nil;
+  FPushCache := Default(TJSMutatorCache);
+  FPopCache := Default(TJSMutatorCache);
   FFunctionPrototype := nil;
   FRegExpPrototype := nil;
   FSymbolPrototype := nil;
@@ -4246,6 +4271,11 @@ begin
     ArgsEvaluated := True;
 
     RequireObjectCoercible(ObjValue, MethodName);
+
+    var ArrayResult: TJSValue;
+    if TryCallUntouchedArrayMethod(ObjValue, MethodName, Args, ArrayResult) then
+      Exit(ArrayResult);
+
     CalleeValue := ReadMember(ObjValue, MethodName);
 
     if ObjValue.IsArray and IsIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, CalleeValue) then
@@ -4316,6 +4346,109 @@ begin
 
   var Method: IJSObject;
   Result := Methods.TryGetValue(Name, Method) and (Callee.ToObject = Method);
+end;
+
+// Calls an array method without reading it as a property first, as long as the array inherits it
+// straight from Array.prototype and the method there is still the built-in one.
+function TJSInterpreter.TryCallUntouchedArrayMethod(const Target: TJSValue; const Name: string;
+                                                    const Args: TArray<TJSValue>; out Value: TJSValue): Boolean;
+begin
+  Result := False;
+
+  if not Target.IsArray then
+    Exit;
+
+  var Arr: IJSArray;
+  const IsPlainArray = Supports(Target.ToObject, IJSArray, Arr) and HasPlainArrayPrototype(Arr, Name);
+  if not IsPlainArray then
+    Exit;
+
+  if Name = METHOD_PUSH then
+    Exit(TryCallMutator(FPushCache, True, Arr, Name, Args, Value));
+
+  if Name = METHOD_POP then
+    Exit(TryCallMutator(FPopCache, False, Arr, Name, Args, Value));
+
+  Result := TryCallRegisteredMethod(Arr, Name, Args, Value);
+end;
+
+function TJSInterpreter.TryCallRegisteredMethod(const Arr: IJSArray; const Name: string; const Args: TArray<TJSValue>;
+                                                out Value: TJSValue): Boolean;
+begin
+  Result := False;
+
+  const Methods = FIntrinsicMethods[TJSIntrinsicGroup.ArrayMethod];
+  var Method: IJSObject;
+  const IsKnownMethod = Assigned(Methods) and Methods.TryGetValue(Name, Method) and (FArrayPrototype is TJSObjectImpl);
+  if not IsKnownMethod then
+    Exit;
+
+  var Slot: PJSPropertyDescriptor;
+  const HoldsMethod = TJSObjectImpl(FArrayPrototype).TryGetOwnSlot(Name, Slot) and (not Slot.IsAccessor) and
+                      Slot.Value.IsObject and (Slot.Value.ToObject = Method);
+  if not HoldsMethod then
+    Exit;
+
+  Value := ExecuteArrayMethod(Arr, Name, Args);
+  Result := True;
+end;
+
+// push and pop on a dense array need none of the species, callback and property-level checks, which
+// would otherwise cost more than the operation itself.
+function TJSInterpreter.TryCallMutator(var Cache: TJSMutatorCache; const StoresNewElements: Boolean;
+                                       const Arr: IJSArray; const Name: string; const Args: TArray<TJSValue>;
+                                       out Value: TJSValue): Boolean;
+begin
+  Result := False;
+
+  if not HoldsMutator(Cache, Name) then
+    Exit;
+
+  const WouldStoreIntoPrototype = StoresNewElements and Assigned(Cache.PrototypeElements) and
+                                  (Cache.PrototypeElements.Length > 0);
+  if Arr.IsDenseAndMutable and (not WouldStoreIntoPrototype) then
+    Value := TJSBuiltins.CallArrayMethod(Arr, Name, Args, FLimits)
+  else
+    Value := ExecuteArrayMethod(Arr, Name, Args);
+
+  Result := True;
+end;
+
+function TJSInterpreter.HoldsMutator(var Cache: TJSMutatorCache; const Name: string): Boolean;
+begin
+  Result := False;
+
+  const IsCurrent = Assigned(Cache.Holder) and (Cache.Prototype = FArrayPrototype) and
+                    (Cache.Version = Cache.Holder.PropertyLayoutVersion);
+  if (not IsCurrent) and (not FillMutatorCache(Cache, Name)) then
+    Exit;
+
+  Result := (not Cache.Slot.IsAccessor) and Cache.Slot.Value.IsObject and (Cache.Slot.Value.ToObject = Cache.Original);
+end;
+
+function TJSInterpreter.FillMutatorCache(var Cache: TJSMutatorCache; const Name: string): Boolean;
+begin
+  Cache := Default(TJSMutatorCache);
+
+  const Methods = FIntrinsicMethods[TJSIntrinsicGroup.ArrayMethod];
+  var Original: IJSObject;
+  const IsKnownMethod = Assigned(Methods) and Methods.TryGetValue(Name, Original) and
+                        (FArrayPrototype is TJSObjectImpl);
+  if not IsKnownMethod then
+    Exit(False);
+
+  const Holder = TJSObjectImpl(FArrayPrototype);
+  var Slot: PJSPropertyDescriptor;
+  if not Holder.TryGetOwnSlot(Name, Slot) then
+    Exit(False);
+
+  Cache.Holder := Holder;
+  Cache.Prototype := FArrayPrototype;
+  Cache.Version := Holder.PropertyLayoutVersion;
+  Cache.Slot := Slot;
+  Cache.Original := Original;
+  Supports(FArrayPrototype, IJSArray, Cache.PrototypeElements);
+  Result := True;
 end;
 
 procedure TJSInterpreter.RequireObjectCoercible(const Value: TJSValue; const PropName: string);
