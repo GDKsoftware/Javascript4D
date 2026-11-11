@@ -19,7 +19,9 @@ type
     const
       LENGTH_PROPERTY = 'length';
       MAX_SAFE_LENGTH = 9007199254740991.0;
+      MAX_SAFE_LENGTH_INTEGER = 9007199254740991;
       MAX_ARRAY_LENGTH = 4294967295;
+      LENGTH_EXCEEDS_SAFE_INTEGER = 'The array length would exceed 2^53 - 1';
       CONSTRUCTOR_PROPERTY = 'constructor';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
       SPECIES_NOT_A_CONSTRUCTOR = 'The species of an array constructor must be a constructor, null or undefined';
@@ -45,6 +47,7 @@ type
     class procedure MoveElement(const Target: IJSObject; const FromIndex, ToIndex: Int64); static;
     class procedure WriteLength(const Target: IJSObject; const Count: Int64); static;
     class procedure RequireArrayLength(const Count: Int64); static;
+    class procedure RequireSafeLength(const Count: Int64); static;
     class procedure RequireSortComparer(const Args: TArray<TJSValue>); static;
     // The constructor that creates the result of map, filter, slice, splice and concat for an array. Nil
     // means a plain array: the receiver is no array, has no constructor or uses the intrinsic Array.
@@ -174,6 +177,12 @@ class procedure TJSArrayLike.RequireArrayLength(const Count: Int64);
 begin
   if Count > MAX_ARRAY_LENGTH then
     raise TJSErrorFactory.InvalidArrayLength;
+end;
+
+class procedure TJSArrayLike.RequireSafeLength(const Count: Int64);
+begin
+  if Count > MAX_SAFE_LENGTH_INTEGER then
+    raise TJSErrorFactory.TypeError(LENGTH_EXCEEDS_SAFE_INTEGER);
 end;
 
 class procedure TJSArrayLike.RequireSortComparer(const Args: TArray<TJSValue>);
