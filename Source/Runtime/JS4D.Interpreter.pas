@@ -3600,6 +3600,14 @@ begin
     Exit;
   end;
 
+  const BindingObject = Binding as TObject;
+  const IsPlainScope = (BindingObject.ClassType = TJSScope);
+  if IsPlainScope then
+  begin
+    Binding.AssignVariable(Name, Value);
+    Exit;
+  end;
+
   if Binding is TJSFunctionNameScope then
   begin
     RejectFunctionNameAssignment;
