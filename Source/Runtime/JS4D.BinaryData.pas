@@ -83,7 +83,6 @@ type
     class function TryStoreElement(const Target: IJSObject; const Name: string; const Value: TJSValue;
                                    const Receiver: TJSValue; out IsStored: Boolean): Boolean; static;
     class function IsElementKey(const Target: IJSObject; const Name: string): Boolean; static;
-    class function IsNumericKey(const Target: IJSObject; const Name: string): Boolean; static;
   end;
 
   TJSArrayBufferObject = class(TJSObjectImpl, IJSArrayBuffer)
@@ -117,7 +116,7 @@ type
 
   // An integer-indexed exotic object: the property names that are canonical numeric strings never reach the
   // ordinary property table, they read and write the bytes of the buffer.
-  TJSTypedArrayObject = class(TJSObjectImpl, IJSTypedArray)
+  TJSTypedArrayObject = class(TJSObjectImpl, IJSTypedArray, IJSIntegerIndexedKeys)
   private
     type
       TKeyClass = (NotNumeric, InvalidIndex, ValidIndex);
@@ -136,6 +135,7 @@ type
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
     class function IsCanonicalNumber(const Name: string): Boolean; static;
     function ClassifyKey(const Name: string; out Index: Integer): TKeyClass;
+    function IsInvalidIndexKey(const Name: string): Boolean;
     function CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
     function GetKind: TJSElementKind;
     function GetBuffer: IJSArrayBuffer;
@@ -320,13 +320,6 @@ begin
   var TypedArray: IJSTypedArray;
 
   Result := Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsElementKey(Name);
-end;
-
-class function TJSBinaryKeys.IsNumericKey(const Target: IJSObject; const Name: string): Boolean;
-begin
-  var TypedArray: IJSTypedArray;
-
-  Result := Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsNumericKey(Name);
 end;
 
 { TJSArrayBufferObject }
@@ -519,6 +512,13 @@ begin
     Exit(TKeyClass.InvalidIndex);
 
   Result := TKeyClass.NotNumeric;
+end;
+
+function TJSTypedArrayObject.IsInvalidIndexKey(const Name: string): Boolean;
+begin
+  var Index: Integer;
+
+  Result := ClassifyKey(Name, Index) = TKeyClass.InvalidIndex;
 end;
 
 function TJSTypedArrayObject.IsElementKey(const Name: string): Boolean;

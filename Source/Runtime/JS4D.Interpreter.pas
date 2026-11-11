@@ -358,7 +358,7 @@ type
     function TakeLoopLabels: TArray<string>;
     function ToScopeObject(const Value: TJSValue): IJSObject;
     function WithArrayPrototype(const Value: TJSValue): TJSValue;
-    function WithObjectFor(const Callee: TJSExpression): IJSObject;
+    function VisitCalleeIdentifier(const Identifier: TJSIdentifier; out ThisObj: IJSObject): TJSValue;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
     function VisitForInStatement(const Node: TJSForInStatement): TJSValue;
     function VisitForOfStatement(const Node: TJSForOfStatement): TJSValue;
@@ -410,6 +410,7 @@ type
     function AssignToGlobalVariable(const Node: TJSAssignmentExpression; const Identifier: TJSIdentifier): TJSValue;
     function UpdateGlobalVariable(const Node: TJSUpdateExpression; const Identifier: TJSIdentifier): TJSValue;
     function AssignToIdentifier(const Node: TJSAssignmentExpression): TJSValue;
+    function GetBindingValue(const Binding: IJSScope; const Name: string): TJSValue;
     procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
     procedure GuardBindingStillExists(const StillExists: Boolean; const Name: string);
     procedure RejectFunctionNameAssignment;
@@ -2182,7 +2183,7 @@ begin
   const ScopeObject = ToScopeObject(TargetValue);
   const OuterScope = FCurrentScope;
 
-  FCurrentScope := TJSObjectScope.Create(OuterScope, ScopeObject);
+  FCurrentScope := TJSObjectScope.Create(OuterScope, ScopeObject, @FStrictMode);
   RegisterScope(FCurrentScope);
   try
     Result := ExecuteStatement(Node.Body);
@@ -2191,22 +2192,27 @@ begin
   end;
 end;
 
-function TJSInterpreter.WithObjectFor(const Callee: TJSExpression): IJSObject;
+function TJSInterpreter.VisitCalleeIdentifier(const Identifier: TJSIdentifier; out ThisObj: IJSObject): TJSValue;
 begin
-  Result := nil;
-
-  if not (Callee is TJSIdentifier) then
-    Exit;
+  ThisObj := nil;
 
   const IsGlobalCode = (FCurrentScope = FGlobalScope);
   if IsGlobalCode then
-    Exit;
+    Exit(VisitIdentifier(Identifier));
 
-  const CalleeName = TJSIdentifier(Callee).Name;
-  const DeclaringScope = FCurrentScope.Resolve(CalleeName);
+  const DeclaringScope = FCurrentScope.Resolve(Identifier.Name);
+  if not Assigned(DeclaringScope) then
+    raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Identifier.Line, Identifier.Column);
+
   var ObjectScope: IJSObjectScope;
   if Supports(DeclaringScope, IJSObjectScope, ObjectScope) then
-    Result := ObjectScope.BindingObject;
+  begin
+    ThisObj := ObjectScope.BindingObject;
+    Exit(ObjectScope.GetBindingValue(Identifier.Name, FStrictMode));
+  end;
+
+  if not DeclaringScope.TryGetVariable(Identifier.Name, Result) then
+    raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Identifier.Line, Identifier.Column);
 end;
 
 function TJSInterpreter.VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
@@ -3953,7 +3959,7 @@ begin
     if not Assigned(Binding) then
       raise TJSErrorFactory.UndefinedVariable(Identifier.Name, Node.Line, Node.Column);
 
-    const Current = Binding.GetVariable(Identifier.Name);
+    const Current = GetBindingValue(Binding, Identifier.Name);
     const Right = Visit(Node.Right);
     const BinaryOperator = TJSOperators.BinaryOperatorFor(Node.Operator);
     NewValue := TJSOperators.Apply(BinaryOperator, Current, Right, FLimits);
@@ -3961,6 +3967,23 @@ begin
 
   PutIdentifierValue(Binding, Identifier.Name, NewValue);
   Result := NewValue;
+end;
+
+function TJSInterpreter.GetBindingValue(const Binding: IJSScope; const Name: string): TJSValue;
+begin
+  if not Assigned(Binding) then
+    Exit(FCurrentScope.GetVariable(Name));
+
+  const BindingObject = Binding as TObject;
+  const IsPlainScope = (BindingObject.ClassType = TJSScope);
+  if IsPlainScope then
+    Exit(Binding.GetVariable(Name));
+
+  var ObjectScope: IJSObjectScope;
+  if Supports(Binding, IJSObjectScope, ObjectScope) then
+    Exit(ObjectScope.GetBindingValue(Name, FStrictMode));
+
+  Result := Binding.GetVariable(Name);
 end;
 
 procedure TJSInterpreter.PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
@@ -3988,10 +4011,7 @@ begin
   var ObjectScope: IJSObjectScope;
   if Supports(Binding, IJSObjectScope, ObjectScope) then
   begin
-    if FStrictMode then
-      GuardBindingStillExists(ObjectScope.BindingObject.HasProperty(Name), Name);
-
-    ObjectScope.BindingObject.SetProperty(Name, Value);
+    ObjectScope.SetMutableBinding(Name, Value, FStrictMode);
     Exit;
   end;
 
@@ -4078,7 +4098,7 @@ begin
     Exit(UpdateGlobalVariable(Node, Identifier));
 
   const Binding = FCurrentScope.Resolve(Identifier.Name);
-  const OldValue = FCurrentScope.GetVariable(Identifier.Name);
+  const OldValue = GetBindingValue(Binding, Identifier.Name);
   const OldNumber = TJSOperators.ToNumber(OldValue);
 
   var NewNumber := OldNumber - 1;
@@ -4170,6 +4190,10 @@ begin
     if ObjValue.IsObject then
       ThisObj := ObjValue.ToObject;
   end
+  else if Node.Callee is TJSIdentifier then
+  begin
+    CalleeValue := VisitCalleeIdentifier(TJSIdentifier(Node.Callee), ThisObj);
+  end
   else
   begin
     CalleeValue := Visit(Node.Callee);
@@ -4187,9 +4211,6 @@ begin
 
   if IsDirectEvalCall(Node.Callee, Func) then
     Exit(CallDirectEval(Func, Args));
-
-  if not Assigned(ThisObj) then
-    ThisObj := WithObjectFor(Node.Callee);
 
   if not Assigned(ThisObj) then
     ThisObj := ThisObjectFor(Func, ThisValue);

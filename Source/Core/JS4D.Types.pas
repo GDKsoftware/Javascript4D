@@ -373,6 +373,19 @@ type
     property HasDescription: Boolean read GetHasDescription;
   end;
 
+  // Implemented by objects that answer for the numeric keys of the whole prototype chain behind them: a typed array
+  // (an invalid index ends a property assignment) and a proxy (it decides for itself, the chain is not walked past it).
+  IJSIntegerIndexedKeys = interface
+    ['{5D2B8E41-7C3A-4F96-A0D1-2E6B9C48F713}']
+    function IsInvalidIndexKey(const Name: string): Boolean;
+  end;
+
+  TJSIntegerIndexedKeys = class
+  public
+    // True when Name is an invalid index for the first object in the chain starting at Start that answers for it.
+    class function IsInvalidIndexKey(const Start: IJSObject; const Name: string): Boolean; static;
+  end;
+
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
     FProperties: TJSPropertyMap;
@@ -1587,6 +1600,25 @@ begin
   end;
 end;
 
+class function TJSIntegerIndexedKeys.IsInvalidIndexKey(const Start: IJSObject; const Name: string): Boolean;
+begin
+  Result := False;
+
+  const CanBeNumericKey = (Name <> '') and CharInSet(Name[1], ['0'..'9', '-', 'I', 'N']);
+  if not CanBeNumericKey then
+    Exit;
+
+  var Current := Start;
+  while Assigned(Current) do
+  begin
+    var IndexedKeys: IJSIntegerIndexedKeys;
+    if Supports(Current, IJSIntegerIndexedKeys, IndexedKeys) then
+      Exit(IndexedKeys.IsInvalidIndexKey(Name));
+
+    Current := Current.Prototype;
+  end;
+end;
+
 procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
 var
   PrototypeDescriptor: TJSPropertyDescriptor;
@@ -1604,6 +1636,9 @@ begin
 
   const BlockedByInherited = HasInherited and (not PrototypeDescriptor.Writable);
   if BlockedByInherited or (not FExtensible) then
+    Exit;
+
+  if (not HasInherited) and TJSIntegerIndexedKeys.IsInvalidIndexKey(FPrototype, Name) then
     Exit;
 
   Descriptor := TJSPropertyDescriptor.Create(Value);

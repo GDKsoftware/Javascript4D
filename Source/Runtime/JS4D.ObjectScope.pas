@@ -6,12 +6,15 @@ interface
 
 uses
   JS4D.Types,
+  JS4D.Errors,
   JS4D.SymbolRegistry;
 
 type
   IJSObjectScope = interface
     ['{3C6E1B52-8F0A-4D77-9B1E-5A2D7C4E9F10}']
     function GetBindingObject: IJSObject;
+    function GetBindingValue(const Name: string; const IsStrict: Boolean): TJSValue;
+    procedure SetMutableBinding(const Name: string; const Value: TJSValue; const IsStrict: Boolean);
     property BindingObject: IJSObject read GetBindingObject;
   end;
 
@@ -19,13 +22,15 @@ type
   private
     FBindingObject: IJSObject;
     FParent: IJSScope;
+    FStrictModeFlag: PBoolean;
 
     function HasBinding(const Name: string): Boolean;
+    function IsStrictCodeRunning: Boolean;
 
   public
     class function DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean; static;
 
-    constructor Create(const Parent: IJSScope; const BindingObject: IJSObject);
+    constructor Create(const Parent: IJSScope; const BindingObject: IJSObject; const StrictModeFlag: PBoolean);
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
@@ -43,6 +48,8 @@ type
     function GetOwnVariables: TArray<TJSValue>;
     procedure ReleaseReferences;
     function GetBindingObject: IJSObject;
+    function GetBindingValue(const Name: string; const IsStrict: Boolean): TJSValue;
+    procedure SetMutableBinding(const Name: string; const Value: TJSValue; const IsStrict: Boolean);
 
     property Parent: IJSScope read GetParent;
   end;
@@ -60,11 +67,38 @@ begin
     BindingObject.DeleteProperty(Name);
 end;
 
-constructor TJSObjectScope.Create(const Parent: IJSScope; const BindingObject: IJSObject);
+constructor TJSObjectScope.Create(const Parent: IJSScope; const BindingObject: IJSObject; const StrictModeFlag: PBoolean);
 begin
   inherited Create;
   FParent := Parent;
   FBindingObject := BindingObject;
+  FStrictModeFlag := StrictModeFlag;
+end;
+
+function TJSObjectScope.IsStrictCodeRunning: Boolean;
+begin
+  Result := Assigned(FStrictModeFlag) and FStrictModeFlag^;
+end;
+
+function TJSObjectScope.GetBindingValue(const Name: string; const IsStrict: Boolean): TJSValue;
+begin
+  const StillExists = FBindingObject.HasProperty(Name);
+  if StillExists then
+    Exit(FBindingObject.GetProperty(Name));
+
+  if IsStrict then
+    raise TJSErrorFactory.UndefinedVariable(Name);
+
+  Result := TJSValue.CreateUndefined;
+end;
+
+procedure TJSObjectScope.SetMutableBinding(const Name: string; const Value: TJSValue; const IsStrict: Boolean);
+begin
+  const StillExists = FBindingObject.HasProperty(Name);
+  if IsStrict and (not StillExists) then
+    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + Name);
+
+  FBindingObject.SetProperty(Name, Value);
 end;
 
 function TJSObjectScope.HasBinding(const Name: string): Boolean;
@@ -92,7 +126,7 @@ end;
 function TJSObjectScope.GetVariable(const Name: string): TJSValue;
 begin
   if HasBinding(Name) then
-    Exit(FBindingObject.GetProperty(Name));
+    Exit(GetBindingValue(Name, IsStrictCodeRunning));
 
   if Assigned(FParent) then
     Exit(FParent.GetVariable(Name));
@@ -106,7 +140,7 @@ begin
 
   if Result then
   begin
-    Value := FBindingObject.GetProperty(Name);
+    Value := GetBindingValue(Name, IsStrictCodeRunning);
     Exit;
   end;
 
@@ -117,7 +151,7 @@ end;
 procedure TJSObjectScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
   if HasBinding(Name) then
-    FBindingObject.SetProperty(Name, Value)
+    SetMutableBinding(Name, Value, IsStrictCodeRunning)
   else if Assigned(FParent) then
     FParent.SetVariable(Name, Value);
 end;

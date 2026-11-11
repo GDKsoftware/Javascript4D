@@ -56,6 +56,8 @@ type
     [TestCase('Array locale string', 'var o = { toLocaleString: function () { return o; } }; [o, 1, null].toLocaleString = 0; Array.prototype.toLocaleString.call({ length: 1, 0: { toLocaleString: function () { return "x"; } } });', '#')]
     [TestCase('Array prototype elements', 'Array.prototype[1] = function () { return Array.prototype; }; Object.defineProperty(Array.prototype, "0", { configurable: true, get: function () { return Array.prototype; }, set: function (v) { Array.prototype; } }); [].push(1); [].unshift(1); delete Array.prototype[0]; delete Array.prototype[1]; Array.prototype.length = 0;', '#')]
     [TestCase('Array species constructor','function C() {} var a = [1, 2]; a.constructor = { [Symbol.species]: C }; a.map(function (x) { return x; }); a.slice(); a.concat(a);', '#')]
+    [TestCase('Proxy as with object', 'var p = new Proxy({ x: 1 }, {}); function f() { with (p) { x++; x += 1; return x; } } f();', '#')]
+    [TestCase('Typed array in a prototype chain', 'var r = Object.create(new Int8Array(2)); r[5] = 1; r[1] = 2; r.x = 3;', '#')]
     [TestCase('Unscopables in with', 'var o = { x: 1, y: 2, [Symbol.unscopables]: { x: true } }; with (o) { y; }', '#')]
     [TestCase('Symbols copied between objects', 'var s = Symbol(); var a = { [s]: () => a }; var b = Object.assign({}, a); var { [s]: f, ...r } = { ...a };', '#')]
     [TestCase('Array iterators', 'var it = [1, 2][Symbol.iterator](); it.next(); [...it]; [...[1].entries()]; for (var x of [1, 2].keys()) {}', '#')]

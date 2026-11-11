@@ -166,7 +166,7 @@ type
     property Target: IJSObject read FTarget;
   end;
 
-  TJSProxyObject = class(TJSObjectImpl, IJSProxy)
+  TJSProxyObject = class(TJSObjectImpl, IJSProxy, IJSIntegerIndexedKeys)
   private
     FProxyRef: IJSProxy;
     FCore: TJSProxyCore;
@@ -199,11 +199,12 @@ type
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor); override;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function IsInvalidIndexKey(const Name: string): Boolean;
 
     property ProxyImplementation: IJSProxy read FProxyRef implements IJSProxy;
   end;
 
-  TJSProxyFunction = class(TJSFunctionImpl, IJSProxy, IJSNativeConstructor)
+  TJSProxyFunction = class(TJSFunctionImpl, IJSProxy, IJSNativeConstructor, IJSIntegerIndexedKeys)
   private
     FProxyRef: IJSProxy;
     FCore: TJSProxyCore;
@@ -236,6 +237,7 @@ type
     procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor); override;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function IsInvalidIndexKey(const Name: string): Boolean;
 
     function ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
 
@@ -1242,6 +1244,11 @@ begin
   Result := FCore.DefineOwnProperty(Name, Definition);
 end;
 
+function TJSProxyObject.IsInvalidIndexKey(const Name: string): Boolean;
+begin
+  Result := False;
+end;
+
 function TJSProxyObject.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   Descriptor := TJSProxyShared.InheritedAccessor(FProxyRef, Name);
@@ -1401,6 +1408,11 @@ end;
 function TJSProxyFunction.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
 begin
   Result := FCore.DefineOwnProperty(Name, Definition);
+end;
+
+function TJSProxyFunction.IsInvalidIndexKey(const Name: string): Boolean;
+begin
+  Result := False;
 end;
 
 function TJSProxyFunction.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;

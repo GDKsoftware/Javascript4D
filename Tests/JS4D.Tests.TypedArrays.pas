@@ -77,6 +77,11 @@ type
     [TestCase('Float32 rounds', 'new Float32Array([0.1, 16777217, 1e300, -1e300]).join()#0.10000000149011612,16777216,Infinity,-Infinity', '#')]
     [TestCase('Float64 keeps NaN and zero', '(function () { var a = new Float64Array([NaN, -0]); return isNaN(a[0]) + "," + (1 / a[1]); })()#true,-Infinity', '#')]
     [TestCase('Values are converted with ToNumber', 'new Int8Array(["12", true, null, undefined, { valueOf: function () { return 3; } }]).join()#12,1,0,0,3', '#')]
+    [TestCase('Invalid index assigned through a prototype creates nothing', '(function () { var r = Object.create(new Int8Array(1)); r[1] = 5; r[-1] = 5; r[1.5] = 5; return Object.getOwnPropertyNames(r).length; })()#0', '#')]
+    [TestCase('Invalid index assigned through a longer chain creates nothing', '(function () { var r = Object.create(Object.create(new Int8Array(1))); r[2] = 5; return r.hasOwnProperty(2); })()#false', '#')]
+    [TestCase('Valid index assigned through a prototype creates a property', '(function () { var t = new Int8Array(2); var r = Object.create(t); r[1] = 5; return r.hasOwnProperty(1) + "," + t[1]; })()#true,0', '#')]
+    [TestCase('Other keys assigned through a prototype are created', '(function () { var r = Object.create(new Int8Array(1)); r.x = 5; r["1a"] = 6; return r.x + r["1a"]; })()#11', '#')]
+    [TestCase('Invalid index assigned through a prototype of a non-extensible object', '(function () { "use strict"; var r = Object.preventExtensions(Object.create(new Int8Array(1))); r[1] = 5; return r.hasOwnProperty(1); })()#false', '#')]
     procedure Elements_AreConverted(const Expression, Expected: string);
 
     [Test]
