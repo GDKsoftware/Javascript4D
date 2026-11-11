@@ -72,6 +72,14 @@ type
     [TestCase('Weak collections referencing their keys', 'var w = new WeakMap(); var k = {}; k.w = w; w.set(k, k); var ws = new WeakSet(); ws.add(k); k.ws = ws; w.set(w, ws);', '#')]
     [TestCase('Collection species and iterator accessors', 'Map[Symbol.species]; Set[Symbol.species]; Set.prototype[Symbol.iterator]; Object.getPrototypeOf(new Map().keys()).next.call(new Map().keys());', '#')]
     [TestCase('Collection constructor with an erroring iterable', 'var o = { [Symbol.iterator]() { return { next() { return { done: false, value: 1 }; }, return() { return {}; } }; } }; try { new Map(o); } catch (e) {} try { new WeakSet(o); } catch (e) {}', '#')]
+    [TestCase('Proxy with trap closures', 'var h = { get(t, k, r) { return h; }, has() { return true; }, set() { return true; } }; var p = new Proxy({}, h); p.x; p.y = 1; "a" in p; var q = new Proxy(p, h); q.z;', '#')]
+    [TestCase('Proxy returned by its own trap', 'var p = new Proxy({}, { get() { return p; } }); p.x;', '#')]
+    [TestCase('Revocable proxy', 'var r = Proxy.revocable({}, { get() { return 1; } }); r.proxy.a; r.revoke(); try { r.proxy.a; } catch (e) {} var s = Proxy.revocable(function () {}, {}); s.proxy; ', '#')]
+    [TestCase('Function proxy', 'var f = new Proxy(function () { return 1; }, { apply(t, th, a) { return t(); }, construct(t, a, n) { return {}; } }); f(); new f(); f.call(null); f.bind(null)();', '#')]
+    [TestCase('Proxy in a prototype chain', 'var p = new Proxy({}, { get(t, k, r) { return r; }, set(t, k, v, r) { return true; }, has() { return true; } }); var o = Object.create(p); o.x; o.y = 1; "z" in o;', '#')]
+    [TestCase('Proxy with ownKeys and descriptors', 'var s = Symbol(); var p = new Proxy({}, { ownKeys() { return ["a", s]; }, getOwnPropertyDescriptor() { return { value: 1, configurable: true, enumerable: true }; } }); Object.keys(p); Object.getOwnPropertySymbols(p); for (var k in p) {} Object.assign({}, p);', '#')]
+    [TestCase('Proxy wrapping a proxy', 'var a = new Proxy({}, {}); var b = new Proxy(a, {}); b.x = 1; b.x; Object.keys(b); Array.isArray(b);', '#')]
+    [TestCase('Reflect', 'Reflect.ownKeys({a: 1, [Symbol()]: 2}); Reflect.get({get a() { return this; }}, "a", {}); Reflect.set({}, "a", 1, {}); Reflect.construct(function () {}, [], function () {}); Reflect.apply(Math.max, null, [1, 2]); Reflect.defineProperty({}, "a", { get() { return 1; } });', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]

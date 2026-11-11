@@ -27,6 +27,8 @@ uses
   JS4D.ArrayGeneric,
   JS4D.ArrayLike,
   JS4D.ObjectKeys,
+  JS4D.ObjectOperations,
+  JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
   JS4D.Operators;
 
@@ -286,6 +288,7 @@ type
     function EvaluateInstanceOf(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function EvaluateIn(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
+    procedure RequireLiveProxy(const Constructor_: IJSFunction);
     function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
     function ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
     function UnwrapBoundFunction(const Func: IJSFunction): IJSFunction;
@@ -388,6 +391,8 @@ type
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
     function VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
     function DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
+    function DeleteProxyMember(const Node: TJSUnaryExpression; const Proxy: IJSProxy;
+                               const PropName: string): TJSValue;
     function IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
     function DeleteIdentifier(const Name: string): Boolean;
     procedure DeclareBinding(const Name: string; const Value: TJSValue);
@@ -474,7 +479,9 @@ type
     function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayStaticMethod(const ThisObj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
-    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue; overload;
+    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                       const NewTarget: IJSFunction): TJSValue; overload;
     function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
                                 out Closer: TJSSequenceCloser): Boolean;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
@@ -530,6 +537,7 @@ const
   READ_ONLY_LENGTH = 'Cannot assign to read only property ''length''';
   EVAL_NAME = 'eval';
   CANNOT_ACCESS_PROPERTY = 'Cannot access property ''%s'' of undefined or null';
+  REVOKED_CONSTRUCTOR = 'Cannot construct with a revoked proxy';
   CANNOT_ASSIGN_PROPERTY = 'Cannot assign to property ''%s'' in strict mode';
   OBJECT_KEY_DESCRIPTION = '[object]';
   POISONED_PROPERTY = 'Restricted property cannot be accessed in strict mode';
@@ -1344,6 +1352,14 @@ begin
   end;
 end;
 
+procedure TJSInterpreter.RequireLiveProxy(const Constructor_: IJSFunction);
+begin
+  var Proxy: IJSProxy;
+  const IsRevokedProxy = TJSObjectOperations.AsProxy(Constructor_, Proxy) and Proxy.IsRevoked;
+  if IsRevokedProxy then
+    raise TJSErrorFactory.TypeError(REVOKED_CONSTRUCTOR);
+end;
+
 function TJSInterpreter.CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
 begin
   Result := TJSObject.Create;
@@ -1352,7 +1368,10 @@ begin
   if PrototypeValue.IsObject then
     Result.Prototype := PrototypeValue.ToObject
   else
+  begin
+    RequireLiveProxy(Constructor_);
     Result.Prototype := FObjectPrototype;
+  end;
 end;
 
 function TJSInterpreter.PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
@@ -2497,9 +2516,12 @@ begin
 
     const Obj = ToScopeObject(RightValue);
 
+    var Proxy: IJSProxy;
+    const IsProxy = TJSObjectOperations.AsProxy(Obj, Proxy);
+
     for var PropName in CollectEnumerableKeys(Obj) do
     begin
-      const IsDeleted = not Obj.HasProperty(PropName);
+      const IsDeleted = (not IsProxy) and (not Obj.HasProperty(PropName));
       if IsDeleted then
         Continue;
 
@@ -3133,6 +3155,10 @@ begin
 
   const Obj = ObjValue.ToObject;
 
+  var Proxy: IJSProxy;
+  if TJSObjectOperations.AsProxy(Obj, Proxy) then
+    Exit(DeleteProxyMember(Node, Proxy, PropName));
+
   const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
   const IsLocked = Obj.HasOwnProperty(PropName) and (not OwnDescriptor.Configurable);
   if IsLocked and FStrictMode then
@@ -3145,6 +3171,17 @@ begin
   DeleteArrayElement(Obj, PropName);
   Obj.DeleteProperty(PropName);
   Result := TJSValue.CreateBoolean(True);
+end;
+
+function TJSInterpreter.DeleteProxyMember(const Node: TJSUnaryExpression; const Proxy: IJSProxy;
+                                          const PropName: string): TJSValue;
+begin
+  const IsRemoved = Proxy.DeleteOwnProperty(PropName);
+  if (not IsRemoved) and FStrictMode then
+    raise TJSErrorFactory.TypeError(Format('Cannot delete property ''%s'' of object', [PropName]),
+      Node.Line, Node.Column);
+
+  Result := TJSValue.CreateBoolean(IsRemoved);
 end;
 
 function TJSInterpreter.VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
@@ -4304,11 +4341,27 @@ end;
 
 function TJSInterpreter.Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
 begin
+  Result := Construct(Func, Args, Func);
+end;
+
+function TJSInterpreter.Construct(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                  const NewTarget: IJSFunction): TJSValue;
+begin
   var Bound: TJSBoundFunction;
   if FBoundFunctions.TryGetValue(Pointer(Func as IInterface), Bound) then
-    Exit(Construct(Bound.Target, Bound.Arguments + Args));
+  begin
+    const IsOwnTarget = ((NewTarget as IInterface) = (Func as IInterface));
+    if IsOwnTarget then
+      Exit(Construct(Bound.Target, Bound.Arguments + Args, Bound.Target));
 
-  const NewObj = CreateInstanceFor(Func);
+    Exit(Construct(Bound.Target, Bound.Arguments + Args, NewTarget));
+  end;
+
+  var NativeConstructor: IJSNativeConstructor;
+  if Func.IsNative and Supports(Func, IJSNativeConstructor, NativeConstructor) then
+    Exit(NativeConstructor.ConstructWith(Args, NewTarget));
+
+  const NewObj = CreateInstanceFor(NewTarget);
   const ReturnValue = CallFunction(Func, Args, NewObj);
 
   if ReturnValue.IsObject then
@@ -4849,6 +4902,17 @@ begin
   end;
 
   const Target = Base.ToObject;
+
+  var Proxy: IJSProxy;
+  const IsStrictProxy = FStrictMode and TJSObjectOperations.AsProxy(Target, Proxy);
+  if IsStrictProxy then
+  begin
+    if not Proxy.SetWithReceiver(PropName, Value, Base) then
+      raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+
+    Exit;
+  end;
+
   const IsRejected = FStrictMode and (not TJSPropertyDescriptors.CanPut(Target, PropName));
   if IsRejected then
     raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
@@ -5016,6 +5080,7 @@ begin
     end);
 
   Supports(FGlobalScope.GetVariable(EVAL_NAME).ToObject, IJSFunction, FEvalFunction);
+  FEvalFunction.IsConstructor := False;
 end;
 
 procedure TJSInterpreter.SetGlobalVariable(const Name: string; const Value: TJSValue);
@@ -5091,6 +5156,7 @@ begin
 
       var Scope: IJSScope;
       var Func: IJSFunction;
+      var Proxy: IJSProxy;
       var Arr: IJSArray;
       var Obj: IJSObject;
 
@@ -5099,6 +5165,11 @@ begin
         GCMark(Scope.Parent, Live, Work);
         for var Value in Scope.GetOwnVariables do
           GCMarkValue(Value, Live, Work);
+      end
+      else if Supports(Item, IJSProxy, Proxy) then
+      begin
+        GCMark(Proxy.ProxyTarget, Live, Work);
+        GCMark(Proxy.ProxyHandler, Live, Work);
       end
       else if Supports(Item, IJSFunction, Func) then
       begin

@@ -111,6 +111,7 @@ implementation
 
 uses
   JS4D.Errors,
+  JS4D.ObjectOperations,
   JS4D.NumberFormat,
   JS4D.NumberParse;
 
@@ -1437,12 +1438,8 @@ begin
 
   if MethodName = METHOD_PROPERTY_IS_ENUMERABLE then
   begin
-    var IsEnumerable := Obj.HasOwnProperty(PropertyName);
-    if IsEnumerable then
-    begin
-      const Descriptor = Obj.GetOwnPropertyDescriptor(PropertyName);
-      IsEnumerable := Descriptor.Enumerable;
-    end;
+    var Descriptor: TJSPropertyDescriptor;
+    const IsEnumerable = TJSObjectOperations.TryGetOwnProperty(Obj, PropertyName, Descriptor) and Descriptor.Enumerable;
 
     Exit(TJSValue.CreateBoolean(IsEnumerable));
   end;

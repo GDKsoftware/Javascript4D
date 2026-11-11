@@ -11,6 +11,7 @@ uses
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ArrayLike,
+  JS4D.ObjectOperations,
   JS4D.Conversions;
 
 type
@@ -241,7 +242,7 @@ begin
     if Assigned(Mapper) then
       Element := Executor(Mapper, CallbackArguments(Element, Index, Source));
 
-    const ShouldFlatten = (Depth > 0) and Element.IsArray;
+    const ShouldFlatten = (Depth > 0) and TJSObjectOperations.IsArray(Element);
     if ShouldFlatten then
     begin
       Limits.EnsureNestingDepth(Level + 1);

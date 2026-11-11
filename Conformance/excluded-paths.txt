@@ -52,8 +52,6 @@ built-ins/GeneratorFunction/
 built-ins/GeneratorPrototype/
 built-ins/Iterator/
 built-ins/Promise/
-built-ins/Proxy/
-built-ins/Reflect/
 built-ins/RegExpStringIteratorPrototype/
 built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/

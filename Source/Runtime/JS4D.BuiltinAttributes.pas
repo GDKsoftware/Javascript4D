@@ -22,6 +22,7 @@ type
       ENTRY_SEPARATOR = ' ';
       ARITY_SEPARATOR = ':';
       GLOBAL_OWNER = '';
+      PROTOTYPE_PROPERTY = 'prototype';
       ARITY_TABLES: array[0..32] of TJSArityTable = (
         (Owner: GLOBAL_OWNER;
          Entries: 'Object:1 Function:1 Array:1 String:1 Number:1 Boolean:1 Date:7 RegExp:2 Error:1 ' +
@@ -197,7 +198,8 @@ begin
     TJSFunction.DefineLength(Member.ToObject, Arity);
 
     var Method: IJSFunction;
-    const IsMethod = Assigned(Target) and Supports(Member.ToObject, IJSFunction, Method);
+    const IsFunction = Supports(Member.ToObject, IJSFunction, Method);
+    const IsMethod = IsFunction and (Assigned(Target) or (not Method.HasOwnProperty(PROTOTYPE_PROPERTY)));
     if IsMethod then
       Method.IsConstructor := False;
   end;

@@ -11,7 +11,8 @@ uses
   JS4D.Errors,
   JS4D.SymbolRegistry,
   JS4D.Builtins,
-  JS4D.ArrayLike;
+  JS4D.ArrayLike,
+  JS4D.ObjectOperations;
 
 type
   TJSArrayGenericContext = record
@@ -137,10 +138,15 @@ end;
 
 class function TJSArrayGeneric.HasSpreadabilityFlag(const Item: TJSValue): Boolean;
 begin
-  const IsItemObject = Item.IsObject;
+  if not Item.IsObject then
+    Exit(False);
 
-  Result := IsItemObject and
-            (not Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable)).IsUndefined);
+  var Proxy: IJSProxy;
+  if TJSObjectOperations.AsProxy(Item.ToObject, Proxy) then
+    Exit(True);
+
+  const Flag = Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable));
+  Result := not Flag.IsUndefined;
 end;
 
 class function TJSArrayGeneric.IsConcatSpreadable(const Item: TJSValue): Boolean;
@@ -152,7 +158,7 @@ begin
   if not Flag.IsUndefined then
     Exit(Flag.ToBoolean);
 
-  Result := Item.IsArray;
+  Result := TJSObjectOperations.IsArray(Item);
 end;
 
 class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: string;

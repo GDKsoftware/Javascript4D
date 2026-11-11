@@ -7,7 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.ObjectOperations;
 
 type
   TJSObjectKeys = class
@@ -20,12 +21,7 @@ implementation
 
 class function TJSObjectKeys.All(const Target: IJSObject): TArray<string>;
 begin
-  const Names = Target.GetOwnPropertyNames;
-  const SymbolKeys = Target.GetOwnSymbolKeys;
-  if Length(SymbolKeys) = 0 then
-    Exit(Names);
-
-  Result := Names + SymbolKeys;
+  Result := TJSObjectOperations.OwnKeys(Target);
 end;
 
 class function TJSObjectKeys.Enumerable(const Target: IJSObject): TArray<string>;

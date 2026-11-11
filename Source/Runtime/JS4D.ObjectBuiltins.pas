@@ -21,8 +21,7 @@ type
       VALUE_PROPERTY = '1';
       NOT_COERCIBLE = 'Cannot convert undefined or null to object';
       PROTOTYPE_NOT_AN_OBJECT = 'Object prototype may only be an Object or null';
-      NOT_EXTENSIBLE = 'Cannot set the prototype of a non-extensible object';
-      CYCLIC_PROTOTYPE = 'Cyclic prototype chain';
+      SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this object: it is not extensible or the prototype chain would be cyclic';
       NOT_ITERABLE = 'Object.fromEntries requires an iterable object';
       ENTRY_NOT_AN_OBJECT = 'Iterator value is not an entry object';
 
@@ -31,7 +30,6 @@ type
 
     function ObjectFor(const Value: TJSValue): IJSObject;
     function HasOwn(const Args: TArray<TJSValue>): TJSValue;
-    procedure RequireAcyclicPrototype(const Target: IJSObject; const Prototype: IJSObject);
     function SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
     procedure AddEntry(const Target: IJSObject; const Entry: TJSValue);
     function FromEntries(const Args: TArray<TJSValue>): TJSValue;
@@ -49,7 +47,8 @@ uses
   JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.ArrayStatics,
-  JS4D.PropertyDescriptors;
+  JS4D.PropertyDescriptors,
+  JS4D.ObjectOperations;
 
 constructor TJSObjectBuiltins.Create(const Interpreter: TJSInterpreter);
 begin
@@ -77,19 +76,6 @@ begin
   Result := TJSValue.CreateBoolean(Target.HasOwnProperty(Key));
 end;
 
-procedure TJSObjectBuiltins.RequireAcyclicPrototype(const Target: IJSObject; const Prototype: IJSObject);
-begin
-  var Ancestor := Prototype;
-  while Assigned(Ancestor) do
-  begin
-    const IsTarget = ((Ancestor as IInterface) = (Target as IInterface));
-    if IsTarget then
-      raise TJSErrorFactory.TypeError(CYCLIC_PROTOTYPE);
-
-    Ancestor := Ancestor.Prototype;
-  end;
-end;
-
 function TJSObjectBuiltins.SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
 begin
   const Subject = TJSArrayLike.Argument(Args, 0);
@@ -109,15 +95,8 @@ begin
   const Target = Subject.ToObject;
   const Prototype = NewPrototype.ToObject;
 
-  const IsUnchanged = ((Target.Prototype as IInterface) = (Prototype as IInterface));
-  if IsUnchanged then
-    Exit;
-
-  if not Target.IsExtensible then
-    raise TJSErrorFactory.TypeError(NOT_EXTENSIBLE);
-
-  RequireAcyclicPrototype(Target, Prototype);
-  Target.Prototype := Prototype;
+  if not TJSObjectOperations.SetPrototypeOf(Target, Prototype) then
+    raise TJSErrorFactory.TypeError(SET_PROTOTYPE_FAILED);
 end;
 
 procedure TJSObjectBuiltins.AddEntry(const Target: IJSObject; const Entry: TJSValue);

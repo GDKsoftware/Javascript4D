@@ -40,7 +40,7 @@ type
 
     function TextOf(const Value: TJSValue): string;
     procedure ConfigureReplacer(const Replacer: TJSValue);
-    procedure ConfigureAllowedKeys(const Replacer: IJSArray);
+    procedure ConfigureAllowedKeys(const Replacer: IJSObject);
     function TryKeyOfReplacerEntry(const Entry: TJSValue; out Key: string): Boolean;
     procedure ConfigureGap(const Space: TJSValue);
 
@@ -75,7 +75,8 @@ uses
   System.StrUtils,
   JS4D.Errors,
   JS4D.ArrayLike,
-  JS4D.ObjectKeys;
+  JS4D.ObjectKeys,
+  JS4D.ObjectOperations;
 
 { TJSJsonWriter }
 
@@ -149,13 +150,12 @@ begin
     Exit;
 
   var ReplacerFunction: IJSFunction;
-  var ReplacerArray: IJSArray;
   const ReplacerObject = Replacer.ToObject;
 
   if Replacer.IsFunction and Supports(ReplacerObject, IJSFunction, ReplacerFunction) then
     FReplacer := ReplacerFunction
-  else if Replacer.IsArray and Supports(ReplacerObject, IJSArray, ReplacerArray) then
-    ConfigureAllowedKeys(ReplacerArray);
+  else if TJSObjectOperations.IsArray(Replacer) then
+    ConfigureAllowedKeys(ReplacerObject);
 end;
 
 function TJSJsonWriter.TextOf(const Value: TJSValue): string;
@@ -165,7 +165,7 @@ begin
   Result := Primitive.ToString;
 end;
 
-procedure TJSJsonWriter.ConfigureAllowedKeys(const Replacer: IJSArray);
+procedure TJSJsonWriter.ConfigureAllowedKeys(const Replacer: IJSObject);
 begin
   FHasAllowedKeys := True;
 
@@ -359,7 +359,7 @@ procedure TJSJsonWriter.WriteContainer(const Value: TJSValue);
 begin
   const Target = Value.ToObject;
 
-  if Value.IsArray then
+  if TJSObjectOperations.IsArray(Value) then
     WriteArray(Target)
   else
     WriteObject(Target);

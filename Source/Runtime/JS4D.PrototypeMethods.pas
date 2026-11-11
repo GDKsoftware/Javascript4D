@@ -75,6 +75,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
   JS4D.Conversions;
 
 type
@@ -290,7 +291,7 @@ begin
     Exit(Wrapper.GetClassName);
   end;
 
-  if Supports(Source, IJSArray) then
+  if TJSObjectOperations.IsArray(TJSValue.CreateObject(Source)) then
     Exit(CLASS_ARRAY);
 
   if Supports(Source, IJSFunction) then

@@ -67,12 +67,6 @@ __setter__
 array-grouping
 cross-realm
 FinalizationRegistry
-Proxy
-proxy-missing-checks
-Reflect
-Reflect.construct
-Reflect.set
-Reflect.setPrototypeOf
 set-methods
 upsert
 WeakRef

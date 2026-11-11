@@ -29,12 +29,15 @@ uses
   JS4D.JsonReader,
   JS4D.JsonReviver,
   JS4D.ObjectKeys,
+  JS4D.ObjectOperations,
   JS4D.Symbols,
   JS4D.SymbolRegistry,
   JS4D.SymbolBuiltins,
   JS4D.Conversions,
   JS4D.IteratorBuiltins,
   JS4D.CollectionBuiltins,
+  JS4D.ProxyBuiltins,
+  JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
   JS4D.StringPatternMethods,
@@ -56,6 +59,8 @@ type
     FSymbolBuiltins: TJSSymbolBuiltins;
     FIteratorBuiltins: TJSIteratorBuiltins;
     FCollectionBuiltins: TJSCollectionBuiltins;
+    FProxyBuiltins: TJSProxyBuiltins;
+    FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
     FStringPatternMethods: TJSStringPatternMethods;
@@ -312,6 +317,8 @@ begin
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
+  FReflectBuiltins.Free;
+  FProxyBuiltins.Free;
   FCollectionBuiltins.Free;
   FRegExpProtocol.Free;
   FObjectBuiltins.Free;
@@ -659,6 +666,12 @@ begin
 
   FCollectionBuiltins := TJSCollectionBuiltins.Create(FInterpreter);
   FCollectionBuiltins.Register;
+
+  FProxyBuiltins := TJSProxyBuiltins.Create(FInterpreter);
+  FProxyBuiltins.Register;
+
+  FReflectBuiltins := TJSReflectBuiltins.Create(FInterpreter);
+  FReflectBuiltins.Register;
 end;
 
 function TJSEngine.CodePointsToString(const Args: TArray<TJSValue>): string;
@@ -749,8 +762,8 @@ end;
 
 class function TJSEngine.IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean;
 begin
-  const IsOwn = Source.HasOwnProperty(Name);
-  Result := IsOwn and Source.GetOwnPropertyDescriptor(Name).Enumerable;
+  var Descriptor: TJSPropertyDescriptor;
+  Result := TJSObjectOperations.TryGetOwnProperty(Source, Name, Descriptor) and Descriptor.Enumerable;
 end;
 
 class procedure TJSEngine.PutChecked(const Target: IJSObject; const Name: string; const Value: TJSValue);
@@ -1376,10 +1389,11 @@ begin
       if Length(Args) > 1 then
         PropName := ToKeyText(Args[1]);
 
-      if not Obj.HasOwnProperty(PropName) then
+      var Descriptor: TJSPropertyDescriptor;
+      if not TJSObjectOperations.TryGetOwnProperty(Obj, PropName, Descriptor) then
         Exit(TJSValue.CreateUndefined);
 
-      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Obj.GetOwnPropertyDescriptor(PropName));
+      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor);
       Result := TJSValue.CreateObject(DescObj);
     end)));
 
@@ -1394,7 +1408,11 @@ begin
 
       for var PropName in TJSObjectKeys.All(Source) do
       begin
-        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Source.GetOwnPropertyDescriptor(PropName));
+        var Descriptor: TJSPropertyDescriptor;
+        if not TJSObjectOperations.TryGetOwnProperty(Source, PropName, Descriptor) then
+          Continue;
+
+        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor);
         Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
       end;
 
@@ -1502,7 +1520,7 @@ begin
         Exit;
       end;
 
-      Result := TJSValue.CreateBoolean(Args[0].IsArray);
+      Result := TJSValue.CreateBoolean(TJSObjectOperations.IsArray(Args[0]));
     end)));
 
   for var StaticName in [ARRAY_OF, ARRAY_FROM] do

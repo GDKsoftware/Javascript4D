@@ -397,8 +397,8 @@ type
     class function ApplyDefinition(const Current: TJSPropertyDescriptor;
                                    const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
 
-    function GetPrototype: IJSObject;
-    procedure SetPrototype(const Value: IJSObject);
+    function GetPrototype: IJSObject; virtual;
+    procedure SetPrototype(const Value: IJSObject); virtual;
     function GetPropertyLayoutVersion: Cardinal;
     function GetPropertyThroughDescriptor(const Name: string): TJSValue;
     function HasStandardPropertyLookup: Boolean; virtual;
@@ -419,25 +419,25 @@ type
     destructor Destroy; override;
 
     function HasProperty(const Name: string): Boolean; virtual;
-    function GetProperty(const Name: string): TJSValue;
+    function GetProperty(const Name: string): TJSValue; virtual;
     procedure SetProperty(const Name: string; const Value: TJSValue); virtual;
     procedure SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
     procedure DeleteProperty(const Name: string); virtual;
-    function IsPropertyConfigurable(const Name: string): Boolean;
+    function IsPropertyConfigurable(const Name: string): Boolean; virtual;
     function GetOwnPropertyNames: TArray<string>; virtual;
     function GetOwnSymbolKeys: TArray<string>; virtual;
 
-    function IsFrozen: Boolean;
-    function IsSealed: Boolean;
-    function IsExtensible: Boolean;
+    function IsFrozen: Boolean; virtual;
+    function IsSealed: Boolean; virtual;
+    function IsExtensible: Boolean; virtual;
     procedure Freeze; virtual;
-    procedure Seal;
-    procedure PreventExtensions;
+    procedure Seal; virtual;
+    procedure PreventExtensions; virtual;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
     function HasOwnProperty(const Name: string): Boolean; virtual;
     function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; virtual;
     function TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
-    procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor); virtual;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
