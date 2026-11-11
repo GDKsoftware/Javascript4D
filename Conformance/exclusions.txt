@@ -81,40 +81,17 @@ String.prototype.matchAll
 String.prototype.toWellFormed
 
 # Binary data and concurrency
-align-detached-buffer-semantics-with-web-reality
-ArrayBuffer
 arraybuffer-transfer
 Atomics
 Atomics.pause
 Atomics.waitAsync
 BigInt
-DataView
-DataView.prototype.getFloat32
-DataView.prototype.getFloat64
-DataView.prototype.getInt16
-DataView.prototype.getInt32
-DataView.prototype.getInt8
-DataView.prototype.getUint16
-DataView.prototype.getUint32
-DataView.prototype.setUint8
 Float16Array
-Float32Array
-Float64Array
 immutable-arraybuffer
-Int16Array
-Int32Array
-Int8Array
 Math.sumPrecise
 resizable-arraybuffer
 SharedArrayBuffer
-stable-typedarray-sort
-TypedArray
-TypedArray.prototype.at
-Uint16Array
-Uint32Array
-Uint8Array
 uint8array-base64
-Uint8ClampedArray
 
 # Promises, errors and iterators
 AggregateError

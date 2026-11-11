@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.Types,
+  JS4D.BinaryData,
   JS4D.SymbolRegistry;
 
 type
@@ -128,6 +129,10 @@ begin
     if AsProxy(Current, Proxy) then
       Exit(Proxy.SetWithReceiver(Name, Value, Receiver));
 
+    var IsStored: Boolean;
+    if TJSBinaryKeys.TryStoreElement(Current, Name, Value, Receiver, IsStored) then
+      Exit(IsStored);
+
     if Current.HasOwnProperty(Name) then
     begin
       OwnDescriptor := Current.GetOwnPropertyDescriptor(Name);
@@ -189,6 +194,9 @@ begin
 
   if not Target.HasOwnProperty(Name) then
     Exit(True);
+
+  if TJSBinaryKeys.IsElementKey(Target, Name) then
+    Exit(False);
 
   if not Target.GetOwnPropertyDescriptor(Name).Configurable then
     Exit(False);

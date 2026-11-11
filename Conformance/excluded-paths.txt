@@ -36,7 +36,6 @@ language/statements/switch/scope-lex-generator.js
 # Built-ins introduced after ES5.1
 built-ins/AbstractModuleSource/
 built-ins/AggregateError/
-built-ins/ArrayBuffer/
 built-ins/AsyncDisposableStack/
 built-ins/AsyncFromSyncIteratorPrototype/
 built-ins/AsyncFunction/
@@ -45,7 +44,6 @@ built-ins/AsyncGeneratorPrototype/
 built-ins/AsyncIteratorPrototype/
 built-ins/Atomics/
 built-ins/BigInt/
-built-ins/DataView/
 built-ins/DisposableStack/
 built-ins/FinalizationRegistry/
 built-ins/GeneratorFunction/
@@ -57,7 +55,5 @@ built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/
 built-ins/SuppressedError/
 built-ins/Temporal/
-built-ins/TypedArray/
-built-ins/TypedArrayConstructors/
 built-ins/Uint8Array/
 built-ins/WeakRef/

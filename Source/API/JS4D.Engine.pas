@@ -36,6 +36,7 @@ uses
   JS4D.Conversions,
   JS4D.IteratorBuiltins,
   JS4D.CollectionBuiltins,
+  JS4D.BinaryBuiltins,
   JS4D.ProxyBuiltins,
   JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
@@ -59,6 +60,7 @@ type
     FSymbolBuiltins: TJSSymbolBuiltins;
     FIteratorBuiltins: TJSIteratorBuiltins;
     FCollectionBuiltins: TJSCollectionBuiltins;
+    FBinaryBuiltins: TJSBinaryBuiltins;
     FProxyBuiltins: TJSProxyBuiltins;
     FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
@@ -319,6 +321,7 @@ begin
   FIteratorBuiltins.Free;
   FReflectBuiltins.Free;
   FProxyBuiltins.Free;
+  FBinaryBuiltins.Free;
   FCollectionBuiltins.Free;
   FRegExpProtocol.Free;
   FObjectBuiltins.Free;
@@ -672,6 +675,9 @@ begin
 
   FReflectBuiltins := TJSReflectBuiltins.Create(FInterpreter);
   FReflectBuiltins.Register;
+
+  FBinaryBuiltins := TJSBinaryBuiltins.Create(FInterpreter);
+  FBinaryBuiltins.Register;
 end;
 
 function TJSEngine.CodePointsToString(const Args: TArray<TJSValue>): string;

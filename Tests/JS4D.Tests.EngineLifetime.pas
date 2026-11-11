@@ -80,6 +80,15 @@ type
     [TestCase('Proxy with ownKeys and descriptors', 'var s = Symbol(); var p = new Proxy({}, { ownKeys() { return ["a", s]; }, getOwnPropertyDescriptor() { return { value: 1, configurable: true, enumerable: true }; } }); Object.keys(p); Object.getOwnPropertySymbols(p); for (var k in p) {} Object.assign({}, p);', '#')]
     [TestCase('Proxy wrapping a proxy', 'var a = new Proxy({}, {}); var b = new Proxy(a, {}); b.x = 1; b.x; Object.keys(b); Array.isArray(b);', '#')]
     [TestCase('Reflect', 'Reflect.ownKeys({a: 1, [Symbol()]: 2}); Reflect.get({get a() { return this; }}, "a", {}); Reflect.set({}, "a", 1, {}); Reflect.construct(function () {}, [], function () {}); Reflect.apply(Math.max, null, [1, 2]); Reflect.defineProperty({}, "a", { get() { return 1; } });', '#')]
+    [TestCase('Array buffer and typed arrays', 'var b = new ArrayBuffer(16); var a = new Int16Array(b, 2, 4); a.fill(3); a.set([1, 2], 1); a.subarray(1).slice(1); new Float32Array(a).map(x => x * 2).filter(x => x > 1); [...a]; ArrayBuffer.isView(a); b.slice(4);', '#')]
+    [TestCase('Typed array statics and species', 'Uint8Array.from([1, 2], x => x + 1); Float64Array.of(1, 2); var T = Object.getPrototypeOf(Int8Array); T[Symbol.species]; var a = new Int8Array(2); a.constructor = { [Symbol.species]: Uint8Array }; a.slice(); a.map(x => x);', '#')]
+    [TestCase('Typed array iterators and sorting', 'var a = new Uint8Array([3, 1, 2]); a.sort((x, y) => y - x); a.reverse(); [...a.entries()]; for (var k of a.keys()) {} var it = a.values(); it.next(); a.join(); a.toLocaleString(); a.indexOf(1); a.includes(2);', '#')]
+    [TestCase('Typed array property holding an arrow function', 'var a = new Int8Array(3); a.f = () => a;', '#')]
+    [TestCase('Typed array element callbacks', 'var a = new Int8Array(3); a.forEach(function (v, i, o) { o.length; }); a.every(function (v) { return v === 0; });', '#')]
+    [TestCase('Typed array reduce and find', 'var a = new Int8Array(3); a.reduce((x, y) => x + y, 0); a.find(x => x === 0);', '#')]
+    [TestCase('Typed array accessor returning the array', 'var a = new Int8Array(3); Object.defineProperty(a, "x", { get() { return a; } });', '#')]
+    [TestCase('Data view', 'var v = new DataView(new ArrayBuffer(16), 4, 8); v.setFloat64(0, 1.5, true); v.setInt16(0, 7); v.getFloat64(0, true); v.getUint8(1); v.buffer; DataView.prototype.getInt32.call(v, 4);', '#')]
+    [TestCase('Typed array with an erroring source', 'try { new Int8Array({ length: 2, get 0() { throw 1; } }); } catch (e) {} try { new Int8Array(new ArrayBuffer(4), 8); } catch (e) {} try { new DataView(new ArrayBuffer(1)).getInt32(0); } catch (e) {} try { Int8Array.from([1], 1); } catch (e) {}', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]

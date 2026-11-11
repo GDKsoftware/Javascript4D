@@ -134,6 +134,13 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.OrderedStore.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CollectionObjects.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CollectionBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BinaryData.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BinarySupport.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayBufferBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.DataViewBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.TypedArrayBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.TypedArrayMethods.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BinaryBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectOperations.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ProxyObjects.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ProxyBuiltins.pas"/>

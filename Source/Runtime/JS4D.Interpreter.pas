@@ -28,6 +28,7 @@ uses
   JS4D.ArrayLike,
   JS4D.ObjectKeys,
   JS4D.ObjectOperations,
+  JS4D.BinaryData,
   JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
   JS4D.Operators;
@@ -3160,7 +3161,8 @@ begin
     Exit(DeleteProxyMember(Node, Proxy, PropName));
 
   const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
-  const IsLocked = Obj.HasOwnProperty(PropName) and (not OwnDescriptor.Configurable);
+  const IsLocked = Obj.HasOwnProperty(PropName) and ((not OwnDescriptor.Configurable) or
+                                                     TJSBinaryKeys.IsElementKey(Obj, PropName));
   if IsLocked and FStrictMode then
     raise TJSErrorFactory.TypeError(Format('Cannot delete property ''%s'' of object', [PropName]),
       Node.Line, Node.Column);

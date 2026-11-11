@@ -8,7 +8,8 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.Types,
-  JS4D.Errors;
+  JS4D.Errors,
+  JS4D.BinaryData;
 
 type
   TJSPropertyDescriptors = class
@@ -178,7 +179,7 @@ class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not Target.TryGetPropertyDescriptor(Name, Descriptor) then
-    Exit(Target.IsExtensible);
+    Exit(Target.IsExtensible or TJSBinaryKeys.IsNumericKey(Target, Name));
 
   if Descriptor.IsAccessor then
     Exit(Descriptor.Setter.IsFunction);
