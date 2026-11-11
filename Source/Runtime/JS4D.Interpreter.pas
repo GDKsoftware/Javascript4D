@@ -39,8 +39,10 @@ type
     FVariables: TDictionary<string, TJSValue>;
     FParent: IJSScope;
     FLexicalStates: TJSLexicalStates;
+    FDeletableNames: TDictionary<string, Byte>;
 
     function HasLexicalState(const Name: string): Boolean;
+    function IsDeletableName(const Name: string): Boolean;
 
   protected
     function GetParent: IJSScope;
@@ -226,6 +228,7 @@ type
     FDirectEvalCall: Boolean;
     FEvalVariableScope: IJSScope;
     FVarScope: IJSScope;
+    FIsGuardingGlobalVariables: Boolean;
     FEvalCallerScope: IJSScope;
     FParameterInitScope: IJSScope;
     FLoopLabels: TArray<string>;
@@ -352,8 +355,10 @@ type
     function VisitDoWhileStatement(const Node: TJSDoWhileStatement): TJSValue;
     function VisitWithStatement(const Node: TJSWithStatement): TJSValue;
     procedure GuardStrictAssignmentTarget(const Node: TJSAssignmentExpression);
-    procedure GuardGlobalFunctionDeclarations(const Node: TJSProgram);
+    procedure GuardGlobalDeclarations(const Node: TJSProgram);
     procedure GuardGlobalFunctionDeclaration(const Declaration: TJSFunctionDeclaration);
+    procedure GuardGlobalVariableDeclarations(const Node: TJSProgram);
+    procedure DeclareGlobalFunction(const Name: string; const Value: TJSValue);
     function VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
     function TakeLoopLabels: TArray<string>;
     function ToScopeObject(const Value: TJSValue): IJSObject;
@@ -413,6 +418,7 @@ type
     function GetBindingValue(const Binding: IJSScope; const Name: string): TJSValue;
     procedure PutIdentifierValue(const Binding: IJSScope; const Name: string; const Value: TJSValue);
     procedure GuardBindingStillExists(const StillExists: Boolean; const Name: string);
+    procedure GuardGlobalWritable(const Name: string);
     procedure RejectFunctionNameAssignment;
     procedure BindFunctionName(const Func: IJSFunction; const Name: string);
     function AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
@@ -580,6 +586,9 @@ const
                             TJSASTNodeType.FunctionDeclaration,
                             TJSASTNodeType.EmptyStatement];
   REDECLARED_IDENTIFIER = 'Identifier ''%s'' has already been declared';
+  CANNOT_DECLARE_GLOBAL_FUNCTION = 'Cannot declare global function %s';
+  CANNOT_DECLARE_GLOBAL_VARIABLE = 'Cannot declare global variable %s';
+  ASSIGN_TO_READ_ONLY_GLOBAL = 'Cannot assign to read only global variable %s';
   NOT_ITERABLE = 'Spread syntax requires an iterable value';
   NOT_ITERABLE_LOOP = 'Value is not iterable';
   INSTANCEOF_NOT_OBJECT = 'Right-hand side of instanceof is not an object';
@@ -612,6 +621,7 @@ begin
   Clear;
   FVariables.Free;
   FLexicalStates.Free;
+  FDeletableNames.Free;
   inherited;
 end;
 
@@ -711,7 +721,15 @@ end;
 
 procedure TJSScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
 begin
+  const IsExisting = FVariables.ContainsKey(Name);
   DeclareVariable(Name, Value);
+  if IsExisting then
+    Exit;
+
+  if not Assigned(FDeletableNames) then
+    FDeletableNames := TDictionary<string, Byte>.Create;
+
+  FDeletableNames.AddOrSetValue(Name, 0);
 end;
 
 procedure TJSScope.AssignVariable(const Name: string; const Value: TJSValue);
@@ -759,8 +777,20 @@ begin
   Result := HasLexicalState(Name);
 end;
 
+function TJSScope.IsDeletableName(const Name: string): Boolean;
+begin
+  Result := Assigned(FDeletableNames) and FDeletableNames.ContainsKey(Name);
+end;
+
 function TJSScope.DeleteVariable(const Name: string): Boolean;
 begin
+  if IsDeletableName(Name) then
+  begin
+    FDeletableNames.Remove(Name);
+    FVariables.Remove(Name);
+    Exit(True);
+  end;
+
   Result := (not FVariables.ContainsKey(Name)) and (not HasLexicalState(Name));
 end;
 
@@ -1658,10 +1688,10 @@ begin
   Result := RunProgramBody(Node);
 end;
 
-procedure TJSInterpreter.GuardGlobalFunctionDeclarations(const Node: TJSProgram);
+procedure TJSInterpreter.GuardGlobalDeclarations(const Node: TJSProgram);
 begin
-  const IsGlobalCode = (FCurrentScope = FGlobalScope);
-  if not IsGlobalCode then
+  const IsGlobalVarScope = (FVarScope = FGlobalScope);
+  if not IsGlobalVarScope then
     Exit;
 
   for var Statement in Node.Body do
@@ -1669,29 +1699,46 @@ begin
     if Statement is TJSFunctionDeclaration then
       GuardGlobalFunctionDeclaration(TJSFunctionDeclaration(Statement));
   end;
+
+  GuardGlobalVariableDeclarations(Node);
 end;
 
 procedure TJSInterpreter.GuardGlobalFunctionDeclaration(const Declaration: TJSFunctionDeclaration);
 begin
-  var Descriptor: TJSPropertyDescriptor;
-  const IsExisting = FGlobalObject.TryGetPropertyDescriptor(Declaration.Id.Name, Descriptor);
-  if not IsExisting then
+  if FGlobalBindings.CanDeclareFunction(Declaration.Id.Name) then
     Exit;
 
-  const IsReplaceable = (Descriptor.Configurable or
-                         (Descriptor.Writable and Descriptor.Enumerable and not Descriptor.IsAccessor));
-  if IsReplaceable then
-    Exit;
-
-  const Message = Format('Cannot declare global function %s', [Declaration.Id.Name]);
+  const Message = Format(CANNOT_DECLARE_GLOBAL_FUNCTION, [Declaration.Id.Name]);
   raise TJSErrorFactory.TypeError(Message, Declaration.Line, Declaration.Column);
+end;
+
+procedure TJSInterpreter.GuardGlobalVariableDeclarations(const Node: TJSProgram);
+begin
+  FIsGuardingGlobalVariables := True;
+  try
+    for var Statement in Node.Body do
+    begin
+      HoistVarNames(Statement);
+    end;
+  finally
+    FIsGuardingGlobalVariables := False;
+  end;
+end;
+
+procedure TJSInterpreter.DeclareGlobalFunction(const Name: string; const Value: TJSValue);
+begin
+  EnsureNoGlobalLexicalConflict(Name);
+  EnsureNoEvalLexicalConflict(Name);
+
+  const IsEvalDeclaration = Assigned(FEvalVariableScope) and (FVarScope = FEvalVariableScope);
+  FGlobalBindings.DeclareFunctionBinding(Name, Value, IsEvalDeclaration);
 end;
 
 function TJSInterpreter.RunProgramBody(const Node: TJSProgram): TJSValue;
 begin
   Result := TJSValue.CreateUndefined;
 
-  GuardGlobalFunctionDeclarations(Node);
+  GuardGlobalDeclarations(Node);
   InstantiateTopLevel(Node.Body, Node.ScopeInfo);
 
   for var Statement in Node.Body do
@@ -1939,6 +1986,14 @@ end;
 
 procedure TJSInterpreter.HoistVariable(const Name: string);
 begin
+  if FIsGuardingGlobalVariables then
+  begin
+    if not FGlobalBindings.CanDeclareVariable(Name) then
+      raise TJSErrorFactory.TypeError(Format(CANNOT_DECLARE_GLOBAL_VARIABLE, [Name]));
+
+    Exit;
+  end;
+
   EnsureNoGlobalLexicalConflict(Name);
   EnsureNoEvalLexicalConflict(Name);
 
@@ -2135,7 +2190,13 @@ end;
 
 procedure TJSInterpreter.DeclareFunction(const Node: TJSFunctionDeclaration);
 begin
-  DeclareBinding(Node.Id.Name, TJSValue.CreateObject(CreateFunctionObject(Node)));
+  const Value = TJSValue.CreateObject(CreateFunctionObject(Node));
+
+  const IsGlobalFunction = (FVarScope = FGlobalScope);
+  if IsGlobalFunction then
+    DeclareGlobalFunction(Node.Id.Name, Value)
+  else
+    DeclareBinding(Node.Id.Name, Value);
 end;
 
 function TJSInterpreter.VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
@@ -3913,9 +3974,17 @@ begin
   const IsPlainWritable = Assigned(Slot) and (not Slot.IsAccessor) and Slot.Writable;
 
   if IsPlainWritable then
-    Slot.Value := Value
-  else
-    FGlobalScope.DeclareVariable(Identifier.Name, Value);
+  begin
+    Slot.Value := Value;
+    Exit;
+  end;
+
+  const IsReadOnlyData = Assigned(Slot) and (not Slot.IsAccessor);
+  if IsReadOnlyData and FStrictMode then
+    raise TJSErrorFactory.TypeError(Format(ASSIGN_TO_READ_ONLY_GLOBAL, [Identifier.Name]),
+                                    Identifier.Line, Identifier.Column);
+
+  FGlobalScope.DeclareVariable(Identifier.Name, Value);
 end;
 
 function TJSInterpreter.AssignToGlobalVariable(const Node: TJSAssignmentExpression; const Identifier: TJSIdentifier): TJSValue;
@@ -4017,7 +4086,10 @@ begin
 
   const IsGlobalBinding = (Binding = FGlobalScope);
   if FStrictMode and IsGlobalBinding then
+  begin
     GuardBindingStillExists(FGlobalBindings.HasVariable(Name), Name);
+    GuardGlobalWritable(Name);
+  end;
 
   Binding.AssignVariable(Name, Value);
 end;
@@ -4026,6 +4098,12 @@ procedure TJSInterpreter.RejectFunctionNameAssignment;
 begin
   if FStrictMode then
     raise TJSErrorFactory.TypeError(FUNCTION_NAME_ASSIGNMENT);
+end;
+
+procedure TJSInterpreter.GuardGlobalWritable(const Name: string);
+begin
+  if FGlobalBindings.IsReadOnlyData(Name) then
+    raise TJSErrorFactory.TypeError(Format(ASSIGN_TO_READ_ONLY_GLOBAL, [Name]));
 end;
 
 procedure TJSInterpreter.GuardBindingStillExists(const StillExists: Boolean; const Name: string);

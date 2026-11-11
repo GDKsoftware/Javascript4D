@@ -153,6 +153,7 @@
         <DCCReference Include="JS4D.Tests.LabelledStatements.pas"/>
         <DCCReference Include="JS4D.Tests.SyntaxEarlyErrors.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionDeclarations.pas"/>
+        <DCCReference Include="JS4D.Tests.GlobalDeclarations.pas"/>
         <DCCReference Include="JS4D.Tests.GlobalObject.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpSyntax.pas"/>
         <DCCReference Include="JS4D.Tests.ObjectAccessors.pas"/>

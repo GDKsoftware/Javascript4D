@@ -28,6 +28,10 @@ type
 
     function HasLexicals: Boolean;
     function HasLexical(const Name: string): Boolean;
+    function CanDeclareVariable(const Name: string): Boolean;
+    function CanDeclareFunction(const Name: string): Boolean;
+    function IsReadOnlyData(const Name: string): Boolean;
+    procedure DeclareFunctionBinding(const Name: string; const Value: TJSValue; const IsDeletable: Boolean);
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
@@ -73,6 +77,46 @@ end;
 function TJSGlobalScope.HasLexical(const Name: string): Boolean;
 begin
   Result := FHasLexicals and (FLexicalValues.ContainsKey(Name) or FLexicalStates.Contains(Name));
+end;
+
+function TJSGlobalScope.CanDeclareVariable(const Name: string): Boolean;
+begin
+  Result := FGlobalObject.HasOwnProperty(Name) or FGlobalObject.IsExtensible;
+end;
+
+function TJSGlobalScope.CanDeclareFunction(const Name: string): Boolean;
+begin
+  var Slot: PJSPropertyDescriptor;
+  const IsExisting = FGlobalStorage.TryGetOwnSlot(Name, Slot);
+  if not IsExisting then
+    Exit(FGlobalObject.IsExtensible);
+
+  const IsPlainData = (not Slot.IsAccessor) and Slot.Writable and Slot.Enumerable;
+  Result := Slot.Configurable or IsPlainData;
+end;
+
+function TJSGlobalScope.IsReadOnlyData(const Name: string): Boolean;
+begin
+  var Slot: PJSPropertyDescriptor;
+  const IsExisting = FGlobalStorage.TryGetOwnSlot(Name, Slot);
+  Result := IsExisting and (not Slot.IsAccessor) and (not Slot.Writable);
+end;
+
+procedure TJSGlobalScope.DeclareFunctionBinding(const Name: string; const Value: TJSValue;
+                                                const IsDeletable: Boolean);
+begin
+  var Slot: PJSPropertyDescriptor;
+  const IsExisting = FGlobalStorage.TryGetOwnSlot(Name, Slot);
+  const IsReplaceable = (not IsExisting) or Slot.Configurable;
+  if not IsReplaceable then
+  begin
+    FGlobalObject.TryAssignOwnProperty(Name, Value);
+    Exit;
+  end;
+
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Configurable := IsDeletable;
+  FGlobalObject.DefineProperty(Name, Descriptor);
 end;
 
 function TJSGlobalScope.TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
