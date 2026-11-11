@@ -42,7 +42,7 @@ type
     function ErrorToString(const This: IJSObject): TJSValue;
     function RegExpToString(const This: IJSObject): TJSValue;
     function RegExpFlags(const This: IJSObject): TJSValue;
-    function RegExpFlagValue(const This: IJSObject; const PrototypeObj: IJSObject; const PropertyName: string;
+    function RegExpFlagValue(const This: IJSObject; const PrototypeIdentity: Pointer; const PropertyName: string;
                              const FromRegExp: TRegExpReader): TJSValue;
     procedure DefineGetter(const Target: IJSObject; const PropertyName: string; const Getter: TNativeFunction);
     procedure DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
@@ -447,7 +447,7 @@ begin
   Result := TJSValue.CreateString(Flags);
 end;
 
-function TJSPrototypeMethods.RegExpFlagValue(const This: IJSObject; const PrototypeObj: IJSObject;
+function TJSPrototypeMethods.RegExpFlagValue(const This: IJSObject; const PrototypeIdentity: Pointer;
                                              const PropertyName: string;
                                              const FromRegExp: TRegExpReader): TJSValue;
 begin
@@ -455,7 +455,7 @@ begin
   if Supports(This, IJSRegExp, RegExpObj) then
     Exit(FromRegExp(RegExpObj));
 
-  const IsPrototype = Assigned(This) and ((This as IInterface) = (PrototypeObj as IInterface));
+  const IsPrototype = Assigned(This) and (Pointer(This as IInterface) = PrototypeIdentity);
   if IsPrototype then
     Exit(TJSValue.CreateUndefined);
 
@@ -481,15 +481,19 @@ end;
 procedure TJSPrototypeMethods.DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
                                                      const FromRegExp: TRegExpReader);
 begin
+  const PrototypeIdentity = Pointer(PrototypeObj as IInterface);
+
   DefineGetter(PrototypeObj, PropertyName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := RegExpFlagValue(This, PrototypeObj, PropertyName, FromRegExp);
+      Result := RegExpFlagValue(This, PrototypeIdentity, PropertyName, FromRegExp);
     end);
 end;
 
 procedure TJSPrototypeMethods.RegisterRegExpAccessors(const PrototypeObj: IJSObject);
 begin
+  const PrototypeIdentity = Pointer(PrototypeObj as IInterface);
+
   DefineGetter(PrototypeObj, PROPERTY_FLAGS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -499,7 +503,7 @@ begin
   DefineGetter(PrototypeObj, PROPERTY_SOURCE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := RegExpFlagValue(This, PrototypeObj, PROPERTY_SOURCE,
+      Result := RegExpFlagValue(This, PrototypeIdentity, PROPERTY_SOURCE,
         function(const RegExpObj: IJSRegExp): TJSValue
         begin
           Result := TJSValue.CreateString(RegExpObj.Source);

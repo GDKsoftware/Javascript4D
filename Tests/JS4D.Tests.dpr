@@ -97,7 +97,8 @@ uses
   JS4D.Tests.ArrayIterators in 'JS4D.Tests.ArrayIterators.pas',
   JS4D.Tests.StringArgumentConversion in 'JS4D.Tests.StringArgumentConversion.pas',
   JS4D.Tests.FunctionSourceText in 'JS4D.Tests.FunctionSourceText.pas',
-  JS4D.Tests.StringEs2015Methods in 'JS4D.Tests.StringEs2015Methods.pas';
+  JS4D.Tests.StringEs2015Methods in 'JS4D.Tests.StringEs2015Methods.pas',
+  JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
 var
   Runner: ITestRunner;
