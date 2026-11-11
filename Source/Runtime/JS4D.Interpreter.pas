@@ -135,6 +135,10 @@ type
 
   TJSBindingMode = (Assign, Variable, Lexical);
 
+  // The groups of built-in methods that a call expression runs directly, as long as the method that the
+  // property lookup finds is still the built-in one.
+  TJSIntrinsicGroup = (ArrayMethod, FunctionMethod, ObjectMethod);
+
   TJSPatternTarget = record
     Target: TJSExpression;
     Default: TJSExpression;
@@ -196,6 +200,7 @@ type
     FBooleanPrototype: IJSObject;
     FSymbolPrototype: IJSObject;
     FIteration: TJSIterationIntrinsics;
+    FIntrinsicMethods: array[TJSIntrinsicGroup] of TDictionary<string, IJSObject>;
     FArrayValuesSlot: TJSIntrinsicSlot;
     FArrayNextSlot: TJSIntrinsicSlot;
     FStringIteratorSlot: TJSIntrinsicSlot;
@@ -464,6 +469,8 @@ type
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
+    procedure RegisterIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Method: IJSObject);
+    function IsIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Callee: TJSValue): Boolean;
     function OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
                                  const Line: Integer = 0; const Column: Integer = 0): Boolean;
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
@@ -953,6 +960,10 @@ begin
   FRegExpPrototype := nil;
   FSymbolPrototype := nil;
   FIteration := Default(TJSIterationIntrinsics);
+  for var Group := Low(TJSIntrinsicGroup) to High(TJSIntrinsicGroup) do
+  begin
+    FIntrinsicMethods[Group].Free;
+  end;
   FOrdinaryHasInstance := nil;
   FArrayConstructor := nil;
   FArraySpeciesGetter := nil;
@@ -4124,28 +4135,28 @@ begin
     Args := EvaluateArguments(Node.Arguments, Node.HasSpread);
     ArgsEvaluated := True;
 
-    if ObjValue.IsArray and TJSBuiltins.HasArrayMethod(MethodName) then
+    RequireObjectCoercible(ObjValue, MethodName);
+    CalleeValue := ReadMember(ObjValue, MethodName);
+
+    if ObjValue.IsArray and IsIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, CalleeValue) then
     begin
       var ArrIntf: IJSArray;
       if Supports(ObjValue.ToObject, IJSArray, ArrIntf) then
         Exit(ExecuteArrayMethod(ArrIntf, MethodName, Args));
     end;
 
-    if ObjValue.IsFunction and TJSBuiltins.HasFunctionMethod(MethodName) then
+    if ObjValue.IsFunction and IsIntrinsicMethod(TJSIntrinsicGroup.FunctionMethod, MethodName, CalleeValue) then
     begin
       var FuncIntf: IJSFunction;
       if Supports(ObjValue.ToObject, IJSFunction, FuncIntf) then
         Exit(ExecuteFunctionMethod(FuncIntf, MethodName, Args));
     end;
 
-    if ObjValue.IsObject and TJSBuiltins.HasObjectMethod(MethodName) then
+    if ObjValue.IsObject and IsIntrinsicMethod(TJSIntrinsicGroup.ObjectMethod, MethodName, CalleeValue) then
       Exit(TJSBuiltins.CallObjectMethod(ObjValue.ToObject, MethodName, Args, FLimits));
 
     if ObjValue.IsObject then
       ThisObj := ObjValue.ToObject;
-
-    RequireObjectCoercible(ObjValue, MethodName);
-    CalleeValue := ReadMember(ObjValue, MethodName);
   end
   else
   begin
@@ -4172,6 +4183,28 @@ begin
     ThisObj := ThisObjectFor(Func, ThisValue);
 
   Result := CallFunction(Func, Args, ThisObj);
+end;
+
+procedure TJSInterpreter.RegisterIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string;
+                                                 const Method: IJSObject);
+begin
+  if not Assigned(FIntrinsicMethods[Group]) then
+    FIntrinsicMethods[Group] := TDictionary<string, IJSObject>.Create;
+
+  FIntrinsicMethods[Group].AddOrSetValue(Name, Method);
+end;
+
+function TJSInterpreter.IsIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string;
+                                          const Callee: TJSValue): Boolean;
+begin
+  Result := False;
+
+  const Methods = FIntrinsicMethods[Group];
+  if not (Assigned(Methods) and Callee.IsFunction) then
+    Exit;
+
+  var Method: IJSObject;
+  Result := Methods.TryGetValue(Name, Method) and (Callee.ToObject = Method);
 end;
 
 procedure TJSInterpreter.RequireObjectCoercible(const Value: TJSValue; const PropName: string);

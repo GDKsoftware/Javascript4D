@@ -33,7 +33,8 @@ type
 
   public
     class function ToDefinition(const Value: TJSValue): TJSPropertyDefinition; static;
-    class function ToDescriptorObject(const Descriptor: TJSPropertyDescriptor): IJSObject; static;
+    class function ToDescriptorObject(const Descriptor: TJSPropertyDescriptor;
+                                      const ObjectPrototype: IJSObject): IJSObject; static;
     class function WithCheckedLength(const Target: IJSObject; const Name: string;
                                      const Definition: TJSPropertyDefinition;
                                      const Limits: TJSLimits): TJSPropertyDefinition; static;
@@ -93,9 +94,11 @@ begin
     raise TJSErrorFactory.TypeError(MIXED_DESCRIPTOR);
 end;
 
-class function TJSPropertyDescriptors.ToDescriptorObject(const Descriptor: TJSPropertyDescriptor): IJSObject;
+class function TJSPropertyDescriptors.ToDescriptorObject(const Descriptor: TJSPropertyDescriptor;
+                                                         const ObjectPrototype: IJSObject): IJSObject;
 begin
   Result := TJSObject.Create;
+  Result.Prototype := ObjectPrototype;
 
   if Descriptor.IsAccessor then
   begin

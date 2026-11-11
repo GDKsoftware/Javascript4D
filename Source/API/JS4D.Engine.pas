@@ -1224,6 +1224,7 @@ begin
         if IsEnumerableOwn(Obj, PropName) then
         begin
           const EntryArr: IJSArray = TJSArray.Create;
+          EntryArr.Prototype := FInterpreter.ArrayPrototype;
           EntryArr.Push(TJSValue.CreateString(PropName));
           EntryArr.Push(Obj.GetProperty(PropName));
           ResultArr.Push(TJSValue.CreateObject(EntryArr));
@@ -1404,7 +1405,7 @@ begin
       if not TJSObjectOperations.TryGetOwnProperty(Obj, PropName, Descriptor) then
         Exit(TJSValue.CreateUndefined);
 
-      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor);
+      const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
       Result := TJSValue.CreateObject(DescObj);
     end)));
 
@@ -1423,7 +1424,7 @@ begin
         if not TJSObjectOperations.TryGetOwnProperty(Source, PropName, Descriptor) then
           Continue;
 
-        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor);
+        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
         Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
       end;
 
@@ -1463,6 +1464,7 @@ begin
   begin
     const Method = CreateObjectPrototypeMethod(MethodName);
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+    FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.ObjectMethod, MethodName, Method);
   end;
 
   AttachPrototypeObject(ObjectObj, PrototypeObj);
@@ -1544,6 +1546,7 @@ begin
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+    FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, Method);
   end;
 
   RegisterArrayIterators(PrototypeObj);
@@ -1574,6 +1577,7 @@ begin
   begin
     const Method = CreateFunctionPrototypeMethod(MethodName);
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
+    FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.FunctionMethod, MethodName, Method);
   end;
 
   AttachPrototypeObject(FunctionObj, PrototypeObj);

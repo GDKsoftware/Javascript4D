@@ -59,7 +59,7 @@ type
     [TestCase('ProtoShorthandIsOwn', 'var __proto__ = 5; var o = { __proto__ }; o.hasOwnProperty("__proto__")|true', '|')]
     [TestCase('ProtoComputedIsOwn', 'var o = { ["__proto__"]: 5 }; o.hasOwnProperty("__proto__")|true', '|')]
     [TestCase('ProtoMethodIsOwn', 'var o = { __proto__() {} }; o.hasOwnProperty("__proto__")|true', '|')]
-    [TestCase('ProtoDuplicateShorthandAllowed', 'var __proto__ = 1; var o = { __proto__: null, __proto__ }; o.hasOwnProperty("__proto__")|true', '|')]
+    [TestCase('ProtoDuplicateShorthandAllowed', 'var __proto__ = 1; var o = { __proto__: null, __proto__ }; Object.prototype.hasOwnProperty.call(o, "__proto__")|true', '|')]
     procedure Evaluate_Result(const Source: string; const Expected: string);
 
     [Test]

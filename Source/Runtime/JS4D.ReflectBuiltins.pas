@@ -207,8 +207,7 @@ begin
   if not TJSObjectOperations.TryGetOwnProperty(Target, Key, Descriptor) then
     Exit(TJSValue.CreateUndefined);
 
-  const Described = TJSPropertyDescriptors.ToDescriptorObject(Descriptor);
-  Described.Prototype := FInterpreter.ObjectPrototype;
+  const Described = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
   Result := TJSValue.CreateObject(Described);
 end;
 
