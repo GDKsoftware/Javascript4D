@@ -254,7 +254,7 @@ begin
     'var arr = [1, , 3]; arr.extra = true;' + sLineBreak +
     'Object.getOwnPropertyNames(arr).join()';
 
-  Assert.AreEqual('0,2,extra', EvaluateText(Script));
+  Assert.AreEqual('0,2,length,extra', EvaluateText(Script));
 end;
 
 procedure TArrayElementTests.ForIn_VisitsElementsAndSkipsHoles;

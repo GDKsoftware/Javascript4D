@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  System.Generics.Defaults,
   JS4D.PcreMatcher,
   JS4D.SlotMap;
 
@@ -350,6 +351,9 @@ type
     function InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
     procedure InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
     function AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    class function TryParseArrayIndex(const Name: string; out Index: Int64): Boolean; static;
+    class function CompareIndexNames(const Left, Right: string): Integer; static;
+    function HasIndexKey: Boolean;
     class procedure ReleaseClosure(const Value: TJSValue); static;
 
   protected
@@ -1470,9 +1474,78 @@ begin
     Result := True;
 end;
 
+class function TJSObjectImpl.TryParseArrayIndex(const Name: string; out Index: Int64): Boolean;
+const
+  MAX_ARRAY_INDEX = 4294967294;
+  MAX_INDEX_DIGITS = 10;
+begin
+  Index := 0;
+
+  const NameLength = Length(Name);
+  const HasValidLength = (NameLength > 0) and (NameLength <= MAX_INDEX_DIGITS);
+  const HasLeadingZero = (NameLength > 1) and (Name[1] = '0');
+  if (not HasValidLength) or HasLeadingZero then
+    Exit(False);
+
+  for var Position := 1 to NameLength do
+  begin
+    const Digit = Ord(Name[Position]) - Ord('0');
+    const IsDigit = (Digit >= 0) and (Digit <= 9);
+    if not IsDigit then
+      Exit(False);
+
+    Index := (Index * 10) + Digit;
+  end;
+
+  Result := (Index <= MAX_ARRAY_INDEX);
+end;
+
+class function TJSObjectImpl.CompareIndexNames(const Left, Right: string): Integer;
+begin
+  var LeftIndex: Int64;
+  var RightIndex: Int64;
+  TryParseArrayIndex(Left, LeftIndex);
+  TryParseArrayIndex(Right, RightIndex);
+
+  Result := CompareValue(LeftIndex, RightIndex);
+end;
+
+function TJSObjectImpl.HasIndexKey: Boolean;
+begin
+  for var Name in FOrderedKeys do
+  begin
+    var Index: Int64;
+    if TryParseArrayIndex(Name, Index) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function TJSObjectImpl.GetOwnPropertyNames: TArray<string>;
 begin
-  Result := FOrderedKeys.ToArray;
+  if not HasIndexKey then
+    Exit(FOrderedKeys.ToArray);
+
+  const IndexNames = TList<string>.Create;
+  const OtherNames = TList<string>.Create;
+  try
+    for var Name in FOrderedKeys do
+    begin
+      var Index: Int64;
+      if TryParseArrayIndex(Name, Index) then
+        IndexNames.Add(Name)
+      else
+        OtherNames.Add(Name);
+    end;
+
+    IndexNames.Sort(TComparer<string>.Construct(CompareIndexNames));
+    IndexNames.AddRange(OtherNames);
+    Result := IndexNames.ToArray;
+  finally
+    OtherNames.Free;
+    IndexNames.Free;
+  end;
 end;
 
 function TJSObjectImpl.IsFrozen: Boolean;
@@ -2026,6 +2099,8 @@ begin
       if IsOwnElement then
         Names.Add(Name);
     end;
+
+    Names.Add(LENGTH_PROPERTY);
 
     for var Key in inherited GetOwnPropertyNames do
     begin
