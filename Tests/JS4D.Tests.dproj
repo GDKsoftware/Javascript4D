@@ -172,6 +172,7 @@
         <DCCReference Include="JS4D.Tests.JsonStringify.pas"/>
         <DCCReference Include="JS4D.Tests.JsonReviver.pas"/>
         <DCCReference Include="JS4D.Tests.MathFunctions.pas"/>
+        <DCCReference Include="JS4D.Tests.CaseMapping.pas"/>
         <DCCReference Include="JS4D.Tests.Es2015Library.pas"/>
         <DCCReference Include="JS4D.Tests.ErrorObjects.pas"/>
         <DCCReference Include="JS4D.Tests.StrictThis.pas"/>

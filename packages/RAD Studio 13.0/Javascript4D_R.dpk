@@ -95,6 +95,7 @@ contains
   JS4D.ProxyBuiltins in '..\..\Source\Runtime\JS4D.ProxyBuiltins.pas',
   JS4D.ReflectBuiltins in '..\..\Source\Runtime\JS4D.ReflectBuiltins.pas',
   JS4D.Conversions in '..\..\Source\Runtime\JS4D.Conversions.pas',
+  JS4D.CaseMapping in '..\..\Source\Runtime\JS4D.CaseMapping.pas',
   JS4D.ObjectBuiltins in '..\..\Source\Runtime\JS4D.ObjectBuiltins.pas',
   JS4D.RegExpProtocol in '..\..\Source\Runtime\JS4D.RegExpProtocol.pas',
   JS4D.StringPatternMethods in '..\..\Source\Runtime\JS4D.StringPatternMethods.pas',

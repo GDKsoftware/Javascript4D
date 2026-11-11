@@ -113,6 +113,7 @@ implementation
 uses
   JS4D.Errors,
   JS4D.Conversions,
+  JS4D.CaseMapping,
   JS4D.ObjectOperations,
   JS4D.NumberFormat,
   JS4D.NumberParse;
@@ -775,12 +776,12 @@ end;
 
 class function TJSBuiltins.StringToLowerCase(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(LowerCase(Str));
+  Result := TJSValue.CreateString(TJSCaseMapping.ToLower(Str));
 end;
 
 class function TJSBuiltins.StringToUpperCase(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(UpperCase(Str));
+  Result := TJSValue.CreateString(TJSCaseMapping.ToUpper(Str));
 end;
 
 class function TJSBuiltins.StringLocaleCompare(const Str: string; const Args: TArray<TJSValue>): TJSValue;
