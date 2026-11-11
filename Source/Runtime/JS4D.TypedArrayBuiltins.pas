@@ -344,7 +344,7 @@ begin
   const Items = TList<TJSValue>.Create;
   try
     var Created: IJSTypedArray;
-    var ElementCount: Integer;
+    var ElementCount: Int64;
     var SourceObject: IJSObject;
 
     const IsIterable = ReadIterable(Source, Items);
@@ -355,7 +355,7 @@ begin
     else
     begin
       SourceObject := FSupport.ToObject(Source);
-      ElementCount := Integer(TJSArrayLike.ToLength(SourceObject));
+      ElementCount := TJSArrayLike.ToLength(SourceObject);
     end;
 
     Created := CreateFromConstructor(Constructor_, [TJSValue.CreateNumber(ElementCount)], FROM_NAME);
@@ -364,18 +364,18 @@ begin
     if IsMapping then
       MapThis := FSupport.Interpreter.ThisObjectFor(MapFunction, ThisArgument);
 
-    for var Index := 0 to ElementCount - 1 do
+    for var Index: Int64 := 0 to ElementCount - 1 do
     begin
       var Element: TJSValue;
       if IsIterable then
-        Element := Items[Index]
+        Element := Items[Integer(Index)]
       else
         Element := SourceObject.GetProperty(TJSArrayLike.IndexName(Index));
 
       if IsMapping then
         Element := FSupport.Interpreter.CallFunction(MapFunction, [Element, TJSValue.CreateNumber(Index)], MapThis);
 
-      Created.StoreValue(Index, Element);
+      Created.StoreValue(Integer(Index), Element);
     end;
 
     Result := TJSValue.CreateObject(Created);

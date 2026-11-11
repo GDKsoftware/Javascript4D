@@ -160,7 +160,9 @@ type
     [TestCase('from a string', 'Uint8Array.from("123").join()#1,2,3', '#')]
     [TestCase('from an array-like', 'Uint8Array.from({ length: 2, 0: 3, 1: 4 }).join()#3,4', '#')]
     [TestCase('from with a non-callable mapper', '(function () { try { Int8Array.from([], 1); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    [TestCase('from on a non-constructor', '(function () { try { Int8Array.from.call({}, []); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
+    [TestCase('from an array-like longer than 2^32', '(function () { try { Uint8Array.from({ length: 4294967297 }); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
+    [TestCase('from an array-like longer than 2^31', '(function () { try { Uint8Array.from({ length: 3000000000 }); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
+    [TestCase('from on a non-constructor','(function () { try { Int8Array.from.call({}, []); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('of', 'Float32Array.of(1, 2.5).join()#1,2.5', '#')]
     [TestCase('Species', '(function () { var T = Object.getPrototypeOf(Int8Array); return T[Symbol.species] === T; })()#true', '#')]
     procedure Statics_FollowSpecification(const Expression, Expected: string);

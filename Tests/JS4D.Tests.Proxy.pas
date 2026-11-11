@@ -141,6 +141,12 @@ type
 
     [Test]
     procedure Proxy_DoesNotChangeOrdinaryObjects;
+
+    [Test]
+    procedure Proxy_ChainedTooDeep_RaisesRangeError;
+
+    [Test]
+    procedure Proxy_ChainedModerately_StillWorks;
   end;
 
 implementation
@@ -186,6 +192,22 @@ begin
                  'var sum = 0; for (var i = 0; i < 20000; i++) { sum += p.a; } return sum; })()';
 
   Assert.AreEqual('20000', Evaluate(Script));
+end;
+
+procedure TProxyTests.Proxy_ChainedTooDeep_RaisesRangeError;
+begin
+  const Script = '(function () { var p = {}; try { for (var i = 0; i < 100000; i++) { p = new Proxy(p, {}); } p.x; } ' +
+                 'catch (e) { return e instanceof RangeError; } return false; })()';
+
+  Assert.AreEqual('true', Evaluate(Script));
+end;
+
+procedure TProxyTests.Proxy_ChainedModerately_StillWorks;
+begin
+  const Script = '(function () { var p = { a: 1 }; for (var i = 0; i < 100; i++) { p = new Proxy(p, {}); } ' +
+                 'return p.a + "," + Object.keys(p); })()';
+
+  Assert.AreEqual('1,a', Evaluate(Script));
 end;
 
 procedure TProxyTests.Proxy_DoesNotChangeOrdinaryObjects;

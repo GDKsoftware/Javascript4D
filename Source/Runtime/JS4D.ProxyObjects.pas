@@ -114,6 +114,8 @@ type
       KEYS_EXTRA_FOR_NON_EXTENSIBLE = '''ownKeys'' on proxy: trap returned extra keys but proxy target is non-extensible';
       CONSTRUCT_RESULT = '''construct'' on proxy: trap returned non-object';
       NOT_CALLABLE = 'Proxy target is not a function';
+      MAX_TARGET_NESTING = 256;
+      NESTING_TOO_DEEP = 'Proxy targets are nested too deeply';
 
     var
       FRuntime: IJSProxyRuntime;
@@ -122,6 +124,7 @@ type
       FHandler: IJSObject;
       FSymbols: TDictionary<string, IJSSymbol>;
 
+    procedure RequireSupportedNesting(const Target: IJSObject);
     function GetTrap(const TrapName: string): IJSFunction;
     function InvokeTrap(const Trap: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function ArrayFromList(const Items: TArray<TJSValue>): TJSValue;
@@ -353,10 +356,27 @@ constructor TJSProxyCore.Create(const Runtime: IJSProxyRuntime; const Target: IJ
 begin
   inherited Create;
 
+  RequireSupportedNesting(Target);
+
   FRuntime := Runtime;
   FTarget := Target;
   FHandler := Handler;
   Supports(Target, IJSFunction, FTargetFunction);
+end;
+
+procedure TJSProxyCore.RequireSupportedNesting(const Target: IJSObject);
+begin
+  var Nesting := 0;
+  var Current := Target;
+  var Nested: IJSProxy;
+  while Supports(Current, IJSProxy, Nested) do
+  begin
+    Inc(Nesting);
+    if Nesting >= MAX_TARGET_NESTING then
+      raise TJSErrorFactory.RangeError(NESTING_TOO_DEEP);
+
+    Current := Nested.GetProxyTarget;
+  end;
 end;
 
 destructor TJSProxyCore.Destroy;
