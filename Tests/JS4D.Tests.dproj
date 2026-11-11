@@ -122,6 +122,7 @@
         <DCCReference Include="JS4D.Tests.PropertyDescriptors.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMethods.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayElements.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayResultCreation.pas"/>
         <DCCReference Include="JS4D.Tests.JsonParse.pas"/>
         <DCCReference Include="JS4D.Tests.Eval.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionConstructor.pas"/>

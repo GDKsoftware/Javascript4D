@@ -4195,6 +4195,9 @@ begin
   if TJSArrayIteration.Handles(MethodName) then
     Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
 
+  if TJSArrayGeneric.CreatesResultArray(MethodName) then
+    TJSArrayLike.RequireResultConstructor(Arr);
+
   const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName);
   const NeedsPropertyLevelSemantics = UsesPropertySemantics and TJSArrayGeneric.Handles(MethodName);
   if NeedsPropertyLevelSemantics then
@@ -4209,6 +4212,9 @@ end;
 
 function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
+  if TJSArrayIteration.CreatesResultArray(MethodName) then
+    TJSArrayLike.RequireResultConstructor(Target);
+
   const Executor = CreateCallbackExecutor(MethodName, Args);
   Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype);
 end;

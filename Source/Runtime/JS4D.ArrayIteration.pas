@@ -63,6 +63,7 @@ type
 
   public
     class function Handles(const MethodName: string): Boolean; static;
+    class function CreatesResultArray(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject): TJSValue; static;
   end;
@@ -82,6 +83,12 @@ begin
             (MethodName = METHOD_LAST_INDEX_OF) or
             (MethodName = METHOD_FIND) or
             (MethodName = METHOD_FIND_INDEX);
+end;
+
+class function TJSArrayIteration.CreatesResultArray(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_MAP) or
+            (MethodName = METHOD_FILTER);
 end;
 
 class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName: string;

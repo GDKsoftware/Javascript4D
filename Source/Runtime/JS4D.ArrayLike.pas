@@ -20,6 +20,9 @@ type
       TO_STRING = 'toString';
       CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
       MAX_SAFE_LENGTH = 9007199254740991.0;
+      MAX_ARRAY_LENGTH = 4294967295;
+      CONSTRUCTOR_PROPERTY = 'constructor';
+      CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
       CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
@@ -39,6 +42,8 @@ type
     class procedure DeleteElement(const Target: IJSObject; const Index: Int64); static;
     class procedure MoveElement(const Target: IJSObject; const FromIndex, ToIndex: Int64); static;
     class procedure WriteLength(const Target: IJSObject; const Count: Int64); static;
+    class procedure RequireArrayLength(const Count: Int64); static;
+    class procedure RequireResultConstructor(const Target: IJSObject); static;
   end;
 
 implementation
@@ -167,6 +172,24 @@ end;
 class procedure TJSArrayLike.WriteLength(const Target: IJSObject; const Count: Int64);
 begin
   PutProperty(Target, LENGTH_PROPERTY, TJSValue.CreateNumber(Count));
+end;
+
+class procedure TJSArrayLike.RequireArrayLength(const Count: Int64);
+begin
+  if Count > MAX_ARRAY_LENGTH then
+    raise TJSErrorFactory.InvalidArrayLength;
+end;
+
+class procedure TJSArrayLike.RequireResultConstructor(const Target: IJSObject);
+begin
+  const IsArray = Supports(Target, IJSArray);
+  if not IsArray then
+    Exit;
+
+  const ConstructorValue = Target.GetProperty(CONSTRUCTOR_PROPERTY);
+  const IsUsable = ConstructorValue.IsUndefined or ConstructorValue.IsObject;
+  if not IsUsable then
+    raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
 end;
 
 end.

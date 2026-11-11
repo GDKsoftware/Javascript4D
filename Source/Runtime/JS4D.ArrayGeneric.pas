@@ -76,6 +76,7 @@ type
   public
     class function Handles(const MethodName: string): Boolean; static;
     class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
+    class function CreatesResultArray(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
   end;
@@ -102,6 +103,13 @@ class function TJSArrayGeneric.AlwaysUsesPropertySemantics(const MethodName: str
 begin
   Result := (MethodName = METHOD_FILL) or
             (MethodName = METHOD_COPY_WITHIN);
+end;
+
+class function TJSArrayGeneric.CreatesResultArray(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_SPLICE) or
+            (MethodName = METHOD_SLICE) or
+            (MethodName = METHOD_CONCAT);
 end;
 
 class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: string;
@@ -238,6 +246,7 @@ begin
   const DeleteCount = SpliceDeleteCount(Args, Count, Start);
   const ItemCount = Max(Length(Args) - 2, 0);
 
+  TJSArrayLike.RequireArrayLength(DeleteCount);
   Context.Limits.EnsureArrayLength(Count - Start);
 
   const Removed = CopyRange(Target, Start, DeleteCount, Context);
@@ -298,6 +307,7 @@ end;
 class function TJSArrayGeneric.CopyRange(const Source: IJSObject; const FirstIndex, Count: Int64;
                                          const Context: TJSArrayGenericContext): IJSArray;
 begin
+  TJSArrayLike.RequireArrayLength(Count);
   Context.Limits.EnsureArrayLength(Count);
 
   Result := TJSArray.Create;
