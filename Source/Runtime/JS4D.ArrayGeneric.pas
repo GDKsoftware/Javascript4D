@@ -15,11 +15,14 @@ uses
   JS4D.ObjectOperations;
 
 type
+  TJSMethodInvoker = reference to function(const Target: TJSValue; const MethodName: string): TJSValue;
+
   TJSArrayGenericContext = record
     ArrayPrototype: IJSObject;
     ObjectPrototype: IJSObject;
     Limits: TJSLimits;
     Executor: TJSCallbackExecutor;
+    InvokeMethod: TJSMethodInvoker;
   end;
 
   TJSArrayGeneric = class
@@ -36,6 +39,7 @@ type
       METHOD_CONCAT = 'concat';
       METHOD_SORT = 'sort';
       METHOD_TO_STRING = 'toString';
+      METHOD_TO_LOCALE_STRING = 'toLocaleString';
       METHOD_FILL = 'fill';
       METHOD_COPY_WITHIN = 'copyWithin';
       DEFAULT_SEPARATOR = ',';
@@ -58,6 +62,7 @@ type
     class function Sort(const Target: IJSObject; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
     class function ToText(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue; static;
+    class function ToLocaleText(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue; static;
     class function Fill(const Target: IJSObject; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
     class function CopyWithin(const Target: IJSObject; const Args: TArray<TJSValue>;
@@ -81,6 +86,7 @@ type
     class function Handles(const MethodName: string): Boolean; static;
     class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function StoresNewElements(const MethodName: string): Boolean; static;
     class function ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
                                       const Args: TArray<TJSValue>): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
@@ -102,6 +108,7 @@ begin
             (MethodName = METHOD_CONCAT) or
             (MethodName = METHOD_SORT) or
             (MethodName = METHOD_TO_STRING) or
+            (MethodName = METHOD_TO_LOCALE_STRING) or
             AlwaysUsesPropertySemantics(MethodName);
 end;
 
@@ -116,6 +123,12 @@ begin
   Result := (MethodName = METHOD_SPLICE) or
             (MethodName = METHOD_SLICE) or
             (MethodName = METHOD_CONCAT);
+end;
+
+class function TJSArrayGeneric.StoresNewElements(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_PUSH) or
+            (MethodName = METHOD_UNSHIFT);
 end;
 
 class function TJSArrayGeneric.ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
@@ -199,6 +212,9 @@ begin
 
   if MethodName = METHOD_TO_STRING then
     Exit(ToText(Target, Context));
+
+  if MethodName = METHOD_TO_LOCALE_STRING then
+    Exit(ToLocaleText(Target, Context));
 
   if MethodName = METHOD_FILL then
     Exit(Fill(Target, Args, Context));
@@ -502,6 +518,36 @@ begin
   end;
 end;
 
+class function TJSArrayGeneric.ToLocaleText(const Target: IJSObject;
+                                            const Context: TJSArrayGenericContext): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  Context.Limits.EnsureArrayLength(Count);
+
+  const Builder = TStringBuilder.Create;
+  try
+    for var Index: Int64 := 0 to Count - 1 do
+    begin
+      const NeedsSeparator = (Index > 0);
+      if NeedsSeparator then
+        Builder.Append(DEFAULT_SEPARATOR);
+
+      const Element = Target.GetProperty(TJSArrayLike.IndexName(Index));
+      if not Element.IsNullOrUndefined then
+      begin
+        const LocaleText = Context.InvokeMethod(Element, METHOD_TO_LOCALE_STRING);
+        Builder.Append(LocaleText.ToLimitedString(Context.Limits));
+      end;
+
+      Context.Limits.EnsureStringLength(Builder.Length);
+    end;
+
+    Result := TJSValue.CreateString(Builder.ToString);
+  finally
+    Builder.Free;
+  end;
+end;
+
 class function TJSArrayGeneric.Concat(const Target: IJSObject; const Args: TArray<TJSValue>;
                                       const Context: TJSArrayGenericContext): TJSValue;
 begin
@@ -547,6 +593,8 @@ end;
 class function TJSArrayGeneric.Sort(const Target: IJSObject; const Args: TArray<TJSValue>;
                                     const Context: TJSArrayGenericContext): TJSValue;
 begin
+  TJSArrayLike.RequireSortComparer(Args);
+
   const Count = TJSArrayLike.ToLength(Target);
   Context.Limits.EnsureArrayLength(Count);
 

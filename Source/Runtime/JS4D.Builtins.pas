@@ -566,6 +566,8 @@ end;
 
 class function TJSBuiltins.ArraySort(const Arr: IJSArray; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor; const Limits: TJSLimits): TJSValue;
 begin
+  TJSArrayLike.RequireSortComparer(Args);
+
   if Arr.Length <= 1 then
   begin
     Result := TJSValue.CreateObject(Arr);

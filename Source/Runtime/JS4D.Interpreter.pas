@@ -453,8 +453,12 @@ type
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
-    function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
+                                             const BeforeElements: TProc): TJSValue;
+    function ExecuteSpeciesIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
+    function PrototypeHoldsElements: Boolean;
     function CreatesSpeciesResult(const MethodName: string): Boolean;
     function ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
     function CopyToSpeciesResult(const Species: IJSFunction; const Plain: TJSValue; const MethodName: string): TJSValue;
@@ -4679,6 +4683,9 @@ end;
 
 function TJSInterpreter.ExecuteArrayMethod(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
+  if TJSArrayIteration.Handles(MethodName) then
+    Exit(ExecuteArrayIterationMethod(Arr, MethodName, Args));
+
   const Species = ResolveArraySpecies(Arr, MethodName);
 
   Result := ExecuteArrayMethodCore(Arr, MethodName, Args);
@@ -4689,9 +4696,22 @@ end;
 
 function TJSInterpreter.ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Species = ResolveArraySpecies(Target, MethodName);
+  if TJSArrayIteration.CreatesResultArray(MethodName) then
+    Result := ExecuteSpeciesIterationMethod(Target, MethodName, Args)
+  else
+    Result := ExecuteArrayIterationMethodCore(Target, MethodName, Args, nil);
+end;
 
-  Result := ExecuteArrayIterationMethodCore(Target, MethodName, Args);
+function TJSInterpreter.ExecuteSpeciesIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+begin
+  var Species: IJSFunction := nil;
+  const FindSpecies: TProc =
+    procedure
+    begin
+      Species := ResolveArraySpecies(Target, MethodName);
+    end;
+
+  Result := ExecuteArrayIterationMethodCore(Target, MethodName, Args, FindSpecies);
 
   if Assigned(Species) then
     Result := CopyToSpeciesResult(Species, Result, MethodName);
@@ -4710,10 +4730,11 @@ end;
 function TJSInterpreter.ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
   if TJSArrayIteration.Handles(MethodName) then
-    Exit(ExecuteArrayIterationMethodCore(Arr, MethodName, Args));
+    Exit(ExecuteArrayIterationMethodCore(Arr, MethodName, Args, nil));
 
   const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName) or
-                                TJSArrayGeneric.ConcatsCustomItems(MethodName, Arr, Args);
+                                TJSArrayGeneric.ConcatsCustomItems(MethodName, Arr, Args) or
+                                (TJSArrayGeneric.StoresNewElements(MethodName) and PrototypeHoldsElements);
   const NeedsPropertyLevelSemantics = UsesPropertySemantics and TJSArrayGeneric.Handles(MethodName);
   if NeedsPropertyLevelSemantics then
     Exit(ExecuteGenericArrayMethodCore(Arr, MethodName, Args));
@@ -4725,10 +4746,11 @@ begin
   Result := WithArrayPrototype(TJSBuiltins.CallArrayMethodWithCallback(Arr, MethodName, Args, Executor, FLimits));
 end;
 
-function TJSInterpreter.ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+function TJSInterpreter.ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
+                                                        const BeforeElements: TProc): TJSValue;
 begin
   const Executor = CreateCallbackExecutor(MethodName, Args);
-  Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype, FLimits);
+  Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype, FLimits, BeforeElements);
 end;
 
 function TJSInterpreter.ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -4738,8 +4760,27 @@ begin
   Context.ObjectPrototype := FObjectPrototype;
   Context.Limits := FLimits;
   Context.Executor := CreateCallbackExecutor(MethodName, Args);
+  Context.InvokeMethod := InvokeMethod;
 
   Result := TJSArrayGeneric.Call(Target, MethodName, Args, Context);
+end;
+
+function TJSInterpreter.PrototypeHoldsElements: Boolean;
+begin
+  var PrototypeArray: IJSArray;
+  Result := Supports(FArrayPrototype, IJSArray, PrototypeArray) and (PrototypeArray.Length > 0);
+end;
+
+function TJSInterpreter.InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
+begin
+  const Callee = ReadMember(Target, MethodName);
+
+  var Func: IJSFunction;
+  const IsCallable = Callee.IsFunction and Supports(Callee.ToObject, IJSFunction, Func);
+  if not IsCallable then
+    raise TJSErrorFactory.NotAFunction(MethodName);
+
+  Result := CallFunction(Func, nil, ThisObjectFor(Func, Target));
 end;
 
 function TJSInterpreter.ExecuteArrayStaticMethod(const ThisObj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

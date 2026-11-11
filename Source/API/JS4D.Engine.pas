@@ -271,6 +271,7 @@ const
   INVALID_JSON_TEXT = 'Unexpected token in JSON';
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
+  ARRAY_TO_LOCALE_STRING = 'toLocaleString';
   ARRAY_FROM = 'from';
   ARRAY_OF = 'of';
   ARRAY_KEYS = 'keys';
@@ -1516,7 +1517,7 @@ end;
 
 procedure TJSEngine.RegisterArray;
 begin
-  const PrototypeObj = TJSObject.Create;
+  const PrototypeObj: IJSObject = TJSArray.Create;
 
   const ArrayObj = TJSFunction.CreateNative(ARRAY_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1548,6 +1549,9 @@ begin
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
     FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, Method);
   end;
+
+  const LocaleStringMethod = CreateArrayPrototypeMethod(ARRAY_TO_LOCALE_STRING);
+  PrototypeObj.SetProperty(ARRAY_TO_LOCALE_STRING, TJSValue.CreateObject(LocaleStringMethod));
 
   RegisterArrayIterators(PrototypeObj);
 
@@ -1683,6 +1687,9 @@ begin
   Result := TJSFunction.CreateNative(MethodName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      if MethodName = ARRAY_TO_LOCALE_STRING then
+        Exit(FInterpreter.ExecuteGenericArrayMethod(This, MethodName, Args));
+
       if TJSArrayIteration.Handles(MethodName) then
         Exit(FInterpreter.ExecuteArrayIterationMethod(This, MethodName, Args));
 

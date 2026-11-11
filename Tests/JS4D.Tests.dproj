@@ -125,6 +125,7 @@
         <DCCReference Include="JS4D.Tests.GenericArrayMethods.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayElements.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayResultCreation.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayPrototypeSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinMethodLookup.pas"/>
         <DCCReference Include="JS4D.Tests.JsonParse.pas"/>
         <DCCReference Include="JS4D.Tests.Eval.pas"/>

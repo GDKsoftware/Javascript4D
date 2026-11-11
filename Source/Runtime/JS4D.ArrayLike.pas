@@ -10,7 +10,8 @@ uses
   JS4D.Types,
   JS4D.Errors,
   JS4D.SymbolRegistry,
-  JS4D.PropertyDescriptors;
+  JS4D.PropertyDescriptors,
+  JS4D.ObjectOperations;
 
 type
   TJSArrayLike = class
@@ -22,6 +23,7 @@ type
       CONSTRUCTOR_PROPERTY = 'constructor';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
       SPECIES_NOT_A_CONSTRUCTOR = 'The species of an array constructor must be a constructor, null or undefined';
+      COMPARER_NOT_A_FUNCTION = 'The comparison function of sort must be a function or undefined';
       CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
@@ -37,11 +39,13 @@ type
     class function ToLength(const Target: IJSObject): Int64; static;
     class function RelativeIndex(const Value: TJSValue; const Count, DefaultIndex: Int64): Int64; static;
     class function TryGetElement(const Target: IJSObject; const Index: Int64; out Element: TJSValue): Boolean; static;
+    class function GetElement(const Target: IJSObject; const Index: Int64): TJSValue; static;
     class procedure SetElement(const Target: IJSObject; const Index: Int64; const Value: TJSValue); static;
     class procedure DeleteElement(const Target: IJSObject; const Index: Int64); static;
     class procedure MoveElement(const Target: IJSObject; const FromIndex, ToIndex: Int64); static;
     class procedure WriteLength(const Target: IJSObject; const Count: Int64); static;
     class procedure RequireArrayLength(const Count: Int64); static;
+    class procedure RequireSortComparer(const Args: TArray<TJSValue>); static;
     // The constructor that creates the result of map, filter, slice, splice and concat for an array. Nil
     // means a plain array: the receiver is no array, has no constructor or uses the intrinsic Array.
     class function SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
@@ -126,6 +130,17 @@ begin
     Element := Target.GetProperty(Name);
 end;
 
+class function TJSArrayLike.GetElement(const Target: IJSObject; const Index: Int64): TJSValue;
+begin
+  var TargetArray: IJSArray;
+  const IsArray = Supports(Target, IJSArray, TargetArray);
+  const IsOwnElement = IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index));
+  if IsOwnElement then
+    Exit(TargetArray[Integer(Index)]);
+
+  Result := Target.GetProperty(IndexName(Index));
+end;
+
 class procedure TJSArrayLike.SetElement(const Target: IJSObject; const Index: Int64; const Value: TJSValue);
 begin
   PutProperty(Target, IndexName(Index), Value);
@@ -161,6 +176,14 @@ begin
     raise TJSErrorFactory.InvalidArrayLength;
 end;
 
+class procedure TJSArrayLike.RequireSortComparer(const Args: TArray<TJSValue>);
+begin
+  const Comparer = Argument(Args, 0);
+  const IsAcceptable = Comparer.IsUndefined or Comparer.IsFunction;
+  if not IsAcceptable then
+    raise TJSErrorFactory.TypeError(COMPARER_NOT_A_FUNCTION);
+end;
+
 class function TJSArrayLike.SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
                                       const IntrinsicSpeciesGetter: IJSFunction): TJSValue;
 begin
@@ -182,7 +205,7 @@ class function TJSArrayLike.SpeciesConstructor(const Target: IJSObject; const In
 begin
   Result := nil;
 
-  const IsArray = Supports(Target, IJSArray);
+  const IsArray = TJSObjectOperations.IsArray(TJSValue.CreateObject(Target));
   if not IsArray then
     Exit;
 
