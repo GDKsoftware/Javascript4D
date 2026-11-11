@@ -32,7 +32,11 @@ uses
   JS4D.Symbols,
   JS4D.SymbolRegistry,
   JS4D.SymbolBuiltins,
+  JS4D.Conversions,
   JS4D.IteratorBuiltins,
+  JS4D.RegExpProtocol,
+  JS4D.ObjectBuiltins,
+  JS4D.StringPatternMethods,
   JS4D.UriCoding,
   JS4D.MathFunctions,
   JS4D.NumericBuiltins,
@@ -50,6 +54,9 @@ type
     FDateBuiltins: TJSDateBuiltins;
     FSymbolBuiltins: TJSSymbolBuiltins;
     FIteratorBuiltins: TJSIteratorBuiltins;
+    FRegExpProtocol: TJSRegExpProtocol;
+    FObjectBuiltins: TJSObjectBuiltins;
+    FStringPatternMethods: TJSStringPatternMethods;
     FArrayIteratorPrototype: IJSObject;
     FPrograms: TList<TJSProgram>;
     FOnConsoleOutput: TConsoleOutputHandler;
@@ -57,9 +64,9 @@ type
     function ToText(const Value: TJSValue): string;
     function ToKeyText(const Value: TJSValue): string;
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
-    function RegExpPatternArgument(const Args: TArray<TJSValue>): string;
-    function RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
-    function IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
+    function HasSameRegExpConstructor(const Pattern: TJSValue; const PrototypeObj: IJSObject): Boolean;
+    procedure ReadRegExpSource(const Args: TArray<TJSValue>; const PatternIsRegExp: Boolean;
+                               out Pattern: string; out Flags: string);
     function GetStepBudget: Int64;
     procedure SetStepBudget(const Value: Int64);
     function GetStepCount: Int64;
@@ -74,6 +81,8 @@ type
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterStringRaw(const StringFunc: IJSFunction);
+    procedure RegisterStringFromCodePoint(const StringFunc: IJSFunction);
+    function CodePointsToString(const Args: TArray<TJSValue>): string;
     function ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
     function CoerceToObject(const Value: TJSValue): IJSObject;
     class function IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean; static;
@@ -182,6 +191,14 @@ const
   MATH_NAME = 'Math';
   OBJECT_NAME = 'Object';
   REGEXP_NAME = 'RegExp';
+  SOURCE_PROPERTY = 'source';
+  FROM_CODE_POINT_NAME = 'fromCodePoint';
+  INVALID_CODE_POINT = 'Invalid code point %s';
+  MAX_CODE_POINT = $10FFFF;
+  FIRST_SUPPLEMENTARY_CODE_POINT = $10000;
+  HIGH_SURROGATE_BASE = $D800;
+  LOW_SURROGATE_BASE = $DC00;
+  FLAGS_PROPERTY = 'flags';
   FUNCTION_NAME = 'Function';
   ANONYMOUS_NAME = '';
   PROTOTYPE_PROPERTY = 'prototype';
@@ -289,6 +306,9 @@ begin
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
+  FRegExpProtocol.Free;
+  FObjectBuiltins.Free;
+  FStringPatternMethods.Free;
   FSymbolBuiltins.Free;
   FArrayIteratorPrototype := nil;
   inherited;
@@ -569,6 +589,7 @@ begin
     end)));
 
   RegisterStringRaw(StringFunc);
+  RegisterStringFromCodePoint(StringFunc);
 
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
   AttachPrototypeObject(StringFunc, StringPrototype);
@@ -611,6 +632,16 @@ begin
   RegisterFunctionObject;
   RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
+
+  FRegExpProtocol := TJSRegExpProtocol.Create(FInterpreter);
+  FRegExpProtocol.Register;
+
+  FStringPatternMethods := TJSStringPatternMethods.Create(FInterpreter);
+  FStringPatternMethods.Register;
+
+  FObjectBuiltins := TJSObjectBuiltins.Create(FInterpreter);
+  FObjectBuiltins.Register;
+
   ApplyBuiltinAttributes;
 
   FSymbolBuiltins := TJSSymbolBuiltins.Create(FInterpreter);
@@ -618,6 +649,47 @@ begin
 
   FIteratorBuiltins := TJSIteratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype);
   FIteratorBuiltins.Register;
+end;
+
+function TJSEngine.CodePointsToString(const Args: TArray<TJSValue>): string;
+begin
+  const Builder = TStringBuilder.Create;
+  try
+    for var Arg in Args do
+    begin
+      const Number = TJSConversions.ToNumber(Arg);
+
+      const IsInteger = (not System.Math.IsNaN(Number)) and (not System.Math.IsInfinite(Number)) and
+                        (Number = Int(Number));
+      const IsValidCodePoint = IsInteger and (Number >= 0) and (Number <= MAX_CODE_POINT);
+      if not IsValidCodePoint then
+        raise TJSErrorFactory.RangeError(Format(INVALID_CODE_POINT, [Arg.ToString]));
+
+      const CodePoint = Trunc(Number);
+      if CodePoint < FIRST_SUPPLEMENTARY_CODE_POINT then
+      begin
+        Builder.Append(Char(CodePoint));
+        Continue;
+      end;
+
+      const Offset = CodePoint - FIRST_SUPPLEMENTARY_CODE_POINT;
+      Builder.Append(Char(HIGH_SURROGATE_BASE + (Offset shr 10)));
+      Builder.Append(Char(LOW_SURROGATE_BASE + (Offset and $3FF)));
+    end;
+
+    Result := Builder.ToString;
+  finally
+    Builder.Free;
+  end;
+end;
+
+procedure TJSEngine.RegisterStringFromCodePoint(const StringFunc: IJSFunction);
+begin
+  StringFunc.SetProperty(FROM_CODE_POINT_NAME, TJSValue.CreateObject(TJSFunction.CreateNative(FROM_CODE_POINT_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := TJSValue.CreateString(CodePointsToString(Args));
+    end)));
 end;
 
 procedure TJSEngine.RegisterStringRaw(const StringFunc: IJSFunction);
@@ -1758,60 +1830,44 @@ begin
     CreateErrorConstructor(TJSErrorType.EvalError, EVAL_ERROR_NAME)));
 end;
 
-function TJSEngine.RegExpPatternArgument(const Args: TArray<TJSValue>): string;
+function TJSEngine.HasSameRegExpConstructor(const Pattern: TJSValue; const PrototypeObj: IJSObject): Boolean;
 begin
-  Result := '';
-
-  const HasPattern = (Length(Args) > 0) and (not Args[0].IsUndefined);
-  if not HasPattern then
-    Exit;
-
-  var SourceRegExp: IJSRegExp;
-  const IsRegExp = Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
-  if IsRegExp then
-    Result := SourceRegExp.Pattern
-  else
-  begin
-    const PatternValue = Args[0].ToPrimitive(True);
-    Result := ToText(PatternValue);
-  end;
-end;
-
-function TJSEngine.RegExpFlagsArgument(const Args: TArray<TJSValue>): string;
-begin
-  Result := '';
-
-  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
-  if HasFlags then
-  begin
-    const FlagsValue = Args[1].ToPrimitive(True);
-    Result := ToText(FlagsValue);
-    Exit;
-  end;
-
-  var SourceRegExp: IJSRegExp;
-  const IsRegExp = (Length(Args) > 0) and Args[0].IsObject and Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
-  if IsRegExp then
-    Result := SourceRegExp.Flags;
-end;
-
-function TJSEngine.IsRegExpWithoutFlags(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): Boolean;
-begin
-  const HasPattern = (Length(Args) > 0) and Args[0].IsObject;
-  if not HasPattern then
-    Exit(False);
-
-  var SourceRegExp: IJSRegExp;
-  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp, SourceRegExp);
-  const HasFlags = (Length(Args) > 1) and (not Args[1].IsUndefined);
-  if (not IsRegExp) or HasFlags then
-    Exit(False);
-
-  const SourceObject = Args[0].ToObject;
-  const SourceConstructor = SourceObject.GetProperty(CONSTRUCTOR_PROPERTY);
+  const PatternConstructor = Pattern.ToObject.GetProperty(CONSTRUCTOR_PROPERTY);
   const RegExpConstructor = PrototypeObj.GetProperty(CONSTRUCTOR_PROPERTY);
 
-  Result := SourceConstructor.StrictEquals(RegExpConstructor);
+  Result := PatternConstructor.StrictEquals(RegExpConstructor);
+end;
+
+procedure TJSEngine.ReadRegExpSource(const Args: TArray<TJSValue>; const PatternIsRegExp: Boolean;
+                                     out Pattern: string; out Flags: string);
+begin
+  const PatternArg = ArgumentAt(Args, 0);
+  const FlagsArg = ArgumentAt(Args, 1);
+
+  var SourceValue := PatternArg;
+  var FlagsValue := FlagsArg;
+
+  var BuiltIn: IJSRegExp;
+  if PatternArg.IsObject and Supports(PatternArg.ToObject, IJSRegExp, BuiltIn) then
+  begin
+    SourceValue := TJSValue.CreateString(BuiltIn.Pattern);
+    if FlagsArg.IsUndefined then
+      FlagsValue := TJSValue.CreateString(BuiltIn.Flags);
+  end
+  else if PatternIsRegExp then
+  begin
+    SourceValue := PatternArg.ToObject.GetProperty(SOURCE_PROPERTY);
+    if FlagsArg.IsUndefined then
+      FlagsValue := PatternArg.ToObject.GetProperty(FLAGS_PROPERTY);
+  end;
+
+  Pattern := '';
+  if not SourceValue.IsUndefined then
+    Pattern := ToText(SourceValue);
+
+  Flags := '';
+  if not FlagsValue.IsUndefined then
+    Flags := ToText(FlagsValue);
 end;
 
 procedure TJSEngine.RegisterRegExp;
@@ -1822,11 +1878,14 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const IsCall = not TJSPrototypeMethods.IsConstructCall(This, PrototypeObj);
-      if IsCall and IsRegExpWithoutFlags(Args, PrototypeObj) then
+      const PatternIsRegExp = TJSConversions.IsRegExp(ArgumentAt(Args, 0));
+      const HasFlags = not ArgumentAt(Args, 1).IsUndefined;
+      if IsCall and PatternIsRegExp and (not HasFlags) and HasSameRegExpConstructor(Args[0], PrototypeObj) then
         Exit(Args[0]);
 
-      const Pattern = RegExpPatternArgument(Args);
-      const Flags = RegExpFlagsArgument(Args);
+      var Pattern: string;
+      var Flags: string;
+      ReadRegExpSource(Args, PatternIsRegExp, Pattern, Flags);
 
       const RegExpObj: IJSRegExp = TJSRegExp.Create(Pattern, Flags);
       RegExpObj.Prototype := PrototypeObj;

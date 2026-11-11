@@ -74,6 +74,9 @@ type
 
 implementation
 
+uses
+  JS4D.Conversions;
+
 type
   TRegExpFlagProperty = record
     Name: string;
@@ -86,8 +89,6 @@ const
   METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_IS_PROTOTYPE_OF = 'isPrototypeOf';
   METHOD_EXEC = 'exec';
-  METHOD_TEST = 'test';
-  METHOD_SPLIT = 'split';
   METHOD_STARTS_WITH = 'startsWith';
   METHOD_ENDS_WITH = 'endsWith';
   METHOD_INCLUDES = 'includes';
@@ -249,15 +250,9 @@ function TJSPrototypeMethods.ConvertStringArguments(const MethodName: string;
 begin
   SetLength(Result, Length(Args));
 
-  const IsLimitFirst = (MethodName = METHOD_SPLIT) and (Length(Args) > 1);
-  if IsLimitFirst then
-    Result[1] := ConvertStringArgument(MethodName, Args, 1);
-
   for var Index := 0 to Length(Args) - 1 do
   begin
-    const IsConverted = IsLimitFirst and (Index = 1);
-    if not IsConverted then
-      Result[Index] := ConvertStringArgument(MethodName, Args, Index);
+    Result[Index] := ConvertStringArgument(MethodName, Args, Index);
   end;
 end;
 
@@ -565,7 +560,7 @@ begin
   if not (IsSearchMethod and HasSearchString) then
     Exit;
 
-  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp);
+  const IsRegExp = TJSConversions.IsRegExp(Args[0]);
   if IsRegExp then
     raise TJSErrorFactory.TypeError(Format(REGEXP_SEARCH_STRING_MESSAGE, [MethodName]));
 end;
@@ -696,13 +691,6 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := RegExpExec(This, Args);
-    end);
-
-  DefineMethod(PrototypeObj, METHOD_TEST,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      const Matched = RegExpExec(This, Args);
-      Result := TJSValue.CreateBoolean(not Matched.IsNull);
     end);
 end;
 

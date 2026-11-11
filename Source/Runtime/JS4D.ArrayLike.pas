@@ -17,9 +17,6 @@ type
   private
     const
       LENGTH_PROPERTY = 'length';
-      VALUE_OF = 'valueOf';
-      TO_STRING = 'toString';
-      CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
       MAX_SAFE_LENGTH = 9007199254740991.0;
       MAX_ARRAY_LENGTH = 4294967295;
       CONSTRUCTOR_PROPERTY = 'constructor';
@@ -28,8 +25,6 @@ type
       CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
-    class function TryCallConversion(const Source: IJSObject; const MethodName: string;
-                                     out Primitive: TJSValue): Boolean; static;
     class procedure PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
     class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
                              const IntrinsicSpeciesGetter: IJSFunction): TJSValue; static;
@@ -68,19 +63,6 @@ begin
   Result := IntToStr(Index);
 end;
 
-class function TJSArrayLike.TryCallConversion(const Source: IJSObject; const MethodName: string;
-                                              out Primitive: TJSValue): Boolean;
-begin
-  var Conversion: IJSFunction;
-  const Method = Source.GetProperty(MethodName);
-  const IsCallable = Method.IsFunction and Supports(Method.ToObject, IJSFunction, Conversion);
-  if not IsCallable then
-    Exit(False);
-
-  Primitive := Conversion.Call(Source, nil);
-  Result := not Primitive.IsObject;
-end;
-
 class procedure TJSArrayLike.PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue);
 begin
   if not TJSPropertyDescriptors.CanPut(Target, Name) then
@@ -91,15 +73,7 @@ end;
 
 class function TJSArrayLike.ToNumber(const Value: TJSValue): Double;
 begin
-  if not Value.IsObject then
-    Exit(Value.ToNumber);
-
-  var Primitive: TJSValue;
-  const Source = Value.ToObject;
-  if TryCallConversion(Source, VALUE_OF, Primitive) or TryCallConversion(Source, TO_STRING, Primitive) then
-    Exit(Primitive.ToNumber);
-
-  raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
+  Result := Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
 end;
 
 class function TJSArrayLike.ToInteger(const Value: TJSValue): Double;

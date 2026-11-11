@@ -790,6 +790,8 @@ const
   PROP_MESSAGE = 'message';
   PROP_STACK = 'stack';
   PROP_LAST_INDEX = 'lastIndex';
+  MAX_SAFE_LAST_INDEX = 9007199254740991.0;
+  LAST_INDEX_READ_ONLY = 'Cannot assign to read only property ''lastIndex''';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
 
@@ -2801,11 +2803,20 @@ end;
 
 function TJSRegExpImpl.ReadLastIndex: Int64;
 begin
-  Result := GetProperty(PROP_LAST_INDEX).ToInteger;
+  const Primitive = GetProperty(PROP_LAST_INDEX).ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const Number = Primitive.ToNumber;
+  if System.Math.IsNaN(Number) then
+    Exit(0);
+
+  Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_LAST_INDEX));
 end;
 
 procedure TJSRegExpImpl.WriteLastIndex(const Value: Integer);
 begin
+  const IsWritable = GetOwnPropertyDescriptor(PROP_LAST_INDEX).Writable;
+  if not IsWritable then
+    raise TJSErrorFactory.TypeError(LAST_INDEX_READ_ONLY);
+
   SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(Value));
 end;
 
@@ -2848,7 +2859,7 @@ begin
   if not UsesLastIndex then
     Start := 0;
 
-  const InRange = (Start >= 0) and (Start <= Length(Str));
+  const InRange = (Start <= Length(Str));
   if InRange then
     Result := MatchAt(Str, Integer(Start))
   else
@@ -2860,7 +2871,9 @@ begin
 
   if not Result.Found then
   begin
-    WriteLastIndex(0);
+    if UsesLastIndex then
+      WriteLastIndex(0);
+
     Exit;
   end;
 

@@ -15,7 +15,6 @@ language/expressions/await/
 language/expressions/class/
 language/expressions/coalesce/
 language/expressions/dynamic-import/
-language/expressions/exponentiation/
 language/expressions/generators/
 language/expressions/import.meta/
 language/expressions/logical-assignment/

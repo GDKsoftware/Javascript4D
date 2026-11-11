@@ -131,6 +131,10 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorProtocol.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.StringIterator.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.Conversions.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.RegExpProtocol.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.StringPatternMethods.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Operators.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.UnicodeNormalization.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PropertyDescriptors.pas"/>

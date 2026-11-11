@@ -127,6 +127,7 @@ type
     function ParseShiftExpression: TJSExpression;
     function ParseAdditiveExpression: TJSExpression;
     function ParseMultiplicativeExpression: TJSExpression;
+    function ParseExponentiationExpression: TJSExpression;
     function ParseUnaryExpression: TJSExpression;
     function ParseUpdateExpression: TJSExpression;
     function ParseCallExpression: TJSExpression;
@@ -232,6 +233,7 @@ const
   RestrictedParameterNameMessage = 'Parameter name ''%s'' is not allowed in strict mode';
   RestrictedBindingNameMessage = '''%s'' cannot be declared in strict mode';
   DeleteIdentifierMessage = 'Delete of an unqualified identifier in strict mode';
+  UnaryBeforeExponentMessage = 'Unary operator used immediately before exponentiation expression';
   UndefinedLabelMessage = 'Undefined label ''%s''';
   DuplicateLabelMessage = 'Label ''%s'' has already been declared';
   ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
@@ -1953,7 +1955,7 @@ end;
 
 function TJSParser.ParseMultiplicativeExpression: TJSExpression;
 begin
-  Result := ParseUnaryExpression;
+  Result := ParseExponentiationExpression;
 
   while CheckAny([TJSTokenType.Multiply, TJSTokenType.Divide, TJSTokenType.Modulo]) do
   begin
@@ -1970,9 +1972,32 @@ begin
 
     Advance;
 
-    const Right = ParseUnaryExpression;
+    const Right = ParseExponentiationExpression;
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
+end;
+
+function TJSParser.ParseExponentiationExpression: TJSExpression;
+begin
+  const StartsWithUnaryOperator = CheckAny([TJSTokenType.LogicalNot, TJSTokenType.BitwiseNot, TJSTokenType.Plus,
+                                            TJSTokenType.Minus, TJSTokenType.KeywordTypeof, TJSTokenType.KeywordVoid,
+                                            TJSTokenType.KeywordDelete]);
+
+  Result := ParseUnaryExpression;
+
+  if not Check(TJSTokenType.Exponent) then
+    Exit;
+
+  if StartsWithUnaryOperator then
+  begin
+    Result.Free;
+    raise TJSErrorFactory.SyntaxError(UnaryBeforeExponentMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
+
+  Advance;
+
+  const Right = ParseExponentiationExpression;
+  Result := TJSBinaryExpression.Create(TJSBinaryOperator.Exponent, Result, Right);
 end;
 
 function TJSParser.ParseUnaryExpression: TJSExpression;
@@ -3374,6 +3399,7 @@ begin
     TJSTokenType.MultiplyAssign,
     TJSTokenType.DivideAssign,
     TJSTokenType.ModuloAssign,
+    TJSTokenType.ExponentAssign,
     TJSTokenType.BitwiseAndAssign,
     TJSTokenType.BitwiseOrAssign,
     TJSTokenType.BitwiseXorAssign,
@@ -3436,6 +3462,8 @@ begin
       Result := TJSAssignmentOperator.DivideAssign;
     TJSTokenType.ModuloAssign:
       Result := TJSAssignmentOperator.ModuloAssign;
+    TJSTokenType.ExponentAssign:
+      Result := TJSAssignmentOperator.ExponentAssign;
     TJSTokenType.BitwiseAndAssign:
       Result := TJSAssignmentOperator.BitwiseAndAssign;
     TJSTokenType.BitwiseOrAssign:

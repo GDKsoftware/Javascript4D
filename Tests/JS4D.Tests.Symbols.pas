@@ -267,7 +267,7 @@ type
     [TestCase('UnscopablesInPrototype', 'var x = "outer"; var p = { [Symbol.unscopables]: { x: true } }; var o = Object.create(p); o.x = "inner"; with (o) { x }|outer', '|')]
     [TestCase('UnscopablesOfCall', 'function f() { return "outer"; } var o = { f: function () { return "inner"; }, [Symbol.unscopables]: { f: true } }; with (o) { f() }|outer', '|')]
     [TestCase('ArrayPrototypeUnscopables', 'var d = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.unscopables); [d.writable, d.enumerable, d.configurable].join()|false,false,true', '|')]
-    [TestCase('ArrayPrototypeUnscopablesKeys', 'Object.keys(Array.prototype[Symbol.unscopables]).sort().join()|copyWithin,entries,fill,find,findIndex,flat,flatMap,includes,keys,values', '|')]
+    [TestCase('ArrayPrototypeUnscopablesKeys', 'Object.keys(Array.prototype[Symbol.unscopables]).sort().join()|at,copyWithin,entries,fill,find,findIndex,flat,flatMap,includes,keys,values', '|')]
     [TestCase('ArrayPrototypeUnscopablesPrototype', 'Object.getPrototypeOf(Array.prototype[Symbol.unscopables]) === null|true', '|')]
     [TestCase('ArrayKeysUnscopableInWith', 'var keys = "outer"; with ([]) { keys }|outer', '|')]
     [TestCase('ArrayLengthStillScoped', 'with ([1, 2]) { length }|2', '|')]

@@ -79,6 +79,7 @@ begin
     TJSAssignmentOperator.MultiplyAssign           : Result := TJSBinaryOperator.Multiply;
     TJSAssignmentOperator.DivideAssign             : Result := TJSBinaryOperator.Divide;
     TJSAssignmentOperator.ModuloAssign             : Result := TJSBinaryOperator.Modulo;
+    TJSAssignmentOperator.ExponentAssign           : Result := TJSBinaryOperator.Exponent;
     TJSAssignmentOperator.BitwiseAndAssign         : Result := TJSBinaryOperator.BitwiseAnd;
     TJSAssignmentOperator.BitwiseOrAssign          : Result := TJSBinaryOperator.BitwiseOr;
     TJSAssignmentOperator.BitwiseXorAssign         : Result := TJSBinaryOperator.BitwiseXor;
@@ -119,6 +120,12 @@ begin
         const LeftNumber = ToNumber(Left);
         const RightNumber = ToNumber(Right);
         Result := TJSValue.CreateNumber(Remainder(LeftNumber, RightNumber));
+      end;
+    TJSBinaryOperator.Exponent:
+      begin
+        const LeftNumber = ToNumber(Left);
+        const RightNumber = ToNumber(Right);
+        Result := TJSValue.CreateNumber(TJSMathFunctions.Power(LeftNumber, RightNumber));
       end;
     TJSBinaryOperator.LessThan,
     TJSBinaryOperator.LessThanOrEqual,

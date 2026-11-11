@@ -20,7 +20,6 @@ coalesce-expression
 decorators
 dynamic-import
 explicit-resource-management
-exponentiation
 export-defer
 export-star-as-namespace-from-module
 for-in-order
@@ -58,11 +57,7 @@ RegExp.escape
 
 # Symbols
 Symbol.asyncIterator
-Symbol.match
 Symbol.matchAll
-Symbol.replace
-Symbol.search
-Symbol.split
 symbols-as-weakmap-keys
 
 # Collections and objects
@@ -72,11 +67,7 @@ __setter__
 array-grouping
 cross-realm
 FinalizationRegistry
-globalThis
 Map
-Object.fromEntries
-Object.hasOwn
-Object.is
 Proxy
 proxy-missing-checks
 Reflect
@@ -93,23 +84,11 @@ WeakSet
 # Array and String additions
 array-find-from-last
 Array.fromAsync
-Array.prototype.at
-Array.prototype.flat
-Array.prototype.flatMap
-Array.prototype.includes
 change-array-by-copy
 stable-array-sort
-string-trimming
-String.fromCodePoint
-String.prototype.at
-String.prototype.endsWith
-String.prototype.includes
 String.prototype.isWellFormed
 String.prototype.matchAll
-String.prototype.replaceAll
 String.prototype.toWellFormed
-String.prototype.trimEnd
-String.prototype.trimStart
 
 # Binary data and concurrency
 align-detached-buffer-semantics-with-web-reality

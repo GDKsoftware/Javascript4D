@@ -100,6 +100,8 @@ uses
   JS4D.Tests.StringEs2015Methods in 'JS4D.Tests.StringEs2015Methods.pas',
   JS4D.Tests.Symbols in 'JS4D.Tests.Symbols.pas',
   JS4D.Tests.IteratorProtocol in 'JS4D.Tests.IteratorProtocol.pas',
+  JS4D.Tests.RegExpProtocol in 'JS4D.Tests.RegExpProtocol.pas',
+  JS4D.Tests.LibraryMethods in 'JS4D.Tests.LibraryMethods.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
 var

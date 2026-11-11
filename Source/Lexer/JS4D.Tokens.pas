@@ -39,6 +39,7 @@ type
     Multiply,
     Divide,
     Modulo,
+    Exponent,
 
     Assign,
     Arrow,
@@ -47,6 +48,7 @@ type
     MultiplyAssign,
     DivideAssign,
     ModuloAssign,
+    ExponentAssign,
 
     Equal,
     NotEqual,

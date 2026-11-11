@@ -10,7 +10,8 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over arrays and strings
-- **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species` (`Symbol.iterator` is defined but not used yet)
+- **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
+- **ES2015 and later library methods**: `Symbol.match`, `replace`, `search` and `split` on `RegExp.prototype` with the String methods delegating to them, sticky and unicode regular expressions, `String.prototype.replaceAll`, `at`, `String.fromCodePoint`, `Object.hasOwn`, `Object.setPrototypeOf`, `Object.fromEntries`, `Array.prototype.at`, `includes`, `flat` and `flatMap`, and the `**` operator
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
@@ -277,18 +278,18 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2568 | 2519 | 98.1% |
+| built-ins/Array | 2680 | 2624 | 97.9% |
 | built-ins/Date | 550 | 549 | 99.8% |
 | built-ins/Function | 425 | 397 | 93.4% |
 | built-ins/JSON | 113 | 110 | 97.3% |
 | built-ins/Math | 277 | 269 | 97.1% |
 | built-ins/Number | 291 | 279 | 95.9% |
-| built-ins/Object | 3136 | 3079 | 98.2% |
-| built-ins/RegExp | 597 | 571 | 95.6% |
-| built-ins/String | 933 | 910 | 97.5% |
-| language/expressions | 3388 | 3343 | 98.7% |
-| language/statements | 2309 | 2276 | 98.6% |
-| **Total** | 16974 | 16572 | 97.6% |
+| built-ins/Object | 3222 | 3170 | 98.4% |
+| built-ins/RegExp | 794 | 761 | 95.8% |
+| built-ins/String | 1130 | 1106 | 97.9% |
+| language/expressions | 3572 | 3527 | 98.7% |
+| language/statements | 2472 | 2438 | 98.6% |
+| **Total** | 17995 | 17534 | 97.4% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

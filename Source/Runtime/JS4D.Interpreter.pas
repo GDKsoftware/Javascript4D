@@ -425,7 +425,6 @@ type
     procedure WriteArrayMember(const Target: IJSArray; const PropName: string; const Value: TJSValue;
                                out IsHandled: Boolean);
     function VisitNewExpression(const Node: TJSNewExpression): TJSValue;
-    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
     function VisitThisExpression(const Node: TJSThisExpression): TJSValue;
     function VisitTemplateLiteral(const Node: TJSTemplateLiteral): TJSValue;
@@ -441,8 +440,6 @@ type
     procedure AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
     procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
-    function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
-                                out Closer: TJSSequenceCloser): Boolean;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     function ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
@@ -477,6 +474,9 @@ type
     function ExecuteArrayIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayStaticMethod(const ThisObj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
+    function Construct(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+    function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
+                                out Closer: TJSSequenceCloser): Boolean;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
@@ -521,6 +521,8 @@ const
   SYMBOL_FUNCTION_NAME = '[%s]';
   METHOD_FILTER = 'filter';
   METHOD_CONCAT = 'concat';
+  METHOD_FLAT = 'flat';
+  METHOD_FLAT_MAP = 'flatMap';
   RAW_PROPERTY = 'raw';
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
@@ -3341,6 +3343,7 @@ begin
     TJSBinaryOperator.Multiply,
     TJSBinaryOperator.Divide,
     TJSBinaryOperator.Modulo,
+    TJSBinaryOperator.Exponent,
     TJSBinaryOperator.LessThan,
     TJSBinaryOperator.LessThanOrEqual,
     TJSBinaryOperator.GreaterThan,
@@ -4556,7 +4559,9 @@ begin
   const SetsLength = TJSArrayGeneric.CreatesResultArray(MethodName);
 
   var InitialLength := SourceLength;
-  if (MethodName = METHOD_FILTER) or (MethodName = METHOD_CONCAT) then
+  const StartsEmpty = (MethodName = METHOD_FILTER) or (MethodName = METHOD_CONCAT) or
+                      (MethodName = METHOD_FLAT) or (MethodName = METHOD_FLAT_MAP);
+  if StartsEmpty then
     InitialLength := 0;
 
   Result := Construct(Species, [TJSValue.CreateNumber(InitialLength)]);
@@ -4635,7 +4640,7 @@ end;
 function TJSInterpreter.ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Executor = CreateCallbackExecutor(MethodName, Args);
-  Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype);
+  Result := TJSArrayIteration.Call(Target, MethodName, Args, Executor, FArrayPrototype, FLimits);
 end;
 
 function TJSInterpreter.ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;

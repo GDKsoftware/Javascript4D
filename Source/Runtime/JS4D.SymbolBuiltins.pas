@@ -37,8 +37,8 @@ type
         (Name: 'unscopables'; Which: TJSWellKnownSymbol.Unscopables)
       );
 
-      UNSCOPABLE_ARRAY_METHODS: array[0..9] of string = (
-        'copyWithin', 'entries', 'fill', 'find', 'findIndex', 'flat', 'flatMap', 'includes', 'keys', 'values'
+      UNSCOPABLE_ARRAY_METHODS: array[0..10] of string = (
+        'at', 'copyWithin', 'entries', 'fill', 'find', 'findIndex', 'flat', 'flatMap', 'includes', 'keys', 'values'
       );
 
   private
