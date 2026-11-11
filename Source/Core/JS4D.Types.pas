@@ -1085,6 +1085,9 @@ function TJSValue.ToLimitedString(const Limits: TJSLimits): string;
 begin
   var Arr: IJSArray;
 
+  if FValueType = TJSValueType.Object_ then
+    Exit(ToPrimitive(True).ToString);
+
   if (FValueType <> TJSValueType.Array_) or (not Supports(FObjectRef, IJSArray, Arr)) then
     Exit(ToString);
 
@@ -1130,7 +1133,7 @@ begin
       end
       else if not ElementValue.IsNullOrUndefined then
       begin
-        const ElementText = ElementValue.ToString;
+        const ElementText = ElementValue.ToLimitedString(Limits);
         const WithElement = Int64(Builder.Length) + Length(ElementText);
 
         Limits.EnsureStringLength(WithElement);

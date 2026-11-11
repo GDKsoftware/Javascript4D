@@ -73,6 +73,19 @@ type
     procedure Keys_SkipsHolesAndNonEnumerableElements;
 
     [Test]
+    [TestCase('JoinUsesToString', 'new Array({valueOf: function() { return "+"; }, toString: function() { return "*"; }}).join()#*', '#')]
+    [TestCase('JoinSkipsValueOf', 'new Array({valueOf: function() { return "+"; }}).join()#[object Object]', '#')]
+    [TestCase('JoinFallsBackToValueOf', 'new Array({valueOf: function() { return "+"; }, toString: function() { return {}; }}).join()#+', '#')]
+    [TestCase('JoinNestedArrayElement', '[[{toString: function() { return "n"; }}], 1].join("-")#n-1', '#')]
+    [TestCase('JoinSeparatorObject', '[1, 2].join({toString: function() { return "|"; }})#1|2', '#')]
+    [TestCase('ToStringUsesElementToString', '[{toString: function() { return "e"; }}].toString()#e', '#')]
+    [TestCase('SortUsesElementToString', 'var n = 0; var o = {toString: function() { n++; return ""; }}; [o, o].sort(); n > 1#true', '#')]
+    procedure ElementConversion_CallsUserDefinedToString(const Script: string; const Expected: string);
+
+    [Test]
+    procedure ElementConversion_ThrowsTypeErrorWithoutPrimitive;
+
+    [Test]
     procedure Hole_ReadsValueInheritedFromArrayPrototype;
 
     [Test]
@@ -287,6 +300,22 @@ begin
     'Object.keys(arr).join()';
 
   Assert.AreEqual('0,2', EvaluateText(Script));
+end;
+
+procedure TArrayElementTests.ElementConversion_CallsUserDefinedToString(const Script: string; const Expected: string);
+begin
+  Assert.AreEqual(Expected, EvaluateText(Script));
+end;
+
+procedure TArrayElementTests.ElementConversion_ThrowsTypeErrorWithoutPrimitive;
+begin
+  const Script =
+    'var thrown = false;' + sLineBreak +
+    'try { [{valueOf: function() { return {}; }, toString: function() { return {}; }}].join(); }' + sLineBreak +
+    'catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
+    'thrown';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TArrayElementTests.Hole_ReadsValueInheritedFromArrayPrototype;
