@@ -28,6 +28,24 @@ type
     procedure UnicodeEscape_MatchesTheCharacter;
 
     [Test]
+    procedure SurrogateEscapes_MatchCodeUnitsWithoutUnicodeFlag;
+
+    [Test]
+    procedure SurrogateEscapes_WithIgnoreCase_MatchCodeUnits;
+
+    [Test]
+    procedure Dot_WithoutUnicodeFlag_MatchesOneCodeUnit;
+
+    [Test]
+    procedure NonWhiteSpaceEscape_WithoutUnicodeFlag_MatchesLoneSurrogates;
+
+    [Test]
+    procedure SurrogateEscapes_WithUnicodeFlag_FormCodePoints;
+
+    [Test]
+    procedure BracketInsideClass_IsLiteral;
+
+    [Test]
     procedure HexEscape_MatchesTheCharacter;
 
     [Test]
@@ -116,6 +134,44 @@ end;
 procedure TRegExpPatternSemanticsTests.UnicodeEscape_MatchesTheCharacter;
 begin
   AssertScript('/\u0041/.test("A") && !/\u0041/.test("B") && /[\u0041-\u0043]/.test("B")');
+end;
+
+procedure TRegExpPatternSemanticsTests.SurrogateEscapes_MatchCodeUnitsWithoutUnicodeFlag;
+begin
+  AssertScript(
+    '/\ud834/.test("\ud834\udf06") && /\udf06/.test("\ud834\udf06") && ' +
+    '/^\ud834\udf06$/.test("\ud834\udf06") && /[\ud800-\udbff]/.test("\ud834\udf06") && ' +
+    '!/\udf06\ud834/.test("\ud834\udf06")');
+end;
+
+procedure TRegExpPatternSemanticsTests.SurrogateEscapes_WithIgnoreCase_MatchCodeUnits;
+begin
+  AssertScript('/\udf06/i.test("\ud834\udf06") && /^\ud834\udf06$/i.test("\ud834\udf06") && /\u00e9/i.test("\u00c9")');
+end;
+
+procedure TRegExpPatternSemanticsTests.Dot_WithoutUnicodeFlag_MatchesOneCodeUnit;
+begin
+  AssertScript(
+    '"\ud834\udf06".match(/./g).length === 2 && !/^.$/.test("\ud834\udf06") && ' +
+    '/^.$/u.test("\ud834\udf06") && "\ud834\udf06".match(/./gu).length === 1');
+end;
+
+procedure TRegExpPatternSemanticsTests.NonWhiteSpaceEscape_WithoutUnicodeFlag_MatchesLoneSurrogates;
+begin
+  AssertScript('/^\S$/.test("\ud834") && /^\S$/.test("\uffff") && /^\S\S$/.test("\ud834\udf06") && !/\S/.test("\u3000")');
+end;
+
+procedure TRegExpPatternSemanticsTests.SurrogateEscapes_WithUnicodeFlag_FormCodePoints;
+begin
+  AssertScript(
+    '/^\ud834\udf06$/u.test("\ud834\udf06") && /^[\ud834\udf06]$/u.test("\ud834\udf06") && ' +
+    '/\u{1d306}/u.test("\ud834\udf06") && /\udf06/u.exec("\ud834\udf06") === null && ' +
+    '/\ud834/u.exec("\ud834\udf06") === null');
+end;
+
+procedure TRegExpPatternSemanticsTests.BracketInsideClass_IsLiteral;
+begin
+  AssertScript('/^[[.a.]]$/.test("a]") && /^[[:a:]]$/.test("a]") && "x".split(/[.-.]/).length === 1');
 end;
 
 procedure TRegExpPatternSemanticsTests.HexEscape_MatchesTheCharacter;

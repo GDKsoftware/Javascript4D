@@ -2703,7 +2703,10 @@ begin
   if Pattern.IsEmpty then
     CompilablePattern := EMPTY_PATTERN_GROUP;
 
-  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
+  const NeedsCodeUnits = (not FUnicode) and TJSRegExpTranslator.HasSurrogateEscape(CompilablePattern);
+  const UtfMode = FUnicode or (FIgnoreCase and not NeedsCodeUnits);
+  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern, FUnicode, UtfMode),
+                                    FIgnoreCase, FMultiline, UtfMode);
 
   var LastIndexDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(0));
   LastIndexDescriptor.Enumerable := False;

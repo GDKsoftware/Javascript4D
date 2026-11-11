@@ -111,6 +111,8 @@ type
     [TestCase('Error in tagged template', 'function t(s) { throw s; } t`a${() => 1}b`;', '#')]
     [TestCase('Symbol conversion error', 'var s = Symbol("e"); var o = { [s]: () => o }; s + 1;', '#')]
     [TestCase('Error in a symbol hook', 'var o = { [Symbol.toPrimitive]() { throw new Error("x"); } }; +o;', '#')]
+    [TestCase('Regular expression with surrogate escapes', '/\ud834\udf06/u.test("\ud834\udf06"); /[\ud800-\udbff]/i.test("a"); /^\S$/.exec("x");', '#')]
+    [TestCase('Built-in functions share the function prototype', 'Object.getPrototypeOf(Math.max) === Function.prototype; String(Object.keys);', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

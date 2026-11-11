@@ -36,6 +36,12 @@ type
     procedure FunctionPrototype_Call_InvokesTargetWithThisAndArguments;
 
     [Test]
+    procedure BuiltinFunctions_InheritFromFunctionPrototype;
+
+    [Test]
+    procedure BuiltinFunctions_ConvertToNativeCodeText;
+
+    [Test]
     procedure FunctionPrototype_Apply_InvokesTargetWithArgumentArray;
 
     [Test]
@@ -117,6 +123,20 @@ begin
   FEngine.Execute('function add(a) { return this.x + a; }');
 
   Assert.AreEqual(3.0, FEngine.Evaluate('Function.prototype.call.call(add, { x: 1 }, 2)').AsNumber);
+end;
+
+procedure TBuiltinPrototypeTests.BuiltinFunctions_InheritFromFunctionPrototype;
+begin
+  Assert.IsTrue(EvaluateBoolean(
+    '[Math.max, JSON.parse, JSON.stringify, Object.keys, Array.prototype.map, Object.prototype.isPrototypeOf, ' +
+    'Date.prototype.toJSON, parseInt, String.fromCharCode, Math.sin].every(function (f) { ' +
+    'return Object.getPrototypeOf(f) === Function.prototype; })'));
+end;
+
+procedure TBuiltinPrototypeTests.BuiltinFunctions_ConvertToNativeCodeText;
+begin
+  Assert.IsTrue(EvaluateBoolean(
+    '/^function max\(\) \{ \[native code\] \}$/.test(String(Math.max)) && Math.max.call === Function.prototype.call'));
 end;
 
 procedure TBuiltinPrototypeTests.FunctionPrototype_Apply_InvokesTargetWithArgumentArray;

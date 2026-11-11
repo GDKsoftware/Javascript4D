@@ -118,6 +118,9 @@ type
     procedure AttachPrototypeObject(const Constructor_: IJSFunction; const PrototypeObj: IJSObject);
     function GlobalPrototype(const ConstructorName: string): IJSObject;
     procedure LinkIntrinsicPrototypes;
+    procedure AssignMissingFunctionPrototypes;
+    procedure AssignFunctionPrototype(const Target: IJSObject; const Pending: TStack<IJSObject>);
+    procedure QueueMemberObjects(const Target: IJSObject; const Name: string; const Pending: TStack<IJSObject>);
     procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
@@ -678,6 +681,8 @@ begin
 
   FBinaryBuiltins := TJSBinaryBuiltins.Create(FInterpreter);
   FBinaryBuiltins.Register;
+
+  AssignMissingFunctionPrototypes;
 end;
 
 function TJSEngine.CodePointsToString(const Args: TArray<TJSValue>): string;
@@ -1997,6 +2002,62 @@ begin
   FInterpreter.RegExpPrototype := GlobalPrototype(REGEXP_NAME);
 
   DefineRestrictedFunctionProperties(GlobalPrototype(FUNCTION_NAME));
+end;
+
+procedure TJSEngine.AssignMissingFunctionPrototypes;
+begin
+  const Pending = TStack<IJSObject>.Create;
+  const Visited = THashSet<Pointer>.Create;
+  try
+    Pending.Push(FInterpreter.GlobalObject);
+    if Assigned(FArrayIteratorPrototype) then
+      Pending.Push(FArrayIteratorPrototype);
+
+    while Pending.Count > 0 do
+    begin
+      const Target = Pending.Pop;
+
+      const IsFirstVisit = Visited.Add(Pointer(Target as IInterface));
+      if IsFirstVisit then
+        AssignFunctionPrototype(Target, Pending);
+    end;
+  finally
+    Visited.Free;
+    Pending.Free;
+  end;
+end;
+
+procedure TJSEngine.AssignFunctionPrototype(const Target: IJSObject; const Pending: TStack<IJSObject>);
+begin
+  const IsFunctionPrototype = (Pointer(Target as IInterface) = Pointer(FInterpreter.FunctionPrototype as IInterface));
+  const NeedsPrototype = Supports(Target, IJSFunction) and (not Assigned(Target.Prototype)) and
+                         (not IsFunctionPrototype);
+  if NeedsPrototype then
+    Target.Prototype := FInterpreter.FunctionPrototype;
+
+  if Assigned(Target.Prototype) then
+    Pending.Push(Target.Prototype);
+
+  for var Name in Target.GetOwnPropertyNames do
+  begin
+    QueueMemberObjects(Target, Name, Pending);
+  end;
+
+  for var Key in Target.GetOwnSymbolKeys do
+  begin
+    QueueMemberObjects(Target, Key, Pending);
+  end;
+end;
+
+procedure TJSEngine.QueueMemberObjects(const Target: IJSObject; const Name: string; const Pending: TStack<IJSObject>);
+begin
+  const Descriptor = Target.GetOwnPropertyDescriptor(Name);
+
+  for var Member in [Descriptor.Value, Descriptor.Getter, Descriptor.Setter] do
+  begin
+    if Member.IsObject then
+      Pending.Push(Member.AsObject);
+  end;
 end;
 
 procedure TJSEngine.DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
