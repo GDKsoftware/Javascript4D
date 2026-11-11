@@ -10,6 +10,7 @@ type
     FPattern: string;
     FPosition: Integer;
     FIsUnicode: Boolean;
+    FGroupCount: Integer;
     FLine: Integer;
     FColumn: Integer;
 
@@ -34,16 +35,31 @@ type
     procedure ParseClass;
     procedure ParseClassRange;
     function ParseClassAtom(out IsSet: Boolean): Integer;
+    procedure ParseStrictAtomEscape;
+    procedure ParseDecimalEscape;
+    procedure ParseNamedReference;
+    procedure ParsePropertyEscape;
+    function CountCaptureGroups: Integer;
+    function IsCapturingGroupAt(const Index: Integer): Boolean;
     function ParseClassEscape(out IsSet: Boolean): Integer;
+    function ParseUnicodeEscape: Integer;
+    function ParseBracedCodePoint: Integer;
+    function TryReadTrailSurrogateEscape(out Trail: Integer): Boolean;
+    function ParseStrictNullEscape: Integer;
     function ParseHexEscape(const Digits: Integer; const Fallback: Integer): Integer;
     function ParseControlEscape: Integer;
     function ParseOctalEscape: Integer;
     function IsHexDigitAt(const Offset: Integer): Boolean;
 
     procedure Validate;
+
+    class function LineTerminatorEscape(const Character: Char): string; static;
+    class function EscapedCharacter(const Character: Char; const InClass: Boolean): string; static;
+    class function EscapedPair(const Character: Char): string; static;
   public
     class procedure ValidatePattern(const Pattern: string; const Flags: string; const Line: Integer = 0; const Column: Integer = 0);
     class procedure ValidateFlags(const Flags: string; const Line: Integer = 0; const Column: Integer = 0);
+    class function EscapePattern(const Pattern: string): string; static;
   end;
 
 implementation
@@ -55,15 +71,20 @@ uses
 
 const
   ValidFlagCharacters = 'gimuy';
+  EmptyPatternSource = '(?:)';
   ClassSetEscapes = 'dDsSwW';
   BackspaceCode = 8;
   InvalidFlagsMessage = 'Invalid regular expression flags: %s';
+  SaturatedQuantifierBound = 100000000000000000;
+  SyntaxCharacters = '^$\.*+?()[]{}|/-';
+  MaxCodePoint = $10FFFF;
 
 constructor TJSRegExpSyntax.Create(const Pattern: string; const Flags: string; const Line: Integer; const Column: Integer);
 begin
   inherited Create;
   FPattern := Pattern;
   FIsUnicode := (Pos('u', Flags) > 0);
+  FGroupCount := 0;
   FPosition := 1;
   FLine := Line;
   FColumn := Column;
@@ -95,8 +116,79 @@ begin
   end;
 end;
 
+class function TJSRegExpSyntax.LineTerminatorEscape(const Character: Char): string;
+begin
+  case Character of
+    #10    : Result := '\n';
+    #13    : Result := '\r';
+    #$2028 : Result := '\u2028';
+    #$2029 : Result := '\u2029';
+  else
+    Result := '';
+  end;
+end;
+
+class function TJSRegExpSyntax.EscapedCharacter(const Character: Char; const InClass: Boolean): string;
+begin
+  const LineTerminator = LineTerminatorEscape(Character);
+  if not LineTerminator.IsEmpty then
+    Exit(LineTerminator);
+
+  const IsBareSlash = (Character = '/') and (not InClass);
+  if IsBareSlash then
+    Exit('\/');
+
+  Result := Character;
+end;
+
+class function TJSRegExpSyntax.EscapedPair(const Character: Char): string;
+begin
+  const LineTerminator = LineTerminatorEscape(Character);
+  if not LineTerminator.IsEmpty then
+    Exit(LineTerminator);
+
+  Result := '\' + Character;
+end;
+
+class function TJSRegExpSyntax.EscapePattern(const Pattern: string): string;
+begin
+  if Pattern.IsEmpty then
+    Exit(EmptyPatternSource);
+
+  var Escaped := TStringBuilder.Create;
+  try
+    var InClass := False;
+    var Index := 1;
+    while Index <= Length(Pattern) do
+    begin
+      const Character = Pattern[Index];
+      const IsEscapePair = (Character = '\') and (Index < Length(Pattern));
+
+      if IsEscapePair then
+      begin
+        Inc(Index);
+        Escaped.Append(EscapedPair(Pattern[Index]));
+      end
+      else
+      begin
+        InClass := (InClass or (Character = '[')) and (Character <> ']');
+        Escaped.Append(EscapedCharacter(Character, InClass));
+      end;
+
+      Inc(Index);
+    end;
+
+    Result := Escaped.ToString;
+  finally
+    Escaped.Free;
+  end;
+end;
+
 procedure TJSRegExpSyntax.Validate;
 begin
+  if FIsUnicode then
+    FGroupCount := CountCaptureGroups;
+
   ParseDisjunction;
 
   if not IsAtEnd then
@@ -198,7 +290,15 @@ begin
 
     '{':
       begin
-        if ScanBracedQuantifier(False) then
+        if FIsUnicode or ScanBracedQuantifier(False) then
+          Fail;
+
+        Inc(FPosition);
+      end;
+
+    '}', ']':
+      begin
+        if FIsUnicode then
           Fail;
 
         Inc(FPosition);
@@ -219,7 +319,12 @@ function TJSRegExpSyntax.ParseGroup: Boolean;
 begin
   Result := True;
 
-  if LooksLike('(?=') or LooksLike('(?!') or LooksLike('(?:') then
+  if LooksLike('(?=') or LooksLike('(?!') then
+  begin
+    Inc(FPosition, 3);
+    Result := not FIsUnicode;
+  end
+  else if LooksLike('(?:') then
   begin
     Inc(FPosition, 3);
   end
@@ -260,12 +365,133 @@ end;
 
 procedure TJSRegExpSyntax.ParseEscape;
 begin
+  if FIsUnicode then
+  begin
+    ParseStrictAtomEscape;
+    Exit;
+  end;
+
   Inc(FPosition);
 
   if IsAtEnd then
     Fail;
 
   Inc(FPosition);
+end;
+
+procedure TJSRegExpSyntax.ParseStrictAtomEscape;
+begin
+  const Escaped = PeekAt(1);
+
+  if Escaped = '-' then
+  begin
+    Fail;
+  end
+  else if CharInSet(Escaped, ['0'..'9']) then
+  begin
+    ParseDecimalEscape;
+  end
+  else if Escaped = 'k' then
+  begin
+    ParseNamedReference;
+  end
+  else if CharInSet(Escaped, ['p', 'P']) then
+  begin
+    ParsePropertyEscape;
+  end
+  else
+  begin
+    var IsSet: Boolean;
+    ParseClassEscape(IsSet);
+  end;
+end;
+
+procedure TJSRegExpSyntax.ParseDecimalEscape;
+begin
+  Inc(FPosition);
+
+  if Current = '0' then
+  begin
+    Inc(FPosition);
+
+    if CharInSet(Current, ['0'..'9']) then
+      Fail;
+
+    Exit;
+  end;
+
+  const Reference = ReadDigits;
+  if Reference > FGroupCount then
+    Fail;
+end;
+
+procedure TJSRegExpSyntax.ParseNamedReference;
+begin
+  Inc(FPosition, 2);
+  Expect('<');
+
+  const Remainder = Copy(FPattern, FPosition, MaxInt);
+  const NameLength = Pos('>', Remainder) - 1;
+  const IsNamed = (NameLength > 0);
+  if not IsNamed then
+    Fail;
+
+  Inc(FPosition, NameLength + 1);
+end;
+
+procedure TJSRegExpSyntax.ParsePropertyEscape;
+begin
+  Inc(FPosition, 2);
+  Expect('{');
+
+  const Remainder = Copy(FPattern, FPosition, MaxInt);
+  const NameLength = Pos('}', Remainder) - 1;
+  const IsNamed = (NameLength > 0);
+  if not IsNamed then
+    Fail;
+
+  Inc(FPosition, NameLength + 1);
+end;
+
+function TJSRegExpSyntax.CountCaptureGroups: Integer;
+begin
+  Result := 0;
+  var Index := 1;
+  var IsInClass := False;
+
+  while Index <= Length(FPattern) do
+  begin
+    const Character = FPattern[Index];
+
+    if Character = '\' then
+    begin
+      Inc(Index);
+    end
+    else if IsInClass then
+    begin
+      IsInClass := (Character <> ']');
+    end
+    else if Character = '[' then
+    begin
+      IsInClass := True;
+    end
+    else if (Character = '(') and IsCapturingGroupAt(Index) then
+    begin
+      Inc(Result);
+    end;
+
+    Inc(Index);
+  end;
+end;
+
+function TJSRegExpSyntax.IsCapturingGroupAt(const Index: Integer): Boolean;
+begin
+  const Opening = Copy(FPattern, Index, 4);
+  const IsPlain = not Opening.StartsWith('(?');
+  const IsLookbehind = Opening.StartsWith('(?<=') or Opening.StartsWith('(?<!');
+  const IsNamed = Opening.StartsWith('(?<') and not IsLookbehind;
+
+  Result := IsPlain or IsNamed;
 end;
 
 procedure TJSRegExpSyntax.ParseQuantifier;
@@ -293,7 +519,7 @@ begin
 
   while CharInSet(Current, ['0'..'9']) do
   begin
-    if Result < High(Integer) then
+    if Result < SaturatedQuantifierBound then
       Result := (Result * 10) + (Ord(Current) - Ord('0'));
 
     Inc(FPosition);
@@ -322,7 +548,7 @@ begin
       if HasMaximum then
         Maximum := ReadDigits
       else
-        Maximum := High(Integer);
+        Maximum := High(Int64);
     end;
 
     if Current <> '}' then
@@ -370,6 +596,9 @@ begin
   const EndCode = ParseClassAtom(EndIsSet);
 
   const HasSet = StartIsSet or EndIsSet;
+  if HasSet and FIsUnicode then
+    Fail;
+
   const IsOutOfOrder = (StartCode > EndCode);
   if (not HasSet) and IsOutOfOrder then
     Fail;
@@ -449,17 +678,99 @@ begin
     'x':
       Result := ParseHexEscape(2, Ord('x'));
     'u':
-      Result := ParseHexEscape(4, Ord('u'));
+      Result := ParseUnicodeEscape;
     'c':
       Result := ParseControlEscape;
     '0'..'7':
-      Result := ParseOctalEscape;
+      begin
+        if FIsUnicode then
+          Result := ParseStrictNullEscape
+        else
+          Result := ParseOctalEscape;
+      end;
   else
     begin
+      const IsSyntaxCharacter = (Pos(Escaped, SyntaxCharacters) > 0);
+      if FIsUnicode and not IsSyntaxCharacter then
+        Fail;
+
       Inc(FPosition);
       Result := Ord(Escaped);
     end;
   end;
+end;
+
+function TJSRegExpSyntax.ParseUnicodeEscape: Integer;
+begin
+  const IsBraced = FIsUnicode and (PeekAt(1) = '{');
+  if IsBraced then
+    Exit(ParseBracedCodePoint);
+
+  Result := ParseHexEscape(4, Ord('u'));
+
+  const IsLeadSurrogate = FIsUnicode and (Result >= $D800) and (Result <= $DBFF);
+  if not IsLeadSurrogate then
+    Exit;
+
+  var Trail: Integer;
+  if TryReadTrailSurrogateEscape(Trail) then
+    Result := $10000 + ((Result - $D800) shl 10) + (Trail - $DC00);
+end;
+
+function TJSRegExpSyntax.ParseBracedCodePoint: Integer;
+begin
+  Inc(FPosition, 2);
+  Result := 0;
+  var DigitCount := 0;
+
+  while IsHexDigitAt(0) do
+  begin
+    Result := (Result * 16) + StrToInt(Format('$%s', [Current]));
+
+    if Result > MaxCodePoint then
+      Fail;
+
+    Inc(DigitCount);
+    Inc(FPosition);
+  end;
+
+  const IsComplete = (DigitCount > 0) and (Current = '}');
+  if not IsComplete then
+    Fail;
+
+  Inc(FPosition);
+end;
+
+function TJSRegExpSyntax.TryReadTrailSurrogateEscape(out Trail: Integer): Boolean;
+begin
+  Result := False;
+  Trail := 0;
+
+  const IsEscape = (Current = '\') and (PeekAt(1) = 'u');
+  if not IsEscape then
+    Exit;
+
+  for var Offset := 2 to 5 do
+  begin
+    if not IsHexDigitAt(Offset) then
+      Exit;
+  end;
+
+  Trail := StrToInt(Format('$%s', [Copy(FPattern, FPosition + 2, 4)]));
+  Result := (Trail >= $DC00) and (Trail <= $DFFF);
+
+  if Result then
+    Inc(FPosition, 6);
+end;
+
+function TJSRegExpSyntax.ParseStrictNullEscape: Integer;
+begin
+  const IsNull = (Current = '0') and not CharInSet(PeekAt(1), ['0'..'9']);
+  if not IsNull then
+    Fail;
+
+  Inc(FPosition);
+  Result := 0;
 end;
 
 function TJSRegExpSyntax.IsHexDigitAt(const Offset: Integer): Boolean;
@@ -473,6 +784,9 @@ begin
   begin
     if not IsHexDigitAt(Offset) then
     begin
+      if FIsUnicode then
+        Fail;
+
       Inc(FPosition);
       Exit(Fallback);
     end;
@@ -495,6 +809,9 @@ begin
   end
   else
   begin
+    if FIsUnicode then
+      Fail;
+
     Result := Ord('\');
   end;
 end;

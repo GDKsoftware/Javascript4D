@@ -5,18 +5,29 @@ unit JS4D.GlobalScope;
 interface
 
 uses
+  System.Generics.Collections,
   JS4D.Types,
   JS4D.AST,
-  JS4D.ObjectScope;
+  JS4D.ObjectScope,
+  JS4D.LexicalStates;
 
 type
   TJSGlobalScope = class(TInterfacedObject, IJSScope)
   private
     FGlobalObject: IJSObject;
     FGlobalStorage: TJSObjectImpl;
+    FLexicalValues: TDictionary<string, TJSValue>;
+    FLexicalStates: TJSLexicalStates;
+    FHasLexicals: Boolean;
+
+    function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
 
   public
     constructor Create(const GlobalObject: IJSObject);
+    destructor Destroy; override;
+
+    function HasLexicals: Boolean;
+    function HasLexical(const Name: string): Boolean;
 
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
@@ -25,6 +36,9 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
+    procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
@@ -44,18 +58,51 @@ begin
   FGlobalStorage := (GlobalObject as TObject) as TJSObjectImpl;
 end;
 
+destructor TJSGlobalScope.Destroy;
+begin
+  FLexicalStates.Free;
+  FLexicalValues.Free;
+  inherited;
+end;
+
+function TJSGlobalScope.HasLexicals: Boolean;
+begin
+  Result := FHasLexicals;
+end;
+
+function TJSGlobalScope.HasLexical(const Name: string): Boolean;
+begin
+  Result := FHasLexicals and (FLexicalValues.ContainsKey(Name) or FLexicalStates.Contains(Name));
+end;
+
+function TJSGlobalScope.TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
+begin
+  if not FHasLexicals then
+    Exit(False);
+
+  Result := FLexicalValues.TryGetValue(Name, Value);
+  if not Result then
+    FLexicalStates.EnsureInitialized(Name);
+end;
+
 function TJSGlobalScope.HasVariable(const Name: string): Boolean;
 begin
-  Result := FGlobalObject.HasProperty(Name);
+  Result := HasLexical(Name) or FGlobalObject.HasProperty(Name);
 end;
 
 function TJSGlobalScope.GetVariable(const Name: string): TJSValue;
 begin
+  if TryGetLexical(Name, Result) then
+    Exit;
+
   Result := FGlobalObject.GetProperty(Name);
 end;
 
 function TJSGlobalScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
 begin
+  if TryGetLexical(Name, Value) then
+    Exit(True);
+
   var Descriptor: TJSPropertyDescriptor;
   Result := FGlobalObject.TryGetPropertyDescriptor(Name, Descriptor);
 
@@ -85,7 +132,40 @@ end;
 
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
-  FGlobalObject.SetProperty(Name, Value);
+  if HasLexical(Name) then
+    AssignVariable(Name, Value)
+  else
+    FGlobalObject.SetProperty(Name, Value);
+end;
+
+procedure TJSGlobalScope.AssignVariable(const Name: string; const Value: TJSValue);
+begin
+  if HasLexical(Name) then
+  begin
+    FLexicalStates.EnsureAssignable(Name);
+    FLexicalValues.AddOrSetValue(Name, Value);
+    Exit;
+  end;
+
+  DeclareVariable(Name, Value);
+end;
+
+procedure TJSGlobalScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
+begin
+  if not FHasLexicals then
+  begin
+    FLexicalValues := TDictionary<string, TJSValue>.Create;
+    FLexicalStates := TJSLexicalStates.Create;
+    FHasLexicals := True;
+  end;
+
+  FLexicalStates.Declare(Name, IsConstant);
+end;
+
+procedure TJSGlobalScope.InitializeLexical(const Name: string; const Value: TJSValue);
+begin
+  FLexicalValues.AddOrSetValue(Name, Value);
+  FLexicalStates.MarkInitialized(Name);
 end;
 
 procedure TJSGlobalScope.DeclareVariable(const Name: string; const Value: TJSValue);
@@ -105,6 +185,9 @@ end;
 
 function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;
 begin
+  if HasLexical(Name) then
+    Exit(False);
+
   Result := TJSObjectScope.DeleteBinding(FGlobalObject, Name);
 end;
 
@@ -112,7 +195,7 @@ function TJSGlobalScope.Resolve(const Name: string): IJSScope;
 begin
   Result := nil;
 
-  if FGlobalObject.HasProperty(Name) then
+  if HasLexical(Name) or FGlobalObject.HasProperty(Name) then
     Result := Self;
 end;
 
@@ -134,10 +217,24 @@ end;
 function TJSGlobalScope.GetOwnVariables: TArray<TJSValue>;
 begin
   Result := [TJSValue.CreateObject(FGlobalObject)];
+
+  if not FHasLexicals then
+    Exit;
+
+  for var Value in FLexicalValues.Values do
+  begin
+    Result := Result + [Value];
+  end;
 end;
 
 procedure TJSGlobalScope.ReleaseReferences;
 begin
+  if FHasLexicals then
+  begin
+    FLexicalValues.Clear;
+    FLexicalStates.Clear;
+  end;
+
   FGlobalStorage := nil;
   FGlobalObject := nil;
 end;

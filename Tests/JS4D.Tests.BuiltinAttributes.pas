@@ -96,6 +96,13 @@ type
     procedure MathAndJson_PropertiesAreNonEnumerable;
 
     [Test]
+    [TestCase('MathMethod', 'Math.cos')]
+    [TestCase('ArrayStatic', 'Array.isArray')]
+    [TestCase('PrototypeMethod', 'Array.prototype.join')]
+    [TestCase('ObjectStatic', 'Object.keys')]
+    procedure BuiltinMethods_AreNotConstructors(const Method: string);
+
+    [Test]
     procedure PrototypeMethods_AreStillWritableAndConfigurable;
   end;
 
@@ -324,6 +331,13 @@ begin
     'd.writable && d.configurable && !d.enumerable';
 
   Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TBuiltinAttributeTests.BuiltinMethods_AreNotConstructors(const Method: string);
+begin
+  const Script = Format('var caught = ""; try { new %s(); } catch (e) { caught = e.name; } caught', [Method]);
+
+  Assert.AreEqual('TypeError', FEngine.Evaluate(Script).AsString);
 end;
 
 end.

@@ -53,8 +53,6 @@ type
     [TestCase('Strict call compound', '"use strict"; function f() {} f() += 1')]
     [TestCase('Strict call postfix', '"use strict"; function f() {} f()++')]
     [TestCase('Strict call for in', '"use strict"; function f() {} for (f() in {}) {}')]
-    [TestCase('Let bracket', 'for (let [x] in {}) {}')]
-    [TestCase('Const bracket', 'for (const [x] in {}) {}')]
     procedure Source_WithInvalidAssignmentTarget_IsSyntaxError(const Source: string);
 
     [Test]

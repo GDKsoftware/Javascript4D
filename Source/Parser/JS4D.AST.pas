@@ -26,6 +26,7 @@ type
     DoWhileStatement,
     ForStatement,
     ForInStatement,
+    ForOfStatement,
     ReturnStatement,
     BreakStatement,
     ContinueStatement,
@@ -54,7 +55,13 @@ type
     MemberExpression,
     NewExpression,
     SequenceExpression,
-    ThisExpression
+    ThisExpression,
+    TemplateLiteral,
+    TemplateObject,
+    SpreadElement,
+    ArrayPattern,
+    ObjectPattern,
+    AssignmentPattern
   );
 
   TJSASTNode = class
@@ -71,14 +78,40 @@ type
     property Column: Integer read FColumn write FColumn;
   end;
 
-  TJSExpression = class(TJSASTNode);
+  TJSExpression = class(TJSASTNode)
+  private
+    FIsParenthesized: Boolean;
+
+  public
+    property IsParenthesized: Boolean read FIsParenthesized write FIsParenthesized;
+  end;
 
   TJSStatement = class(TJSASTNode);
+
+  TJSDeclarationKind = (
+    Var_,
+    Let,
+    Const_
+  );
+
+  TJSScopeInfo = class
+  private
+    FDeclarations: TList<TJSStatement>;
+    FMayCaptureScope: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Declarations: TList<TJSStatement> read FDeclarations;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
+  end;
 
   TJSProgram = class(TJSASTNode)
   private
     FBody: TObjectList<TJSStatement>;
     FIsStrict: Boolean;
+    FScopeInfo: TJSScopeInfo;
 
   public
     constructor Create;
@@ -86,6 +119,7 @@ type
 
     property Body: TObjectList<TJSStatement> read FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSBindingCache = record
@@ -143,6 +177,84 @@ type
   TJSArrayExpression = class(TJSExpression)
   private
     FElements: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
+    FSpreadFollowedByComma: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Elements: TObjectList<TJSExpression> read FElements;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
+    property SpreadFollowedByComma: Boolean read FSpreadFollowedByComma write FSpreadFollowedByComma;
+  end;
+
+  TJSPropertyKind = (Data, Getter, Setter, Method, Shorthand, Spread);
+
+  TJSObjectProperty = class(TJSASTNode)
+  private
+    FKey: TJSExpression;
+    FValue: TJSExpression;
+    FComputed: Boolean;
+    FKind: TJSPropertyKind;
+    FSetsPrototype: Boolean;
+
+    function IsPrototypeKey: Boolean;
+
+  public
+    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
+                       const Kind: TJSPropertyKind = TJSPropertyKind.Data);
+    destructor Destroy; override;
+
+    property Key: TJSExpression read FKey;
+    property Value: TJSExpression read FValue write FValue;
+    property Computed: Boolean read FComputed;
+    property Kind: TJSPropertyKind read FKind;
+    property SetsPrototype: Boolean read FSetsPrototype;
+  end;
+
+  TJSObjectExpression = class(TJSExpression)
+  private
+    FProperties: TObjectList<TJSObjectProperty>;
+    FSpreadFollowedByComma: Boolean;
+    FHasDuplicatePrototype: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Properties: TObjectList<TJSObjectProperty> read FProperties;
+    property SpreadFollowedByComma: Boolean read FSpreadFollowedByComma write FSpreadFollowedByComma;
+    property HasDuplicatePrototype: Boolean read FHasDuplicatePrototype write FHasDuplicatePrototype;
+  end;
+
+  TJSSpreadElement = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+
+  public
+    constructor Create(const Argument: TJSExpression);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument write FArgument;
+  end;
+
+  TJSAssignmentPattern = class(TJSExpression)
+  private
+    FTarget: TJSExpression;
+    FDefault: TJSExpression;
+
+  public
+    constructor Create(const Target: TJSExpression; const Default: TJSExpression);
+    destructor Destroy; override;
+
+    property Target: TJSExpression read FTarget;
+    property Default: TJSExpression read FDefault;
+  end;
+
+  TJSArrayPattern = class(TJSExpression)
+  private
+    FElements: TObjectList<TJSExpression>;
 
   public
     constructor Create;
@@ -151,43 +263,66 @@ type
     property Elements: TObjectList<TJSExpression> read FElements;
   end;
 
-  TJSPropertyKind = (Data, Getter, Setter);
-
-  TJSObjectProperty = class(TJSASTNode)
-  private
-    FKey: TJSExpression;
-    FValue: TJSExpression;
-    FComputed: Boolean;
-    FKind: TJSPropertyKind;
-
-  public
-    constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
-                       const Kind: TJSPropertyKind = TJSPropertyKind.Data);
-    destructor Destroy; override;
-
-    property Key: TJSExpression read FKey;
-    property Value: TJSExpression read FValue;
-    property Computed: Boolean read FComputed;
-    property Kind: TJSPropertyKind read FKind;
-  end;
-
-  TJSObjectExpression = class(TJSExpression)
+  TJSObjectPattern = class(TJSExpression)
   private
     FProperties: TObjectList<TJSObjectProperty>;
+    FRest: TJSExpression;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Properties: TObjectList<TJSObjectProperty> read FProperties;
+    property Rest: TJSExpression read FRest write FRest;
+  end;
+
+  TJSPatternNames = class
+  public
+    class procedure Collect(const Target: TJSASTNode; const Names: TList<string>); static;
+    class function Of_(const Target: TJSASTNode): TArray<string>; static;
+  end;
+
+  // Default values and rest parameter of a function. Only created when a function has at least one
+  // of them; Defaults has one entry per name in Params, nil where the parameter has no default.
+  TJSParameterInfo = class
+  private
+    FDefaults: TObjectList<TJSExpression>;
+    FPatterns: TObjectList<TJSExpression>;
+    FRest: TJSIdentifier;
+    FRestPattern: TJSExpression;
+    FBoundNames: TArray<string>;
+    FExpectedArgumentCount: Integer;
+    FHasDefaults: Boolean;
+    FHasPatterns: Boolean;
+    FReferencesArguments: Boolean;
+
+    function GetNeedsParameterScope: Boolean;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
+    property Defaults: TObjectList<TJSExpression> read FDefaults;
+    property Patterns: TObjectList<TJSExpression> read FPatterns;
+    property Rest: TJSIdentifier read FRest write FRest;
+    property RestPattern: TJSExpression read FRestPattern write FRestPattern;
+    property BoundNames: TArray<string> read FBoundNames write FBoundNames;
+    property ExpectedArgumentCount: Integer read FExpectedArgumentCount write FExpectedArgumentCount;
+    property HasDefaults: Boolean read FHasDefaults write FHasDefaults;
+    property HasPatterns: Boolean read FHasPatterns write FHasPatterns;
+    property NeedsParameterScope: Boolean read GetNeedsParameterScope;
   end;
 
   TJSFunctionExpression = class(TJSExpression)
   private
     FId: TJSIdentifier;
     FParams: TObjectList<TJSIdentifier>;
+    FParameterInfo: TJSParameterInfo;
     FBody: TJSStatement;
     FIsStrict: Boolean;
+    FIsArrow: Boolean;
+    FSourceText: string;
 
   public
     constructor Create;
@@ -195,8 +330,11 @@ type
 
     property Id: TJSIdentifier read FId write FId;
     property Params: TObjectList<TJSIdentifier> read FParams;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property IsArrow: Boolean read FIsArrow write FIsArrow;
+    property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSUnaryOperator = (
@@ -308,6 +446,9 @@ type
     constructor Create(const Op: TJSAssignmentOperator; const Left: TJSExpression; const Right: TJSExpression);
     destructor Destroy; override;
 
+    function TakeLeft: TJSExpression;
+    function TakeRight: TJSExpression;
+
     property Operator: TJSAssignmentOperator read FOperator;
     property Left: TJSExpression read FLeft;
     property Right: TJSExpression read FRight;
@@ -352,6 +493,7 @@ type
   private
     FCallee: TJSExpression;
     FArguments: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
 
   public
     constructor Create(const Callee: TJSExpression);
@@ -359,7 +501,10 @@ type
 
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
   end;
+
+  TJSTaggedTemplateExpression = class(TJSCallExpression);
 
   TJSMemberExpression = class(TJSExpression)
   private
@@ -380,6 +525,7 @@ type
   private
     FCallee: TJSExpression;
     FArguments: TObjectList<TJSExpression>;
+    FHasSpread: Boolean;
 
   public
     constructor Create(const Callee: TJSExpression);
@@ -387,6 +533,7 @@ type
 
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
+    property HasSpread: Boolean read FHasSpread write FHasSpread;
   end;
 
   TJSSequenceExpression = class(TJSExpression)
@@ -405,51 +552,100 @@ type
     constructor Create;
   end;
 
+  TJSTemplatePart = record
+    Cooked: string;
+    Raw: string;
+    HasCooked: Boolean;
+  end;
+
+  TJSTemplateLiteral = class(TJSExpression)
+  private
+    FParts: TList<TJSTemplatePart>;
+    FExpressions: TObjectList<TJSExpression>;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Parts: TList<TJSTemplatePart> read FParts;
+    property Expressions: TObjectList<TJSExpression> read FExpressions;
+  end;
+
+  TJSTemplateObject = class(TJSExpression)
+  private
+    FParts: TList<TJSTemplatePart>;
+    FCachedObject: IInterface;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Parts: TList<TJSTemplatePart> read FParts;
+    property CachedObject: IInterface read FCachedObject write FCachedObject;
+  end;
+
   TJSBlockStatement = class(TJSStatement)
   private
     FBody: TObjectList<TJSStatement>;
     FReferencesArguments: Boolean;
     FDeclaresStrictMode: Boolean;
+    FIsFunctionBody: Boolean;
+    FScopeInfo: TJSScopeInfo;
+    FParameterInfo: TJSParameterInfo;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
+    property IsFunctionBody: Boolean read FIsFunctionBody write FIsFunctionBody;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSVariableDeclarator = class(TJSASTNode)
   private
     FId: TJSIdentifier;
+    FPattern: TJSExpression;
     FInit: TJSExpression;
+    FBoundNames: TArray<string>;
 
   public
     constructor Create(const Id: TJSIdentifier; const Init: TJSExpression);
+    constructor CreateWithPattern(const Pattern: TJSExpression; const Init: TJSExpression);
     destructor Destroy; override;
 
+    function BoundNames: TArray<string>;
+
     property Id: TJSIdentifier read FId;
+    property Pattern: TJSExpression read FPattern;
     property Init: TJSExpression read FInit;
   end;
 
   TJSVariableDeclaration = class(TJSStatement)
   private
     FDeclarations: TObjectList<TJSVariableDeclarator>;
+    FKind: TJSDeclarationKind;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Declarations: TObjectList<TJSVariableDeclarator> read FDeclarations;
+    property Kind: TJSDeclarationKind read FKind write FKind;
   end;
 
   TJSFunctionDeclaration = class(TJSStatement)
   private
     FId: TJSIdentifier;
     FParams: TObjectList<TJSIdentifier>;
+    FParameterInfo: TJSParameterInfo;
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
+    FHoistsToVar: Boolean;
+    FSourceText: string;
 
   public
     constructor Create(const Id: TJSIdentifier);
@@ -457,8 +653,11 @@ type
 
     property Id: TJSIdentifier read FId;
     property Params: TObjectList<TJSIdentifier> read FParams;
+    property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
+    property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
+    property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSExpressionStatement = class(TJSStatement)
@@ -532,6 +731,7 @@ type
     FTest: TJSExpression;
     FUpdate: TJSExpression;
     FBody: TJSStatement;
+    FMayCaptureScope: Boolean;
 
   public
     constructor Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression; const Body: TJSStatement);
@@ -541,6 +741,7 @@ type
     property Test: TJSExpression read FTest;
     property Update: TJSExpression read FUpdate;
     property Body: TJSStatement read FBody;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
   end;
 
   TJSForInStatement = class(TJSStatement)
@@ -548,6 +749,11 @@ type
     FLeft: TJSASTNode;
     FRight: TJSExpression;
     FBody: TJSStatement;
+    FMayCaptureScope: Boolean;
+
+  protected
+    constructor CreateOfType(const NodeType: TJSASTNodeType; const Left: TJSASTNode; const Right: TJSExpression;
+                             const Body: TJSStatement);
 
   public
     constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
@@ -556,6 +762,12 @@ type
     property Left: TJSASTNode read FLeft;
     property Right: TJSExpression read FRight;
     property Body: TJSStatement read FBody;
+    property MayCaptureScope: Boolean read FMayCaptureScope write FMayCaptureScope;
+  end;
+
+  TJSForOfStatement = class(TJSForInStatement)
+  public
+    constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
   end;
 
   TJSReturnStatement = class(TJSStatement)
@@ -608,6 +820,7 @@ type
   private
     FDiscriminant: TJSExpression;
     FCases: TObjectList<TJSSwitchCase>;
+    FScopeInfo: TJSScopeInfo;
 
   public
     constructor Create(const Discriminant: TJSExpression);
@@ -615,6 +828,7 @@ type
 
     property Discriminant: TJSExpression read FDiscriminant;
     property Cases: TObjectList<TJSSwitchCase> read FCases;
+    property ScopeInfo: TJSScopeInfo read FScopeInfo write FScopeInfo;
   end;
 
   TJSThrowStatement = class(TJSStatement)
@@ -631,13 +845,16 @@ type
   TJSCatchClause = class(TJSASTNode)
   private
     FParam: TJSIdentifier;
+    FPattern: TJSExpression;
     FBody: TJSBlockStatement;
 
   public
     constructor Create(const Param: TJSIdentifier; const Body: TJSBlockStatement);
+    constructor CreateWithPattern(const Pattern: TJSExpression; const Body: TJSBlockStatement);
     destructor Destroy; override;
 
     property Param: TJSIdentifier read FParam;
+    property Pattern: TJSExpression read FPattern;
     property Body: TJSBlockStatement read FBody;
   end;
 
@@ -681,12 +898,29 @@ type
 
 implementation
 
+const
+  PROTOTYPE_ACCESSOR_KEY = '__proto__';
+
 { TJSASTNode }
 
 constructor TJSASTNode.Create(const NodeType: TJSASTNodeType);
 begin
   inherited Create;
   FNodeType := NodeType;
+end;
+
+{ TJSScopeInfo }
+
+constructor TJSScopeInfo.Create;
+begin
+  inherited Create;
+  FDeclarations := TList<TJSStatement>.Create;
+end;
+
+destructor TJSScopeInfo.Destroy;
+begin
+  FDeclarations.Free;
+  inherited;
 end;
 
 { TJSProgram }
@@ -699,6 +933,7 @@ end;
 
 destructor TJSProgram.Destroy;
 begin
+  FScopeInfo.Free;
   FBody.Free;
   inherited;
 end;
@@ -768,6 +1003,95 @@ begin
   inherited;
 end;
 
+{ TJSAssignmentPattern }
+
+constructor TJSAssignmentPattern.Create(const Target: TJSExpression; const Default: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.AssignmentPattern);
+  FTarget := Target;
+  FDefault := Default;
+end;
+
+destructor TJSAssignmentPattern.Destroy;
+begin
+  FDefault.Free;
+  FTarget.Free;
+  inherited;
+end;
+
+{ TJSArrayPattern }
+
+constructor TJSArrayPattern.Create;
+begin
+  inherited Create(TJSASTNodeType.ArrayPattern);
+  FElements := TObjectList<TJSExpression>.Create(True);
+end;
+
+destructor TJSArrayPattern.Destroy;
+begin
+  FElements.Free;
+  inherited;
+end;
+
+{ TJSObjectPattern }
+
+constructor TJSObjectPattern.Create;
+begin
+  inherited Create(TJSASTNodeType.ObjectPattern);
+  FProperties := TObjectList<TJSObjectProperty>.Create(True);
+end;
+
+destructor TJSObjectPattern.Destroy;
+begin
+  FRest.Free;
+  FProperties.Free;
+  inherited;
+end;
+
+{ TJSPatternNames }
+
+class procedure TJSPatternNames.Collect(const Target: TJSASTNode; const Names: TList<string>);
+begin
+  if Target = nil then
+    Exit;
+
+  case Target.NodeType of
+    TJSASTNodeType.Identifier:
+      Names.Add(TJSIdentifier(Target).Name);
+    TJSASTNodeType.AssignmentPattern:
+      Collect(TJSAssignmentPattern(Target).Target, Names);
+    TJSASTNodeType.SpreadElement:
+      Collect(TJSSpreadElement(Target).Argument, Names);
+    TJSASTNodeType.ArrayPattern:
+      begin
+        for var Element in TJSArrayPattern(Target).Elements do
+        begin
+          Collect(Element, Names);
+        end;
+      end;
+    TJSASTNodeType.ObjectPattern:
+      begin
+        for var Prop in TJSObjectPattern(Target).Properties do
+        begin
+          Collect(Prop.Value, Names);
+        end;
+
+        Collect(TJSObjectPattern(Target).Rest, Names);
+      end;
+  end;
+end;
+
+class function TJSPatternNames.Of_(const Target: TJSASTNode): TArray<string>;
+begin
+  const Names = TList<string>.Create;
+  try
+    Collect(Target, Names);
+    Result := Names.ToArray;
+  finally
+    Names.Free;
+  end;
+end;
+
 { TJSObjectProperty }
 
 constructor TJSObjectProperty.Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean;
@@ -778,6 +1102,16 @@ begin
   FValue := Value;
   FComputed := Computed;
   FKind := Kind;
+  FSetsPrototype := (Kind = TJSPropertyKind.Data) and (not Computed) and IsPrototypeKey;
+end;
+
+function TJSObjectProperty.IsPrototypeKey: Boolean;
+begin
+  if FKey is TJSIdentifier then
+    Exit(TJSIdentifier(FKey).Name = PROTOTYPE_ACCESSOR_KEY);
+
+  const IsStringKey = (FKey is TJSLiteral) and (TJSLiteral(FKey).LiteralType = TJSLiteralType.String_);
+  Result := IsStringKey and (TJSLiteral(FKey).StringValue = PROTOTYPE_ACCESSOR_KEY);
 end;
 
 destructor TJSObjectProperty.Destroy;
@@ -813,8 +1147,46 @@ destructor TJSFunctionExpression.Destroy;
 begin
   FId.Free;
   FParams.Free;
+  FParameterInfo.Free;
   FBody.Free;
   inherited;
+end;
+
+{ TJSSpreadElement }
+
+constructor TJSSpreadElement.Create(const Argument: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.SpreadElement);
+  FArgument := Argument;
+end;
+
+destructor TJSSpreadElement.Destroy;
+begin
+  FArgument.Free;
+  inherited;
+end;
+
+{ TJSParameterInfo }
+
+constructor TJSParameterInfo.Create;
+begin
+  inherited Create;
+  FDefaults := TObjectList<TJSExpression>.Create(True);
+  FPatterns := TObjectList<TJSExpression>.Create(True);
+end;
+
+destructor TJSParameterInfo.Destroy;
+begin
+  FDefaults.Free;
+  FPatterns.Free;
+  FRestPattern.Free;
+  FRest.Free;
+  inherited;
+end;
+
+function TJSParameterInfo.GetNeedsParameterScope: Boolean;
+begin
+  Result := FHasDefaults or FHasPatterns;
 end;
 
 { TJSUnaryExpression }
@@ -875,6 +1247,18 @@ begin
   FOperator := Op;
   FLeft := Left;
   FRight := Right;
+end;
+
+function TJSAssignmentExpression.TakeLeft: TJSExpression;
+begin
+  Result := FLeft;
+  FLeft := nil;
+end;
+
+function TJSAssignmentExpression.TakeRight: TJSExpression;
+begin
+  Result := FRight;
+  FRight := nil;
 end;
 
 destructor TJSAssignmentExpression.Destroy;
@@ -988,6 +1372,36 @@ begin
   inherited Create(TJSASTNodeType.ThisExpression);
 end;
 
+{ TJSTemplateLiteral }
+
+constructor TJSTemplateLiteral.Create;
+begin
+  inherited Create(TJSASTNodeType.TemplateLiteral);
+  FParts := TList<TJSTemplatePart>.Create;
+  FExpressions := TObjectList<TJSExpression>.Create(True);
+end;
+
+destructor TJSTemplateLiteral.Destroy;
+begin
+  FExpressions.Free;
+  FParts.Free;
+  inherited;
+end;
+
+{ TJSTemplateObject }
+
+constructor TJSTemplateObject.Create;
+begin
+  inherited Create(TJSASTNodeType.TemplateObject);
+  FParts := TList<TJSTemplatePart>.Create;
+end;
+
+destructor TJSTemplateObject.Destroy;
+begin
+  FParts.Free;
+  inherited;
+end;
+
 { TJSBlockStatement }
 
 constructor TJSBlockStatement.Create;
@@ -999,6 +1413,7 @@ end;
 
 destructor TJSBlockStatement.Destroy;
 begin
+  FScopeInfo.Free;
   FBody.Free;
   inherited;
 end;
@@ -1012,11 +1427,32 @@ begin
   FInit := Init;
 end;
 
+constructor TJSVariableDeclarator.CreateWithPattern(const Pattern: TJSExpression; const Init: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.VariableDeclaration);
+  FPattern := Pattern;
+  FInit := Init;
+end;
+
 destructor TJSVariableDeclarator.Destroy;
 begin
   FId.Free;
+  FPattern.Free;
   FInit.Free;
   inherited;
+end;
+
+function TJSVariableDeclarator.BoundNames: TArray<string>;
+begin
+  if Length(FBoundNames) = 0 then
+  begin
+    if Assigned(FId) then
+      FBoundNames := [FId.Name]
+    else
+      FBoundNames := TJSPatternNames.Of_(FPattern);
+  end;
+
+  Result := FBoundNames;
 end;
 
 { TJSVariableDeclaration }
@@ -1046,6 +1482,7 @@ destructor TJSFunctionDeclaration.Destroy;
 begin
   FId.Free;
   FParams.Free;
+  FParameterInfo.Free;
   FBody.Free;
   inherited;
 end;
@@ -1154,7 +1591,13 @@ end;
 
 constructor TJSForInStatement.Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
 begin
-  inherited Create(TJSASTNodeType.ForInStatement);
+  CreateOfType(TJSASTNodeType.ForInStatement, Left, Right, Body);
+end;
+
+constructor TJSForInStatement.CreateOfType(const NodeType: TJSASTNodeType; const Left: TJSASTNode;
+                                           const Right: TJSExpression; const Body: TJSStatement);
+begin
+  inherited Create(NodeType);
   FLeft := Left;
   FRight := Right;
   FBody := Body;
@@ -1166,6 +1609,13 @@ begin
   FRight.Free;
   FBody.Free;
   inherited;
+end;
+
+{ TJSForOfStatement }
+
+constructor TJSForOfStatement.Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
+begin
+  CreateOfType(TJSASTNodeType.ForOfStatement, Left, Right, Body);
 end;
 
 { TJSReturnStatement }
@@ -1237,6 +1687,7 @@ end;
 
 destructor TJSSwitchStatement.Destroy;
 begin
+  FScopeInfo.Free;
   FDiscriminant.Free;
   FCases.Free;
   inherited;
@@ -1265,8 +1716,16 @@ begin
   FBody := Body;
 end;
 
+constructor TJSCatchClause.CreateWithPattern(const Pattern: TJSExpression; const Body: TJSBlockStatement);
+begin
+  inherited Create(TJSASTNodeType.TryStatement);
+  FPattern := Pattern;
+  FBody := Body;
+end;
+
 destructor TJSCatchClause.Destroy;
 begin
+  FPattern.Free;
   FParam.Free;
   FBody.Free;
   inherited;

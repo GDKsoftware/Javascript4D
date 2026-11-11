@@ -25,6 +25,8 @@ type
       METHOD_REDUCE_RIGHT = 'reduceRight';
       METHOD_INDEX_OF = 'indexOf';
       METHOD_LAST_INDEX_OF = 'lastIndexOf';
+      METHOD_FIND = 'find';
+      METHOD_FIND_INDEX = 'findIndex';
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
@@ -49,11 +51,19 @@ type
                           const Executor: TJSCallbackExecutor): TJSValue; static;
     class function ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
                                const Executor: TJSCallbackExecutor): TJSValue; static;
+    class function TryFindMatch(const MethodName: string; const Target: IJSObject; const Args: TArray<TJSValue>;
+                                const Executor: TJSCallbackExecutor; out Index: Int64;
+                                out Element: TJSValue): Boolean; static;
+    class function Find(const Target: IJSObject; const Args: TArray<TJSValue>;
+                        const Executor: TJSCallbackExecutor): TJSValue; static;
+    class function FindIndex(const Target: IJSObject; const Args: TArray<TJSValue>;
+                             const Executor: TJSCallbackExecutor): TJSValue; static;
     class function IndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
     class function LastIndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
 
   public
     class function Handles(const MethodName: string): Boolean; static;
+    class function CreatesResultArray(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject): TJSValue; static;
   end;
@@ -70,7 +80,15 @@ begin
             (MethodName = METHOD_REDUCE) or
             (MethodName = METHOD_REDUCE_RIGHT) or
             (MethodName = METHOD_INDEX_OF) or
-            (MethodName = METHOD_LAST_INDEX_OF);
+            (MethodName = METHOD_LAST_INDEX_OF) or
+            (MethodName = METHOD_FIND) or
+            (MethodName = METHOD_FIND_INDEX);
+end;
+
+class function TJSArrayIteration.CreatesResultArray(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_MAP) or
+            (MethodName = METHOD_FILTER);
 end;
 
 class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName: string;
@@ -100,6 +118,12 @@ begin
 
   if MethodName = METHOD_REDUCE_RIGHT then
     Exit(ReduceRight(Target, Args, Executor));
+
+  if MethodName = METHOD_FIND then
+    Exit(Find(Target, Args, Executor));
+
+  if MethodName = METHOD_FIND_INDEX then
+    Exit(FindIndex(Target, Args, Executor));
 
   if MethodName = METHOD_INDEX_OF then
     Exit(IndexOf(Target, Args));
@@ -248,6 +272,50 @@ begin
   end;
 
   Result := TJSValue.CreateBoolean(True);
+end;
+
+class function TJSArrayIteration.TryFindMatch(const MethodName: string; const Target: IJSObject;
+                                              const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                              out Index: Int64; out Element: TJSValue): Boolean;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  const Callback = RequireCallback(MethodName, Args);
+
+  for var Position: Int64 := 0 to Count - 1 do
+  begin
+    Index := Position;
+    if not TJSArrayLike.TryGetElement(Target, Position, Element) then
+      Element := TJSValue.CreateUndefined;
+
+    const CallbackArgs = CallbackArguments(Element, Position, Target);
+    const IsMatch = Executor(Callback, CallbackArgs).ToBoolean;
+    if IsMatch then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+class function TJSArrayIteration.Find(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                      const Executor: TJSCallbackExecutor): TJSValue;
+begin
+  var Index: Int64;
+  var Element: TJSValue;
+  if TryFindMatch(METHOD_FIND, Target, Args, Executor, Index, Element) then
+    Result := Element
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+class function TJSArrayIteration.FindIndex(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                           const Executor: TJSCallbackExecutor): TJSValue;
+begin
+  var Index: Int64;
+  var Element: TJSValue;
+  if TryFindMatch(METHOD_FIND_INDEX, Target, Args, Executor, Index, Element) then
+    Result := TJSValue.CreateNumber(Index)
+  else
+    Result := TJSValue.CreateNumber(-1);
 end;
 
 class function TJSArrayIteration.Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;

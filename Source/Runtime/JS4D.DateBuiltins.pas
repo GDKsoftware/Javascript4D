@@ -44,8 +44,8 @@ type
     function BindFormatter(const Form: TTextForm): TNativeFunction;
     function BindTimeValue: TNativeFunction;
 
-    function ApplySetter(const Target: IJSDate; const Field: TDateField; const Values: TArray<Double>;
-                         const IsLocal: Boolean): Double;
+    function ApplySetter(const Target: IJSDate; const OriginalTime: Double; const Field: TDateField;
+                         const Values: TArray<Double>; const IsLocal: Boolean): Double;
     function TimeFromComponents(const Args: TArray<TJSValue>): Double;
     function TimeFromArguments(const Args: TArray<TJSValue>): Double;
     function ConstructDate(const Args: TArray<TJSValue>): TJSValue;
@@ -273,10 +273,10 @@ begin
     end;
 end;
 
-function TJSDateBuiltins.ApplySetter(const Target: IJSDate; const Field: TDateField; const Values: TArray<Double>;
-                                     const IsLocal: Boolean): Double;
+function TJSDateBuiltins.ApplySetter(const Target: IJSDate; const OriginalTime: Double; const Field: TDateField;
+                                     const Values: TArray<Double>; const IsLocal: Boolean): Double;
 begin
-  var Moment := Target.Time;
+  var Moment := OriginalTime;
 
   if System.Math.IsNaN(Moment) then
   begin
@@ -315,6 +315,7 @@ begin
   Result := function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Target = ThisDate(This);
+      const OriginalTime = Target.Time;
 
       var Values: TArray<Double>;
       SetLength(Values, Max(1, Min(Length(Args), SetterArgumentCounts[Field])));
@@ -326,7 +327,7 @@ begin
           Values[Index] := System.Math.NaN;
       end;
 
-      const NewTime = ApplySetter(Target, Field, Values, IsLocal);
+      const NewTime = ApplySetter(Target, OriginalTime, Field, Values, IsLocal);
 
       Result := NumberResult(NewTime);
     end;
@@ -367,6 +368,7 @@ end;
 function TJSDateBuiltins.SetYear(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Target = ThisDate(This);
+  const OriginalTime = Target.Time;
 
   var Requested := System.Math.NaN;
   if Length(Args) > 0 then
@@ -378,7 +380,7 @@ begin
     Exit(TJSValue.CreateNaN);
   end;
 
-  const NewTime = ApplySetter(Target, TDateField.Year, [MakeFullYear(Requested)], True);
+  const NewTime = ApplySetter(Target, OriginalTime, TDateField.Year, [MakeFullYear(Requested)], True);
 
   Result := NumberResult(NewTime);
 end;

@@ -101,8 +101,10 @@
         <DCCReference Include="..\Source\Core\JS4D.NumberParse.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
+        <DCCReference Include="..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>
+        <DCCReference Include="..\Source\Parser\JS4D.ParserScope.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Interpreter.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Json.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Engine.pas"/>
@@ -120,6 +122,7 @@
         <DCCReference Include="JS4D.Tests.PropertyDescriptors.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMethods.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayElements.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayResultCreation.pas"/>
         <DCCReference Include="JS4D.Tests.JsonParse.pas"/>
         <DCCReference Include="JS4D.Tests.Eval.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionConstructor.pas"/>
@@ -130,7 +133,17 @@
         <DCCReference Include="JS4D.Tests.AssignmentTargets.pas"/>
         <DCCReference Include="JS4D.Tests.StrictEarlyErrors.pas"/>
         <DCCReference Include="JS4D.Tests.DeleteIdentifier.pas"/>
+        <DCCReference Include="JS4D.Tests.Destructuring.pas"/>
+        <DCCReference Include="JS4D.Tests.ForOf.pas"/>
+        <DCCReference Include="JS4D.Tests.ForIn.pas"/>
         <DCCReference Include="JS4D.Tests.WithStatement.pas"/>
+        <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>
+        <DCCReference Include="JS4D.Tests.LexicalStates.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrowFunctions.pas"/>
+        <DCCReference Include="JS4D.Tests.FunctionExpressionNames.pas"/>
+        <DCCReference Include="JS4D.Tests.FunctionParameters.pas"/>
+        <DCCReference Include="JS4D.Tests.TemplateLiterals.pas"/>
+        <DCCReference Include="JS4D.Tests.SlashContext.pas"/>
         <DCCReference Include="JS4D.Tests.Date.pas"/>
         <DCCReference Include="JS4D.Tests.BuiltinAttributes.pas"/>
         <DCCReference Include="JS4D.Tests.LabelledStatements.pas"/>
@@ -139,12 +152,15 @@
         <DCCReference Include="JS4D.Tests.GlobalObject.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpSyntax.pas"/>
         <DCCReference Include="JS4D.Tests.ObjectAccessors.pas"/>
+        <DCCReference Include="JS4D.Tests.ObjectLiteralExtensions.pas"/>
         <DCCReference Include="JS4D.Tests.Operators.pas"/>
+        <DCCReference Include="JS4D.Tests.PropertyOrder.pas"/>
         <DCCReference Include="JS4D.Tests.UriCoding.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMutators.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalGrammar.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayIterationLength.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpMatching.pas"/>
+        <DCCReference Include="JS4D.Tests.RegExpAccessors.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpPatternSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.NumberFormat.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionObjects.pas"/>
@@ -152,7 +168,16 @@
         <DCCReference Include="JS4D.Tests.JsonStringify.pas"/>
         <DCCReference Include="JS4D.Tests.JsonReviver.pas"/>
         <DCCReference Include="JS4D.Tests.MathFunctions.pas"/>
+        <DCCReference Include="JS4D.Tests.Es2015Library.pas"/>
         <DCCReference Include="JS4D.Tests.ErrorObjects.pas"/>
+        <DCCReference Include="JS4D.Tests.StrictThis.pas"/>
+        <DCCReference Include="JS4D.Tests.GenericEs2015ArrayMethods.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayStatics.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayIterators.pas"/>
+        <DCCReference Include="JS4D.Tests.StringArgumentConversion.pas"/>
+        <DCCReference Include="JS4D.Tests.FunctionSourceText.pas"/>
+        <DCCReference Include="JS4D.Tests.StringEs2015Methods.pas"/>
+        <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

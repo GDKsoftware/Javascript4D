@@ -34,6 +34,8 @@ type
       METHOD_CONCAT = 'concat';
       METHOD_SORT = 'sort';
       METHOD_TO_STRING = 'toString';
+      METHOD_FILL = 'fill';
+      METHOD_COPY_WITHIN = 'copyWithin';
       DEFAULT_SEPARATOR = ',';
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
 
@@ -54,6 +56,11 @@ type
     class function Sort(const Target: IJSObject; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
     class function ToText(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue; static;
+    class function Fill(const Target: IJSObject; const Args: TArray<TJSValue>;
+                        const Context: TJSArrayGenericContext): TJSValue; static;
+    class function CopyWithin(const Target: IJSObject; const Args: TArray<TJSValue>;
+                              const Context: TJSArrayGenericContext): TJSValue; static;
+    class procedure MoveRange(const Target: IJSObject; const FromIndex, ToIndex, Count: Int64); static;
 
     class function CopyRange(const Source: IJSObject; const FirstIndex, Count: Int64;
                              const Context: TJSArrayGenericContext): IJSArray; static;
@@ -68,6 +75,8 @@ type
 
   public
     class function Handles(const MethodName: string): Boolean; static;
+    class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
+    class function CreatesResultArray(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Context: TJSArrayGenericContext): TJSValue; static;
   end;
@@ -86,7 +95,21 @@ begin
             (MethodName = METHOD_JOIN) or
             (MethodName = METHOD_CONCAT) or
             (MethodName = METHOD_SORT) or
-            (MethodName = METHOD_TO_STRING);
+            (MethodName = METHOD_TO_STRING) or
+            AlwaysUsesPropertySemantics(MethodName);
+end;
+
+class function TJSArrayGeneric.AlwaysUsesPropertySemantics(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_FILL) or
+            (MethodName = METHOD_COPY_WITHIN);
+end;
+
+class function TJSArrayGeneric.CreatesResultArray(const MethodName: string): Boolean;
+begin
+  Result := (MethodName = METHOD_SPLICE) or
+            (MethodName = METHOD_SLICE) or
+            (MethodName = METHOD_CONCAT);
 end;
 
 class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: string;
@@ -127,6 +150,12 @@ begin
 
   if MethodName = METHOD_TO_STRING then
     Exit(ToText(Target, Context));
+
+  if MethodName = METHOD_FILL then
+    Exit(Fill(Target, Args, Context));
+
+  if MethodName = METHOD_COPY_WITHIN then
+    Exit(CopyWithin(Target, Args, Context));
 
   raise ENotSupportedException.CreateFmt('Unsupported generic array method: %s', [MethodName]);
 end;
@@ -217,6 +246,7 @@ begin
   const DeleteCount = SpliceDeleteCount(Args, Count, Start);
   const ItemCount = Max(Length(Args) - 2, 0);
 
+  TJSArrayLike.RequireArrayLength(DeleteCount);
   Context.Limits.EnsureArrayLength(Count - Start);
 
   const Removed = CopyRange(Target, Start, DeleteCount, Context);
@@ -277,6 +307,7 @@ end;
 class function TJSArrayGeneric.CopyRange(const Source: IJSObject; const FirstIndex, Count: Int64;
                                          const Context: TJSArrayGenericContext): IJSArray;
 begin
+  TJSArrayLike.RequireArrayLength(Count);
   Context.Limits.EnsureArrayLength(Count);
 
   Result := TJSArray.Create;
@@ -315,6 +346,61 @@ begin
   end;
 
   Result := TJSValue.CreateObject(Target);
+end;
+
+class function TJSArrayGeneric.Fill(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                    const Context: TJSArrayGenericContext): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, 0);
+  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), Count, Count);
+  const FillValue = TJSArrayLike.Argument(Args, 0);
+
+  Context.Limits.EnsureArrayLength(Max(EndIndex - StartIndex, 0));
+
+  for var Index: Int64 := StartIndex to EndIndex - 1 do
+  begin
+    TJSArrayLike.SetElement(Target, Index, FillValue);
+  end;
+
+  Result := TJSValue.CreateObject(Target);
+end;
+
+class function TJSArrayGeneric.CopyWithin(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                          const Context: TJSArrayGenericContext): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  const ToIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
+  const FromIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, 0);
+  const FinalIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), Count, Count);
+  const MoveCount = Min(FinalIndex - FromIndex, Count - ToIndex);
+
+  const HasElementsToMove = (MoveCount > 0);
+  if HasElementsToMove then
+  begin
+    Context.Limits.EnsureArrayLength(MoveCount);
+    MoveRange(Target, FromIndex, ToIndex, MoveCount);
+  end;
+
+  Result := TJSValue.CreateObject(Target);
+end;
+
+class procedure TJSArrayGeneric.MoveRange(const Target: IJSObject; const FromIndex, ToIndex, Count: Int64);
+begin
+  const OverlapsForward = (FromIndex < ToIndex) and (ToIndex < FromIndex + Count);
+  if OverlapsForward then
+  begin
+    for var Offset: Int64 := Count - 1 downto 0 do
+    begin
+      TJSArrayLike.MoveElement(Target, FromIndex + Offset, ToIndex + Offset);
+    end;
+    Exit;
+  end;
+
+  for var Offset: Int64 := 0 to Count - 1 do
+  begin
+    TJSArrayLike.MoveElement(Target, FromIndex + Offset, ToIndex + Offset);
+  end;
 end;
 
 class procedure TJSArrayGeneric.SwapMirroredElements(const Target: IJSObject; const LowerIndex, UpperIndex: Int64);

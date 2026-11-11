@@ -14,6 +14,9 @@ type
       PLUS_SIGN = '+';
       HEX_PREFIX_LENGTH = 2;
       HEX_RADIX = 16;
+      OCTAL_RADIX = 8;
+      BINARY_RADIX = 2;
+      NOT_PREFIXED = 0;
       DEFAULT_RADIX = 10;
       MIN_RADIX = 2;
       MAX_RADIX = 36;
@@ -33,7 +36,7 @@ type
                                       const Radix: Integer): Integer; static;
     class function ExponentLength(const Text: string; const Position: Integer): Integer; static;
     class function DecimalPrefixLength(const Text: string): Integer; static;
-    class function IsHexLiteral(const Text: string): Boolean; static;
+    class function PrefixedLiteralRadix(const Text: string): Integer; static;
     class function ExponentMarkPosition(const Literal: string): Integer; static;
     class function ExponentOf(const Literal: string): Integer; static;
     class function OutOfRangeValue(const Literal: string): Double; static;
@@ -300,15 +303,27 @@ begin
   end;
 end;
 
-class function TJSNumberParse.IsHexLiteral(const Text: string): Boolean;
+class function TJSNumberParse.PrefixedLiteralRadix(const Text: string): Integer;
 begin
+  Result := NOT_PREFIXED;
+
   const HasDigits = (Length(Text) > HEX_PREFIX_LENGTH);
-  Result := IsHexPrefix(Text, 1) and HasDigits;
-  if not Result then
+  const HasZeroPrefix = HasDigits and (Text[1] = '0');
+  if not HasZeroPrefix then
     Exit;
 
-  const DigitCount = CountDigitsInRadix(Text, HEX_PREFIX_LENGTH + 1, HEX_RADIX);
-  Result := (HEX_PREFIX_LENGTH + DigitCount = Length(Text));
+  case Text[2] of
+    'x', 'X' : Result := HEX_RADIX;
+    'o', 'O' : Result := OCTAL_RADIX;
+    'b', 'B' : Result := BINARY_RADIX;
+  else
+    Exit;
+  end;
+
+  const DigitCount = CountDigitsInRadix(Text, HEX_PREFIX_LENGTH + 1, Result);
+  const IsWholeLiteral = (HEX_PREFIX_LENGTH + DigitCount = Length(Text));
+  if not IsWholeLiteral then
+    Result := NOT_PREFIXED;
 end;
 
 class function TJSNumberParse.StringToNumber(const Text: string): Double;
@@ -317,8 +332,9 @@ begin
   if Trimmed.IsEmpty then
     Exit(0);
 
-  if IsHexLiteral(Trimmed) then
-    Exit(AccumulateDigits(Trimmed.Substring(HEX_PREFIX_LENGTH), HEX_RADIX));
+  const PrefixedRadix = PrefixedLiteralRadix(Trimmed);
+  if PrefixedRadix <> NOT_PREFIXED then
+    Exit(AccumulateDigits(Trimmed.Substring(HEX_PREFIX_LENGTH), PrefixedRadix));
 
   const IsWholeLiteral = (DecimalPrefixLength(Trimmed) = Length(Trimmed));
   if IsWholeLiteral then

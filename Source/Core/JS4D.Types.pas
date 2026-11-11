@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  System.Generics.Defaults,
   JS4D.PcreMatcher,
   JS4D.SlotMap;
 
@@ -121,6 +122,9 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
+    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
+    procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
     function Resolve(const Name: string): IJSScope;
     function GetParent: IJSScope;
@@ -225,6 +229,7 @@ type
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
+    function IsDenseAndMutable: Boolean;
     property Length: Integer read GetLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
@@ -248,6 +253,12 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetIsArrow: Boolean;
+    procedure SetIsArrow(const Value: Boolean);
+    function GetLexicalThis: IJSObject;
+    procedure SetLexicalThis(const Value: IJSObject);
+    function GetSourceText: string;
+    procedure SetSourceText(const Value: string);
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -258,6 +269,9 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property IsArrow: Boolean read GetIsArrow write SetIsArrow;
+    property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
+    property SourceText: string read GetSourceText write SetSourceText;
   end;
 
   IJSError = interface(IJSObject)
@@ -302,13 +316,19 @@ type
     function GetGlobal: Boolean;
     function GetIgnoreCase: Boolean;
     function GetMultiline: Boolean;
+    function GetUnicode: Boolean;
+    function GetSticky: Boolean;
+    function GetSource: string;
     function GetLastIndex: Integer;
     procedure SetLastIndex(const Value: Integer);
     property Pattern: string read GetPattern;
+    property Source: string read GetSource;
     property Flags: string read GetFlags;
     property Global: Boolean read GetGlobal;
     property IgnoreCase: Boolean read GetIgnoreCase;
     property Multiline: Boolean read GetMultiline;
+    property Unicode: Boolean read GetUnicode;
+    property Sticky: Boolean read GetSticky;
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
@@ -331,6 +351,9 @@ type
     function InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
     procedure InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
     function AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+    class function TryParseArrayIndex(const Name: string; out Index: Int64): Boolean; static;
+    class function CompareIndexNames(const Left, Right: string): Integer; static;
+    function HasIndexKey: Boolean;
     class procedure ReleaseClosure(const Value: TJSValue); static;
 
   protected
@@ -395,6 +418,9 @@ type
     FClosureScope: IJSScope;
     FCallHandler: TJSCallHandler;
     FIsConstructor: Boolean;
+    FIsArrow: Boolean;
+    FLexicalThis: IJSObject;
+    FSourceText: string;
 
   protected
     function GetName: string;
@@ -414,6 +440,12 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetIsArrow: Boolean;
+    procedure SetIsArrow(const Value: Boolean);
+    function GetLexicalThis: IJSObject;
+    procedure SetLexicalThis(const Value: IJSObject);
+    function GetSourceText: string;
+    procedure SetSourceText(const Value: string);
 
   public
     constructor Create;
@@ -424,6 +456,7 @@ type
     class procedure DefineName(const Target: IJSObject; const Name: string); static;
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+    procedure SetExpectedArgumentCount(const Count: Integer);
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -434,6 +467,9 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property IsArrow: Boolean read GetIsArrow write SetIsArrow;
+    property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
+    property SourceText: string read GetSourceText write SetSourceText;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -480,6 +516,7 @@ type
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
+    function IsDenseAndMutable: Boolean;
 
     procedure SetProperty(const Name: string; const Value: TJSValue); override;
     procedure DeleteProperty(const Name: string); override;
@@ -540,6 +577,8 @@ type
     FGlobal: Boolean;
     FIgnoreCase: Boolean;
     FMultiline: Boolean;
+    FUnicode: Boolean;
+    FSticky: Boolean;
 
     function ReadLastIndex: Int64;
     procedure WriteLastIndex(const Value: Integer);
@@ -554,6 +593,9 @@ type
     function GetGlobal: Boolean;
     function GetIgnoreCase: Boolean;
     function GetMultiline: Boolean;
+    function GetUnicode: Boolean;
+    function GetSticky: Boolean;
+    function GetSource: string;
     function GetLastIndex: Integer;
     procedure SetLastIndex(const Value: Integer);
 
@@ -569,10 +611,13 @@ type
     function Search(const Str: string): Integer;
 
     property Pattern: string read GetPattern;
+    property Source: string read GetSource;
     property Flags: string read GetFlags;
     property Global: Boolean read GetGlobal;
     property IgnoreCase: Boolean read GetIgnoreCase;
     property Multiline: Boolean read GetMultiline;
+    property Unicode: Boolean read GetUnicode;
+    property Sticky: Boolean read GetSticky;
     property LastIndex: Integer read GetLastIndex write SetLastIndex;
   end;
 
@@ -676,11 +721,6 @@ const
   PROP_NAME = 'name';
   PROP_MESSAGE = 'message';
   PROP_STACK = 'stack';
-  PROP_SOURCE = 'source';
-  PROP_FLAGS = 'flags';
-  PROP_GLOBAL = 'global';
-  PROP_IGNORE_CASE = 'ignoreCase';
-  PROP_MULTILINE = 'multiline';
   PROP_LAST_INDEX = 'lastIndex';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
@@ -1045,6 +1085,9 @@ function TJSValue.ToLimitedString(const Limits: TJSLimits): string;
 begin
   var Arr: IJSArray;
 
+  if FValueType = TJSValueType.Object_ then
+    Exit(ToPrimitive(True).ToString);
+
   if (FValueType <> TJSValueType.Array_) or (not Supports(FObjectRef, IJSArray, Arr)) then
     Exit(ToString);
 
@@ -1090,7 +1133,7 @@ begin
       end
       else if not ElementValue.IsNullOrUndefined then
       begin
-        const ElementText = ElementValue.ToString;
+        const ElementText = ElementValue.ToLimitedString(Limits);
         const WithElement = Int64(Builder.Length) + Length(ElementText);
 
         Limits.EnsureStringLength(WithElement);
@@ -1434,9 +1477,78 @@ begin
     Result := True;
 end;
 
+class function TJSObjectImpl.TryParseArrayIndex(const Name: string; out Index: Int64): Boolean;
+const
+  MAX_ARRAY_INDEX = 4294967294;
+  MAX_INDEX_DIGITS = 10;
+begin
+  Index := 0;
+
+  const NameLength = Length(Name);
+  const HasValidLength = (NameLength > 0) and (NameLength <= MAX_INDEX_DIGITS);
+  const HasLeadingZero = (NameLength > 1) and (Name[1] = '0');
+  if (not HasValidLength) or HasLeadingZero then
+    Exit(False);
+
+  for var Position := 1 to NameLength do
+  begin
+    const Digit = Ord(Name[Position]) - Ord('0');
+    const IsDigit = (Digit >= 0) and (Digit <= 9);
+    if not IsDigit then
+      Exit(False);
+
+    Index := (Index * 10) + Digit;
+  end;
+
+  Result := (Index <= MAX_ARRAY_INDEX);
+end;
+
+class function TJSObjectImpl.CompareIndexNames(const Left, Right: string): Integer;
+begin
+  var LeftIndex: Int64;
+  var RightIndex: Int64;
+  TryParseArrayIndex(Left, LeftIndex);
+  TryParseArrayIndex(Right, RightIndex);
+
+  Result := CompareValue(LeftIndex, RightIndex);
+end;
+
+function TJSObjectImpl.HasIndexKey: Boolean;
+begin
+  for var Name in FOrderedKeys do
+  begin
+    var Index: Int64;
+    if TryParseArrayIndex(Name, Index) then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
 function TJSObjectImpl.GetOwnPropertyNames: TArray<string>;
 begin
-  Result := FOrderedKeys.ToArray;
+  if not HasIndexKey then
+    Exit(FOrderedKeys.ToArray);
+
+  const IndexNames = TList<string>.Create;
+  const OtherNames = TList<string>.Create;
+  try
+    for var Name in FOrderedKeys do
+    begin
+      var Index: Int64;
+      if TryParseArrayIndex(Name, Index) then
+        IndexNames.Add(Name)
+      else
+        OtherNames.Add(Name);
+    end;
+
+    IndexNames.Sort(TComparer<string>.Construct(CompareIndexNames));
+    IndexNames.AddRange(OtherNames);
+    Result := IndexNames.ToArray;
+  finally
+    OtherNames.Free;
+    IndexNames.Free;
+  end;
 end;
 
 function TJSObjectImpl.IsFrozen: Boolean;
@@ -1657,6 +1769,36 @@ begin
   FIsConstructor := Value;
 end;
 
+function TJSFunctionImpl.GetIsArrow: Boolean;
+begin
+  Result := FIsArrow;
+end;
+
+procedure TJSFunctionImpl.SetIsArrow(const Value: Boolean);
+begin
+  FIsArrow := Value;
+end;
+
+function TJSFunctionImpl.GetLexicalThis: IJSObject;
+begin
+  Result := FLexicalThis;
+end;
+
+procedure TJSFunctionImpl.SetLexicalThis(const Value: IJSObject);
+begin
+  FLexicalThis := Value;
+end;
+
+function TJSFunctionImpl.GetSourceText: string;
+begin
+  Result := FSourceText;
+end;
+
+procedure TJSFunctionImpl.SetSourceText(const Value: string);
+begin
+  FSourceText := Value;
+end;
+
 constructor TJSFunctionImpl.Create;
 begin
   inherited Create;
@@ -1678,6 +1820,7 @@ end;
 destructor TJSFunctionImpl.Destroy;
 begin
   FClosureScope := nil;
+  FLexicalThis := nil;
   FNativeFunction := nil;
   inherited;
 end;
@@ -1702,6 +1845,11 @@ procedure TJSFunctionImpl.SetParameters(const Value: TArray<string>);
 begin
   FParameters := Value;
   DefineLength(Self, Length(Value));
+end;
+
+procedure TJSFunctionImpl.SetExpectedArgumentCount(const Count: Integer);
+begin
+  DefineLength(Self, Count);
 end;
 
 class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);
@@ -1955,6 +2103,8 @@ begin
         Names.Add(Name);
     end;
 
+    Names.Add(LENGTH_PROPERTY);
+
     for var Key in inherited GetOwnPropertyNames do
     begin
       var Index: Integer;
@@ -1989,6 +2139,9 @@ procedure TJSArrayImpl.SetProperty(const Name: string; const Value: TJSValue);
 begin
   if Name = LENGTH_PROPERTY then
   begin
+    if not GetLengthDescriptor.Writable then
+      Exit;
+
     var Definition := Default(TJSPropertyDefinition);
     Definition.HasValue := True;
     Definition.Value := Value;
@@ -2046,21 +2199,24 @@ end;
 
 function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
 begin
+  var NewLength := 0.0;
+
+  if Definition.HasValue then
+  begin
+    NewLength := Definition.Value.ToNumber;
+    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
+                          (NewLength <= MaxInt);
+    if not IsValidLength then
+      raise TJSErrorFactory.InvalidArrayLength;
+  end;
+
   const Current = GetLengthDescriptor;
   Result := CanRedefine(Current, Definition);
   if not Result then
     Exit;
 
   if Definition.HasValue then
-  begin
-    const NewLength = Definition.Value.ToNumber;
-    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
-                          (NewLength <= MaxInt);
-    if not IsValidLength then
-      raise TJSErrorFactory.InvalidArrayLength;
-
     Result := ResizeTo(Trunc(NewLength));
-  end;
 
   if Definition.HasWritable then
     FLengthWritable := Definition.Writable;
@@ -2218,6 +2374,14 @@ begin
   Result := InRange and ((not Assigned(FHoles)) or (not FHoles.ContainsKey(Index)));
 end;
 
+function TJSArrayImpl.IsDenseAndMutable: Boolean;
+begin
+  const HasHoles = Assigned(FHoles) and (FHoles.Count > 0);
+  const IsLocked = FFrozen or FSealed or (not FExtensible) or (not FLengthWritable);
+
+  Result := not (HasHoles or IsLocked);
+end;
+
 procedure TJSArrayImpl.DeleteElement(const Index: Integer);
 begin
   const InRange = (Index >= 0) and (Index < FElements.Count);
@@ -2335,6 +2499,8 @@ begin
   FGlobal := (Pos('g', Flags) > 0);
   FIgnoreCase := (Pos('i', Flags) > 0);
   FMultiline := (Pos('m', Flags) > 0);
+  FUnicode := (Pos('u', Flags) > 0);
+  FSticky := (Pos('y', Flags) > 0);
 
   var CompilablePattern := Pattern;
   if Pattern.IsEmpty then
@@ -2342,12 +2508,10 @@ begin
 
   FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
 
-  SetProperty(PROP_SOURCE, TJSValue.CreateString(Pattern));
-  SetProperty(PROP_FLAGS, TJSValue.CreateString(Flags));
-  SetProperty(PROP_GLOBAL, TJSValue.CreateBoolean(FGlobal));
-  SetProperty(PROP_IGNORE_CASE, TJSValue.CreateBoolean(FIgnoreCase));
-  SetProperty(PROP_MULTILINE, TJSValue.CreateBoolean(FMultiline));
-  SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(0));
+  var LastIndexDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(0));
+  LastIndexDescriptor.Enumerable := False;
+  LastIndexDescriptor.Configurable := False;
+  DefineProperty(PROP_LAST_INDEX, LastIndexDescriptor);
 end;
 
 destructor TJSRegExpImpl.Destroy;
@@ -2379,6 +2543,21 @@ end;
 function TJSRegExpImpl.GetMultiline: Boolean;
 begin
   Result := FMultiline;
+end;
+
+function TJSRegExpImpl.GetUnicode: Boolean;
+begin
+  Result := FUnicode;
+end;
+
+function TJSRegExpImpl.GetSticky: Boolean;
+begin
+  Result := FSticky;
+end;
+
+function TJSRegExpImpl.GetSource: string;
+begin
+  Result := TJSRegExpSyntax.EscapePattern(FPattern);
 end;
 
 function TJSRegExpImpl.GetLastIndex: Integer;
@@ -2434,8 +2613,10 @@ end;
 
 function TJSRegExpImpl.FindMatch(const Str: string): TJSRegExpMatch;
 begin
+  const UsesLastIndex = FGlobal or FSticky;
+
   var Start := ReadLastIndex;
-  if not FGlobal then
+  if not UsesLastIndex then
     Start := 0;
 
   const InRange = (Start >= 0) and (Start <= Length(Str));
@@ -2444,13 +2625,17 @@ begin
   else
     Result := Default(TJSRegExpMatch);
 
+  const MissedStickyPosition = FSticky and Result.Found and (Result.Index <> Start);
+  if MissedStickyPosition then
+    Result := Default(TJSRegExpMatch);
+
   if not Result.Found then
   begin
     WriteLastIndex(0);
     Exit;
   end;
 
-  if FGlobal then
+  if UsesLastIndex then
     WriteLastIndex(Result.Index + Result.Length);
 end;
 

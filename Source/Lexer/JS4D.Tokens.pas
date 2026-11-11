@@ -18,6 +18,7 @@ type
     BooleanLiteral,
     NullLiteral,
     RegExpLiteral,
+    TemplateChunk,
     EscapedKeyword,
     UnusedReservedWord,
 
@@ -31,6 +32,7 @@ type
     Semicolon,
     Colon,
     Dot,
+    Ellipsis,
 
     Plus,
     Minus,
@@ -39,6 +41,7 @@ type
     Modulo,
 
     Assign,
+    Arrow,
     PlusAssign,
     MinusAssign,
     MultiplyAssign,
@@ -103,7 +106,8 @@ type
     KeywordFinally,
     KeywordThrow,
     KeywordWith,
-    KeywordDebugger
+    KeywordDebugger,
+    KeywordConst
   );
 
   TJSToken = class
@@ -114,9 +118,15 @@ type
     FLine: Integer;
     FColumn: Integer;
     FSourcePosition: Integer;
+    FStartOffset: Integer;
+    FEndOffset: Integer;
     FIsLegacyLiteral: Boolean;
     FHasEscape: Boolean;
     FLineTerminatorBefore: Boolean;
+    FRawValue: string;
+    FHasInvalidEscape: Boolean;
+    FIsTemplateHead: Boolean;
+    FIsTemplateTail: Boolean;
 
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
@@ -128,9 +138,15 @@ type
     property Line: Integer read FLine;
     property Column: Integer read FColumn;
     property SourcePosition: Integer read FSourcePosition write FSourcePosition;
+    property StartOffset: Integer read FStartOffset write FStartOffset;
+    property EndOffset: Integer read FEndOffset write FEndOffset;
     property IsLegacyLiteral: Boolean read FIsLegacyLiteral write FIsLegacyLiteral;
     property HasEscape: Boolean read FHasEscape write FHasEscape;
     property LineTerminatorBefore: Boolean read FLineTerminatorBefore write FLineTerminatorBefore;
+    property RawValue: string read FRawValue write FRawValue;
+    property HasInvalidEscape: Boolean read FHasInvalidEscape write FHasInvalidEscape;
+    property IsTemplateHead: Boolean read FIsTemplateHead write FIsTemplateHead;
+    property IsTemplateTail: Boolean read FIsTemplateTail write FIsTemplateTail;
   end;
 
   TJSKeywords = class
@@ -184,6 +200,7 @@ const
   KeywordThrow = 'throw';
   KeywordWith = 'with';
   KeywordDebugger = 'debugger';
+  KeywordConst = 'const';
   KeywordTrue = 'true';
   KeywordFalse = 'false';
   KeywordNull = 'null';
@@ -230,7 +247,7 @@ end;
 
 class procedure TJSKeywords.InitializeFutureReservedWords;
 begin
-  FFutureReservedWords.AddRange(['class', 'const', 'enum', 'export', 'extends', 'import', 'super']);
+  FFutureReservedWords.AddRange(['class', 'enum', 'export', 'extends', 'import', 'super']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -261,6 +278,7 @@ begin
   FKeywords.Add(KeywordThrow, TJSTokenType.KeywordThrow);
   FKeywords.Add(KeywordWith, TJSTokenType.KeywordWith);
   FKeywords.Add(KeywordDebugger, TJSTokenType.KeywordDebugger);
+  FKeywords.Add(KeywordConst, TJSTokenType.KeywordConst);
   FKeywords.Add(KeywordTrue, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordFalse, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordNull, TJSTokenType.NullLiteral);

@@ -31,7 +31,7 @@ type
         (Owner: 'Object';
          Entries: 'getPrototypeOf:1 getOwnPropertyDescriptor:2 getOwnPropertyNames:1 create:2 defineProperty:3 ' +
                   'defineProperties:2 seal:1 freeze:1 preventExtensions:1 isSealed:1 isFrozen:1 isExtensible:1 ' +
-                  'keys:1 assign:2 entries:1 values:1 is:2'),
+                  'keys:1 assign:2 entries:1 values:1 is:2 getOwnPropertyDescriptors:1'),
         (Owner: 'Object.prototype';
          Entries: 'toString:0 toLocaleString:0 valueOf:0 hasOwnProperty:1 isPrototypeOf:1 propertyIsEnumerable:1'),
         (Owner: 'Function';
@@ -46,12 +46,12 @@ type
                   'reduceRight:1 find:1 findIndex:1 fill:1 copyWithin:2 includes:1 keys:0 values:0 entries:0 ' +
                   'flat:0 flatMap:1'),
         (Owner: 'String';
-         Entries: 'fromCharCode:1'),
+         Entries: 'fromCharCode:1 raw:1'),
         (Owner: 'String.prototype';
          Entries: 'toString:0 valueOf:0 charAt:1 charCodeAt:1 concat:1 indexOf:1 lastIndexOf:1 localeCompare:1 ' +
                   'match:1 replace:2 search:1 slice:2 split:2 substring:2 toLowerCase:0 toLocaleLowerCase:0 ' +
                   'toUpperCase:0 toLocaleUpperCase:0 trim:0 substr:2 startsWith:1 endsWith:1 includes:1 repeat:1 ' +
-                  'padStart:1 padEnd:1 trimStart:0 trimEnd:0 trimLeft:0 trimRight:0'),
+                  'padStart:1 padEnd:1 trimStart:0 trimEnd:0 trimLeft:0 trimRight:0 codePointAt:1 normalize:0'),
         (Owner: 'Number';
          Entries: 'isFinite:1 isInteger:1 isNaN:1 isSafeInteger:1 parseFloat:1 parseInt:2'),
         (Owner: 'Number.prototype';
@@ -194,6 +194,11 @@ begin
 
     const Arity = StrToInt(Parts[1]);
     TJSFunction.DefineLength(Member.ToObject, Arity);
+
+    var Method: IJSFunction;
+    const IsMethod = Assigned(Target) and Supports(Member.ToObject, IJSFunction, Method);
+    if IsMethod then
+      Method.IsConstructor := False;
   end;
 end;
 

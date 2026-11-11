@@ -55,6 +55,18 @@ type
 
     [Test]
     procedure GlobalFunctionDeclaration_IsNotConfigurable;
+
+    [Test]
+    procedure StrictAssignment_BindingDeletedByRightHandSideInWith_ThrowsReferenceError;
+
+    [Test]
+    procedure StrictCompoundAssignment_BindingDeletedByGetterOnGlobal_ThrowsReferenceError;
+
+    [Test]
+    procedure StrictIncrement_BindingDeletedByGetterInWith_ThrowsReferenceError;
+
+    [Test]
+    procedure SloppyAssignment_BindingDeletedByRightHandSideInWith_RecreatesPropertyOnWithObject;
   end;
 
 implementation
@@ -148,6 +160,41 @@ procedure TDeleteIdentifierTests.GlobalFunctionDeclaration_IsNotConfigurable;
 begin
   const Script = 'function declaredFn() {} ' +
                  'Object.getOwnPropertyDescriptor(this, "declaredFn").configurable === false';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TDeleteIdentifierTests.StrictAssignment_BindingDeletedByRightHandSideInWith_ThrowsReferenceError;
+begin
+  const Script = 'var scope = {x: 1}, name; with (scope) { (function() { "use strict"; ' +
+                 'try { x = (delete scope.x, 2); } catch (e) { name = e.name; } })(); } ' +
+                 'name === "ReferenceError" && !("x" in scope)';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TDeleteIdentifierTests.StrictCompoundAssignment_BindingDeletedByGetterOnGlobal_ThrowsReferenceError;
+begin
+  const Script = 'Object.defineProperty(this, "g", {configurable: true, get: function() { delete this.g; return 2; }}); ' +
+                 'var name; (function() { "use strict"; try { g ^= 3; } catch (e) { name = e.name; } })(); ' +
+                 'name === "ReferenceError" && !("g" in this)';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TDeleteIdentifierTests.StrictIncrement_BindingDeletedByGetterInWith_ThrowsReferenceError;
+begin
+  const Script = 'var scope = {get x() { delete this.x; return 2; }}, name; with (scope) { ' +
+                 '(function() { "use strict"; try { ++x; } catch (e) { name = e.name; } })(); } ' +
+                 'name === "ReferenceError" && !("x" in scope)';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TDeleteIdentifierTests.SloppyAssignment_BindingDeletedByRightHandSideInWith_RecreatesPropertyOnWithObject;
+begin
+  const Script = 'var scope = {x: 1}; with (scope) { x = (delete scope.x, 2); } ' +
+                 'scope.x === 2';
 
   Assert.IsTrue(EvaluatesToTrue(Script));
 end;

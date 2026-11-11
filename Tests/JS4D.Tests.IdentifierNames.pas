@@ -97,6 +97,50 @@ type
 
     [Test]
     procedure Lexer_VerticalTilde_IsNotAnIdentifierCharacter;
+
+    [Test]
+    procedure Lexer_CodePointEscapeInIdentifier_ReturnsDecodedName;
+
+    [Test]
+    procedure Lexer_AstralCodePointEscapeInIdentifier_ReturnsSurrogatePair;
+
+    [Test]
+    [TestCase('NotIdentifierCharacter', '\u{31}a')]
+    [TestCase('AboveLastCodePoint', 'a\u{110000}')]
+    [TestCase('Empty', 'a\u{}')]
+    [TestCase('Unterminated', 'a\u{61')]
+    procedure Lexer_InvalidCodePointEscapeInIdentifier_RaisesSyntaxError(const Source: string);
+
+    [Test]
+    procedure Lexer_AstralLetterAtIdentifierStart_IsPartOfTheName;
+
+    [Test]
+    procedure Lexer_AstralDigitInsideIdentifier_IsPartOfTheName;
+
+    [Test]
+    procedure Lexer_AstralDigitAtIdentifierStart_RaisesSyntaxError;
+
+    [Test]
+    procedure Lexer_OtherIdStartCharacter_StartsAnIdentifier;
+
+    [Test]
+    procedure Lexer_OtherIdContinueCharacter_ContinuesAnIdentifier;
+
+    [Test]
+    procedure Lexer_OtherIdContinueCharacterAtStart_RaisesSyntaxError;
+
+    [Test]
+    [TestCase('Basic', '"\u{41}"|A', '|')]
+    [TestCase('LeadingZeros', '"\u{0000041}"|A', '|')]
+    [TestCase('AstralLength', '"\u{1F600}".length|2', '|')]
+    [TestCase('AstralHighSurrogate', '"\u{1F600}".charCodeAt(0)|55357', '|')]
+    procedure String_CodePointEscape_ProducesCodePoint(const Source: string; const Expected: string);
+
+    [Test]
+    [TestCase('Empty', '"\u{}"')]
+    [TestCase('Unterminated', '"\u{41"')]
+    [TestCase('TooLarge', '"\u{110000}"')]
+    procedure String_InvalidCodePointEscape_IsSyntaxError(const Source: string);
   end;
 
 implementation
@@ -296,6 +340,94 @@ begin
       FirstTokenOf('a\u2E2F');
     end,
     EJSSyntaxError);
+end;
+
+procedure TIdentifierNamesTests.Lexer_CodePointEscapeInIdentifier_ReturnsDecodedName;
+begin
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('\u{61}bc'));
+  Assert.AreEqual('abc', FirstTokenValueOf('\u{61}bc'));
+end;
+
+procedure TIdentifierNamesTests.Lexer_AstralCodePointEscapeInIdentifier_ReturnsSurrogatePair;
+begin
+  const Expected = #$D801#$DC00 + 'x';
+
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('\u{10400}x'));
+  Assert.AreEqual(Expected, FirstTokenValueOf('\u{10400}x'));
+end;
+
+procedure TIdentifierNamesTests.Lexer_InvalidCodePointEscapeInIdentifier_RaisesSyntaxError(const Source: string);
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FirstTokenOf(Source);
+    end,
+    EJSSyntaxError);
+end;
+
+procedure TIdentifierNamesTests.Lexer_AstralLetterAtIdentifierStart_IsPartOfTheName;
+begin
+  const Source = #$D801#$DC00 + 'x';
+
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
+  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+end;
+
+procedure TIdentifierNamesTests.Lexer_AstralDigitInsideIdentifier_IsPartOfTheName;
+begin
+  const Source = 'a' + #$D835#$DFD8 + 'b';
+
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
+  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+end;
+
+procedure TIdentifierNamesTests.Lexer_AstralDigitAtIdentifierStart_RaisesSyntaxError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FirstTokenOf(#$D835#$DFD8 + 'a');
+    end,
+    EJSSyntaxError);
+end;
+
+procedure TIdentifierNamesTests.Lexer_OtherIdStartCharacter_StartsAnIdentifier;
+begin
+  const Source = #$2118 + 'a';
+
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
+  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+end;
+
+procedure TIdentifierNamesTests.Lexer_OtherIdContinueCharacter_ContinuesAnIdentifier;
+begin
+  const Source = 'a' + #$00B7 + 'b';
+
+  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
+  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+end;
+
+procedure TIdentifierNamesTests.Lexer_OtherIdContinueCharacterAtStart_RaisesSyntaxError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FirstTokenOf(#$00B7 + 'a');
+    end,
+    EJSSyntaxError);
+end;
+
+procedure TIdentifierNamesTests.String_CodePointEscape_ProducesCodePoint(const Source: string; const Expected: string);
+begin
+  const Actual = FEngine.Evaluate(Source).ToString;
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TIdentifierNamesTests.String_InvalidCodePointEscape_IsSyntaxError(const Source: string);
+begin
+  Assert.IsTrue(EvaluatesToSyntaxError(Source));
 end;
 
 end.

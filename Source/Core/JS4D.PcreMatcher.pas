@@ -16,6 +16,12 @@ type
     FCaptureCount: Integer;
 
     procedure EnsureCompiled;
+    class function ClampQuantifierBounds(const Pattern: string): string; static;
+    class function TryClampQuantifier(const Pattern: string; const OpenIndex: Integer;
+                                      out Quantifier: string; out TokenLength: Integer): Boolean; static;
+    class function ClampBound(const Digits: string): string; static;
+    class function IsDigits(const Text: string): Boolean; static;
+    class function NextClassState(const Current: Char; const InsideClass: Boolean): Boolean; static;
 
   public
     constructor Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean);
@@ -40,11 +46,14 @@ const
   OFFSET_SLOTS_PER_GROUP = 3;
   UNSET_OFFSET = -1;
   COMPILE_ERROR_FORMAT = 'Error in regular expression at offset %d: %s';
+  MAX_QUANTIFIER_BOUND = 65535;
+  MAX_QUANTIFIER_DIGITS = 5;
+  ESCAPE_LENGTH = 2;
 
 constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean);
 begin
   inherited Create;
-  FPattern := Pattern;
+  FPattern := ClampQuantifierBounds(Pattern);
   FOptions := PCRE_UTF8 or PCRE_NEWLINE_ANY or PCRE_JAVASCRIPT_COMPAT or PCRE_DOLLAR_ENDONLY;
 
   if IgnoreCase then
@@ -60,6 +69,111 @@ destructor TJSPcreMatcher.Destroy;
 begin
   pcre_dispose(FCode, nil, FCharTable);
   inherited Destroy;
+end;
+
+class function TJSPcreMatcher.IsDigits(const Text: string): Boolean;
+begin
+  Result := not Text.IsEmpty;
+
+  for var Letter in Text do
+  begin
+    if not CharInSet(Letter, ['0'..'9']) then
+      Exit(False);
+  end;
+end;
+
+class function TJSPcreMatcher.ClampBound(const Digits: string): string;
+begin
+  if Digits.IsEmpty then
+    Exit('');
+
+  const Significant = Digits.TrimLeft(['0']);
+  if Significant.IsEmpty then
+    Exit('0');
+
+  const ExceedsLimit = (Significant.Length > MAX_QUANTIFIER_DIGITS) or (StrToInt(Significant) > MAX_QUANTIFIER_BOUND);
+  if ExceedsLimit then
+    Exit(IntToStr(MAX_QUANTIFIER_BOUND));
+
+  Result := Significant;
+end;
+
+class function TJSPcreMatcher.TryClampQuantifier(const Pattern: string; const OpenIndex: Integer;
+                                                 out Quantifier: string; out TokenLength: Integer): Boolean;
+begin
+  const CloseIndex = Pattern.IndexOf('}', OpenIndex);
+  if CloseIndex < 0 then
+    Exit(False);
+
+  const Bounds = Pattern.Substring(OpenIndex + 1, CloseIndex - OpenIndex - 1).Split([',']);
+  const HasUpperBound = (Length(Bounds) = 2);
+  const IsBoundsCountValid = (Length(Bounds) in [1, 2]);
+  if not (IsBoundsCountValid and IsDigits(Bounds[0])) then
+    Exit(False);
+
+  const IsUpperBoundValid = (not HasUpperBound) or Bounds[1].IsEmpty or IsDigits(Bounds[1]);
+  if not IsUpperBoundValid then
+    Exit(False);
+
+  Quantifier := '{' + ClampBound(Bounds[0]);
+  if HasUpperBound then
+    Quantifier := Quantifier + ',' + ClampBound(Bounds[1]);
+
+  Quantifier := Quantifier + '}';
+  TokenLength := CloseIndex - OpenIndex + 1;
+  Result := True;
+end;
+
+class function TJSPcreMatcher.NextClassState(const Current: Char; const InsideClass: Boolean): Boolean;
+begin
+  if Current = '[' then
+    Exit(True);
+
+  if Current = ']' then
+    Exit(False);
+
+  Result := InsideClass;
+end;
+
+class function TJSPcreMatcher.ClampQuantifierBounds(const Pattern: string): string;
+begin
+  const Clamped = TStringBuilder.Create;
+  try
+    var Index := 0;
+    var InsideClass := False;
+
+    while Index < Pattern.Length do
+    begin
+      const Current = Pattern.Chars[Index];
+
+      const IsEscape = (Current = '\') and (Index + 1 < Pattern.Length);
+      if IsEscape then
+      begin
+        Clamped.Append(Pattern, Index, ESCAPE_LENGTH);
+        Inc(Index, ESCAPE_LENGTH);
+        Continue;
+      end;
+
+      var Quantifier := '';
+      var TokenLength := 0;
+      const IsQuantifier = (not InsideClass) and (Current = '{') and
+                           TryClampQuantifier(Pattern, Index, Quantifier, TokenLength);
+      if IsQuantifier then
+      begin
+        Clamped.Append(Quantifier);
+        Inc(Index, TokenLength);
+        Continue;
+      end;
+
+      InsideClass := NextClassState(Current, InsideClass);
+      Clamped.Append(Current);
+      Inc(Index);
+    end;
+
+    Result := Clamped.ToString;
+  finally
+    Clamped.Free;
+  end;
 end;
 
 procedure TJSPcreMatcher.EnsureCompiled;

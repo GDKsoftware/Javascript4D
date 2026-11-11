@@ -37,7 +37,10 @@ type
     procedure Hoisting_VariableAssignedBeforeDeclaration_IsNotOverwrittenByDeclaration;
 
     [Test]
-    procedure Hoisting_DeclarationInsideBlock_IsVisibleBeforeTheBlock;
+    procedure Hoisting_DeclarationInsideLoopBlock_CreatesFunctionPerBlockEntry;
+
+    [Test]
+    procedure Hoisting_DeclarationInsideBlock_IsUndefinedBeforeTheBlockIsEvaluated;
 
     [Test]
     procedure Prototype_IsArray_ElementsAndLengthAreInherited;
@@ -94,11 +97,24 @@ begin
     'var seen = [];' + sLineBreak +
     'for (var i = 0; i < 2; i++) {' + sLineBreak +
     '  seen.push(foo);' + sLineBreak +
+    '}' + sLineBreak +
+    'function foo() {}' + sLineBreak +
+    'seen[0] === seen[1]';
+
+  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+end;
+
+procedure TFunctionDeclarationTests.Hoisting_DeclarationInsideLoopBlock_CreatesFunctionPerBlockEntry;
+begin
+  const Script =
+    'var seen = [];' + sLineBreak +
+    'for (var i = 0; i < 2; i++) {' + sLineBreak +
+    '  seen.push(foo);' + sLineBreak +
     '  function foo() {}' + sLineBreak +
     '}' + sLineBreak +
     'seen[0] === seen[1]';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  Assert.IsFalse(FEngine.Evaluate(Script).AsBoolean);
 end;
 
 procedure TFunctionDeclarationTests.Hoisting_VariableAssignedBeforeDeclaration_IsNotOverwrittenByDeclaration;
@@ -111,14 +127,14 @@ begin
   Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
 end;
 
-procedure TFunctionDeclarationTests.Hoisting_DeclarationInsideBlock_IsVisibleBeforeTheBlock;
+procedure TFunctionDeclarationTests.Hoisting_DeclarationInsideBlock_IsUndefinedBeforeTheBlockIsEvaluated;
 begin
   const Script =
     'var before = typeof foo;' + sLineBreak +
     '{ function foo() {} }' + sLineBreak +
-    'before';
+    'before + typeof foo';
 
-  Assert.AreEqual('function', FEngine.Evaluate(Script).AsString);
+  Assert.AreEqual('undefinedfunction', FEngine.Evaluate(Script).AsString);
 end;
 
 procedure TFunctionDeclarationTests.Prototype_IsArray_ElementsAndLengthAreInherited;

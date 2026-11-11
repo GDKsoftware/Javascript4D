@@ -3,15 +3,10 @@
 # Implementing a feature means removing its directory from this list.
 
 # Language features introduced after ES5.1
-language/block-scope/
-language/computed-property-names/
-language/destructuring/
 language/export/
 language/import/
 language/module-code/
-language/rest-parameters/
 language/literals/bigint/
-language/expressions/arrow-function/
 language/expressions/async-arrow-function/
 language/expressions/async-function/
 language/expressions/async-generator/
@@ -26,22 +21,16 @@ language/expressions/logical-assignment/
 language/expressions/new.target/
 language/expressions/optional-chaining/
 language/expressions/super/
-language/expressions/tagged-template/
-language/expressions/template-literal/
 language/expressions/yield/
 language/statements/async-function/
 language/statements/async-generator/
 language/statements/await-using/
 language/statements/class/
-language/statements/const/
 language/statements/for-await-of/
-language/statements/for-of/
 language/statements/generators/
-language/statements/let/
 language/statements/using/
 language/statements/switch/scope-lex-async-
 language/statements/switch/scope-lex-class.js
-language/statements/switch/scope-lex-const.js
 language/statements/switch/scope-lex-generator.js
 
 # Built-ins introduced after ES5.1

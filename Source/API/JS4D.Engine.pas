@@ -17,7 +17,9 @@ uses
   JS4D.Operators,
   JS4D.Builtins,
   JS4D.ArrayIteration,
+  JS4D.ArrayIterator,
   JS4D.ArrayGeneric,
+  JS4D.ArrayLike,
   JS4D.PropertyDescriptors,
   JS4D.PrototypeMethods,
   JS4D.DateBuiltins,
@@ -28,6 +30,7 @@ uses
   JS4D.JsonReviver,
   JS4D.UriCoding,
   JS4D.MathFunctions,
+  JS4D.NumericBuiltins,
   JS4D.NumberParse,
   JS4D.Errors;
 
@@ -61,11 +64,18 @@ type
     function ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
+    procedure RegisterStringRaw(const StringFunc: IJSFunction);
+    function ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
+    function CoerceToObject(const Value: TJSValue): IJSObject;
+    class function IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean; static;
+    class procedure PutChecked(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
+    procedure CopyEnumerableOwn(const Source: IJSObject; const Target: IJSObject);
     procedure RegisterConsole;
     procedure RegisterMath;
     procedure RegisterObject;
     procedure RegisterJSON;
     procedure RegisterArray;
+    procedure RegisterArrayIterators(const PrototypeObj: IJSObject);
     procedure RegisterDate;
     procedure RegisterErrors;
     function CreateErrorConstructor(const ErrorType: TJSErrorType; const ErrorName: string): TJSFunction;
@@ -84,9 +94,12 @@ type
     procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
-    function BuildFunctionSource(const Args: TArray<TJSValue>): string;
+    function CreateDynamicFunction(const Args: TArray<TJSValue>): TJSValue;
     function CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
     function CreateArrayPrototypeMethod(const MethodName: string): IJSFunction;
+    function CreateArrayStaticMethod(const MethodName: string): IJSFunction;
+    function CreateArrayIteratorFactory(const MethodName: string; const Kind: TJSArrayIteratorKind;
+                                        const IteratorPrototype: IJSObject): IJSFunction;
     function CreateObjectPrototypeMethod(const MethodName: string): IJSFunction;
     function ConstructArray(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
     function ConstructObject(const Args: TArray<TJSValue>; const PrototypeObj: IJSObject): TJSValue;
@@ -165,12 +178,17 @@ const
   PROTOTYPE_PROPERTY = 'prototype';
   CONSTRUCTOR_PROPERTY = 'constructor';
   LENGTH_PROPERTY = 'length';
+  RAW_PROPERTY = 'raw';
+  NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
+  CANNOT_ASSIGN_READ_ONLY = 'Cannot assign to read only property ''%s''';
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
   FUNCTION_CALLER = 'caller';
   FUNCTION_ARGUMENTS = 'arguments';
   FUNCTION_SOURCE_FORMAT = '(function (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
+  FUNCTION_TEXT_FORMAT = 'function anonymous(%s'#10') {'#10'%s'#10'}';
+  DYNAMIC_FUNCTION_NAME = 'anonymous';
   NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
   NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
   NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
@@ -203,6 +221,9 @@ const
   OBJECT_GET_PROTOTYPE_OF = 'getPrototypeOf';
   OBJECT_GET_OWN_PROPERTY_NAMES = 'getOwnPropertyNames';
   OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
+  OBJECT_GET_OWN_PROPERTY_DESCRIPTORS = 'getOwnPropertyDescriptors';
+  OBJECT_IS = 'is';
+  GLOBAL_THIS_NAME = 'globalThis';
   OBJECT_DEFINE_PROPERTY = 'defineProperty';
   OBJECT_DEFINE_PROPERTIES = 'defineProperties';
   OBJECT_CREATE = 'create';
@@ -212,6 +233,12 @@ const
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_FROM = 'from';
+  ARRAY_OF = 'of';
+  ARRAY_KEYS = 'keys';
+  ARRAY_VALUES = 'values';
+  ARRAY_ENTRIES = 'entries';
+  ITERATOR_NEXT = 'next';
+  ITERATOR_NOT_AN_ARRAY_ITERATOR = 'next method called on an object that is not an array iterator';
   DATE_NAME = 'Date';
   ERROR_NAME = 'Error';
   TYPE_ERROR_NAME = 'TypeError';
@@ -479,6 +506,9 @@ begin
   DefineConstant(NumberFunc, 'NaN', TJSValue.CreateNaN);
   DefineConstant(NumberFunc, 'POSITIVE_INFINITY', TJSValue.CreateInfinity(False));
   DefineConstant(NumberFunc, 'NEGATIVE_INFINITY', TJSValue.CreateInfinity(True));
+  TJSNumericBuiltins.RegisterNumber(NumberFunc,
+                                    FInterpreter.GetGlobalVariable(PARSE_INT_NAME),
+                                    FInterpreter.GetGlobalVariable(PARSE_FLOAT_NAME));
 
   AttachPrototypeObject(NumberFunc, NumberPrototype);
 
@@ -515,6 +545,8 @@ begin
       Result := TJSValue.CreateString(OutputChars);
     end)));
 
+  RegisterStringRaw(StringFunc);
+
   FInterpreter.SetGlobalVariable(STRING_FUNC_NAME, TJSValue.CreateObject(StringFunc));
   AttachPrototypeObject(StringFunc, StringPrototype);
 
@@ -542,6 +574,9 @@ begin
   RegisterUriFunction(ENCODE_URI_COMPONENT_NAME, TJSUriCoding.EncodeURIComponent);
   RegisterUriFunction(DECODE_URI_COMPONENT_NAME, TJSUriCoding.DecodeURIComponent);
 
+  DefineHiddenProperty(FInterpreter.GlobalObject, GLOBAL_THIS_NAME,
+                       TJSValue.CreateObject(FInterpreter.GlobalObject));
+
   RegisterConsole;
   RegisterMath;
   RegisterObject;
@@ -554,6 +589,74 @@ begin
   RegisterPrototypeMethods;
   LinkIntrinsicPrototypes;
   ApplyBuiltinAttributes;
+end;
+
+procedure TJSEngine.RegisterStringRaw(const StringFunc: IJSFunction);
+begin
+  const RawFunc = TJSFunction.CreateNative(RAW_PROPERTY,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := TJSValue.CreateString(ConcatenateRawStrings(Args));
+    end);
+
+  RawFunc.IsConstructor := False;
+  FInterpreter.RegisterFunction(RawFunc);
+  StringFunc.SetProperty(RAW_PROPERTY, TJSValue.CreateObject(RawFunc));
+end;
+
+function TJSEngine.ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
+begin
+  const Cooked = CoerceToObject(ArgumentAt(Args, 0));
+  const Raw = CoerceToObject(Cooked.GetProperty(RAW_PROPERTY));
+  const SegmentCount = TJSArrayLike.ToLength(Raw);
+
+  Result := '';
+
+  for var Index: Int64 := 0 to SegmentCount - 1 do
+  begin
+    const SegmentName = TJSArrayLike.IndexName(Index);
+    const Segment = Raw.GetProperty(SegmentName);
+    Result := Result + ToText(Segment);
+
+    const IsLastSegment = (Index = SegmentCount - 1);
+    const HasSubstitution = (Index + 1 < Length(Args));
+    if (not IsLastSegment) and HasSubstitution then
+      Result := Result + ToText(Args[Index + 1]);
+  end;
+end;
+
+function TJSEngine.CoerceToObject(const Value: TJSValue): IJSObject;
+begin
+  if Value.IsNullOrUndefined then
+    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
+
+  if Value.IsObject then
+    Exit(Value.ToObject);
+
+  Result := FInterpreter.WrapPrimitive(Value);
+end;
+
+class function TJSEngine.IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean;
+begin
+  const IsOwn = Source.HasOwnProperty(Name);
+  Result := IsOwn and Source.GetOwnPropertyDescriptor(Name).Enumerable;
+end;
+
+class procedure TJSEngine.PutChecked(const Target: IJSObject; const Name: string; const Value: TJSValue);
+begin
+  if not TJSPropertyDescriptors.CanPut(Target, Name) then
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_READ_ONLY, [Name]));
+
+  Target.SetProperty(Name, Value);
+end;
+
+procedure TJSEngine.CopyEnumerableOwn(const Source: IJSObject; const Target: IJSObject);
+begin
+  for var PropName in Source.GetOwnPropertyNames do
+  begin
+    if IsEnumerableOwn(Source, PropName) then
+      PutChecked(Target, PropName, Source.GetProperty(PropName));
+  end;
 end;
 
 procedure TJSEngine.RegisterUriFunction(const Name: string; const Transform: TUriTransform);
@@ -927,6 +1030,8 @@ begin
       Result := TJSValue.CreateNumber(TJSMathFunctions.Sign(Args[0].ToNumber));
     end)));
 
+  TJSNumericBuiltins.RegisterMath(MathObj);
+
   FInterpreter.SetGlobalVariable(MATH_NAME, TJSValue.CreateObject(MathObj));
 end;
 
@@ -943,20 +1048,12 @@ begin
   ObjectObj.SetProperty(OBJECT_KEYS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_KEYS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
       const ResultArr: IJSArray = TJSArray.Create;
-
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Obj = Args[0].ToObject;
 
       for var PropName in Obj.GetOwnPropertyNames do
       begin
-        const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-        if Descriptor.Enumerable then
+        if IsEnumerableOwn(Obj, PropName) then
           ResultArr.Push(TJSValue.CreateString(PropName));
       end;
 
@@ -966,27 +1063,12 @@ begin
   ObjectObj.SetProperty(OBJECT_VALUES, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_VALUES,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
       const ResultArr: IJSArray = TJSArray.Create;
 
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
+      for var PropName in Obj.GetOwnPropertyNames do
       begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Obj = Args[0].ToObject;
-
-      var ArrIntf: IJSArray;
-      if Supports(Obj, IJSArray, ArrIntf) then
-      begin
-        for var Index := 0 to ArrIntf.Length - 1 do
-          ResultArr.Push(ArrIntf[Index]);
-      end
-      else
-      begin
-        const PropertyNames = Obj.GetOwnPropertyNames;
-
-        for var PropName in PropertyNames do
+        if IsEnumerableOwn(Obj, PropName) then
           ResultArr.Push(Obj.GetProperty(PropName));
       end;
 
@@ -996,32 +1078,12 @@ begin
   ObjectObj.SetProperty(OBJECT_ENTRIES, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_ENTRIES,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
       const ResultArr: IJSArray = TJSArray.Create;
 
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
+      for var PropName in Obj.GetOwnPropertyNames do
       begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Obj = Args[0].ToObject;
-
-      var ArrIntf: IJSArray;
-      if Supports(Obj, IJSArray, ArrIntf) then
-      begin
-        for var Index := 0 to ArrIntf.Length - 1 do
-        begin
-          const EntryArr: IJSArray = TJSArray.Create;
-          EntryArr.Push(TJSValue.CreateString(IntToStr(Index)));
-          EntryArr.Push(ArrIntf[Index]);
-          ResultArr.Push(TJSValue.CreateObject(EntryArr));
-        end;
-      end
-      else
-      begin
-        const PropertyNames = Obj.GetOwnPropertyNames;
-
-        for var PropName in PropertyNames do
+        if IsEnumerableOwn(Obj, PropName) then
         begin
           const EntryArr: IJSArray = TJSArray.Create;
           EntryArr.Push(TJSValue.CreateString(PropName));
@@ -1036,24 +1098,12 @@ begin
   ObjectObj.SetProperty(OBJECT_ASSIGN, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_ASSIGN,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      const Target = Args[0].ToObject;
+      const Target = CoerceToObject(ArgumentAt(Args, 0));
 
       for var Index := 1 to Length(Args) - 1 do
       begin
-        if Args[Index].IsObject then
-        begin
-          const Source = Args[Index].ToObject;
-          const PropertyNames = Source.GetOwnPropertyNames;
-
-          for var PropName in PropertyNames do
-            Target.SetProperty(PropName, Source.GetProperty(PropName));
-        end;
+        if not Args[Index].IsNullOrUndefined then
+          CopyEnumerableOwn(CoerceToObject(Args[Index]), Target);
       end;
 
       Result := TJSValue.CreateObject(Target);
@@ -1097,13 +1147,7 @@ begin
   ObjectObj.SetProperty(OBJECT_GET_PROTOTYPE_OF, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_PROTOTYPE_OF,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateNull;
-        Exit;
-      end;
-
-      const Obj = Args[0].ToObject;
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
       const Proto = Obj.Prototype;
 
       if Proto = nil then
@@ -1115,18 +1159,10 @@ begin
   ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_NAMES, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_NAMES,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
       const ResultArr: IJSArray = TJSArray.Create;
 
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Obj = Args[0].ToObject;
-      const PropertyNames = Obj.GetOwnPropertyNames;
-
-      for var PropName in PropertyNames do
+      for var PropName in Obj.GetOwnPropertyNames do
         ResultArr.Push(TJSValue.CreateString(PropName));
 
       Result := TJSValue.CreateObject(ResultArr);
@@ -1135,15 +1171,12 @@ begin
   ObjectObj.SetProperty(OBJECT_FREEZE, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_FREEZE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const Target = ArgumentAt(Args, 0);
+      if not Target.IsObject then
+        Exit(Target);
 
-      const Obj = Args[0].ToObject;
-      Obj.Freeze;
-      Result := TJSValue.CreateObject(Obj);
+      Target.ToObject.Freeze;
+      Result := Target;
     end)));
 
   ObjectObj.SetProperty(OBJECT_IS_FROZEN, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_IS_FROZEN,
@@ -1161,15 +1194,12 @@ begin
   ObjectObj.SetProperty(OBJECT_SEAL, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_SEAL,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const Target = ArgumentAt(Args, 0);
+      if not Target.IsObject then
+        Exit(Target);
 
-      const Obj = Args[0].ToObject;
-      Obj.Seal;
-      Result := TJSValue.CreateObject(Obj);
+      Target.ToObject.Seal;
+      Result := Target;
     end)));
 
   ObjectObj.SetProperty(OBJECT_IS_SEALED, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_IS_SEALED,
@@ -1187,15 +1217,12 @@ begin
   ObjectObj.SetProperty(OBJECT_PREVENT_EXTENSIONS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_PREVENT_EXTENSIONS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if (Length(Args) = 0) or (not Args[0].IsObject) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
+      const Target = ArgumentAt(Args, 0);
+      if not Target.IsObject then
+        Exit(Target);
 
-      const Obj = Args[0].ToObject;
-      Obj.PreventExtensions;
-      Result := TJSValue.CreateObject(Obj);
+      Target.ToObject.PreventExtensions;
+      Result := Target;
     end)));
 
   ObjectObj.SetProperty(OBJECT_IS_EXTENSIBLE, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_IS_EXTENSIBLE,
@@ -1213,23 +1240,44 @@ begin
   ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_DESCRIPTOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const HasTarget = (Length(Args) > 0) and (not Args[0].IsNullOrUndefined);
-      if not HasTarget then
-        raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
-
-      if not Args[0].IsObject then
-        Exit(TJSValue.CreateUndefined);
+      const Obj = CoerceToObject(ArgumentAt(Args, 0));
 
       var PropName := UNDEFINED_NAME;
       if Length(Args) > 1 then
         PropName := ToText(Args[1]);
 
-      const Obj = Args[0].ToObject;
       if not Obj.HasOwnProperty(PropName) then
         Exit(TJSValue.CreateUndefined);
 
       const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Obj.GetOwnPropertyDescriptor(PropName));
       Result := TJSValue.CreateObject(DescObj);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_GET_OWN_PROPERTY_DESCRIPTORS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_GET_OWN_PROPERTY_DESCRIPTORS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Target = ArgumentAt(Args, 0);
+      const Source = CoerceToObject(Target);
+
+      const Descriptors = TJSObject.Create;
+      Descriptors.Prototype := PrototypeObj;
+
+      for var PropName in Source.GetOwnPropertyNames do
+      begin
+        const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Source.GetOwnPropertyDescriptor(PropName));
+        Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
+      end;
+
+      Result := TJSValue.CreateObject(Descriptors);
+    end)));
+
+  ObjectObj.SetProperty(OBJECT_IS, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_IS,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const Left = ArgumentAt(Args, 0);
+      const Right = ArgumentAt(Args, 1);
+
+      Result := TJSValue.CreateBoolean(Left.SameValue(Right));
     end)));
 
   ObjectObj.SetProperty(OBJECT_DEFINE_PROPERTY, TJSValue.CreateObject(TJSFunction.CreateNative(OBJECT_DEFINE_PROPERTY,
@@ -1327,69 +1375,19 @@ begin
       Result := TJSValue.CreateBoolean(Args[0].IsArray);
     end)));
 
-  ArrayObj.SetProperty(ARRAY_FROM, TJSValue.CreateObject(TJSFunction.CreateNative(ARRAY_FROM,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      const ResultArr: IJSArray = TJSArray.Create;
-
-      if Length(Args) = 0 then
-      begin
-        Result := TJSValue.CreateObject(ResultArr);
-        Exit;
-      end;
-
-      const Source = Args[0];
-
-      if Source.IsArray then
-      begin
-        var SourceArr: IJSArray;
-        if Supports(Source.ToObject, IJSArray, SourceArr) then
-        begin
-          for var Index := 0 to SourceArr.Length - 1 do
-          begin
-            ResultArr.Push(SourceArr[Index]);
-          end;
-        end;
-      end
-      else if Source.IsString then
-      begin
-        const Str = Source.AsString;
-
-        const CharCount = Length(Str);
-
-        FInterpreter.Limits.EnsureArrayLength(CharCount);
-
-        for var Index := 1 to Length(Str) do
-        begin
-          ResultArr.Push(TJSValue.CreateString(Str[Index]));
-        end;
-      end
-      else if Source.IsObject then
-      begin
-        const Obj = Source.ToObject;
-        const LengthValue = Obj.GetProperty('length');
-
-        if LengthValue.IsNumber then
-        begin
-          const Len = Trunc(LengthValue.ToNumber);
-
-          FInterpreter.Limits.EnsureArrayLength(Len);
-
-          for var Index := 0 to Len - 1 do
-          begin
-            ResultArr.Push(Obj.GetProperty(IntToStr(Index)));
-          end;
-        end;
-      end;
-
-      Result := TJSValue.CreateObject(ResultArr);
-    end)));
+  for var StaticName in [ARRAY_OF, ARRAY_FROM] do
+  begin
+    const StaticMethod = CreateArrayStaticMethod(StaticName);
+    ArrayObj.SetProperty(StaticName, TJSValue.CreateObject(StaticMethod));
+  end;
 
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
   end;
+
+  RegisterArrayIterators(PrototypeObj);
 
   AttachPrototypeObject(ArrayObj, PrototypeObj);
 
@@ -1401,7 +1399,7 @@ begin
   const FunctionObj = TJSFunction.CreateNative(FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := FInterpreter.CreateFunctionFromSource(BuildFunctionSource(Args));
+      Result := CreateDynamicFunction(Args);
     end);
 
   const PrototypeObj: IJSFunction = TJSFunction.CreateNative(ANONYMOUS_NAME,
@@ -1424,7 +1422,7 @@ begin
   FInterpreter.SetGlobalVariable(FUNCTION_NAME, TJSValue.CreateObject(FunctionObj));
 end;
 
-function TJSEngine.BuildFunctionSource(const Args: TArray<TJSValue>): string;
+function TJSEngine.CreateDynamicFunction(const Args: TArray<TJSValue>): TJSValue;
 begin
   var Body := '';
   var Parameters := '';
@@ -1443,7 +1441,16 @@ begin
     Body := ToText(Args[High(Args)]);
   end;
 
-  Result := Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
+  const ParsedSource = Format(FUNCTION_SOURCE_FORMAT, [Parameters, Body]);
+  Result := FInterpreter.CreateFunctionFromSource(ParsedSource);
+
+  var Func: IJSFunction;
+  const IsFunction = Supports(Result.ToObject, IJSFunction, Func);
+  if IsFunction then
+  begin
+    Func.Name := DYNAMIC_FUNCTION_NAME;
+    Func.SourceText := Format(FUNCTION_TEXT_FORMAT, [Parameters, Body]);
+  end;
 end;
 
 function TJSEngine.CreateFunctionPrototypeMethod(const MethodName: string): IJSFunction;
@@ -1457,6 +1464,53 @@ begin
         raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_FUNCTION, [MethodName]));
 
       Result := FInterpreter.ExecuteFunctionMethod(Target, MethodName, Args);
+    end);
+end;
+
+procedure TJSEngine.RegisterArrayIterators(const PrototypeObj: IJSObject);
+begin
+  const IteratorPrototype = TJSObject.Create;
+  IteratorPrototype.Prototype := FInterpreter.ObjectPrototype;
+  IteratorPrototype.SetProperty(ITERATOR_NEXT, TJSValue.CreateObject(TJSFunction.CreateNative(ITERATOR_NEXT,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Iterator: IJSArrayIterator;
+      if not Supports(This, IJSArrayIterator, Iterator) then
+        raise TJSErrorFactory.TypeError(ITERATOR_NOT_AN_ARRAY_ITERATOR);
+
+      Result := Iterator.NextResult;
+    end)));
+
+  const KeysMethod = CreateArrayIteratorFactory(ARRAY_KEYS, TJSArrayIteratorKind.Keys, IteratorPrototype);
+  const ValuesMethod = CreateArrayIteratorFactory(ARRAY_VALUES, TJSArrayIteratorKind.Values, IteratorPrototype);
+  const EntriesMethod = CreateArrayIteratorFactory(ARRAY_ENTRIES, TJSArrayIteratorKind.Entries, IteratorPrototype);
+
+  PrototypeObj.SetProperty(ARRAY_KEYS, TJSValue.CreateObject(KeysMethod));
+  PrototypeObj.SetProperty(ARRAY_VALUES, TJSValue.CreateObject(ValuesMethod));
+  PrototypeObj.SetProperty(ARRAY_ENTRIES, TJSValue.CreateObject(EntriesMethod));
+end;
+
+function TJSEngine.CreateArrayStaticMethod(const MethodName: string): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := FInterpreter.ExecuteArrayStaticMethod(This, MethodName, Args);
+    end);
+end;
+
+function TJSEngine.CreateArrayIteratorFactory(const MethodName: string; const Kind: TJSArrayIteratorKind;
+                                              const IteratorPrototype: IJSObject): IJSFunction;
+begin
+  Result := TJSFunction.CreateNative(MethodName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if not Assigned(This) then
+        raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+
+      const Iterator = TJSArrayIterator.Create(This, Kind, FInterpreter.ArrayPrototype, FInterpreter.ObjectPrototype);
+      Iterator.Prototype := IteratorPrototype;
+      Result := TJSValue.CreateObject(Iterator);
     end);
 end;
 
@@ -1788,6 +1842,7 @@ begin
     GlobalValue.ToObject.Prototype := ObjectPrototype;
   end;
 
+  FInterpreter.GlobalObject.Prototype := ObjectPrototype;
   FInterpreter.ObjectPrototype := ObjectPrototype;
   FInterpreter.ArrayPrototype := GlobalPrototype(ARRAY_NAME);
   FInterpreter.FunctionPrototype := GlobalPrototype(FUNCTION_NAME);

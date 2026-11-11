@@ -242,7 +242,7 @@ type
     procedure Object_Keys_PreservesInsertionOrderAfterDeleteAndReadd;
 
     [Test]
-    procedure Object_Keys_IntegerLikeKeys_PreserveInsertionOrder;
+    procedure Object_Keys_IntegerLikeKeys_AreAscending;
   end;
 
   [TestFixture]
@@ -1291,12 +1291,12 @@ begin
   Assert.AreEqual('a,c,b', Result.AsString);
 end;
 
-procedure TObjectMethodsTests.Object_Keys_IntegerLikeKeys_PreserveInsertionOrder;
+procedure TObjectMethodsTests.Object_Keys_IntegerLikeKeys_AreAscending;
 begin
   FEngine.Execute('var obj = {};');
   FEngine.Execute('obj["3"] = 3; obj["1"] = 1; obj["2"] = 2;');
   const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
-  Assert.AreEqual('3,1,2', Result.AsString);
+  Assert.AreEqual('1,2,3', Result.AsString);
 end;
 
 procedure TJSONTests.Setup;

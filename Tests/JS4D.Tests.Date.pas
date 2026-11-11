@@ -131,6 +131,10 @@ type
     [TestCase('SetLocalMonth', 'var d = new Date(2000, 0, 31); d.setMonth(1); d.getMonth() + "-" + d.getDate()|2-2', '|')]
     [TestCase('SetYearTwoDigits', 'var d = new Date(2000, 5, 1); d.setYear(99); d.getFullYear()|1999', '|')]
     [TestCase('GetYear', 'new Date(1999, 5, 1).getYear()|99', '|')]
+    [TestCase('SetHoursReadsTimeBeforeConversionOfInvalidDate', 'var d = new Date(NaN); var r = d.setHours({valueOf: function() { d.setTime(0); return 1; }}); r + ":" + d.getTime()|NaN:0', '|')]
+    [TestCase('SetUtcMinutesReadsTimeBeforeConversionOfValidDate', 'var d = new Date(0); var r = d.setUTCMinutes({valueOf: function() { d.setTime(NaN); return 1; }}); r|60000', '|')]
+    [TestCase('SetFullYearReadsTimeBeforeConversion', 'var d = new Date(Date.UTC(2000, 5, 1)); var r = d.setUTCFullYear({valueOf: function() { d.setTime(NaN); return 2001; }}); new Date(r).toISOString()|2001-06-01T00:00:00.000Z', '|')]
+    [TestCase('SetYearReadsTimeBeforeConversion', 'var d = new Date(2000, 5, 1); d.setYear({valueOf: function() { d.setTime(NaN); return 99; }}); d.getFullYear()|1999', '|')]
     procedure Setter_UpdatesTimeValue(const Script: string; const Expected: string);
 
     [Test]

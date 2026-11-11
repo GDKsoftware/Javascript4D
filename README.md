@@ -1,6 +1,6 @@
 # JavaScript4D
 
-A JavaScript parser and interpreter written in Delphi/Object Pascal. It targets ECMAScript 5.1 and is being extended towards ECMAScript 2015; see [Conformance](#conformance-test262) for what passes today.
+A JavaScript parser and interpreter written in Delphi/Object Pascal. It targets ECMAScript 5.1 and supports the ES2015 syntax listed below; see [Conformance](#conformance-test262) for what passes today.
 
 ## Overview
 
@@ -9,6 +9,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 ## Features
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
+- **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over arrays and strings
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
@@ -158,11 +159,16 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 ## Supported JavaScript Features
 
 ### Core Language
-- Variables (`var`)
+- Variables (`var`, `let`, `const` with block scope and temporal dead zone)
 - Functions (declaration and expression)
 - Control flow (`if`, `else`, `for`, `while`, `do-while`, `switch`)
 - Operators (arithmetic, comparison, logical, bitwise)
-- Object literals and property access
+- Object literals and property access (shorthand properties, methods, computed keys, getters and setters)
+- Arrow functions with lexical `this` and `arguments`
+- Template literals and tagged templates, `String.raw`
+- Default parameters, rest parameters and spread in calls, arrays and objects
+- Destructuring in declarations, parameters, assignments and `for-of` heads, with defaults and rest
+- `for-of` over arrays, strings and array-likes
 - Array literals and indexing
 - Try/catch/finally
 
@@ -201,7 +207,7 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 **Global Functions**
 - `parseInt`, `parseFloat`
 - `isNaN`, `isFinite`
-- `Array.isArray`, `Array.from`
+- `Array.isArray`, `Array.from`, `Array.of`, `Array.prototype.keys`, `values` and `entries`
 - `Date.now`, `Date.parse`
 
 ## Architecture
@@ -266,22 +272,22 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for unsupported features are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators, Symbol and Proxy, are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2468 | 2222 | 90.0% |
-| built-ins/Date | 492 | 445 | 90.4% |
-| built-ins/Function | 413 | 366 | 88.6% |
-| built-ins/JSON | 108 | 102 | 94.4% |
-| built-ins/Math | 276 | 189 | 68.5% |
-| built-ins/Number | 280 | 232 | 82.9% |
-| built-ins/Object | 3077 | 2897 | 94.2% |
-| built-ins/RegExp | 581 | 495 | 85.2% |
-| built-ins/String | 904 | 803 | 88.8% |
-| language/expressions | 2285 | 2049 | 89.7% |
-| language/statements | 1018 | 957 | 94.0% |
-| **Total** | 14024 | 12548 | 89.5% |
+| built-ins/Array | 2468 | 2426 | 98.3% |
+| built-ins/Date | 492 | 492 | 100.0% |
+| built-ins/Function | 413 | 382 | 92.5% |
+| built-ins/JSON | 108 | 105 | 97.2% |
+| built-ins/Math | 276 | 268 | 97.1% |
+| built-ins/Number | 280 | 268 | 95.7% |
+| built-ins/Object | 3080 | 3019 | 98.0% |
+| built-ins/RegExp | 581 | 562 | 96.7% |
+| built-ins/String | 905 | 879 | 97.1% |
+| language/expressions | 3330 | 3276 | 98.4% |
+| language/statements | 2293 | 2259 | 98.5% |
+| **Total** | 16551 | 16118 | 97.4% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

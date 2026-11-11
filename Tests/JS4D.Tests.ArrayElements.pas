@@ -73,6 +73,19 @@ type
     procedure Keys_SkipsHolesAndNonEnumerableElements;
 
     [Test]
+    [TestCase('JoinUsesToString', 'new Array({valueOf: function() { return "+"; }, toString: function() { return "*"; }}).join()#*', '#')]
+    [TestCase('JoinSkipsValueOf', 'new Array({valueOf: function() { return "+"; }}).join()#[object Object]', '#')]
+    [TestCase('JoinFallsBackToValueOf', 'new Array({valueOf: function() { return "+"; }, toString: function() { return {}; }}).join()#+', '#')]
+    [TestCase('JoinNestedArrayElement', '[[{toString: function() { return "n"; }}], 1].join("-")#n-1', '#')]
+    [TestCase('JoinSeparatorObject', '[1, 2].join({toString: function() { return "|"; }})#1|2', '#')]
+    [TestCase('ToStringUsesElementToString', '[{toString: function() { return "e"; }}].toString()#e', '#')]
+    [TestCase('SortUsesElementToString', 'var n = 0; var o = {toString: function() { n++; return ""; }}; [o, o].sort(); n > 1#true', '#')]
+    procedure ElementConversion_CallsUserDefinedToString(const Script: string; const Expected: string);
+
+    [Test]
+    procedure ElementConversion_ThrowsTypeErrorWithoutPrimitive;
+
+    [Test]
     procedure Hole_ReadsValueInheritedFromArrayPrototype;
 
     [Test]
@@ -98,6 +111,21 @@ type
 
     [Test]
     procedure Map_SkipsHolesOfNewArray;
+
+    [Test]
+    procedure AssignLength_ObjectWithValueOf_UsesTheConvertedNumber;
+
+    [Test]
+    procedure AssignLength_ObjectWithOnlyToString_UsesTheConvertedNumber;
+
+    [Test]
+    procedure DefineProperty_LengthObjectWithValueOf_UsesTheConvertedNumber;
+
+    [Test]
+    procedure DefineProperty_LengthObjectWithoutPrimitive_ThrowsTypeErrorAfterTryingBothConversions;
+
+    [Test]
+    procedure DefineProperty_InvalidLengthOnReadOnlyLength_ThrowsRangeError;
   end;
 
 implementation
@@ -239,7 +267,7 @@ begin
     'var arr = [1, , 3]; arr.extra = true;' + sLineBreak +
     'Object.getOwnPropertyNames(arr).join()';
 
-  Assert.AreEqual('0,2,extra', EvaluateText(Script));
+  Assert.AreEqual('0,2,length,extra', EvaluateText(Script));
 end;
 
 procedure TArrayElementTests.ForIn_VisitsElementsAndSkipsHoles;
@@ -272,6 +300,22 @@ begin
     'Object.keys(arr).join()';
 
   Assert.AreEqual('0,2', EvaluateText(Script));
+end;
+
+procedure TArrayElementTests.ElementConversion_CallsUserDefinedToString(const Script: string; const Expected: string);
+begin
+  Assert.AreEqual(Expected, EvaluateText(Script));
+end;
+
+procedure TArrayElementTests.ElementConversion_ThrowsTypeErrorWithoutPrimitive;
+begin
+  const Script =
+    'var thrown = false;' + sLineBreak +
+    'try { [{valueOf: function() { return {}; }, toString: function() { return {}; }}].join(); }' + sLineBreak +
+    'catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
+    'thrown';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TArrayElementTests.Hole_ReadsValueInheritedFromArrayPrototype;
@@ -365,6 +409,62 @@ begin
     'source[1] = undefined;' + sLineBreak +
     'var result = source.map(function () { calls++; return 1; });' + sLineBreak +
     'result.length === 10 && calls === 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.AssignLength_ObjectWithValueOf_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'arr.length = { valueOf: function () { return 2; }, toString: function () { return 1; } };' + sLineBreak +
+    'arr.length === 2';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.AssignLength_ObjectWithOnlyToString_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'arr.length = { toString: function () { return 3; } };' + sLineBreak +
+    'arr.length === 3';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_LengthObjectWithValueOf_UsesTheConvertedNumber;
+begin
+  const Script =
+    'var arr = [];' + sLineBreak +
+    'Object.defineProperty(arr, "length", { value: { valueOf: function () { return 4; } } });' + sLineBreak +
+    'arr.length === 4';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_LengthObjectWithoutPrimitive_ThrowsTypeErrorAfterTryingBothConversions;
+begin
+  const Script =
+    'var valueOfCalled = false, toStringCalled = false, thrown = false;' + sLineBreak +
+    'try {' + sLineBreak +
+    '  Object.defineProperty([], "length", { value: {' + sLineBreak +
+    '    valueOf: function () { valueOfCalled = true; return {}; },' + sLineBreak +
+    '    toString: function () { toStringCalled = true; return {}; } } });' + sLineBreak +
+    '} catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
+    'thrown && valueOfCalled && toStringCalled';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TArrayElementTests.DefineProperty_InvalidLengthOnReadOnlyLength_ThrowsRangeError;
+begin
+  const Script =
+    'var arr = []; var thrown = false;' + sLineBreak +
+    'Object.defineProperty(arr, "length", { writable: false });' + sLineBreak +
+    'try { Object.defineProperty(arr, "length", { value: -1, writable: true }); }' + sLineBreak +
+    'catch (e) { thrown = (e instanceof RangeError); }' + sLineBreak +
+    'thrown';
 
   Assert.IsTrue(EvaluateBoolean(Script));
 end;

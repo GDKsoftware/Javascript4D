@@ -152,6 +152,13 @@ type
     procedure ObjectPrototype_ToString_ReportsClassOfBuiltIns;
 
     [Test]
+    [TestCase('Sloppy', 'Object.prototype.toString.call((function() { return arguments; })(1, 2)) === "[object Arguments]"', '|')]
+    [TestCase('Strict', 'Object.prototype.toString.call((function() { "use strict"; return arguments; })(1, 2)) === "[object Arguments]"', '|')]
+    [TestCase('StringConversion', 'String((function() { return arguments; })()) === "[object Arguments]"', '|')]
+    [TestCase('ArrayEveryReceivesArguments', 'Array.prototype.every.call((function() { return arguments; })("a", "b"), function(v, i, o) { return Object.prototype.toString.call(o) === "[object Arguments]"; })', '|')]
+    procedure ObjectPrototype_ToString_ReportsClassOfArguments(const Script: string);
+
+    [Test]
     procedure ObjectPrototype_ToString_ReportsClassOfPrimitives;
 
     [Test]
@@ -481,6 +488,11 @@ begin
   Assert.IsTrue(EvaluateBoolean('Object.prototype.toString.call(new Error("x")) === "[object Error]"'));
   Assert.IsTrue(EvaluateBoolean('Object.prototype.toString.call(Math) === "[object Math]"'));
   Assert.IsTrue(EvaluateBoolean('Object.prototype.toString.call(JSON) === "[object JSON]"'));
+end;
+
+procedure TObjectPrototypeMethodTests.ObjectPrototype_ToString_ReportsClassOfArguments(const Script: string);
+begin
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 procedure TObjectPrototypeMethodTests.ObjectPrototype_ToString_ReportsClassOfPrimitives;
