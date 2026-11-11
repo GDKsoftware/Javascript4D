@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Errors,
+  JS4D.ArgumentsObject,
   JS4D.Interpreter,
   JS4D.Builtins;
 
@@ -100,6 +101,7 @@ const
   CLASS_OBJECT = 'Object';
   CLASS_ARRAY = 'Array';
   CLASS_FUNCTION = 'Function';
+  CLASS_ARGUMENTS = 'Arguments';
   CLASS_DATE = 'Date';
   CLASS_REGEXP = 'RegExp';
   CLASS_ERROR = 'Error';
@@ -313,6 +315,9 @@ begin
 
   if Supports(Source, IJSFunction) then
     Exit(CLASS_FUNCTION);
+
+  if Supports(Source, IJSArgumentsScope) then
+    Exit(CLASS_ARGUMENTS);
 
   if Supports(Source, IJSDate) then
     Exit(CLASS_DATE);
