@@ -62,6 +62,7 @@ contains
   JS4D.SlotMap in '..\..\Source\Core\JS4D.SlotMap.pas',
   JS4D.PropertyKey in '..\..\Source\Core\JS4D.PropertyKey.pas',
   JS4D.SymbolRegistry in '..\..\Source\Core\JS4D.SymbolRegistry.pas',
+  JS4D.StackGuard in '..\..\Source\Core\JS4D.StackGuard.pas',
   JS4D.Symbols in '..\..\Source\Core\JS4D.Symbols.pas',
   JS4D.ArgumentsObject in '..\..\Source\Runtime\JS4D.ArgumentsObject.pas',
   JS4D.ArrayGeneric in '..\..\Source\Runtime\JS4D.ArrayGeneric.pas',

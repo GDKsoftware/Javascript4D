@@ -34,9 +34,12 @@ uses
   JS4D.SymbolRegistry,
   JS4D.GeneratorObjects,
   JS4D.Operators,
-  JS4D.StrictThis;
+  JS4D.StrictThis,
+  JS4D.StackGuard;
 
 type
+  PJSValue = ^TJSValue;
+
   TJSScope = class(TInterfacedObject, IJSScope)
   private
     FVariables: TDictionary<string, TJSValue>;
@@ -298,6 +301,7 @@ type
     FStepsUntilCheck: Integer;
     FLimits: TJSLimits;
     FCallDepth: Integer;
+    FStackFloor: NativeUInt;
     FProgramParser: TJSProgramParser;
     FGCRootProvider: TJSGCRootProvider;
     FJobRunner: TProc;
@@ -620,7 +624,11 @@ type
     function DeleteIdentifier(const Name: string): Boolean;
     procedure DeclareBinding(const Name: string; const Value: TJSValue);
     function VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
+    function VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;
+    function ApplyBinary(const Node: TJSBinaryExpression; const Left: TJSValue; const Right: TJSValue): TJSValue;
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
+    function VisitLogicalChain(const Node: TJSLogicalExpression): TJSValue;
+    function ApplyLogical(const Node: TJSLogicalExpression; const Left: TJSValue): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
     function GlobalDataSlot(const Identifier: TJSIdentifier): PJSPropertyDescriptor;
     procedure StoreGlobalVariable(const Identifier: TJSIdentifier; const Value: TJSValue);
@@ -639,7 +647,14 @@ type
     function UpdateMember(const Node: TJSUpdateExpression): TJSValue;
     function VisitConditionalExpression(const Node: TJSConditionalExpression): TJSValue;
     function VisitCallExpression(const Node: TJSCallExpression): TJSValue;
+    function EvaluateCall(const Node: TJSCallExpression; const Base: PJSValue): TJSValue;
+    function OperandOrBase(const Operand: TJSExpression; const Base: PJSValue): TJSValue; inline;
     function VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
+    function VisitValueChain(const Node: TJSExpression; const ChainLength: Integer): TJSValue;
+    function ChainOperand(const Link: TJSExpression): TJSExpression;
+    function IsChainLink(const Node: TJSExpression): Boolean;
+    procedure ResolveMemberKey(const Node: TJSMemberExpression; var Reference: TJSMemberReference); inline;
+    procedure RaiseStackExhausted;
     procedure RequireObjectCoercible(const Value: TJSValue; const PropName: string);
     procedure RequireCoercibleBase(const Reference: TJSMemberReference);
     function ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
@@ -774,6 +789,8 @@ type
 implementation
 
 const
+  STACK_EXHAUSTED = 'Maximum call stack size exceeded';
+  ITERATIVE_CHAIN_LENGTH = 64;
   NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
   ARRAY_TO_STRING_METHOD = 'toString';
   UNDEFINED_TYPE = 'undefined';
@@ -1280,6 +1297,7 @@ begin
   FStepsUntilCheck := 0;
   FLimits := TJSLimits.Default;
   FCallDepth := 0;
+  FStackFloor := TJSStackGuard.CurrentFloor;
   FGlobalObject := TJSObject.Create;
   FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
   FGlobalScope := FGlobalBindings;
@@ -1853,6 +1871,7 @@ end;
 
 procedure TJSInterpreter.BeginExecution;
 begin
+  FStackFloor := TJSStackGuard.CurrentFloor;
   FStepsCompleted := 0;
   OpenStepSlice;
 end;
@@ -2015,6 +2034,11 @@ end;
 
 function TJSInterpreter.Visit(const Node: TJSASTNode): TJSValue;
 begin
+  // The address of the parameter is an address on the stack. A local variable would cost more on every node.
+  const IsStackExhausted = (NativeUInt(@Node) < FStackFloor);
+  if IsStackExhausted then
+    RaiseStackExhausted;
+
   if Node = nil then
   begin
     Result := TJSValue.CreateUndefined;
@@ -5629,9 +5653,47 @@ end;
 
 function TJSInterpreter.VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
 begin
+  if Node.ChainLength >= ITERATIVE_CHAIN_LENGTH then
+    Exit(VisitBinaryChain(Node));
+
   const Left = Visit(Node.Left);
   const Right = Visit(Node.Right);
 
+  Result := ApplyBinary(Node, Left, Right);
+end;
+
+function TJSInterpreter.VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;
+begin
+  var Links: TArray<TJSBinaryExpression>;
+  SetLength(Links, Node.ChainLength + 1);
+
+  var Count := 0;
+  var Link := Node;
+  while True do
+  begin
+    Links[Count] := Link;
+    Inc(Count);
+
+    const Next = Link.Left;
+    const ContinuesChain = (Next is TJSBinaryExpression) and (not Next.IsRemembered);
+    if not ContinuesChain then
+      Break;
+
+    Link := TJSBinaryExpression(Next);
+  end;
+
+  Result := Visit(Link.Left);
+  for var Index := Count - 1 downto 0 do
+  begin
+    const Current = Links[Index];
+    const Right = Visit(Current.Right);
+    Result := ApplyBinary(Current, Result, Right);
+  end;
+end;
+
+function TJSInterpreter.ApplyBinary(const Node: TJSBinaryExpression; const Left: TJSValue;
+                                    const Right: TJSValue): TJSValue;
+begin
   case Node.Operator of
     TJSBinaryOperator.Add,
     TJSBinaryOperator.Subtract,
@@ -5669,8 +5731,43 @@ end;
 
 function TJSInterpreter.VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
 begin
+  if Node.ChainLength >= ITERATIVE_CHAIN_LENGTH then
+    Exit(VisitLogicalChain(Node));
+
   const Left = Visit(Node.Left);
 
+  Result := ApplyLogical(Node, Left);
+end;
+
+function TJSInterpreter.VisitLogicalChain(const Node: TJSLogicalExpression): TJSValue;
+begin
+  var Links: TArray<TJSLogicalExpression>;
+  SetLength(Links, Node.ChainLength + 1);
+
+  var Count := 0;
+  var Link := Node;
+  while True do
+  begin
+    Links[Count] := Link;
+    Inc(Count);
+
+    const Next = Link.Left;
+    const ContinuesChain = (Next is TJSLogicalExpression) and (not Next.IsRemembered);
+    if not ContinuesChain then
+      Break;
+
+    Link := TJSLogicalExpression(Next);
+  end;
+
+  Result := Visit(Link.Left);
+  for var Index := Count - 1 downto 0 do
+  begin
+    Result := ApplyLogical(Links[Index], Result);
+  end;
+end;
+
+function TJSInterpreter.ApplyLogical(const Node: TJSLogicalExpression; const Left: TJSValue): TJSValue;
+begin
   case Node.Operator of
     TJSLogicalOperator.And_:
       begin
@@ -6490,6 +6587,22 @@ end;
 
 function TJSInterpreter.VisitCallExpression(const Node: TJSCallExpression): TJSValue;
 begin
+  if Node.ChainLength >= ITERATIVE_CHAIN_LENGTH then
+    Exit(VisitValueChain(Node, Node.ChainLength));
+
+  Result := EvaluateCall(Node, nil);
+end;
+
+function TJSInterpreter.OperandOrBase(const Operand: TJSExpression; const Base: PJSValue): TJSValue;
+begin
+  if Assigned(Base) then
+    Result := Base^
+  else
+    Result := Visit(Operand);
+end;
+
+function TJSInterpreter.EvaluateCall(const Node: TJSCallExpression; const Base: PJSValue): TJSValue;
+begin
   var ThisObj: IJSObject := nil;
   var ThisValue := TJSValue.CreateUndefined;
   var Args: TArray<TJSValue>;
@@ -6505,7 +6618,7 @@ begin
     if MemberExpr.IsSuper then
       Exit(CallSuperMethod(Node, MemberExpr));
 
-    const ObjValue = Visit(MemberExpr.Object_);
+    const ObjValue = OperandOrBase(MemberExpr.Object_, Base);
     ThisValue := ObjValue;
 
     if MemberExpr.Computed then
@@ -6556,7 +6669,7 @@ begin
   end
   else
   begin
-    CalleeValue := Visit(Node.Callee);
+    CalleeValue := OperandOrBase(Node.Callee, Base);
   end;
 
   if not CalleeValue.IsFunction then
@@ -6724,11 +6837,114 @@ begin
     RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
 end;
 
+procedure TJSInterpreter.ResolveMemberKey(const Node: TJSMemberExpression; var Reference: TJSMemberReference);
+begin
+  Reference.HasKeyText := not Node.Computed;
+
+  if Node.Computed then
+  begin
+    Reference.NamedKey := nil;
+    Reference.Key := Visit(Node.Property_);
+  end
+  else
+  begin
+    Reference.NamedKey := TJSIdentifier(Node.Property_).KeyPointer;
+  end;
+end;
+
 function TJSInterpreter.VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
 begin
+  if Node.ChainLength >= ITERATIVE_CHAIN_LENGTH then
+    Exit(VisitValueChain(Node, Node.ChainLength));
+
   var Reference := ResolveMemberReference(Node);
 
   Result := GetReferenceValue(Reference);
+end;
+
+// Evaluates a long chain of member accesses and calls (a.b().c[0].d()) in a loop that starts at the first operand,
+// so that the length of the chain does not use the stack.
+function TJSInterpreter.VisitValueChain(const Node: TJSExpression; const ChainLength: Integer): TJSValue;
+begin
+  var Links: TArray<TJSExpression>;
+  SetLength(Links, ChainLength + 1);
+
+  var Count := 0;
+  var Link := Node;
+  var Operand: TJSExpression;
+  while True do
+  begin
+    Links[Count] := Link;
+    Inc(Count);
+
+    Operand := ChainOperand(Link);
+    const ContinuesChain = Assigned(Operand) and IsChainLink(Operand);
+    if not ContinuesChain then
+      Break;
+
+    Link := Operand;
+  end;
+
+  var FirstLink := Count - 1;
+  if Assigned(Operand) then
+  begin
+    Result := Visit(Operand);
+  end
+  else
+  begin
+    Result := EvaluateCall(TJSCallExpression(Link), nil);
+    Dec(FirstLink);
+  end;
+
+  for var Index := FirstLink downto 0 do
+  begin
+    const Current = Links[Index];
+    var Previous := Result;
+    if Current is TJSCallExpression then
+    begin
+      Result := EvaluateCall(TJSCallExpression(Current), @Previous);
+    end
+    else
+    begin
+      var Reference: TJSMemberReference;
+      Reference.IsSuper := False;
+      Reference.Base := Previous;
+      ResolveMemberKey(TJSMemberExpression(Current), Reference);
+
+      Result := GetReferenceValue(Reference);
+    end;
+  end;
+end;
+
+// The operand whose value a link of a chain works on: the object of a member, the object of the member that is
+// called, or the function that a call calls. Nil for a call that evaluates its own callee.
+function TJSInterpreter.ChainOperand(const Link: TJSExpression): TJSExpression;
+begin
+  if Link is TJSMemberExpression then
+    Exit(TJSMemberExpression(Link).Object_);
+
+  const Callee = TJSCallExpression(Link).Callee;
+  if Callee is TJSCallExpression then
+    Exit(Callee);
+
+  const IsMemberCallee = (Callee is TJSMemberExpression) and IsChainLink(Callee);
+  if IsMemberCallee then
+    Exit(TJSMemberExpression(Callee).Object_);
+
+  Result := nil;
+end;
+
+// A node that the loop may evaluate itself, because a generator does not remember its value, and that is
+// not a super reference.
+function TJSInterpreter.IsChainLink(const Node: TJSExpression): Boolean;
+begin
+  if Node.IsRemembered then
+    Exit(False);
+
+  if Node is TJSMemberExpression then
+    Exit(not TJSMemberExpression(Node).IsSuper);
+
+  Result := Node is TJSCallExpression;
 end;
 
 function TJSInterpreter.ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
@@ -6740,17 +6956,12 @@ begin
   else
     Result.Base := Visit(Node.Object_);
 
-  Result.HasKeyText := not Node.Computed;
+  ResolveMemberKey(Node, Result);
+end;
 
-  if Node.Computed then
-  begin
-    Result.NamedKey := nil;
-    Result.Key := Visit(Node.Property_);
-  end
-  else
-  begin
-    Result.NamedKey := TJSIdentifier(Node.Property_).KeyPointer;
-  end;
+procedure TJSInterpreter.RaiseStackExhausted;
+begin
+  raise TJSErrorFactory.RangeError(STACK_EXHAUSTED);
 end;
 
 function TJSInterpreter.SuperBase: IJSObject;

@@ -229,6 +229,13 @@ type
     [TestCase('Member access without a name', 'for (var i = 0; i < 2000; i++) { try { eval("var a; a."); } catch (e) { } }', '#')]
     [TestCase('Computed member access that is not closed', 'for (var i = 0; i < 2000; i++) { try { eval("var a; a[1"); } catch (e) { } }', '#')]
     [TestCase('Exponentiation without a right operand', 'for (var i = 0; i < 2000; i++) { try { eval("2 ** "); } catch (e) { } }', '#')]
+    [TestCase('Long chain of additions', 'eval("1" + "+1".repeat(100000)); try { eval("1" + "+1".repeat(100000) + "+"); } catch (e) { }', '#')]
+    [TestCase('Long chain of members and calls', 'var o = {}; o.b = function () { return o; }; try { eval("o" + ".b()".repeat(100000)); } finally { o.b = null; }', '#')]
+    [TestCase('Long chain with a yield that is not resumed', 'var g = eval("(function* () { return (yield 1)" + "+1".repeat(100000) + "; })"); var it = g(); it.next();', '#')]
+    [TestCase('Long chain with a yield that runs out of stack', 'var g = eval("(function* () { return (yield 1)" + "+1".repeat(100000) + "; })"); var it = g(); it.next(); try { it.next(1); } catch (e) { }', '#')]
+    [TestCase('Long chain with a pending await', 'var f = eval("(async function () { return (await 1)" + "+1".repeat(100000) + "; })"); f();', '#')]
+    [TestCase('Source that nests too deeply', 'for (var i = 0; i < 3; i++) { try { eval("{".repeat(100000) + "}".repeat(100000)); } catch (e) { } }', '#')]
+    [TestCase('Statement nesting that is parsed', 'eval("if (1) ".repeat(900) + "1;");', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

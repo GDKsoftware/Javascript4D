@@ -115,6 +115,7 @@
         <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.PropertyKey.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.SymbolRegistry.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.StackGuard.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Symbols.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArgumentsObject.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayGeneric.pas"/>

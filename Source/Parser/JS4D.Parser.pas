@@ -13,6 +13,7 @@ uses
   JS4D.YieldAnalysis,
   JS4D.ParserScope,
   JS4D.Errors,
+  JS4D.StackGuard,
   JS4D.RegExpSyntax;
 
 type
@@ -44,6 +45,7 @@ type
     FCoverInitializerCount: Integer;
     FContext: TJSSourceContext;
     FNestingDepth: Integer;
+    FStackFloor: NativeUInt;
     FInGenerator: Boolean;
     FYieldForbidden: Boolean;
     FInAsync: Boolean;
@@ -82,6 +84,7 @@ type
 
     function ParseProgram: TJSProgram;
     function ParseStatement: TJSStatement;
+    function ParseStatementBody: TJSStatement;
     function ParseStatementListItem: TJSStatement;
     function ParseBlockStatement: TJSBlockStatement;
     function ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
@@ -280,7 +283,7 @@ const
   LegacyLiteralInStrictModeMessage = 'Octal literals and escape sequences are not allowed in strict mode';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
-  MAX_NESTING_DEPTH = 256;
+  MAX_NESTING_DEPTH = 1000;
   NestingTooDeepMessage = 'The source nests parentheses, blocks or classes too deeply';
   STATIC_NAME = 'static';
   CONSTRUCTOR_NAME = 'constructor';
@@ -496,6 +499,16 @@ end;
 
 function TJSParser.ParseStatement: TJSStatement;
 begin
+  EnterNesting;
+  try
+    Result := ParseStatementBody;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseStatementBody: TJSStatement;
+begin
   const AllowLabelledFunction = FAllowLabelledFunction;
   FAllowLabelledFunction := False;
 
@@ -565,12 +578,7 @@ end;
 
 function TJSParser.ParseBlockStatement: TJSBlockStatement;
 begin
-  EnterNesting;
-  try
-    Result := ParseScopedBlock(TJSParserScopeKind.Block, nil, '');
-  finally
-    LeaveNesting;
-  end;
+  Result := ParseScopedBlock(TJSParserScopeKind.Block, nil, '');
 end;
 
 function TJSParser.ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
@@ -1847,7 +1855,12 @@ end;
 
 procedure TJSParser.EnterNesting;
 begin
-  if FNestingDepth >= MAX_NESTING_DEPTH then
+  if FStackFloor = 0 then
+    FStackFloor := TJSStackGuard.CurrentFloor;
+
+  var StackMarker: Byte;
+  const IsStackExhausted = (NativeUInt(@StackMarker) < FStackFloor);
+  if IsStackExhausted or (FNestingDepth >= MAX_NESTING_DEPTH) then
     raise TJSErrorFactory.RangeError(NestingTooDeepMessage, CurrentToken.Line, CurrentToken.Column);
 
   Inc(FNestingDepth);

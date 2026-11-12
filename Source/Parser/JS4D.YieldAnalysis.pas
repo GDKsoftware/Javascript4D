@@ -28,6 +28,11 @@ type
     class function MarkExpressionRoot(const Node: TJSASTNode): Boolean; static;
     class function MarkHead(const Node: TJSASTNode): Boolean; static;
     class function MarkChildren(const Node: TJSASTNode): Boolean; static;
+    class function IsChainLink(const Node: TJSASTNode): Boolean; static;
+    class function MarkChain(const Node: TJSExpression): Boolean; static;
+    class function MarkLinkOperands(const Link: TJSExpression; const ChainHoldsYield: Boolean): Boolean; static;
+    class procedure RememberChain(const Node: TJSExpression); static;
+    class procedure RememberLinkOperands(const Link: TJSExpression); static;
     class procedure Remember(const Node: TJSASTNode); static;
     class procedure RememberAll(const Nodes: TObjectList<TJSExpression>); static;
     class procedure RememberProperties(const Properties: TObjectList<TJSObjectProperty>); static;
@@ -267,20 +272,11 @@ begin
       Result := MarkExpression(TJSUnaryExpression(Node).Argument);
     TJSASTNodeType.UpdateExpression:
       Result := MarkExpression(TJSUpdateExpression(Node).Argument);
-    TJSASTNodeType.BinaryExpression:
-      begin
-        const BinaryNode = TJSBinaryExpression(Node);
-        const LeftHoldsYield = MarkExpression(BinaryNode.Left);
-        const RightHoldsYield = MarkExpression(BinaryNode.Right);
-        Result := LeftHoldsYield or RightHoldsYield;
-      end;
-    TJSASTNodeType.LogicalExpression:
-      begin
-        const LogicalNode = TJSLogicalExpression(Node);
-        const LeftHoldsYield = MarkExpression(LogicalNode.Left);
-        const RightHoldsYield = MarkExpression(LogicalNode.Right);
-        Result := LeftHoldsYield or RightHoldsYield;
-      end;
+    TJSASTNodeType.BinaryExpression,
+    TJSASTNodeType.LogicalExpression,
+    TJSASTNodeType.CallExpression,
+    TJSASTNodeType.MemberExpression:
+      Result := MarkChain(TJSExpression(Node));
     TJSASTNodeType.AssignmentExpression:
       begin
         const AssignmentNode = TJSAssignmentExpression(Node);
@@ -296,29 +292,12 @@ begin
         const AlternateHoldsYield = MarkExpression(ConditionalNode.Alternate);
         Result := TestHoldsYield or ConsequentHoldsYield or AlternateHoldsYield;
       end;
-    TJSASTNodeType.CallExpression:
-      begin
-        const CallNode = TJSCallExpression(Node);
-        const CalleeHoldsYield = MarkExpression(CallNode.Callee);
-        const ArgumentsHoldYield = MarkExpressions(CallNode.Arguments);
-        Result := CalleeHoldsYield or ArgumentsHoldYield;
-      end;
     TJSASTNodeType.NewExpression:
       begin
         const NewNode = TJSNewExpression(Node);
         const CalleeHoldsYield = MarkExpression(NewNode.Callee);
         const ArgumentsHoldYield = MarkExpressions(NewNode.Arguments);
         Result := CalleeHoldsYield or ArgumentsHoldYield;
-      end;
-    TJSASTNodeType.MemberExpression:
-      begin
-        const MemberNode = TJSMemberExpression(Node);
-        const ObjectHoldsYield = MarkExpression(MemberNode.Object_);
-        var PropertyHoldsYield := False;
-        if MemberNode.Computed then
-          PropertyHoldsYield := MarkExpression(MemberNode.Property_);
-
-        Result := ObjectHoldsYield or PropertyHoldsYield;
       end;
     TJSASTNodeType.SequenceExpression:
       Result := MarkExpressions(TJSSequenceExpression(Node).Expressions);
@@ -337,6 +316,66 @@ begin
         Result := True;
       end;
   end;
+end;
+
+class function TJSYieldAnalysis.IsChainLink(const Node: TJSASTNode): Boolean;
+begin
+  Result := Node.NodeType in [TJSASTNodeType.BinaryExpression, TJSASTNodeType.LogicalExpression,
+                              TJSASTNodeType.CallExpression, TJSASTNodeType.MemberExpression];
+end;
+
+// A left-deep chain is marked from its first operand upwards in a loop, so that a chain of any length does not
+// use the stack.
+class function TJSYieldAnalysis.MarkChain(const Node: TJSExpression): Boolean;
+begin
+  const Links = TList<TJSExpression>.Create;
+  try
+    var Link := Node;
+    while True do
+    begin
+      Links.Add(Link);
+
+      const Next = Link.ChainChild;
+      const ContinuesChain = Assigned(Next) and IsChainLink(Next);
+      if not ContinuesChain then
+        Break;
+
+      Link := Next;
+    end;
+
+    Result := MarkExpression(Link.ChainChild);
+    for var Index := Links.Count - 1 downto 0 do
+    begin
+      Result := MarkLinkOperands(Links[Index], Result);
+
+      const IsRoot = (Index = 0);
+      if not IsRoot then
+        Links[Index].ContainsYield := Result;
+    end;
+  finally
+    Links.Free;
+  end;
+end;
+
+class function TJSYieldAnalysis.MarkLinkOperands(const Link: TJSExpression; const ChainHoldsYield: Boolean): Boolean;
+begin
+  var OperandsHoldYield := False;
+
+  case Link.NodeType of
+    TJSASTNodeType.BinaryExpression:
+      OperandsHoldYield := MarkExpression(TJSBinaryExpression(Link).Right);
+    TJSASTNodeType.LogicalExpression:
+      OperandsHoldYield := MarkExpression(TJSLogicalExpression(Link).Right);
+    TJSASTNodeType.CallExpression:
+      OperandsHoldYield := MarkExpressions(TJSCallExpression(Link).Arguments);
+    TJSASTNodeType.MemberExpression:
+      begin
+        if TJSMemberExpression(Link).Computed then
+          OperandsHoldYield := MarkExpression(TJSMemberExpression(Link).Property_);
+      end;
+  end;
+
+  Result := ChainHoldsYield or OperandsHoldYield;
 end;
 
 class function TJSYieldAnalysis.MarkExpression(const Node: TJSASTNode): Boolean;
@@ -363,6 +402,42 @@ begin
     Remember(Prop.Value);
     if Prop.Computed then
       Remember(Prop.Key);
+  end;
+end;
+
+class procedure TJSYieldAnalysis.RememberChain(const Node: TJSExpression);
+begin
+  var Link := Node;
+  while True do
+  begin
+    RememberLinkOperands(Link);
+
+    const Next = Link.ChainChild;
+    const ContinuesChain = Assigned(Next) and IsChainLink(Next);
+    if not ContinuesChain then
+      Break;
+
+    Next.IsRemembered := True;
+    Link := Next;
+  end;
+
+  Remember(Link.ChainChild);
+end;
+
+class procedure TJSYieldAnalysis.RememberLinkOperands(const Link: TJSExpression);
+begin
+  case Link.NodeType of
+    TJSASTNodeType.BinaryExpression:
+      Remember(TJSBinaryExpression(Link).Right);
+    TJSASTNodeType.LogicalExpression:
+      Remember(TJSLogicalExpression(Link).Right);
+    TJSASTNodeType.CallExpression:
+      RememberAll(TJSCallExpression(Link).Arguments);
+    TJSASTNodeType.MemberExpression:
+      begin
+        if TJSMemberExpression(Link).Computed then
+          Remember(TJSMemberExpression(Link).Property_);
+      end;
   end;
 end;
 
@@ -396,16 +471,11 @@ begin
       Remember(TJSUnaryExpression(Node).Argument);
     TJSASTNodeType.UpdateExpression:
       Remember(TJSUpdateExpression(Node).Argument);
-    TJSASTNodeType.BinaryExpression:
-      begin
-        Remember(TJSBinaryExpression(Node).Left);
-        Remember(TJSBinaryExpression(Node).Right);
-      end;
-    TJSASTNodeType.LogicalExpression:
-      begin
-        Remember(TJSLogicalExpression(Node).Left);
-        Remember(TJSLogicalExpression(Node).Right);
-      end;
+    TJSASTNodeType.BinaryExpression,
+    TJSASTNodeType.LogicalExpression,
+    TJSASTNodeType.CallExpression,
+    TJSASTNodeType.MemberExpression:
+      RememberChain(TJSExpression(Node));
     TJSASTNodeType.AssignmentExpression:
       begin
         Remember(TJSAssignmentExpression(Node).Left);
@@ -417,21 +487,10 @@ begin
         Remember(TJSConditionalExpression(Node).Consequent);
         Remember(TJSConditionalExpression(Node).Alternate);
       end;
-    TJSASTNodeType.CallExpression:
-      begin
-        Remember(TJSCallExpression(Node).Callee);
-        RememberAll(TJSCallExpression(Node).Arguments);
-      end;
     TJSASTNodeType.NewExpression:
       begin
         Remember(TJSNewExpression(Node).Callee);
         RememberAll(TJSNewExpression(Node).Arguments);
-      end;
-    TJSASTNodeType.MemberExpression:
-      begin
-        Remember(TJSMemberExpression(Node).Object_);
-        if TJSMemberExpression(Node).Computed then
-          Remember(TJSMemberExpression(Node).Property_);
       end;
     TJSASTNodeType.SequenceExpression:
       RememberAll(TJSSequenceExpression(Node).Expressions);
