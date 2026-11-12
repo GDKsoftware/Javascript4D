@@ -348,6 +348,10 @@ type
     procedure StorePatternTarget(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure StoreIdentifier(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue; const Mode: TJSBindingMode);
+    procedure BindResumableArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
+                                        const Mode: TJSBindingMode);
+    procedure BindResumableElements(const Pattern: TJSArrayPattern; const Frame: TJSStatementFrame;
+                                    const Mode: TJSBindingMode);
     procedure BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
                                 const Mode: TJSBindingMode);
@@ -5805,6 +5809,13 @@ end;
 procedure TJSInterpreter.BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
                                           const Mode: TJSBindingMode);
 begin
+  const IsResumable = Assigned(FGenerator) and Pattern.ContainsYield;
+  if IsResumable then
+  begin
+    BindResumableArrayPattern(Pattern, Value, Mode);
+    Exit;
+  end;
+
   var Source := OpenIterationSource(Value);
 
   try
@@ -5822,6 +5833,93 @@ begin
   end;
 
   Source.Close;
+end;
+
+procedure TJSInterpreter.BindResumableArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
+                                                   const Mode: TJSBindingMode);
+begin
+  const Frame = FrameFor(Pattern);
+  var IsSuspended := False;
+  try
+    if Frame.Phase = 0 then
+    begin
+      Frame.Source := OpenIterationSource(Value);
+      Frame.Phase := 1;
+    end;
+
+    try
+      BindResumableElements(Pattern, Frame, Mode);
+    except
+      on TJSYieldSignal do
+      begin
+        IsSuspended := True;
+        raise;
+      end;
+      on EJSExecutionInterrupted do
+        raise;
+      on EJSControlFlowSignal do
+      begin
+        Frame.Source.Close;
+        raise;
+      end;
+      on Exception do
+      begin
+        Frame.Source.CloseAfterThrow;
+        raise;
+      end;
+    end;
+
+    Frame.Source.Close;
+  finally
+    if not IsSuspended then
+      FGenerator.DropFrame(Pattern);
+  end;
+end;
+
+procedure TJSInterpreter.BindResumableElements(const Pattern: TJSArrayPattern; const Frame: TJSStatementFrame;
+                                               const Mode: TJSBindingMode);
+begin
+  const VALUE_FETCHED = 2;
+
+  while Frame.Index < Pattern.Elements.Count do
+  begin
+    const Element = Pattern.Elements[Frame.Index];
+    const IsHole = (Element = nil);
+    if IsHole then
+    begin
+      Frame.Source.Next;
+      Inc(Frame.Index);
+      Continue;
+    end;
+
+    const IsRest = (Element is TJSSpreadElement);
+    var Target := Element;
+    if IsRest then
+      Target := TJSSpreadElement(Element).Argument;
+
+    const Resolved = ResolvePatternTarget(Target, Mode);
+    if Frame.Phase <> VALUE_FETCHED then
+    begin
+      if IsRest then
+      begin
+        const RemainingValues = Frame.Source.Remaining;
+        Frame.Current := CreateRestArray(RemainingValues, 0);
+      end
+      else
+      begin
+        Frame.Current := Frame.Source.Next;
+      end;
+
+      Frame.Phase := VALUE_FETCHED;
+    end;
+
+    StorePatternTarget(Resolved, Frame.Current, Mode);
+    Frame.Phase := 1;
+    Inc(Frame.Index);
+
+    if IsRest then
+      Break;
+  end;
 end;
 
 procedure TJSInterpreter.BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
