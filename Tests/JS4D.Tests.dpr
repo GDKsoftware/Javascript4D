@@ -122,6 +122,7 @@ uses
   JS4D.Tests.PropertyKeys in 'JS4D.Tests.PropertyKeys.pas',
   JS4D.Tests.ArrayConversion in 'JS4D.Tests.ArrayConversion.pas',
   JS4D.Tests.DeepPrototypeChains in 'JS4D.Tests.DeepPrototypeChains.pas',
+  JS4D.Tests.SourceNesting in 'JS4D.Tests.SourceNesting.pas',
   JS4D.Tests.ProtoAccessor in 'JS4D.Tests.ProtoAccessor.pas',
   JS4D.Tests.ProxyLimits in 'JS4D.Tests.ProxyLimits.pas',
   JS4D.Tests.HotPathSemantics in 'JS4D.Tests.HotPathSemantics.pas',

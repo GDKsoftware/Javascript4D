@@ -224,6 +224,11 @@ type
     [TestCase('Async function awaiting when the script fails', 'var gate = new Promise(function () {}); async function f() { var o = { f: f }; await gate; return o; } f(); throw new Error("x");', '#')]
     [TestCase('Async function that throws', 'async function f() { var o = { f: f }; await 0; throw o; } f(); f().catch(function (e) { return e; });', '#')]
     [TestCase('Async function with a failing parameter default', 'async function f(a = () => f, b = null.x) { } f(); f().catch(function () { });', '#')]
+    [TestCase('Binary operator without a right operand', 'for (var i = 0; i < 2000; i++) { try { eval("1 + "); } catch (e) { } }', '#')]
+    [TestCase('Logical operator without a right operand', 'for (var i = 0; i < 2000; i++) { try { eval("a && "); } catch (e) { } }', '#')]
+    [TestCase('Member access without a name', 'for (var i = 0; i < 2000; i++) { try { eval("var a; a."); } catch (e) { } }', '#')]
+    [TestCase('Computed member access that is not closed', 'for (var i = 0; i < 2000; i++) { try { eval("var a; a[1"); } catch (e) { } }', '#')]
+    [TestCase('Exponentiation without a right operand', 'for (var i = 0; i < 2000; i++) { try { eval("2 ** "); } catch (e) { } }', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

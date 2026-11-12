@@ -86,6 +86,8 @@ begin
       FEngine.Execute('var t = {}; var p = new Proxy(t, { getPrototypeOf: Reflect.getPrototypeOf }); Object.setPrototypeOf(t, p); p instanceof Function;');
     end,
     EJSStepBudgetExceeded);
+
+  FEngine.Execute('Object.setPrototypeOf(t, null);');
 end;
 
 procedure TProxyLimitTests.Proxy_TrapCalls_CountAsSteps;
@@ -109,6 +111,8 @@ begin
   except
     on EJSStepBudgetExceeded do;
   end;
+
+  FEngine.Execute('Object.setPrototypeOf(t, null);');
 
   Assert.AreEqual('3', FEngine.Evaluate('String(1 + 2)').ToString);
 end;

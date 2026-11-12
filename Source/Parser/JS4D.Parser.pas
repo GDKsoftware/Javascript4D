@@ -144,6 +144,10 @@ type
 
     function ParseExpression: TJSExpression;
     function ParseAssignmentExpression: TJSExpression;
+    function ParseAssignmentOperand: TJSExpression;
+    function ParseUnaryOperand: TJSExpression;
+    function ParseExponentOperand: TJSExpression;
+    function ParseNewOperand: TJSExpression;
     function ParseExpressionWithoutIn: TJSExpression;
     function ParseNestedExpression: TJSExpression;
     function ParseNestedAssignmentExpression: TJSExpression;
@@ -1854,6 +1858,46 @@ begin
   Dec(FNestingDepth);
 end;
 
+function TJSParser.ParseAssignmentOperand: TJSExpression;
+begin
+  EnterNesting;
+  try
+    Result := ParseAssignmentExpression;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseUnaryOperand: TJSExpression;
+begin
+  EnterNesting;
+  try
+    Result := ParseUnaryExpression;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseExponentOperand: TJSExpression;
+begin
+  EnterNesting;
+  try
+    Result := ParseExponentiationExpression;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseNewOperand: TJSExpression;
+begin
+  EnterNesting;
+  try
+    Result := ParseNewExpression;
+  finally
+    LeaveNesting;
+  end;
+end;
+
 function TJSParser.ParseNestedExpression: TJSExpression;
 begin
   EnterNesting;
@@ -1925,7 +1969,7 @@ begin
 
     var Right: TJSExpression;
     try
-      Right := ParseAssignmentExpression;
+      Right := ParseAssignmentOperand;
     except
       Left.Free;
       raise;
@@ -1957,7 +2001,7 @@ begin
     try
       Consequent := ParseNestedAssignmentExpression;
       Expect(TJSTokenType.Colon);
-      Alternate := ParseAssignmentExpression;
+      Alternate := ParseAssignmentOperand;
     except
       FreeOwned([Test, Consequent, Alternate]);
       raise;
@@ -2016,7 +2060,14 @@ begin
 
   while Match(TJSTokenType.LogicalOr) do
   begin
-    const Right = ParseLogicalAndExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseLogicalAndExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSLogicalExpression.Create(TJSLogicalOperator.Or_, Result, Right);
   end;
 end;
@@ -2027,7 +2078,14 @@ begin
 
   while Match(TJSTokenType.LogicalAnd) do
   begin
-    const Right = ParseBitwiseOrExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseBitwiseOrExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSLogicalExpression.Create(TJSLogicalOperator.And_, Result, Right);
   end;
 end;
@@ -2038,7 +2096,14 @@ begin
 
   while Match(TJSTokenType.BitwiseOr) do
   begin
-    const Right = ParseBitwiseXorExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseBitwiseXorExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseOr, Result, Right);
   end;
 end;
@@ -2049,7 +2114,14 @@ begin
 
   while Match(TJSTokenType.BitwiseXor) do
   begin
-    const Right = ParseBitwiseAndExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseBitwiseAndExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseXor, Result, Right);
   end;
 end;
@@ -2060,7 +2132,14 @@ begin
 
   while Match(TJSTokenType.BitwiseAnd) do
   begin
-    const Right = ParseEqualityExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseEqualityExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseAnd, Result, Right);
   end;
 end;
@@ -2086,7 +2165,14 @@ begin
 
     Advance;
 
-    const Right = ParseRelationalExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseRelationalExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -2116,7 +2202,14 @@ begin
 
     Advance;
 
-    const Right = ParseShiftExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseShiftExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -2140,7 +2233,14 @@ begin
 
     Advance;
 
-    const Right = ParseAdditiveExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseAdditiveExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -2160,7 +2260,14 @@ begin
 
     Advance;
 
-    const Right = ParseMultiplicativeExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseMultiplicativeExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -2184,7 +2291,14 @@ begin
 
     Advance;
 
-    const Right = ParseExponentiationExpression;
+    var Right: TJSExpression;
+    try
+      Right := ParseExponentiationExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -2208,7 +2322,14 @@ begin
 
   Advance;
 
-  const Right = ParseExponentiationExpression;
+  var Right: TJSExpression;
+  try
+    Right := ParseExponentOperand;
+  except
+    Result.Free;
+    raise;
+  end;
+
   Result := TJSBinaryExpression.Create(TJSBinaryOperator.Exponent, Result, Right);
 end;
 
@@ -2241,7 +2362,7 @@ begin
 
     Advance;
 
-    const Argument = ParseUnaryExpression;
+    const Argument = ParseUnaryOperand;
 
     const IsStrictIdentifierDelete = (Op = TJSUnaryOperator.Delete) and FStrictMode and
                                      (Argument is TJSIdentifier);
@@ -2302,7 +2423,7 @@ end;
 function TJSParser.ParseCallExpression: TJSExpression;
 begin
   if Check(TJSTokenType.KeywordNew) then
-    Result := ParseNewExpression
+    Result := ParseNewOperand
   else
     Result := ParseMemberExpression;
 
@@ -2322,13 +2443,28 @@ begin
     end
     else if Match(TJSTokenType.Dot) then
     begin
-      const Prop = ParseIdentifierName;
+      var Prop: TJSIdentifier;
+      try
+        Prop := ParseIdentifierName;
+      except
+        Result.Free;
+        raise;
+      end;
+
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseNestedExpression;
-      Expect(TJSTokenType.RightBracket);
+      var Prop: TJSExpression := nil;
+      try
+        Prop := ParseNestedExpression;
+        Expect(TJSTokenType.RightBracket);
+      except
+        Prop.Free;
+        Result.Free;
+        raise;
+      end;
+
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
     else if IsTemplateStart then
@@ -2350,7 +2486,7 @@ end;
 function TJSParser.ParseMemberExpression: TJSExpression;
 begin
   if Check(TJSTokenType.KeywordNew) then
-    Result := ParseNewExpression
+    Result := ParseNewOperand
   else
     Result := ParsePrimaryExpression;
 
@@ -2358,13 +2494,28 @@ begin
   begin
     if Match(TJSTokenType.Dot) then
     begin
-      const Prop = ParseIdentifierName;
+      var Prop: TJSIdentifier;
+      try
+        Prop := ParseIdentifierName;
+      except
+        Result.Free;
+        raise;
+      end;
+
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseNestedExpression;
-      Expect(TJSTokenType.RightBracket);
+      var Prop: TJSExpression := nil;
+      try
+        Prop := ParseNestedExpression;
+        Expect(TJSTokenType.RightBracket);
+      except
+        Prop.Free;
+        Result.Free;
+        raise;
+      end;
+
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
     else if IsTemplateStart then
@@ -3239,11 +3390,11 @@ begin
   if (not HasLineBreak) and Match(TJSTokenType.Multiply) then
   begin
     IsDelegate := True;
-    Argument := ParseAssignmentExpression;
+    Argument := ParseAssignmentOperand;
   end
   else if StartsYieldOperand then
   begin
-    Argument := ParseAssignmentExpression;
+    Argument := ParseAssignmentOperand;
   end;
 
   Result := TJSYieldExpression.Create(Argument, IsDelegate);
@@ -3278,7 +3429,7 @@ begin
 
   Advance;
 
-  const Argument = ParseUnaryExpression;
+  const Argument = ParseUnaryOperand;
   Result := TJSAwaitExpression.Create(Argument);
   Result.Line := AwaitToken.Line;
   Result.Column := AwaitToken.Column;
@@ -3679,7 +3830,7 @@ begin
   Result.IsFunctionBody := True;
 
   try
-    const Argument = ParseAssignmentExpression;
+    const Argument = ParseAssignmentOperand;
     const ReturnStatement = TJSReturnStatement.Create(Argument);
     Result.Body.Add(ReturnStatement);
   except

@@ -416,6 +416,9 @@ type
     procedure AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
     function ParentConstructorOf(const Func: IJSFunction): IJSFunction;
     procedure EnterCallDepth;
+    function CallBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>; const BoundThis: IJSObject): TJSValue;
+    function ConstructBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                  const NewTarget: IJSFunction): TJSValue;
     function VisitClassExpression(const Node: TJSClassExpression; const InferredName: string): TJSValue;
     procedure ResolveClassHeritage(const Node: TJSClassExpression; out PrototypeParent: IJSObject;
                                    out ConstructorParent: IJSObject);
@@ -6988,9 +6991,9 @@ begin
   begin
     const IsOwnTarget = ((NewTarget as IInterface) = (Func as IInterface));
     if IsOwnTarget then
-      Exit(Construct(Bound.Target, Bound.Arguments + Args, Bound.Target));
+      Exit(ConstructBoundTarget(Bound.Target, Bound.Arguments + Args, Bound.Target));
 
-    Exit(Construct(Bound.Target, Bound.Arguments + Args, NewTarget));
+    Exit(ConstructBoundTarget(Bound.Target, Bound.Arguments + Args, NewTarget));
   end;
 
   if Func.IsNative then
@@ -7279,6 +7282,32 @@ procedure TJSInterpreter.EnterCallDepth;
 begin
   if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
     raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
+end;
+
+function TJSInterpreter.CallBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                        const BoundThis: IJSObject): TJSValue;
+begin
+  EnterCallDepth;
+
+  Inc(FCallDepth);
+  try
+    Result := CallFunction(Target, Args, BoundThis);
+  finally
+    Dec(FCallDepth);
+  end;
+end;
+
+function TJSInterpreter.ConstructBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                             const NewTarget: IJSFunction): TJSValue;
+begin
+  EnterCallDepth;
+
+  Inc(FCallDepth);
+  try
+    Result := Construct(Target, Args, NewTarget);
+  finally
+    Dec(FCallDepth);
+  end;
 end;
 
 procedure TJSInterpreter.EnterContext(const Func: IJSFunction; const NewTarget: IJSFunction;
@@ -7745,7 +7774,7 @@ begin
     function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
     begin
       const AllArgs = BoundArgs + CallArgs;
-      Result := Interp.CallFunction(Target, AllArgs, BoundThis);
+      Result := Interp.CallBoundTarget(Target, AllArgs, BoundThis);
     end);
 
   Result.ClosureScope := nil;

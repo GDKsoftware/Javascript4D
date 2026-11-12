@@ -46,7 +46,7 @@ type
     [TestCase('A getter for toString runs once', '(function () { var n = 0; var a = [1]; Object.defineProperty(a, ''toString'', { get: function () { n++; return function () { return ''G''; }; } }); return String(a) + n; })()#G1', '#')]
     [TestCase('An untouched array converts as before', 'String([1, [2, 3], [], null, undefined, ''x''])#1,2,3,,,,x', '#')]
     [TestCase('An untouched array in a property key converts as before', '(function () { var o = {}; o[[1, 2]] = 5; return Object.keys(o); })()#1,2', '#')]
-    [TestCase('A cyclic array converts to an empty element', '(function () { var a = [1]; a[1] = a; return String(a); })()#1,', '#')]
+    [TestCase('A cyclic array converts to an empty element', '(function () { var a = [1]; a[1] = a; var text = String(a); a.length = 0; return text; })()#1,', '#')]
     [TestCase('Addition of untouched arrays concatenates their text', '[1, 2] + [3] + ''''#1,23', '#')]
     procedure ArrayConversion_HonoursConversionHooks(const Expression, Expected: string);
 
@@ -84,6 +84,8 @@ begin
       FEngine.Execute('var a = [1]; a[1] = a; a.toString = Function.prototype.call.bind(Array.prototype.join, a); String(a);');
     end,
     EJSCallDepthExceeded);
+
+  FEngine.Execute('a.length = 0; a.toString = null;');
 end;
 
 end.

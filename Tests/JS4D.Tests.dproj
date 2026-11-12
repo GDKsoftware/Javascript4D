@@ -201,6 +201,7 @@
         <DCCReference Include="JS4D.Tests.PropertyKeys.pas"/>
         <DCCReference Include="JS4D.Tests.ArrayConversion.pas"/>
         <DCCReference Include="JS4D.Tests.DeepPrototypeChains.pas"/>
+        <DCCReference Include="JS4D.Tests.SourceNesting.pas"/>
         <DCCReference Include="JS4D.Tests.ProtoAccessor.pas"/>
         <DCCReference Include="JS4D.Tests.ProxyLimits.pas"/>
         <DCCReference Include="JS4D.Tests.HotPathSemantics.pas"/>
