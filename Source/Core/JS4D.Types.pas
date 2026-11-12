@@ -102,8 +102,8 @@ type
     class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
       const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
     function ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string;
-    function IsIntrinsicMember(const Subject: TJSObjectImpl; const Name: TJSPropertyKey;
-                               const Role: TJSIntrinsicRole): Boolean;
+    // The string of an array whose conversion runs script, with the nesting of such conversions limited.
+    function ToHookedArrayString(const Limits: TJSLimits): string;
     function TryConvertThroughToPrimitive(const Hint: TJSPrimitiveHint; out Converted: TJSValue): Boolean;
 
   public
@@ -287,6 +287,8 @@ type
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
+    // True when converting the array to a primitive runs no script: see TJSValue.HasUntouchedArrayConversion.
+    function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
     property Length: Integer read GetLength;
     property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
@@ -455,6 +457,40 @@ type
     class function IsInvalidIndexKey(const Start: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
+  // What an array prototype chain looked like the last time the conversion of an array was checked: the layout
+  // of every object in the chain and the places of the members the conversion uses. While no object in the chain
+  // has added or removed a property, such an array is checked by reading those members again instead of
+  // searching the chain for them.
+  TJSConversionCache = class
+  public
+    const
+      MAX_LINKS = 6;
+
+    type
+      TLink = record
+        Owner: TJSObjectImpl;
+        // Keeps the object alive while it is listed, so that its address cannot be reused by another object.
+        Keeper: IJSObject;
+        LayoutVersion: Cardinal;
+        Count: Integer;
+      end;
+
+      PLink = ^TLink;
+
+    var
+      Links: array[0..MAX_LINKS - 1] of TLink;
+      LinkCount: Integer;
+      HasHook: Boolean;
+      // The members the conversion uses, with the built-in function each of them held when the cache was made
+      // (nil when it held something else). A member is untouched while its slot still holds that function.
+      ToStringSlot: PJSPropertyDescriptor;
+      JoinSlot: PJSPropertyDescriptor;
+      ValueOfSlot: PJSPropertyDescriptor;
+      ToStringFunction: IJSObject;
+      JoinFunction: IJSObject;
+      ValueOfFunction: IJSObject;
+  end;
+
   TJSObjectImpl = class(TJSHeapObject, IJSObject)
   private
     FProperties: TJSPropertyMap;
@@ -471,6 +507,7 @@ type
     FFrozen: Boolean;
     FSealed: Boolean;
     FExtensible: Boolean;
+    FConversionCache: TJSConversionCache;
 
     function InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
     procedure InvokeSetter(const Descriptor: TJSPropertyDescriptor; const Value: TJSValue);
@@ -487,6 +524,19 @@ type
     function ForeignHasProperty(const Name: TJSPropertyKey): Boolean;
     function ForeignDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
     function ForeignConfigurable(const Name: TJSPropertyKey): Boolean;
+    // The conversion cache of an object used as prototype of arrays, current for the chain behind it, or nil when
+    // the chain cannot be cached.
+    function CurrentConversionCache: TJSConversionCache;
+    function ConversionCacheIsCurrent: Boolean;
+    function TryBuildConversionCache: Boolean;
+    procedure ReadConversionMembers(const Cache: TJSConversionCache);
+    class function IntrinsicFunctionIn(const Slot: PJSPropertyDescriptor;
+                                       const Role: TJSIntrinsicRole): IJSObject; static;
+    function IsIntrinsicMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
+    // True when the slot holds the function that it held when the conversion cache was made.
+    class function SlotStillHolds(const Slot: PJSPropertyDescriptor; const Original: IJSObject): Boolean; static; inline;
+    // True when the slot holds a built-in function that has the role: nothing has replaced it.
+    class function SlotHoldsIntrinsic(const Slot: PJSPropertyDescriptor; const Role: TJSIntrinsicRole): Boolean; static;
     procedure RememberSymbol(const Key: TJSPropertyKey);
     function OrderedStringKeys: TArray<string>;
 
@@ -550,6 +600,8 @@ type
     // Finds the slot of a property that is stored in the property map of this object or of an object in its
     // prototype chain, without copying it. False when an object in the chain (a proxy) may answer differently.
     function TryFindPlainSlot(const Name: TJSPropertyKey; out Slot: PJSPropertyDescriptor): Boolean;
+    // True when the conversion of this object, used as an array, to a primitive runs no script.
+    function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
     procedure DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor); virtual;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; virtual;
     function TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
@@ -1335,18 +1387,21 @@ begin
   if (FValueType <> TJSValueType.Array_) or (not Supports(FObjectRef, IJSArray, Arr)) then
     Exit(ToString);
 
-  if not HasUntouchedArrayConversion(TJSPrimitiveHint.String_) then
-  begin
-    Inc(NestedConversions);
-    try
-      Limits.EnsureNestingDepth(NestedConversions);
-      Exit(ToPrimitiveWithHint(TJSPrimitiveHint.String_).ToLimitedString(Limits));
-    finally
-      Dec(NestedConversions);
-    end;
-  end;
+  if not Arr.HasUntouchedConversion(TJSPrimitiveHint.String_) then
+    Exit(ToHookedArrayString(Limits));
 
   Result := ToPlainArrayText(Arr, Limits);
+end;
+
+function TJSValue.ToHookedArrayString(const Limits: TJSLimits): string;
+begin
+  Inc(NestedConversions);
+  try
+    Limits.EnsureNestingDepth(NestedConversions);
+    Result := ToPrimitiveWithHint(TJSPrimitiveHint.String_).ToLimitedString(Limits);
+  finally
+    Dec(NestedConversions);
+  end;
 end;
 
 function TJSValue.ToUntouchedArrayText(const Limits: TJSLimits): string;
@@ -1443,15 +1498,65 @@ begin
   Result := OrdinaryToPrimitive(Hint);
 end;
 
-function TJSValue.IsIntrinsicMember(const Subject: TJSObjectImpl; const Name: TJSPropertyKey;
-                                    const Role: TJSIntrinsicRole): Boolean;
+function TJSObjectImpl.HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
+begin
+  Result := False;
+
+  const NeedsValueOf = (Hint <> TJSPrimitiveHint.String_);
+
+  const HasOwnProperties = (FProperties.Count > 0);
+  const Prototype = FPrototypeImpl;
+  if (not HasOwnProperties) and Assigned(Prototype) then
+  begin
+    const Cache = Prototype.CurrentConversionCache;
+    if Assigned(Cache) then
+    begin
+      if Cache.HasHook then
+        Exit;
+
+      if NeedsValueOf and (not SlotStillHolds(Cache.ValueOfSlot, Cache.ValueOfFunction)) then
+        Exit;
+
+      Exit(SlotStillHolds(Cache.ToStringSlot, Cache.ToStringFunction) and
+           SlotStillHolds(Cache.JoinSlot, Cache.JoinFunction));
+    end;
+  end;
+
+  var HookSlot: PJSPropertyDescriptor;
+  const IsHookable = (not TryFindPlainSlot(TJSSymbolRegistry.WellKnownKeys[TJSWellKnownSymbol.ToPrimitive],
+                                           HookSlot)) or Assigned(HookSlot);
+  if IsHookable then
+    Exit;
+
+  if NeedsValueOf and (not IsIntrinsicMember(VALUE_OF_METHOD, TJSIntrinsicRole.ObjectValueOf)) then
+    Exit;
+
+  Result := IsIntrinsicMember(TO_STRING_METHOD, TJSIntrinsicRole.ArrayToString) and
+            IsIntrinsicMember(JOIN_METHOD, TJSIntrinsicRole.ArrayJoin);
+end;
+
+function TJSObjectImpl.IsIntrinsicMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
 begin
   var Slot: PJSPropertyDescriptor;
-  if not Subject.TryFindPlainSlot(Name, Slot) then
+  if not TryFindPlainSlot(Name, Slot) then
     Exit(False);
 
   if not Assigned(Slot) then
-    Exit(not Assigned(Subject.FPrototype));
+    Exit(not Assigned(FPrototype));
+
+  Result := SlotHoldsIntrinsic(Slot, Role);
+end;
+
+class function TJSObjectImpl.SlotStillHolds(const Slot: PJSPropertyDescriptor; const Original: IJSObject): Boolean;
+begin
+  Result := Assigned(Original) and (not Slot.IsAccessor) and (Pointer(Slot.Value.FObjectRef) = Pointer(Original));
+end;
+
+class function TJSObjectImpl.SlotHoldsIntrinsic(const Slot: PJSPropertyDescriptor;
+                                                 const Role: TJSIntrinsicRole): Boolean;
+begin
+  if not Assigned(Slot) then
+    Exit(False);
 
   const Member = Slot.Value.ToObject;
   const IsBuiltInFunction = (not Slot.IsAccessor) and (Member is TJSFunctionImpl);
@@ -1461,26 +1566,9 @@ end;
 
 function TJSValue.HasUntouchedArrayConversion(const Hint: TJSPrimitiveHint): Boolean;
 begin
-  Result := False;
+  var Source: IJSArray;
 
-  const IsOrdinary = FObjectRef is TJSObjectImpl;
-  if not IsOrdinary then
-    Exit;
-
-  const Subject = TJSObjectImpl(FObjectRef);
-
-  var HookSlot: PJSPropertyDescriptor;
-  const IsHookable = (not Subject.TryFindPlainSlot(TJSSymbolRegistry.WellKnownKeys[TJSWellKnownSymbol.ToPrimitive],
-                                                   HookSlot)) or Assigned(HookSlot);
-  if IsHookable then
-    Exit;
-
-  const NeedsValueOf = (Hint <> TJSPrimitiveHint.String_);
-  if NeedsValueOf and (not IsIntrinsicMember(Subject, VALUE_OF_METHOD, TJSIntrinsicRole.ObjectValueOf)) then
-    Exit;
-
-  Result := IsIntrinsicMember(Subject, TO_STRING_METHOD, TJSIntrinsicRole.ArrayToString) and
-            IsIntrinsicMember(Subject, JOIN_METHOD, TJSIntrinsicRole.ArrayJoin);
+  Result := Supports(FObjectRef, IJSArray, Source) and Source.HasUntouchedConversion(Hint);
 end;
 
 function TJSValue.OrdinaryToPrimitive(const Hint: TJSPrimitiveHint): TJSValue;
@@ -1554,10 +1642,12 @@ begin
     Exit;
   end;
 
-  const IsPlainArray = IsArray and HasUntouchedArrayConversion(TJSPrimitiveHint.String_);
+  var Source: IJSArray;
+  const IsPlainArray = IsArray and Supports(FObjectRef, IJSArray, Source) and
+                       Source.HasUntouchedConversion(TJSPrimitiveHint.String_);
   if IsPlainArray then
   begin
-    Key.SetText(ToUntouchedArrayText(Limits));
+    Key.SetText(ToPlainArrayText(Source, Limits));
     Exit;
   end;
 
@@ -1701,6 +1791,7 @@ end;
 
 procedure TJSObjectImpl.ReleaseReferences;
 begin
+  FreeAndNil(FConversionCache);
   ReleaseNested;
 
   FPrototypeImpl := nil;
@@ -1736,6 +1827,7 @@ end;
 
 destructor TJSObjectImpl.Destroy;
 begin
+  FreeAndNil(FConversionCache);
   ReleaseNested;
 
   FPrototypeImpl := nil;
@@ -2020,6 +2112,100 @@ begin
 
     Current := TJSObjectImpl(Next);
   end;
+end;
+
+function TJSObjectImpl.ConversionCacheIsCurrent: Boolean;
+begin
+  var Current: TJSObjectImpl := Self;
+  var Previous: TJSObjectImpl := nil;
+
+  for var Index := 0 to FConversionCache.LinkCount - 1 do
+  begin
+    const Link: TJSConversionCache.PLink = @FConversionCache.Links[Index];
+    const IsUnchanged = (Current = Link.Owner) and
+                        (Current.FProperties.LayoutVersion = Link.LayoutVersion) and
+                        (Current.FProperties.Count = Link.Count);
+    if not IsUnchanged then
+      Exit(False);
+
+    Previous := Current;
+    Current := Current.FPrototypeImpl;
+  end;
+
+  Result := not Assigned(Previous.FPrototype);
+end;
+
+procedure TJSObjectImpl.ReadConversionMembers(const Cache: TJSConversionCache);
+begin
+  var HookSlot: PJSPropertyDescriptor;
+  TryFindPlainSlot(TJSSymbolRegistry.WellKnownKeys[TJSWellKnownSymbol.ToPrimitive], HookSlot);
+
+  Cache.HasHook := Assigned(HookSlot);
+  TryFindPlainSlot(TO_STRING_METHOD, Cache.ToStringSlot);
+  TryFindPlainSlot(JOIN_METHOD, Cache.JoinSlot);
+  TryFindPlainSlot(VALUE_OF_METHOD, Cache.ValueOfSlot);
+
+  Cache.ToStringFunction := IntrinsicFunctionIn(Cache.ToStringSlot, TJSIntrinsicRole.ArrayToString);
+  Cache.JoinFunction := IntrinsicFunctionIn(Cache.JoinSlot, TJSIntrinsicRole.ArrayJoin);
+  Cache.ValueOfFunction := IntrinsicFunctionIn(Cache.ValueOfSlot, TJSIntrinsicRole.ObjectValueOf);
+end;
+
+class function TJSObjectImpl.IntrinsicFunctionIn(const Slot: PJSPropertyDescriptor;
+                                                 const Role: TJSIntrinsicRole): IJSObject;
+begin
+  Result := nil;
+
+  if SlotHoldsIntrinsic(Slot, Role) then
+    Result := Slot.Value.ToObject;
+end;
+
+function TJSObjectImpl.TryBuildConversionCache: Boolean;
+begin
+  const Cache = TJSConversionCache.Create;
+
+  var Current: TJSObjectImpl := Self;
+  while Assigned(Current) do
+  begin
+    const IsCacheable = Current.KeepsPlainProperties and (Cache.LinkCount < TJSConversionCache.MAX_LINKS);
+    if not IsCacheable then
+    begin
+      Cache.Free;
+      Exit(False);
+    end;
+
+    const Link: TJSConversionCache.PLink = @Cache.Links[Cache.LinkCount];
+    Link.Owner := Current;
+    Link.LayoutVersion := Current.FProperties.LayoutVersion;
+    Link.Count := Current.FProperties.Count;
+    if Cache.LinkCount > 0 then
+      Link.Keeper := Current;
+    Inc(Cache.LinkCount);
+
+    const Next = Current.FPrototypeImpl;
+    const EndsInForeignObject = (not Assigned(Next)) and Assigned(Current.FPrototype);
+    if EndsInForeignObject then
+    begin
+      Cache.Free;
+      Exit(False);
+    end;
+
+    Current := Next;
+  end;
+
+  ReadConversionMembers(Cache);
+
+  FConversionCache.Free;
+  FConversionCache := Cache;
+  Result := True;
+end;
+
+function TJSObjectImpl.CurrentConversionCache: TJSConversionCache;
+begin
+  const IsCurrent = Assigned(FConversionCache) and ConversionCacheIsCurrent;
+  if (not IsCurrent) and (not TryBuildConversionCache) then
+    Exit(nil);
+
+  Result := FConversionCache;
 end;
 
 function TJSObjectImpl.TryAssignOwnProperty(const Name: TJSPropertyKey; const Value: TJSValue): Boolean;

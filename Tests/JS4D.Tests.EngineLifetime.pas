@@ -283,6 +283,7 @@ type
     [TestCase('Long chain with a pending await', 'var f = eval("(async function () { return (await 1)" + "+1".repeat(100000) + "; })"); f();', '#')]
     [TestCase('Source that nests too deeply', 'for (var i = 0; i < 3; i++) { try { eval("{".repeat(100000) + "}".repeat(100000)); } catch (e) { } }', '#')]
     [TestCase('Statement nesting that is parsed', 'eval("if (1) ".repeat(900) + "1;");', '#')]
+    [TestCase('Array conversions that change the prototype chain', 'for (var i = 0; i < 3; i++) { String([i]); Array.prototype.toString = function () { return "T"; }; String([i]); Object.setPrototypeOf(Array.prototype, { toString: Object.prototype.toString }); String([i]); }', '#')]
     [TestCase('Objects of a cycle when the script fails', 'var a = {}; var b = [a, new Map([[a, a]])]; a.b = b; var p = new Proxy(a, {}); a.p = p; throw new Error("x");', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
 
