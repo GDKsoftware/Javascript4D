@@ -431,7 +431,7 @@ begin
 
   const Holder: IJSObject = TJSObject.Create;
   Holder.Prototype := FObjectPrototype;
-  Holder.SetProperty('', Value);
+  TJSObjectOperations.CreateDataProperty(Holder, '', Value);
 
   var Prepared: TJSValue;
   Result := TryPrepare('', Holder, Prepared);

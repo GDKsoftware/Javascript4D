@@ -175,6 +175,10 @@ type
     [TestCase('Many suspended async functions', 'var gate = new Promise(function () {}); async function f(i) { var v = { i: i }; await gate; return v; } var all = []; for (var i = 0; i < 500; i++) { all.push(f(i)); }', '#')]
     [TestCase('Async function handed its own result', 'var holder = {}; async function f() { await 0; return holder.p; } holder.p = f(); holder.p.then(function (v) { return v; });', '#')]
     [TestCase('Async function with a pending job at the end of the script', 'async function f() { await 1; await 2; await 3; } f(); f();', '#')]
+    [TestCase('JSON reviver walking a proxy for an array', 'var p = new Proxy([], {}); p.other = 0; JSON.parse("[null,null]", function (k, v) { this[1] = p; return v; });', '#')]
+    [TestCase('JSON reviver walking a proxy for an object', 'var p = new Proxy({ length: 0, other: 0 }, {}); JSON.parse("[null,null]", function (k, v) { if (this !== p) { this[1] = p; } return v; });', '#')]
+    [TestCase('JSON reviver with a throwing proxy length', 'var bad = new Proxy([], { get: function (t, n) { if (n === "length") { throw 1; } } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); } catch (e) {}', '#')]
+    [TestCase('JSON holder with an inherited setter', 'Object.defineProperty(Object.prototype, "", { set: function () { throw 1; }, configurable: true }); JSON.parse("2", function (k, v) { return v; }); JSON.stringify(2, function (k, v) { return v; }); delete Object.prototype[""];', '#')]
     [TestCase('AggregateError', 'var e = new AggregateError([1, {}], "m"); AggregateError([1]); e.errors;', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
