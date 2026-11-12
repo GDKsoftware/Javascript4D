@@ -165,6 +165,7 @@
         <DCCReference Include="JS4D.Tests.ObjectAccessors.pas"/>
         <DCCReference Include="JS4D.Tests.ObjectLiteralExtensions.pas"/>
         <DCCReference Include="JS4D.Tests.Operators.pas"/>
+        <DCCReference Include="JS4D.Tests.NullishAndSeparators.pas"/>
         <DCCReference Include="JS4D.Tests.PropertyOrder.pas"/>
         <DCCReference Include="JS4D.Tests.UriCoding.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMutators.pas"/>

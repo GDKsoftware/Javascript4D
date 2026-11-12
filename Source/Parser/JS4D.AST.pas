@@ -430,7 +430,8 @@ type
 
   TJSLogicalOperator = (
     And_,
-    Or_
+    Or_,
+    Nullish
   );
 
   TJSLogicalExpression = class(TJSExpression)

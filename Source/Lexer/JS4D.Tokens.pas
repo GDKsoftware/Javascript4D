@@ -62,6 +62,7 @@ type
     LogicalAnd,
     LogicalOr,
     LogicalNot,
+    NullishCoalesce,
 
     BitwiseAnd,
     BitwiseOr,

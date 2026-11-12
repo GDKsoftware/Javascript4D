@@ -149,6 +149,8 @@ type
     function ParseNestedAssignmentExpression: TJSExpression;
     function ParseNestedBlockStatement(const Parameters: TArray<string>): TJSBlockStatement;
     function ParseConditionalExpression: TJSExpression;
+    function ParseShortCircuitExpression: TJSExpression;
+    function ParseNullishCoalesceExpression(const Head: TJSExpression): TJSExpression;
     function ParseLogicalOrExpression: TJSExpression;
     function ParseLogicalAndExpression: TJSExpression;
     function ParseBitwiseOrExpression: TJSExpression;
@@ -335,6 +337,7 @@ const
   MissingPatternInitializerMessage = 'Missing initializer in destructuring declaration';
   RestElementLastMessage = 'Rest element must be last element';
   CoverInitializerMessage = 'Invalid shorthand property initializer';
+  NullishMixedWithLogicalMessage = '''??'' cannot be mixed with ''||'' or ''&&'' without parentheses';
   DuplicateBindingMessage = 'Duplicate binding ''%s'' in a pattern';
 
 { TJSParser }
@@ -1945,7 +1948,7 @@ end;
 
 function TJSParser.ParseConditionalExpression: TJSExpression;
 begin
-  const Test = ParseLogicalOrExpression;
+  const Test = ParseShortCircuitExpression;
 
   if Match(TJSTokenType.Question) then
   begin
@@ -1964,6 +1967,47 @@ begin
   end;
 
   Result := Test;
+end;
+
+function TJSParser.ParseShortCircuitExpression: TJSExpression;
+begin
+  Result := ParseLogicalOrExpression;
+
+  const StartsNullishChain = Check(TJSTokenType.NullishCoalesce);
+  if StartsNullishChain then
+    Result := ParseNullishCoalesceExpression(Result);
+end;
+
+function TJSParser.ParseNullishCoalesceExpression(const Head: TJSExpression): TJSExpression;
+begin
+  const HeadIsBareLogical = (Head is TJSLogicalExpression) and (not Head.IsParenthesized);
+  if HeadIsBareLogical then
+  begin
+    Head.Free;
+    raise TJSErrorFactory.SyntaxError(NullishMixedWithLogicalMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
+
+  Result := Head;
+
+  while Match(TJSTokenType.NullishCoalesce) do
+  begin
+    var Right: TJSExpression;
+    try
+      Right := ParseBitwiseOrExpression;
+    except
+      Result.Free;
+      raise;
+    end;
+
+    Result := TJSLogicalExpression.Create(TJSLogicalOperator.Nullish, Result, Right);
+  end;
+
+  const IsMixedWithLogical = Check(TJSTokenType.LogicalOr) or Check(TJSTokenType.LogicalAnd);
+  if IsMixedWithLogical then
+  begin
+    Result.Free;
+    raise TJSErrorFactory.SyntaxError(NullishMixedWithLogicalMessage, CurrentToken.Line, CurrentToken.Column);
+  end;
 end;
 
 function TJSParser.ParseLogicalOrExpression: TJSExpression;

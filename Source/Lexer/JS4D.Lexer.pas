@@ -67,9 +67,10 @@ type
     function DigitValueInRadix(const Ch: Char; const Radix: Integer): Integer;
     function ParseRadixNumber(const Radix: Integer): Double;
     function ParseOctalNumber: Double;
-    function ReadDigits: string;
-    function ReadExponent: string;
-    function ParseDecimalNumber: Double;
+    procedure SkipNumericSeparator(const IsDigitAhead: Boolean);
+    function ReadDigits(const AllowSeparators: Boolean): string;
+    function ReadExponent(const AllowSeparators: Boolean): string;
+    function ParseDecimalNumber(const AllowSeparators: Boolean): Double;
     function IsLegacyOctalLiteral: Boolean;
     function ParseEscapeSequence: string;
     function ParseOctalEscape(const FirstDigit: Char): string;
@@ -202,6 +203,7 @@ const
   SInvalidIdentifierEscape = 'Unicode escape is not a valid identifier character';
   SMissingRadixDigits = 'Numeric literal has no digits after its radix prefix';
   SMissingExponentDigits = 'Numeric literal exponent has no digits';
+  SMisplacedNumericSeparator = 'Numeric separators are only allowed between digits';
 
 { TJSLexer }
 
@@ -477,6 +479,10 @@ begin
     Exit;
   end;
 
+  const SeparatorAfterZero = (CurrentChar = ZERO_CHAR) and (PeekChar = UNDERSCORE);
+  if SeparatorAfterZero then
+    raise TJSErrorFactory.SyntaxError(SMisplacedNumericSeparator, FLine, FColumn);
+
   const HasLeadingZero = (CurrentChar = ZERO_CHAR) and IsDigit(PeekChar);
   if HasLeadingZero and IsLegacyOctalLiteral then
   begin
@@ -487,7 +493,7 @@ begin
     Exit;
   end;
 
-  const NumberValue = ParseDecimalNumber;
+  const NumberValue = ParseDecimalNumber(not HasLeadingZero);
   Result := TJSToken.Create(TJSTokenType.NumberLiteral, '', FLine, StartColumn);
   Result.NumberValue := NumberValue;
   Result.IsLegacyLiteral := HasLeadingZero;
@@ -552,6 +558,13 @@ begin
 
   while not IsAtEnd do
   begin
+    const IsSeparator = (CurrentChar = UNDERSCORE) and (DigitCount > 0);
+    if IsSeparator then
+    begin
+      const IsDigitAhead = (DigitValueInRadix(PeekChar, Radix) <> NOT_A_DIGIT);
+      SkipNumericSeparator(IsDigitAhead);
+    end;
+
     const Digit = DigitValueInRadix(CurrentChar, Radix);
     const IsDigitOfRadix = (Digit <> NOT_A_DIGIT);
     if not IsDigitOfRadix then
@@ -583,18 +596,33 @@ begin
   Result := Value;
 end;
 
-function TJSLexer.ReadDigits: string;
+procedure TJSLexer.SkipNumericSeparator(const IsDigitAhead: Boolean);
+begin
+  if not IsDigitAhead then
+    raise TJSErrorFactory.SyntaxError(SMisplacedNumericSeparator, FLine, FColumn);
+
+  Advance;
+end;
+
+function TJSLexer.ReadDigits(const AllowSeparators: Boolean): string;
 begin
   Result := '';
 
-  while (not IsAtEnd) and IsDigit(CurrentChar) do
+  while not IsAtEnd do
   begin
+    const IsSeparator = AllowSeparators and (CurrentChar = UNDERSCORE) and (not Result.IsEmpty);
+    if IsSeparator then
+      SkipNumericSeparator(IsDigit(PeekChar));
+
+    if not IsDigit(CurrentChar) then
+      Break;
+
     Result := Result + CurrentChar;
     Advance;
   end;
 end;
 
-function TJSLexer.ReadExponent: string;
+function TJSLexer.ReadExponent(const AllowSeparators: Boolean): string;
 begin
   Result := '';
   if not CharInSet(CurrentChar, ['e', 'E']) then
@@ -609,16 +637,16 @@ begin
     Advance;
   end;
 
-  const ExponentDigits = ReadDigits;
+  const ExponentDigits = ReadDigits(AllowSeparators);
   if ExponentDigits.IsEmpty then
     raise TJSErrorFactory.SyntaxError(SMissingExponentDigits, FLine, FColumn);
 
   Result := Result + ExponentDigits;
 end;
 
-function TJSLexer.ParseDecimalNumber: Double;
+function TJSLexer.ParseDecimalNumber(const AllowSeparators: Boolean): Double;
 begin
-  var IntegerDigits := ReadDigits;
+  var IntegerDigits := ReadDigits(AllowSeparators);
   if IntegerDigits.IsEmpty then
     IntegerDigits := ZERO_CHAR;
 
@@ -626,14 +654,14 @@ begin
   if CurrentChar = DOT_CHAR then
   begin
     Advance;
-    FractionDigits := ReadDigits;
+    FractionDigits := ReadDigits(AllowSeparators);
   end;
 
   var NumberStr := IntegerDigits;
   if not FractionDigits.IsEmpty then
     NumberStr := NumberStr + DOT_CHAR + FractionDigits;
 
-  NumberStr := NumberStr + ReadExponent;
+  NumberStr := NumberStr + ReadExponent(AllowSeparators);
 
   Result := TJSNumberParse.DecimalToDouble(NumberStr);
 end;
@@ -1377,7 +1405,16 @@ begin
         end;
       end;
     QUESTION_CHAR:
-      Result := TJSToken.Create(TJSTokenType.Question, '?', FLine, StartColumn);
+      begin
+        const IsNullishCoalesce = (CurrentChar = QUESTION_CHAR);
+        if IsNullishCoalesce then
+        begin
+          Advance;
+          Exit(TJSToken.Create(TJSTokenType.NullishCoalesce, '??', FLine, StartColumn));
+        end;
+
+        Result := TJSToken.Create(TJSTokenType.Question, '?', FLine, StartColumn);
+      end;
   else
     raise TJSErrorFactory.UnexpectedToken(Ch, FLine, StartColumn);
   end;

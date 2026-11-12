@@ -8,7 +8,6 @@ language/import/
 language/module-code/
 language/literals/bigint/
 language/expressions/async-generator/
-language/expressions/coalesce/
 language/expressions/dynamic-import/
 language/expressions/import.meta/
 language/expressions/logical-assignment/

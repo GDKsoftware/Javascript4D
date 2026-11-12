@@ -14,7 +14,6 @@ class-static-block
 class-static-fields-private
 class-static-fields-public
 class-static-methods-private
-coalesce-expression
 decorators
 dynamic-import
 explicit-resource-management
@@ -30,7 +29,6 @@ import.meta
 json-modules
 json-superset
 logical-assignment-operators
-numeric-separator-literal
 optional-catch-binding
 optional-chaining
 tail-call-optimization

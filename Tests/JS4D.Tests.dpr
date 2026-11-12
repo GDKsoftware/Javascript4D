@@ -86,6 +86,7 @@ uses
   JS4D.Tests.ObjectAccessors in 'JS4D.Tests.ObjectAccessors.pas',
   JS4D.Tests.ObjectLiteralExtensions in 'JS4D.Tests.ObjectLiteralExtensions.pas',
   JS4D.Tests.Operators in 'JS4D.Tests.Operators.pas',
+  JS4D.Tests.NullishAndSeparators in 'JS4D.Tests.NullishAndSeparators.pas',
   JS4D.Tests.PropertyOrder in 'JS4D.Tests.PropertyOrder.pas',
   JS4D.Tests.UriCoding in 'JS4D.Tests.UriCoding.pas',
   JS4D.Tests.GenericArrayMutators in 'JS4D.Tests.GenericArrayMutators.pas',

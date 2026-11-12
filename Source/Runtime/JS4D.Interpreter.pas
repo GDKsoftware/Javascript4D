@@ -5679,6 +5679,13 @@ begin
 
         Result := Visit(Node.Right);
       end;
+    TJSLogicalOperator.Nullish:
+      begin
+        if not Left.IsNullOrUndefined then
+          Exit(Left);
+
+        Result := Visit(Node.Right);
+      end;
     else
       Result := TJSValue.CreateUndefined;
   end;
