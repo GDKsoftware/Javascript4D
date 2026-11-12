@@ -52,6 +52,9 @@ type
     // nest too deeply (a proxy that ends up in its own prototype chain) raise a RangeError.
     function EnterOperation: IInterface;
     procedure LeaveOperation;
+    // Cuts the link to the engine, for proxies that the host keeps after the engine is freed: they keep working
+    // on their targets, and what needs the engine raises a TypeError.
+    procedure Detach;
     property ObjectPrototype: IJSObject read GetObjectPrototype;
     property ArrayPrototype: IJSObject read GetArrayPrototype;
   end;
@@ -71,6 +74,7 @@ type
     const
       MAX_NESTED_OPERATIONS = 200;
       OPERATIONS_TOO_DEEP = 'Proxy operations are nested too deeply';
+      ENGINE_FREED = 'A proxy cannot construct after its engine is freed';
 
     var
     FObjectPrototype: IJSObject;
@@ -96,6 +100,7 @@ type
     procedure ChargeStep;
     function EnterOperation: IInterface;
     procedure LeaveOperation;
+    procedure Detach;
   end;
 
   // The internal methods of a proxy: every one looks up its trap on the handler, falls back to the target
@@ -420,12 +425,22 @@ end;
 function TJSProxyRuntime.Construct(const Target: IJSFunction; const Args: TArray<TJSValue>;
                                    const NewTarget: IJSFunction): TJSValue;
 begin
+  if not Assigned(FConstruct) then
+    raise TJSErrorFactory.TypeError(ENGINE_FREED);
+
   Result := FConstruct(Target, Args, NewTarget);
 end;
 
 procedure TJSProxyRuntime.ChargeStep;
 begin
-  FChargeStep();
+  if Assigned(FChargeStep) then
+    FChargeStep();
+end;
+
+procedure TJSProxyRuntime.Detach;
+begin
+  FChargeStep := nil;
+  FConstruct := nil;
 end;
 
 function TJSProxyRuntime.EnterOperation: IInterface;
@@ -519,7 +534,6 @@ end;
 procedure TJSProxyCore.Release;
 begin
   Revoke;
-  FRuntime := nil;
 end;
 
 function TJSProxyCore.IsRevoked: Boolean;
@@ -1296,6 +1310,7 @@ end;
 
 destructor TJSProxyObject.Destroy;
 begin
+  ReleaseNested;
   FCore := nil;
   FProxyRef := nil;
   inherited;
@@ -1480,6 +1495,7 @@ end;
 
 destructor TJSProxyFunction.Destroy;
 begin
+  ReleaseNested;
   FCore := nil;
   FProxyRef := nil;
   inherited;

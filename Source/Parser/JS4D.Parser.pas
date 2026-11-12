@@ -3927,13 +3927,20 @@ end;
 
 function TJSParser.ParseBindingTarget(const Kind: TJSBindingKind): TJSExpression;
 begin
-  if Check(TJSTokenType.LeftBracket) then
-    Exit(ParseArrayBindingPattern(Kind));
+  const IsArrayPattern = Check(TJSTokenType.LeftBracket);
+  const IsPattern = IsArrayPattern or Check(TJSTokenType.LeftBrace);
+  if not IsPattern then
+    Exit(ParseBindingIdentifier(Kind));
 
-  if Check(TJSTokenType.LeftBrace) then
-    Exit(ParseObjectBindingPattern(Kind));
-
-  Result := ParseBindingIdentifier(Kind);
+  EnterNesting;
+  try
+    if IsArrayPattern then
+      Result := ParseArrayBindingPattern(Kind)
+    else
+      Result := ParseObjectBindingPattern(Kind);
+  finally
+    LeaveNesting;
+  end;
 end;
 
 function TJSParser.ParseBindingElement(const Kind: TJSBindingKind): TJSExpression;

@@ -22,6 +22,7 @@ type
     class function ClampBound(const Digits: string): string; static;
     class function IsDigits(const Text: string): Boolean; static;
     class function NextClassState(const Current: Char; const InsideClass: Boolean): Boolean; static;
+    class function RecursionLimit: Cardinal; static;
 
   public
     constructor Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
@@ -40,7 +41,9 @@ implementation
 
 uses
   System.SysUtils,
-  System.RegularExpressionsCore;
+  System.RegularExpressionsCore,
+  JS4D.Errors,
+  JS4D.StackGuard;
 
 const
   OFFSETS_PER_GROUP = 2;
@@ -50,6 +53,10 @@ const
   MAX_QUANTIFIER_BOUND = 65535;
   MAX_QUANTIFIER_DIGITS = 5;
   ESCAPE_LENGTH = 2;
+  RECURSION_FRAME_BYTES = 1024;
+  RECURSION_STACK_RESERVE = 128 * 1024;
+  MAX_RECURSION_DEPTH = 10000000;
+  STACK_EXHAUSTED = 'Maximum call stack size exceeded';
 
 constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
                                   const UtfMode: Boolean);
@@ -200,6 +207,19 @@ begin
   SetLength(FOffsets, (FCaptureCount + 1) * OFFSET_SLOTS_PER_GROUP);
 end;
 
+class function TJSPcreMatcher.RecursionLimit: Cardinal;
+begin
+  const Remaining = TJSStackGuard.RemainingBytes;
+  if Remaining <= RECURSION_STACK_RESERVE then
+    Exit(1);
+
+  const Depth = (Remaining - RECURSION_STACK_RESERVE) div RECURSION_FRAME_BYTES;
+  if Depth > MAX_RECURSION_DEPTH then
+    Exit(MAX_RECURSION_DEPTH);
+
+  Result := Cardinal(Depth);
+end;
+
 function TJSPcreMatcher.TryMatch(const Subject: string; const Start: Integer): Boolean;
 begin
   EnsureCompiled;
@@ -209,8 +229,15 @@ begin
     FOffsets[Slot] := UNSET_OFFSET;
   end;
 
-  const Executed = pcre_exec(FCode, nil, PCRE_STR(Subject), Length(Subject), Start, PCRE_NO_UTF8_CHECK,
+  var Limits := Default(TPCREExtra);
+  Limits.flags := PCRE_EXTRA_MATCH_LIMIT_RECURSION;
+  Limits.match_limit_recursion := RecursionLimit;
+
+  const Executed = pcre_exec(FCode, @Limits, PCRE_STR(Subject), Length(Subject), Start, PCRE_NO_UTF8_CHECK,
                              @FOffsets[0], Length(FOffsets));
+
+  if Executed = PCRE_ERROR_RECURSIONLIMIT then
+    raise TJSErrorFactory.RangeError(STACK_EXHAUSTED);
 
   Result := (Executed <> PCRE_ERROR_NOMATCH) and (Executed >= 0);
 end;

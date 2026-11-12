@@ -10,6 +10,7 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   JS4D.PropertyKey,
+  JS4D.Errors,
   JS4D.Types,
   JS4D.Engine;
 
@@ -288,6 +289,65 @@ type
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
 
     [Test]
+    [TestCase('Objects', 'var a = null; (function () { for (var i = 0; i < n; i++) { a = { n: a }; } })();', '#')]
+    [TestCase('Arrays', 'var a = null; (function () { for (var i = 0; i < n; i++) { a = [a]; } })();', '#')]
+    [TestCase('Map values', 'var a = null; (function () { for (var i = 0; i < n; i++) { var m = new Map; m.set(1, a); a = m; } })();', '#')]
+    [TestCase('Map keys', 'var a = null; (function () { for (var i = 0; i < n; i++) { var m = new Map; m.set(a, 1); a = m; } })();', '#')]
+    [TestCase('Sets', 'var a = null; (function () { for (var i = 0; i < n; i++) { var s = new Set; s.add(a); a = s; } })();', '#')]
+    [TestCase('Weak maps', 'var a = {}; (function () { for (var i = 0; i < n; i++) { var w = new WeakMap; w.set(a, a); a = w; } })();', '#')]
+    [TestCase('Weak sets', 'var a = {}; (function () { for (var i = 0; i < n; i++) { var w = new WeakSet; w.add(a); a = w; } })();', '#')]
+    [TestCase('Map iterators', 'var a = new Map; (function () { for (var i = 0; i < n; i++) { a = new Map([[1, a]]).values(); } })();', '#')]
+    [TestCase('Array iterators', 'var a = []; (function () { for (var i = 0; i < n; i++) { a = [a][Symbol.iterator](); } })();', '#')]
+    [TestCase('Proxy handlers', 'var a = {}; (function () { for (var i = 0; i < n; i++) { a = new Proxy({}, a); } })();', '#')]
+    [TestCase('Proxy targets and handlers', 'var a = {}; (function () { for (var i = 0; i < n; i++) { a = new Proxy(i % 2 ? a : {}, i % 2 ? {} : a); } })();', '#')]
+    [TestCase('Prototypes', 'var a = {}; (function () { for (var i = 0; i < n; i++) { a = Object.create(a); } })();', '#')]
+    [TestCase('Promise results', 'var a = null; (function () { for (var i = 0; i < n; i++) { a = Promise.resolve({ n: a }); } })();', '#')]
+    [TestCase('Closures', 'var a = null; (function () { for (var i = 0; i < n; i++) { a = (function (p) { return function () { return p; }; })(a); } })();', '#')]
+    [TestCase('Generators', 'var a = null; (function () { function* g(p) { yield p; } for (var i = 0; i < n; i++) { a = g(a); a.next(); } })();', '#')]
+    [TestCase('Mixed containers', 'var a = null; (function () { for (var i = 0; i < n; i++) { var m = new Map; m.set(1, [{ n: new Set([a]) }]); a = m; } })();', '#')]
+    procedure Engine_DeepChainOfObjects_IsReleasedWithoutStackOverflow(const Script: string);
+
+    [Test]
+    [TestCase('Built-in function', 'Math.max', '#')]
+    [TestCase('Bound built-in function', 'Math.max.bind(null, 1)', '#')]
+    [TestCase('Script function', '(function (x) { return x + 1; })', '#')]
+    [TestCase('Bound script function', '(function (x) { return x + 1; }).bind(null)', '#')]
+    [TestCase('Arrow function', '((x) => x + 1)', '#')]
+    [TestCase('Generator function', '(function* () { yield 1; })', '#')]
+    [TestCase('Method of a built-in', 'Array.prototype.map', '#')]
+    [TestCase('Proxied function', 'new Proxy(function () { return 1; }, {})', '#')]
+    procedure Engine_HostHeldFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction(const Script: string);
+
+    [Test]
+    procedure Engine_HostHeldHostFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction;
+
+    [Test]
+    [TestCase('Map', 'var m = new Map([[1, { a: 1 }]]); m', '#')]
+    [TestCase('Set', 'new Set([1, { a: 1 }])', '#')]
+    [TestCase('Weak map', 'var k = {}; var w = new WeakMap([[k, 1]]); w.k = k; w', '#')]
+    [TestCase('Map iterator', 'new Map([[1, 2]]).entries()', '#')]
+    [TestCase('Array iterator', '[1, { a: 1 }][Symbol.iterator]()', '#')]
+    [TestCase('Promise', 'Promise.resolve({ a: 1 })', '#')]
+    [TestCase('Pending promise', 'new Promise(function () {})', '#')]
+    [TestCase('Generator object', 'var g = (function* () { yield { a: 1 }; })(); g.next(); g', '#')]
+    [TestCase('Typed array', 'new Uint8Array([1, 2, 3])', '#')]
+    [TestCase('Array buffer', 'new ArrayBuffer(8)', '#')]
+    [TestCase('Data view', 'new DataView(new ArrayBuffer(8))', '#')]
+    [TestCase('Regular expression', '/a(b)/g', '#')]
+    [TestCase('Date', 'new Date(0)', '#')]
+    [TestCase('Error', 'new RangeError("x")', '#')]
+    [TestCase('Arguments', '(function () { return arguments; })(1, { a: 1 })', '#')]
+    [TestCase('Proxy with traps', 'new Proxy({ a: 1 }, { get: function (t, k) { return t[k]; } })', '#')]
+    [TestCase('Proxy without traps', 'new Proxy({ a: 1 }, {})', '#')]
+    [TestCase('Function proxy', 'new Proxy(function () {}, {})', '#')]
+    [TestCase('Class', 'class A { static s() { return 1; } }; A', '#')]
+    [TestCase('Class instance', 'class A { get v() { return 1; } }; new A()', '#')]
+    [TestCase('Object with accessors', '({ get a() { return 1; }, set a(v) {}, b: [1] })', '#')]
+    [TestCase('Boxed symbol', 'Object(Symbol("s"))', '#')]
+    [TestCase('Cycle', 'var a = { n: 1 }; a.a = a; a', '#')]
+    procedure Engine_HostHeldObject_ReadingPropertiesAfterDestruction_DoesNotCrash(const Script: string);
+
+    [Test]
     procedure Engine_HostHeldObject_KeepsItsContentsAfterDestruction;
 
     [Test]
@@ -302,6 +362,7 @@ implementation
 const
   WARM_UP_RUNS = 2;
   MEASURED_RUNS = 5;
+  DEEP_CHAIN_LENGTH = 200000;
 
 function TEngineLifetimeTests.AllocatedBytes: Int64;
 begin
@@ -362,6 +423,107 @@ begin
   const LeakedBytes = BytesLeakedByEngines(Script, True);
 
   Assert.IsTrue(LeakedBytes = 0, Format('Leaked %d bytes', [LeakedBytes]));
+end;
+
+procedure TEngineLifetimeTests.Engine_DeepChainOfObjects_IsReleasedWithoutStackOverflow(const Script: string);
+begin
+  const Head = Format('var n = %d; %s', [DEEP_CHAIN_LENGTH, Script]);
+
+  for var Release in [False, True] do
+  begin
+    const Engine = TJSEngine.Create;
+    try
+      Engine.Execute(Head);
+
+      if Release then
+        Engine.Execute('a = null;');
+    finally
+      Engine.Free;
+    end;
+  end;
+
+  Assert.Pass;
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction(const Script: string);
+begin
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Held := Engine.Evaluate(Script);
+  finally
+    Engine.Free;
+  end;
+
+  const Subject = Held.ToObject as IJSFunction;
+
+  try
+    Subject.Call(nil, [TJSValue.CreateNumber(1)]);
+  except
+    on EJSTypeError do
+    begin
+    end;
+  end;
+
+  Assert.Pass;
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldHostFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction;
+begin
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Engine.RegisterFunction('hostFunction',
+      function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+      begin
+        Result := TJSValue.CreateNumber(1);
+      end);
+    Held := Engine.Evaluate('hostFunction');
+  finally
+    Engine.Free;
+  end;
+
+  const Subject = Held.ToObject as IJSFunction;
+
+  try
+    Subject.Call(nil, []);
+  except
+    on EJSTypeError do
+    begin
+    end;
+  end;
+
+  Assert.Pass;
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldObject_ReadingPropertiesAfterDestruction_DoesNotCrash(const Script: string);
+begin
+  const Names: TArray<string> = ['size', 'length', 'a', 'k', 'n', 'b', 'v', 'byteLength', 'byteOffset', 'buffer',
+                                 'lastIndex', 'source', 'flags', 'global', 'message', 'name', 'stack',
+                                 'constructor', 'prototype', 'next', 'then', 'toString', 'valueOf', '0', '1'];
+
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Held := Engine.Evaluate(Script);
+  finally
+    Engine.Free;
+  end;
+
+  const Subject = Held.ToObject;
+  for var Name in Names do
+  begin
+    try
+      Subject.GetProperty(Name).ToString;
+      Subject.HasProperty(Name);
+    except
+      on EJSException do
+      begin
+      end;
+    end;
+  end;
+
+  Assert.Pass;
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldObject_KeepsItsContentsAfterDestruction;

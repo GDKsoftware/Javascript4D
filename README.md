@@ -83,7 +83,7 @@ Anything still referenced from a global variable, including closures, survives c
 
 `CollectGarbage` does not reclaim objects that only reference each other (`a.b = b; b.a = a`); in a running engine they live until the engine is freed. Freeing the engine releases all memory of every object it created, whatever the script did with cycles through objects, arrays, Map and Set entries, proxies, typed arrays, promises and generators.
 
-A value that the host still holds when the engine is freed (a `TJSValue` returned by `Evaluate`, for example) keeps its contents, and so does everything it refers to; functions and the collections, promises and generators of the engine are emptied, and a script function from the engine can no longer be called. A cycle that the host keeps holding is not released by the host letting go of it; break the cycle first.
+A value that the host still holds when the engine is freed (a `TJSValue` returned by `Evaluate`, for example) keeps its contents, and so does everything it refers to; functions and the collections, promises and generators of the engine are emptied, and a script function or built-in function from the engine can no longer be called: calling it raises a `TypeError` instead of failing. Releasing a very deep chain of objects, arrays, Map and Set entries, iterators, proxies or promises does not recurse through one destructor per level, so it cannot overflow the stack. A cycle that the host keeps holding is not released by the host letting go of it; break the cycle first.
 
 ## Promises and the Job Queue
 
@@ -161,6 +161,8 @@ Every JavaScript call recurses in the interpreter, so unbounded recursion overfl
 **Checked before the work is done.** The length is compared with the limit before the string or array is allocated: `'x'.repeat(1000000000)` raises at once instead of asking for 2 GB, and `padStart`, `concat`, `push`, `splice` and the like do the same. Array-to-text conversion and `JSON.stringify` check the running length before each piece is appended; `JSON.stringify` measures the text of each value as it will be written, so many small numbers are not refused on a worst-case estimate.
 
 **Checked after the fact.** A `replace` with a regular expression is refused up front when the source length plus the number of matches times the replacement length exceeds the limit, but a replacement that expands `$` patterns is only caught by the check on the finished result. `JSON.parse` does not limit the arrays it builds from its input.
+
+**Source text.** The parser and the evaluator check how much stack is left, so source of any shape ends in a `RangeError` instead of a stack overflow: long chains of operators, member accesses and calls are handled in loops, deep nesting of expressions, statements, functions, classes, templates and destructuring patterns is refused, and so is a regular expression whose groups nest too deeply. A regular expression whose matching would need more stack than the thread has left raises a `RangeError` as well. Long lists of statements, arguments and array or object elements are not limited by the stack.
 
 **Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. A running engine does not collect reference cycles (see Memory Management), but a script can build as many as it likes: freeing the engine breaks every one of them.
 

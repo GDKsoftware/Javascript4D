@@ -59,6 +59,9 @@ end;
 
 destructor TJSProxyBuiltins.Destroy;
 begin
+  if Assigned(FRuntime) then
+    FRuntime.Detach;
+
   FRuntime := nil;
   inherited;
 end;

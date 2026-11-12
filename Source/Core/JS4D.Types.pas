@@ -2644,7 +2644,12 @@ end;
 function TJSFunctionImpl.Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   if FIsNative then
+  begin
+    if not Assigned(FNativeFunction) then
+      raise TJSErrorFactory.TypeError(Format('Function %s cannot be called after its engine is freed', [FName]));
+
     Exit(FNativeFunction(ThisObj, Args));
+  end;
 
   if FCallHandler = nil then
     raise TJSErrorFactory.TypeError(Format('Function %s cannot be called outside an interpreter', [FName]));
@@ -2757,6 +2762,7 @@ begin
   FClosureScope := nil;
   FLexicalThis := nil;
   FNativeFunction := nil;
+  FCallHandler := nil;
   ReleaseCapturedContext;
   inherited;
 end;

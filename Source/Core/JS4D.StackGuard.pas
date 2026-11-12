@@ -17,6 +17,9 @@ type
     // The lowest stack address that script code may use on the calling thread. The part of the stack below it is
     // kept for raising the error and for native built-ins that run at the floor.
     class function CurrentFloor: NativeUInt; static;
+    // The number of bytes between the caller and the end of the stack of the calling thread, for native code
+    // that cannot check the stack while it runs and has to size its work beforehand.
+    class function RemainingBytes: NativeUInt; static;
   end;
 
 implementation
@@ -40,6 +43,16 @@ begin
 
   IsLimitsLookupDone := True;
 end;
+
+function TryReadStackLimits(out LowLimit: NativeUInt; out HighLimit: NativeUInt): Boolean;
+begin
+  if not IsLimitsLookupDone then
+    LookUpStackLimitsApi;
+
+  Result := Assigned(GetCurrentThreadStackLimits);
+  if Result then
+    GetCurrentThreadStackLimits(LowLimit, HighLimit);
+end;
 {$ENDIF}
 
 { TJSStackGuard }
@@ -50,15 +63,10 @@ begin
   const Position = NativeUInt(@Marker);
 
   {$IFDEF MSWINDOWS}
-  if not IsLimitsLookupDone then
-    LookUpStackLimitsApi;
-
-  if Assigned(GetCurrentThreadStackLimits) then
+  var LowLimit: NativeUInt;
+  var HighLimit: NativeUInt;
+  if TryReadStackLimits(LowLimit, HighLimit) then
   begin
-    var LowLimit: NativeUInt;
-    var HighLimit: NativeUInt;
-    GetCurrentThreadStackLimits(LowLimit, HighLimit);
-
     const Reserve = (HighLimit - LowLimit) div 4;
     if Reserve > MAX_RESERVE then
       Exit(LowLimit + MAX_RESERVE);
@@ -71,6 +79,26 @@ begin
     Result := Position - FALLBACK_BUDGET
   else
     Result := 0;
+end;
+
+class function TJSStackGuard.RemainingBytes: NativeUInt;
+begin
+  var Marker: Byte;
+  const Position = NativeUInt(@Marker);
+
+  {$IFDEF MSWINDOWS}
+  var LowLimit: NativeUInt;
+  var HighLimit: NativeUInt;
+  if TryReadStackLimits(LowLimit, HighLimit) then
+  begin
+    if Position > LowLimit then
+      Exit(Position - LowLimit);
+
+    Exit(0);
+  end;
+  {$ENDIF}
+
+  Result := FALLBACK_BUDGET;
 end;
 
 end.

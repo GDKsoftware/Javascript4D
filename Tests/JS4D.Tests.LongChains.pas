@@ -75,8 +75,29 @@ type
     [TestCase('Computed member keys', 'var a = [0]; eval("a[".repeat(n) + "0" + "]".repeat(n)) === 0#true', '#')]
     [TestCase('Call arguments', 'function f(x) { return x; } eval("f(".repeat(n) + "1" + ")".repeat(n)) === 1#true', '#')]
     [TestCase('Spread arguments', 'function f(x) { return x; } eval("f(...[".repeat(n) + "1" + "])".repeat(n)) === 1#true', '#')]
+    [TestCase('Array binding patterns', 'eval("let " + "[".repeat(n) + "a" + "]".repeat(n) + " = " + "[".repeat(n) + "1" + "]".repeat(n) + "; a") === 1#true', '#')]
+    [TestCase('Object binding patterns', 'eval("var " + "{a:".repeat(n) + "a" + "}".repeat(n) + " = " + "{a:".repeat(n) + "1" + "}".repeat(n) + "; a") === 1#true', '#')]
+    [TestCase('Parameter binding patterns', 'eval("(function(" + "[".repeat(n) + "a" + "]".repeat(n) + ") { return a; })(" + "[".repeat(n) + "1" + "]".repeat(n) + ")") === 1#true', '#')]
+    [TestCase('Arrow parameter binding patterns', 'eval("(" + "[".repeat(n) + "a" + "]".repeat(n) + ") => a")(eval("[".repeat(n) + "1" + "]".repeat(n))) === 1#true', '#')]
+    [TestCase('Catch binding patterns', 'eval("var r; try { throw " + "[".repeat(n) + "1" + "]".repeat(n) + " } catch (" + "[".repeat(n) + "a" + "]".repeat(n) + ") { r = a } r") === 1#true', '#')]
+    [TestCase('For-of binding patterns', 'eval("var r; for (let " + "[".repeat(n) + "a" + "]".repeat(n) + " of [" + "[".repeat(n) + "1" + "]".repeat(n) + "]) { r = a } r") === 1#true', '#')]
+    [TestCase('Rest binding patterns', 'eval("let " + "[...".repeat(n) + "a" + "]".repeat(n) + " = " + "[".repeat(n) + "1" + "]".repeat(n) + "; a") instanceof Array#true', '#')]
     [TestCase('Nested try statements', 'eval("try { ".repeat(n) + "2;" + " } finally { }".repeat(n)) === 2#true', '#')]
     procedure Execute_NestedSource_ModerateDepthWorksHugeDepthIsSafe(const Script, Expected: string);
+
+    [Test]
+    [TestCase('Capturing groups', 'new RegExp("(".repeat(n) + ")".repeat(n)).test("")#true', '#')]
+    [TestCase('Non-capturing groups', 'new RegExp("(?:".repeat(n) + "a" + ")".repeat(n)).test("a")#true', '#')]
+    [TestCase('Lookaheads', 'new RegExp("(?=".repeat(n) + ")".repeat(n)).test("")#true', '#')]
+    [TestCase('Literal', 'eval("/" + "(".repeat(n) + ")".repeat(n) + "/").test("")#true', '#')]
+    [TestCase('Alternatives', 'new RegExp("(a|".repeat(n) + "b" + ")".repeat(n)).test("b")#true', '#')]
+    procedure Execute_NestedRegularExpression_ModerateDepthWorksHugeDepthIsSafe(const Script, Expected: string);
+
+    [Test]
+    procedure Execute_RegularExpressionMatchingThatNestsTooDeeply_RaisesRangeError;
+
+    [Test]
+    procedure Execute_RegularExpressionOnModerateSubject_Matches;
 
     [Test]
     procedure Execute_UnterminatedNestedTemplates_RaisesSyntaxErrorOrRangeError;
@@ -158,6 +179,37 @@ begin
     Assert.AreEqual(Expected, HugeResult, 'huge depth');
 
   AssertEngineStillWorks;
+end;
+
+procedure TLongChainTests.Execute_NestedRegularExpression_ModerateDepthWorksHugeDepthIsSafe(const Script, Expected: string);
+begin
+  const ModerateResult = RunWithLength(Script, MODERATE_NESTING);
+  Assert.AreEqual(Expected, ModerateResult, 'moderate depth');
+
+  var Completed: Boolean;
+  RunHuge(Script, Completed);
+
+  Assert.IsFalse(Completed, 'huge depth');
+  AssertEngineStillWorks;
+end;
+
+procedure TLongChainTests.Execute_RegularExpressionMatchingThatNestsTooDeeply_RaisesRangeError;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute('/(a|aa)+$b/.test("a".repeat(200000))');
+    end,
+    EJSRangeError);
+
+  AssertEngineStillWorks;
+end;
+
+procedure TLongChainTests.Execute_RegularExpressionOnModerateSubject_Matches;
+begin
+  const Actual = FEngine.Execute('/^(?:a|b)*$/.test("ab".repeat(100)) && /(a|aa)+$/.test("a".repeat(300))').ToString;
+
+  Assert.AreEqual('true', Actual);
 end;
 
 procedure TLongChainTests.Execute_UnterminatedNestedTemplates_RaisesSyntaxErrorOrRangeError;

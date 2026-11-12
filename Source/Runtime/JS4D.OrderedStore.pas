@@ -78,6 +78,7 @@ type
 
     function GetCount: Integer;
     procedure Append(const Identity: TJSStoreKey; const Key: TJSValue; const Value: TJSValue);
+    class function IsNestedObject(const Value: TJSValue): Boolean; static;
     procedure CompactIfSparse;
     procedure Compact;
     procedure MoveCursors(const LiveBefore: TArray<Integer>);
@@ -97,6 +98,11 @@ type
     procedure Put(const Key: TJSValue; const Value: TJSValue);
     function Remove(const Key: TJSValue): Boolean;
     procedure Clear;
+
+    // Nested objects are handed over so that releasing a long chain of collections does not recurse through one
+    // destructor per level. Functions are left out: they are released with their engine.
+    function HoldsNestedObjects: Boolean;
+    procedure DetachNestedObjects(const Pending: TList<IJSObject>);
 
     property Count: Integer read GetCount;
   end;
@@ -314,6 +320,43 @@ begin
   begin
     Cursor.FPosition := 0;
   end;
+end;
+
+function TJSOrderedStore.HoldsNestedObjects: Boolean;
+begin
+  for var Position := 0 to FUsed - 1 do
+  begin
+    const IsHeld = FEntries[Position].IsLive and
+                   (IsNestedObject(FEntries[Position].Key) or IsNestedObject(FEntries[Position].Value));
+    if IsHeld then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+procedure TJSOrderedStore.DetachNestedObjects(const Pending: TList<IJSObject>);
+begin
+  for var Position := 0 to FUsed - 1 do
+  begin
+    if not FEntries[Position].IsLive then
+      Continue;
+
+    const Key = FEntries[Position].Key;
+    if IsNestedObject(Key) then
+      Pending.Add(Key.ToObject);
+
+    const Value = FEntries[Position].Value;
+    if IsNestedObject(Value) then
+      Pending.Add(Value.ToObject);
+  end;
+
+  Clear;
+end;
+
+class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
+begin
+  Result := Value.IsObject and (not Value.IsFunction);
 end;
 
 procedure TJSOrderedStore.CompactIfSparse;
