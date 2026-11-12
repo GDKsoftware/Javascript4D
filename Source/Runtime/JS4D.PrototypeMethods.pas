@@ -12,6 +12,7 @@ uses
   JS4D.ArgumentsObject,
   JS4D.Interpreter,
   JS4D.SymbolRegistry,
+  JS4D.StrictThis,
   JS4D.Builtins;
 
 type
@@ -21,7 +22,9 @@ type
   private
     FInterpreter: TJSInterpreter;
 
-    procedure DefineMethod(const PrototypeObj: IJSObject; const MethodName: string; const Method: TNativeFunction);
+    procedure DefineMethod(const PrototypeObj: IJSObject; const MethodName: string; const Method: TNativeFunction;
+                           const ReceivesRawThis: Boolean = False);
+    function BoxThis(const This: IJSObject): IJSObject;
     function ObjectToPrimitive(const Source: IJSObject; const PreferString: Boolean): TJSValue;
     function ObjectToText(const Source: IJSObject): string;
     function ValueToText(const Value: TJSValue): string;
@@ -103,6 +106,7 @@ const
   TYPE_NAME_BOOLEAN = 'Boolean';
   CLASS_TAG_FORMAT = '[object %s]';
   CLASS_UNDEFINED = 'Undefined';
+  CLASS_NULL = 'Null';
   CLASS_OBJECT = 'Object';
   CLASS_ARRAY = 'Array';
   CLASS_FUNCTION = 'Function';
@@ -165,14 +169,25 @@ begin
 end;
 
 procedure TJSPrototypeMethods.DefineMethod(const PrototypeObj: IJSObject; const MethodName: string;
-                                              const Method: TNativeFunction);
+                                           const Method: TNativeFunction; const ReceivesRawThis: Boolean);
 begin
   const Func: IJSFunction = TJSFunction.CreateNative(MethodName, Method);
   Func.IsConstructor := False;
+  Func.ReceivesRawThis := ReceivesRawThis;
 
   var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func));
   Descriptor.Enumerable := False;
   PrototypeObj.DefineProperty(MethodName, Descriptor);
+end;
+
+function TJSPrototypeMethods.BoxThis(const This: IJSObject): IJSObject;
+begin
+  if not (This is TJSStrictThis) then
+    Exit(This);
+
+  const Primitive = TJSStrictThis.ValueOf(This);
+
+  Result := FInterpreter.WrapPrimitive(Primitive);
 end;
 
 function TJSPrototypeMethods.ObjectToPrimitive(const Source: IJSObject; const PreferString: Boolean): TJSValue;
@@ -320,11 +335,16 @@ function TJSPrototypeMethods.ObjectToString(const This: IJSObject): TJSValue;
 begin
   var ClassTag := CLASS_UNDEFINED;
 
-  if Assigned(This) then
-  begin
-    ClassTag := ClassTagOf(This);
+  const ThisValue = TJSStrictThis.ValueOf(This);
+  if ThisValue.IsNull then
+    ClassTag := CLASS_NULL;
 
-    const CustomTag = This.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag));
+  if not ThisValue.IsNullOrUndefined then
+  begin
+    const Subject = BoxThis(This);
+    ClassTag := ClassTagOf(Subject);
+
+    const CustomTag = Subject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag));
     if CustomTag.IsString then
       ClassTag := CustomTag.AsString;
   end;
@@ -336,17 +356,11 @@ end;
 
 function TJSPrototypeMethods.ObjectToLocaleString(const This: IJSObject): TJSValue;
 begin
-  if not Assigned(This) then
+  const ThisValue = TJSStrictThis.ValueOf(This);
+  if ThisValue.IsNullOrUndefined then
     raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_TO_LOCALE_STRING]));
 
-  const Conversion = This.GetProperty(METHOD_TO_STRING);
-
-  var Func: IJSFunction;
-  const IsCallable = Conversion.IsFunction and Supports(Conversion.ToObject, IJSFunction, Func);
-  if not IsCallable then
-    raise TJSErrorFactory.NotAFunction(METHOD_TO_STRING);
-
-  Result := FInterpreter.CallFunction(Func, nil, This);
+  Result := FInterpreter.InvokeMethod(ThisValue, METHOD_TO_STRING);
 end;
 
 function TJSPrototypeMethods.ObjectValueOf(const This: IJSObject): TJSValue;
@@ -380,7 +394,7 @@ end;
 
 function TJSPrototypeMethods.ErrorToString(const This: IJSObject): TJSValue;
 begin
-  if not Assigned(This) then
+  if TJSStrictThis.IsNonObject(This) then
     raise TJSErrorFactory.TypeError(ERROR_TO_STRING_ON_NON_OBJECT);
 
   var DefaultName := DEFAULT_ERROR_NAME;
@@ -643,13 +657,13 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ObjectToString(This);
-    end);
+    end, True);
 
   DefineMethod(PrototypeObj, METHOD_TO_LOCALE_STRING,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ObjectToLocaleString(This);
-    end);
+    end, True);
 
   DefineMethod(PrototypeObj, METHOD_VALUE_OF,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -700,7 +714,7 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ErrorToString(This);
-    end);
+    end, True);
 end;
 
 procedure TJSPrototypeMethods.RegisterRegExpMethods(const PrototypeObj: IJSObject);

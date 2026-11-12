@@ -66,6 +66,43 @@ type
 
     [Test]
     procedure SloppyGetter_ReadOnPrimitive_SeesWrapper;
+
+    [Test]
+    [TestCase('Number', '1')]
+    [TestCase('String', '"text"')]
+    [TestCase('Boolean', 'true')]
+    [TestCase('Null', 'null')]
+    [TestCase('Undefined', 'undefined')]
+    procedure ErrorToString_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
+
+    [Test]
+    [TestCase('Number', '86')]
+    [TestCase('String', '""')]
+    [TestCase('Boolean', 'true')]
+    procedure DateToPrimitive_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
+
+    [Test]
+    [TestCase('Null', 'null#[object Null]', '#')]
+    [TestCase('Undefined', 'undefined#[object Undefined]', '#')]
+    [TestCase('Number', '1#[object Number]', '#')]
+    [TestCase('String', '"x"#[object String]', '#')]
+    [TestCase('Boolean', 'false#[object Boolean]', '#')]
+    procedure ObjectToString_PrimitiveReceiver_ReturnsClassTag(const Receiver: string; const Expected: string);
+
+    [Test]
+    procedure ObjectToLocaleString_StrictToString_SeesPrimitive;
+
+    [Test]
+    procedure ObjectToLocaleString_SloppyToString_SeesWrapper;
+
+    [Test]
+    procedure ObjectToLocaleString_StrictToStringGetter_SeesPrimitive;
+
+    [Test]
+    procedure ArrayToLocaleString_StrictElementToString_SeesPrimitive;
+
+    [Test]
+    procedure ObjectToLocaleString_NullReceiver_ThrowsTypeError;
   end;
 
 implementation
@@ -183,6 +220,71 @@ procedure TStrictThisTests.SloppyGetter_ReadOnPrimitive_SeesWrapper;
 begin
   const Script = 'Object.defineProperty(Object.prototype, "me", ' +
                  '{ get: function () { return this; }, configurable: true }); typeof (5).me === "object"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ErrorToString_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
+begin
+  const Script = 'try { Error.prototype.toString.call(' + Receiver + '); false; } catch (e) { e instanceof TypeError; }';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.DateToPrimitive_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
+begin
+  const Script = 'try { Date.prototype[Symbol.toPrimitive].call(' + Receiver + ', "string"); false; } ' +
+                 'catch (e) { e instanceof TypeError; }';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ObjectToString_PrimitiveReceiver_ReturnsClassTag(const Receiver: string;
+                                                                            const Expected: string);
+begin
+  const Script = 'Object.prototype.toString.call(' + Receiver + ')';
+
+  const Actual = FEngine.Evaluate(Script).AsString;
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TStrictThisTests.ObjectToLocaleString_StrictToString_SeesPrimitive;
+begin
+  const Script = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ' +
+                 'true.toLocaleString() === "boolean"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ObjectToLocaleString_SloppyToString_SeesWrapper;
+begin
+  const Script = 'Boolean.prototype.toString = function () { return typeof this; }; ' +
+                 'true.toLocaleString() === "object"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ObjectToLocaleString_StrictToStringGetter_SeesPrimitive;
+begin
+  const Script = 'Object.defineProperty(Boolean.prototype, "toString", { get: function () { "use strict"; ' +
+                 'const seen = typeof this; return function () { return seen; }; } }); ' +
+                 'true.toLocaleString() === "boolean"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ArrayToLocaleString_StrictElementToString_SeesPrimitive;
+begin
+  const Script = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ' +
+                 '[true, false].toLocaleString() === "boolean,boolean"';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TStrictThisTests.ObjectToLocaleString_NullReceiver_ThrowsTypeError;
+begin
+  const Script = 'try { Object.prototype.toLocaleString.call(null); false; } catch (e) { e instanceof TypeError; }';
 
   Assert.IsTrue(EvaluateBoolean(Script));
 end;

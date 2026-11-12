@@ -33,7 +33,8 @@ uses
   JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
   JS4D.GeneratorObjects,
-  JS4D.Operators;
+  JS4D.Operators,
+  JS4D.StrictThis;
 
 type
   TJSScope = class(TInterfacedObject, IJSScope)
@@ -124,16 +125,6 @@ type
   TJSBodyOutcome = (Yielded, Delegated, Finished);
 
   TJSThrowSignal = class(Exception)
-  private
-    FValue: TJSValue;
-
-  public
-    constructor Create(const Value: TJSValue);
-
-    property Value: TJSValue read FValue;
-  end;
-
-  TJSStrictThis = class(TJSObjectImpl)
   private
     FValue: TJSValue;
 
@@ -678,7 +669,6 @@ type
                                              const BeforeElements: TProc): TJSValue;
     function ExecuteSpeciesIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
-    function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
     function PrototypeHoldsElements: Boolean;
     function CreatesSpeciesResult(const MethodName: string): Boolean;
     function ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
@@ -737,6 +727,7 @@ type
                                 out Closer: TJSSequenceCloser): Boolean;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
+    function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
 
     property GeneratorFunctionPrototype: IJSObject read FGeneratorFunctionPrototype write FGeneratorFunctionPrototype;
     property GeneratorPrototype: IJSObject read FGeneratorPrototype write FGeneratorPrototype;
@@ -1161,14 +1152,6 @@ end;
 constructor TJSReturnSignal.Create(const Value: TJSValue);
 begin
   inherited Create('');
-  FValue := Value;
-end;
-
-{ TJSStrictThis }
-
-constructor TJSStrictThis.Create(const Value: TJSValue);
-begin
-  inherited Create;
   FValue := Value;
 end;
 
@@ -1816,6 +1799,14 @@ function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: 
 begin
   if ThisValue.IsObject then
     Exit(ThisValue.ToObject);
+
+  if Func.ReceivesRawThis then
+  begin
+    if ThisValue.IsUndefined then
+      Exit(nil);
+
+    Exit(TJSStrictThis.Create(ThisValue));
+  end;
 
   const SeesObjectThis = Func.IsNative or (not Func.IsStrict);
   if SeesObjectThis then

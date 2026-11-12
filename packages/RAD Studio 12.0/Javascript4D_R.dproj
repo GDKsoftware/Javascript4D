@@ -138,6 +138,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.SymbolBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorProtocol.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.StringIterator.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.StrictThis.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.OrderedStore.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CollectionObjects.pas"/>

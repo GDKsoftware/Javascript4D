@@ -78,6 +78,7 @@ uses
   System.StrUtils,
   JS4D.Errors,
   JS4D.SymbolRegistry,
+  JS4D.StrictThis,
   JS4D.PrototypeMethods,
   JS4D.DateMath,
   JS4D.DateText,
@@ -511,7 +512,7 @@ begin
   const Func: IJSFunction = TJSFunction.CreateNative(TO_PRIMITIVE_FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      if not Assigned(This) then
+      if TJSStrictThis.IsNonObject(This) then
         raise TJSErrorFactory.TypeError(THIS_NOT_AN_OBJECT);
 
       var HintName := '';
@@ -529,6 +530,7 @@ begin
       Result := TJSValue.CreateObject(This).OrdinaryToPrimitive(Hint);
     end);
   Func.IsConstructor := False;
+  Func.ReceivesRawThis := True;
   DefineFunctionAttributes(Func, TO_PRIMITIVE_FUNCTION_NAME, 1);
 
   var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func));

@@ -85,6 +85,7 @@ contains
   JS4D.SymbolBuiltins in '..\..\Source\Runtime\JS4D.SymbolBuiltins.pas',
   JS4D.IteratorProtocol in '..\..\Source\Runtime\JS4D.IteratorProtocol.pas',
   JS4D.StringIterator in '..\..\Source\Runtime\JS4D.StringIterator.pas',
+  JS4D.StrictThis in '..\..\Source\Runtime\JS4D.StrictThis.pas',
   JS4D.IteratorBuiltins in '..\..\Source\Runtime\JS4D.IteratorBuiltins.pas',
   JS4D.OrderedStore in '..\..\Source\Runtime\JS4D.OrderedStore.pas',
   JS4D.CollectionObjects in '..\..\Source\Runtime\JS4D.CollectionObjects.pas',

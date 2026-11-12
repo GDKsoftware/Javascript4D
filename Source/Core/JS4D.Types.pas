@@ -329,6 +329,8 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetReceivesRawThis: Boolean;
+    procedure SetReceivesRawThis(const Value: Boolean);
     function GetIsArrow: Boolean;
     procedure SetIsArrow(const Value: Boolean);
     function GetLexicalThis: IJSObject;
@@ -354,6 +356,7 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property ReceivesRawThis: Boolean read GetReceivesRawThis write SetReceivesRawThis;
     property IsArrow: Boolean read GetIsArrow write SetIsArrow;
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
     property SourceText: string read GetSourceText write SetSourceText;
@@ -564,6 +567,7 @@ type
     FClosureScope: IJSScope;
     FCallHandler: TJSCallHandler;
     FIsConstructor: Boolean;
+    FReceivesRawThis: Boolean;
     FIsArrow: Boolean;
     FLexicalThis: IJSObject;
     FSourceText: string;
@@ -591,6 +595,8 @@ type
     procedure SetCallHandler(const Value: TJSCallHandler);
     function GetIsConstructor: Boolean;
     procedure SetIsConstructor(const Value: Boolean);
+    function GetReceivesRawThis: Boolean;
+    procedure SetReceivesRawThis(const Value: Boolean);
     function GetIsArrow: Boolean;
     procedure SetIsArrow(const Value: Boolean);
     function GetLexicalThis: IJSObject;
@@ -628,6 +634,7 @@ type
     property ClosureScope: IJSScope read GetClosureScope write SetClosureScope;
     property CallHandler: TJSCallHandler read GetCallHandler write SetCallHandler;
     property IsConstructor: Boolean read GetIsConstructor write SetIsConstructor;
+    property ReceivesRawThis: Boolean read GetReceivesRawThis write SetReceivesRawThis;
     property IsArrow: Boolean read GetIsArrow write SetIsArrow;
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
     property SourceText: string read GetSourceText write SetSourceText;
@@ -2433,6 +2440,16 @@ end;
 procedure TJSFunctionImpl.SetIsConstructor(const Value: Boolean);
 begin
   FIsConstructor := Value;
+end;
+
+function TJSFunctionImpl.GetReceivesRawThis: Boolean;
+begin
+  Result := FReceivesRawThis;
+end;
+
+procedure TJSFunctionImpl.SetReceivesRawThis(const Value: Boolean);
+begin
+  FReceivesRawThis := Value;
 end;
 
 function TJSFunctionImpl.GetIsArrow: Boolean;
