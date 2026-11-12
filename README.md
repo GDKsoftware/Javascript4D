@@ -16,6 +16,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. Reactions run as microtasks: `Execute` runs every pending job when the script ends (also when it throws), so callbacks have run before it returns. `Engine.RunPendingJobs` runs jobs that are still waiting. The step budget covers the jobs, so a promise loop that never ends raises `EJSStepBudgetExceeded`. Unhandled rejections are ignored
 - **Generators**: `function*` declarations and expressions, generator methods in object literals and classes, `yield` and `yield*` (which forwards `next`, `throw` and `return` and closes the inner iterator), `next`, `return` and `throw` with `try`/`finally` semantics, `GeneratorFunction`, and generators as iterables in `for-of`, spread and destructuring. A suspended generator keeps no thread: its body is left at the `yield` and entered again at the same place when the generator is resumed. Async generators are not supported yet
 - **Async functions**: `async function` declarations and expressions, async arrow functions and async methods in object literals and classes, and `await` on promises, thenables and plain values. An async function runs on the generator machinery: it is suspended at an `await` without a thread and resumed from the promise job queue, so `Execute` returns after the pending jobs have run. A rejected promise is thrown at the `await`, and an uncaught error rejects the promise that the call returned. Async iteration (`for await`, async generators) is not supported yet
+- **`__proto__`**: the `__proto__` accessor on `Object.prototype` and `__proto__: value` in object literals (Annex B)
 - **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
 - **Proxy and Reflect**: all proxy traps with their invariants, and every `Reflect` function
 - **ArrayBuffer, DataView and typed arrays**: `ArrayBuffer`, `DataView` with endianness, and all typed array constructors with the `%TypedArray%` methods, `from` and `of`; the host can detach buffers
@@ -79,6 +80,17 @@ end;
 ```
 
 Anything still referenced from a global variable, including closures, survives collection. Only script functions and scopes that the host retains directly (raw values held outside the engine) should not be relied upon across a collection; keep persistent state in globals.
+
+## Promises and the Job Queue
+
+Promise reactions and the continuations of async functions are jobs in a queue that belongs to the engine. `Execute` runs the queue empty when the script ends, also when the script throws, so `then` callbacks and the code after an `await` have run when `Execute` returns:
+
+```delphi
+Engine.Execute('Promise.resolve(1).then(function (v) { result = v + 1; });');
+// result is already 2 here
+```
+
+Jobs that are still waiting after that, because host code queued them outside a script, run with `Engine.RunPendingJobs`; with an empty queue it does nothing. Jobs count against the step budget like ordinary script code, so `StepBudget` stops a promise loop that never ends with `EJSStepBudgetExceeded`. A promise that is never settled leaves its callbacks unrun; freeing the engine releases them. Unhandled rejections are ignored.
 
 ## Stopping a Running Script
 
@@ -284,39 +296,42 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as BigInt and Temporal, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2752 | 2748 | 99.9% |
+| built-ins/Array | 2753 | 2751 | 99.9% |
 | built-ins/AggregateError | 23 | 23 | 100.0% |
 | built-ins/ArrayBuffer | 80 | 80 | 100.0% |
 | built-ins/DataView | 376 | 374 | 99.5% |
-| built-ins/Date | 599 | 598 | 99.8% |
-| built-ins/Function | 446 | 442 | 99.1% |
-| built-ins/JSON | 135 | 130 | 96.3% |
+| built-ins/Date | 599 | 599 | 100.0% |
+| built-ins/Function | 459 | 458 | 99.8% |
+| built-ins/GeneratorFunction | 21 | 21 | 100.0% |
+| built-ins/GeneratorPrototype | 61 | 61 | 100.0% |
+| built-ins/JSON | 135 | 135 | 100.0% |
 | built-ins/Map | 154 | 154 | 100.0% |
 | built-ins/Math | 312 | 312 | 100.0% |
-| built-ins/Number | 304 | 301 | 99.0% |
-| built-ins/Object | 3313 | 3297 | 99.5% |
-| built-ins/Proxy | 272 | 272 | 100.0% |
+| built-ins/Number | 334 | 331 | 99.1% |
+| built-ins/Object | 3319 | 3310 | 99.7% |
+| built-ins/Proxy | 273 | 273 | 100.0% |
+
 | built-ins/Promise | 642 | 638 | 99.4% |
 | built-ins/Reflect | 153 | 153 | 100.0% |
 | built-ins/RegExp | 804 | 780 | 97.0% |
 | built-ins/Set | 194 | 194 | 100.0% |
 | built-ins/String | 1167 | 1156 | 99.1% |
-| built-ins/Symbol | 75 | 74 | 98.7% |
+| built-ins/Symbol | 75 | 75 | 100.0% |
 | built-ins/TypedArray | 703 | 703 | 100.0% |
-| built-ins/TypedArrayConstructors | 364 | 362 | 99.5% |
+| built-ins/TypedArrayConstructors | 365 | 364 | 99.7% |
 | built-ins/WeakMap | 92 | 92 | 100.0% |
 | built-ins/WeakSet | 77 | 77 | 100.0% |
-| language/expressions | 4301 | 4276 | 99.4% |
-| language/statements | 3283 | 3262 | 99.4% |
-| **Total** | 23059 | 22922 | 99.4% |
+| language/expressions | 5864 | 5856 | 99.9% |
+| language/statements | 4527 | 4524 | 99.9% |
+| **Total** | 26258 | 26178 | 99.7% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 
-Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
+Tests that need features JS4D does not implement are skipped: BigInt, Temporal, async iteration (`for await`, async generators), class fields, private members and static blocks, modules and dynamic import, tail calls, and the ES2018 and later library and syntax features. Tests with the `async` flag run: the runner drains the job queue and waits for the `$DONE` callback. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
 
 Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
 
