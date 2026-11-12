@@ -22,7 +22,6 @@ explicit-resource-management
 export-defer
 export-star-as-namespace-from-module
 for-in-order
-generators
 hashbang
 import-attributes
 import-bytes

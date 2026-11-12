@@ -141,6 +141,20 @@ type
     [TestCase('Promise rejected with a closure over itself', 'var p = Promise.reject(function () { return p; }); p.catch(function (f) { return f; });', '#')]
     [TestCase('Promise reaction creating promises', 'var f = function () { return Promise.resolve(f); }; Promise.resolve().then(f).then(f);', '#')]
     [TestCase('Promise try', 'Promise.try(function () { return Promise; }); Promise.try(function () { throw 1; }).catch(function () {});', '#')]
+    [TestCase('Suspended generator', 'function* g() { var a = {}; yield a; yield a; } var it = g(); it.next();', '#')]
+    [TestCase('Generator that is its own value', 'var it; function* g() { yield { it: it }; } it = g(); it.next();', '#')]
+    [TestCase('Generator handed to its own body', 'function* g() { var self = yield; yield function () { return self; }; } var it = g(); it.next(); it.next(it);', '#')]
+    [TestCase('Generator suspended in loops, try and switch', 'function* g() { for (let i = 0; i < 3; i++) { try { switch (i) { case 0: yield () => i; } } finally { } } } var it = g(); it.next();', '#')]
+    [TestCase('Generator suspended in for of and for in', 'function* g() { for (const x of [() => g]) { yield x; } for (let k in { a: 1 }) { yield () => k; } } var it = g(); it.next(); it.next(); it.next();', '#')]
+    [TestCase('Delegating generators', 'function* a() { yield function () { return a; }; } function* b() { yield* a(); } var it = b(); it.next();', '#')]
+    [TestCase('Generator suspended inside an expression', 'var o = {}; function* g() { return [o, yield o, function () { return o; }, { k: yield }]; } o.it = g(); o.it.next(); o.it.next(o);', '#')]
+    [TestCase('Generator suspended in a finally block', 'function* g() { try { yield 1; } finally { yield function () { return g; }; } } var it = g(); it.next(); it.return(5);', '#')]
+    [TestCase('Generator methods', 'class C { *m() { yield this; } static *s() { yield C; } } var c = new C(); c.it = c.m(); c.it.next(); C.it = C.s(); C.it.next(); var o = { *m() { yield o; } }; o.it = o.m(); o.it.next();', '#')]
+    [TestCase('GeneratorFunction constructor', 'var GF = Object.getPrototypeOf(function* () { }).constructor; var g = new GF("a", "yield a; yield () => a;"); var it = g(1); it.next(); it.next();', '#')]
+    [TestCase('Many suspended generators', 'function* g(i) { var v = { i: i }; yield v; yield v; } var all = []; for (var i = 0; i < 500; i++) { var it = g(i); it.next(); all.push(it); }', '#')]
+    [TestCase('Generator with a pending completion in a finally block', 'var log = []; function* g() { try { try { throw { f: function () { return g; } }; } finally { yield 1; } } catch (e) { log.push(e); } } var it = g(); it.next(); var it2 = g(); it2.next();', '#')]
+    [TestCase('Generator iterated by a loop of another generator', 'function* inner() { yield () => inner; yield 2; } function* outer() { for (var x of inner()) { yield x; } } var it = outer(); it.next();', '#')]
+    [TestCase('Generator iterated by spread and destructuring', 'function* g() { yield function () { return g; }; yield 2; yield 3; } var a = [...g()]; var [b, ...c] = g(); var [d] = g();', '#')]
     [TestCase('AggregateError', 'var e = new AggregateError([1, {}], "m"); AggregateError([1]); e.errors;', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
@@ -181,6 +195,8 @@ type
     [TestCase('Error thrown by a class constructor', 'class A { constructor() { this.f = () => A; throw new Error("x"); } } new A();', '#')]
     [TestCase('Error thrown by the parent constructor', 'class A { constructor() { throw new Error("x"); } } class B extends A { constructor() { var f = () => super(); f(); } } new B();', '#')]
     [TestCase('Promise jobs pending after a script error', 'Promise.resolve().then(function () { return Promise; }); new Promise(function (res) { res(1); }).then(function () {}); throw new Error("x");', '#')]
+    [TestCase('Generator that throws', 'function* g() { yield 1; throw new Error("x"); } var it = g(); it.next(); it.next();', '#')]
+    [TestCase('Generator suspended when the script fails', 'function* g() { try { yield { f: function () { return g; } }; } finally { yield 2; } } var it = g(); it.next(); it.return(1); throw new Error("x");', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

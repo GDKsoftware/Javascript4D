@@ -97,6 +97,7 @@
         <DCCReference Include="..\..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.AST.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.YieldAnalysis.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.ParserScope.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Builtins.pas"/>
@@ -156,6 +157,8 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.PromiseOperations.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PromiseCombinators.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PromiseBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorObjects.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ReflectBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Conversions.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CaseMapping.pas"/>

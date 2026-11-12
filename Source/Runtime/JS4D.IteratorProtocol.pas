@@ -20,6 +20,8 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
+    // Hands the iterator and the values that the record keeps to the garbage collector.
+    procedure EnumerateReferences(const Visit: TProc<IInterface>);
   end;
 
   TJSIteratorRecord = class(TInterfacedObject, IJSIteratorRecord)
@@ -52,6 +54,7 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
+    procedure EnumerateReferences(const Visit: TProc<IInterface>);
   end;
 
   TJSIteratorResults = class
@@ -125,6 +128,17 @@ begin
   Result := FPendingValue;
   FPendingValue := TJSValue.CreateUndefined;
   FHasPendingValue := False;
+end;
+
+procedure TJSIteratorRecord.EnumerateReferences(const Visit: TProc<IInterface>);
+begin
+  Visit(FIterator);
+
+  if FNextMethod.IsObject then
+    Visit(FNextMethod.ToObject);
+
+  if FPendingValue.IsObject then
+    Visit(FPendingValue.ToObject);
 end;
 
 function TJSIteratorRecord.FindReturnMethod: IJSFunction;

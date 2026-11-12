@@ -32,6 +32,7 @@ uses
   JS4D.BinaryData,
   JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
+  JS4D.GeneratorObjects,
   JS4D.Operators;
 
 type
@@ -100,6 +101,23 @@ type
     constructor Create(const Value: TJSValue);
 
     property Value: TJSValue read FValue;
+  end;
+
+  // Raised at a yield to leave the nodes of a generator body. The generator keeps where it was, and the
+  // interpreter enters the same nodes again when the generator is resumed.
+  TJSYieldSignal = class(EJSControlFlowSignal)
+  private
+    FNode: TJSASTNode;
+    FValue: TJSValue;
+    FIsResult: Boolean;
+
+  public
+    constructor Create(const Node: TJSASTNode; const Value: TJSValue; const IsResult: Boolean);
+
+    property Node: TJSASTNode read FNode;
+    // The value to yield, or the result object that a yield* passes on as it is when IsResult is set.
+    property Value: TJSValue read FValue;
+    property IsResult: Boolean read FIsResult;
   end;
 
   TJSThrowSignal = class(Exception)
@@ -207,6 +225,37 @@ type
     procedure CloseAfterThrow;
   end;
 
+  // Where one statement of a generator body stands while the generator is suspended: its phase, the
+  // position in its statements, the scope it made current and what its loop or try statement keeps. A yield*
+  // keeps the iterator it delegates to in the same way. The fields mean what the statement that owns the
+  // frame needs them to mean.
+  TJSStatementFrame = class(TJSGeneratorFrame)
+  private
+    class procedure VisitValue(const Value: TJSValue; const Visit: TProc<IInterface>); static;
+
+  public
+    Phase: Integer;
+    Index: Integer;
+    Inner: Integer;
+    Extra: Integer;
+    Scope: IJSScope;
+    OuterScope: IJSScope;
+    Labels: TArray<string>;
+    Subject: TJSValue;
+    Current: TJSValue;
+    Thrown: TJSValue;
+    Keys: TArray<string>;
+    Source: TJSIterationSource;
+    Pending: Exception;
+    Iterator: IJSObject;
+    NextMethod: TJSValue;
+    Received: TJSResumption;
+
+    destructor Destroy; override;
+
+    procedure EnumerateReferences(const Visit: TProc<IInterface>); override;
+  end;
+
   TJSInterpreter = class(TJSCallHandler)
   private
     FGlobalScope: IJSScope;
@@ -262,6 +311,11 @@ type
     FParameterInitScope: IJSScope;
     FLoopLabels: TArray<string>;
     FContext: TJSCallContext;
+    FGenerator: TJSGeneratorObject;
+    FBypassNode: TJSASTNode;
+    FGenerators: TJSGeneratorRegistry;
+    FGeneratorFunctionPrototype: IJSObject;
+    FGeneratorPrototype: IJSObject;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
     procedure PushScope;
@@ -387,6 +441,10 @@ type
     procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+    procedure GCMarkGenerator(const Generator: TJSGeneratorObject; const Live: TDictionary<Pointer, Byte>;
+                              const Work: TList<IInterface>);
+    procedure GCMarkGeneratorReferences(const Generator: IJSGenerator; const Live: TDictionary<Pointer, Byte>;
+                                        const Work: TList<IInterface>);
     procedure GCMarkBinding(const Binding: IJSThisBinding; const Live: TDictionary<Pointer, Byte>;
                             const Work: TList<IInterface>);
     procedure GCMarkFrame(const Frame: IJSFrame; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
@@ -394,6 +452,65 @@ type
     function CreateErrorValue(const Error: Exception): TJSValue;
 
     function Visit(const Node: TJSASTNode): TJSValue;
+
+    procedure AttachGeneratorPrototype(const Func: IJSFunction);
+    function GeneratorPrototypeFor(const Func: IJSFunction): IJSObject;
+    function CreateGeneratorObject(const Func: IJSFunction): TJSValue;
+    function CreateIterationResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
+    function ResumeCompletedGenerator(const Mode: TJSResumeMode; const Value: TJSValue): TJSValue;
+    function RunGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                          const Value: TJSValue): TJSValue;
+    procedure EnterGeneratorContext(const Generator: TJSGeneratorObject);
+    procedure DepositResumption(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                                const Value: TJSValue);
+    function VisitRemembered(const Node: TJSASTNode): TJSValue;
+    function ConsumeResumption(const Entry: TJSResumption): TJSValue;
+    function VisitYield(const Node: TJSYieldExpression): TJSValue;
+    function VisitYieldDelegate(const Node: TJSYieldExpression): TJSValue;
+    function DelegateStep(const Node: TJSYieldExpression; const Frame: TJSStatementFrame): TJSValue;
+    procedure OpenDelegate(const Iterable: TJSValue; const Frame: TJSStatementFrame);
+    function FindDelegateMethod(const Frame: TJSStatementFrame; const Name: string): IJSFunction;
+    function DelegateOutcome(const Frame: TJSStatementFrame): IJSObject;
+    function CallDelegateNext(const Frame: TJSStatementFrame): TJSValue;
+    function CallDelegateThrow(const Frame: TJSStatementFrame): TJSValue;
+    function CallDelegateReturn(const Frame: TJSStatementFrame): TJSValue;
+    procedure CloseDelegate(const Frame: TJSStatementFrame);
+    function FrameFor(const Node: TJSASTNode): TJSStatementFrame;
+    procedure RunRemembering(const Action: TProc);
+    function EvaluateRemembering(const Node: TJSExpression): TJSValue;
+    function GenExec(const Node: TJSStatement): TJSValue;
+    function GenStatement(const Node: TJSStatement): TJSValue;
+    function GenReturn(const Node: TJSReturnStatement): TJSValue;
+    function GenThrow(const Node: TJSThrowStatement): TJSValue;
+    function GenBlock(const Node: TJSBlockStatement): TJSValue;
+    function GenDeclaration(const Node: TJSVariableDeclaration): TJSValue;
+    procedure InitializeDeclarator(const Node: TJSVariableDeclaration; const Declarator: TJSVariableDeclarator);
+    function GenIf(const Node: TJSIfStatement): TJSValue;
+    function GenWhile(const Node: TJSWhileStatement): TJSValue;
+    function GenDoWhile(const Node: TJSDoWhileStatement): TJSValue;
+    function GenFor(const Node: TJSForStatement): TJSValue;
+    procedure RunForHead(const Node: TJSForStatement; const Frame: TJSStatementFrame; const IsLexical: Boolean);
+    function RunForBody(const Node: TJSForStatement; const Frame: TJSStatementFrame;
+                        const IsLexical: Boolean): TJSValue;
+    function EvaluateLoopSubject(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
+    procedure BindLoopVariable(const Node: TJSForInStatement; const Frame: TJSStatementFrame);
+    function RunLoopIteration(const Node: TJSForInStatement; const Frame: TJSStatementFrame;
+                              out KeepLooping: Boolean): TJSValue;
+    function GenForIn(const Node: TJSForInStatement): TJSValue;
+    function RunForInIterations(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
+    function GenForOf(const Node: TJSForOfStatement): TJSValue;
+    function RunForOfIterations(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
+    function GenSwitch(const Node: TJSSwitchStatement): TJSValue;
+    procedure SelectSwitchCase(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame);
+    function RunSwitchCases(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame): TJSValue;
+    function GenLabeled(const Node: TJSLabeledStatement): TJSValue;
+    function GenWith(const Node: TJSWithStatement): TJSValue;
+    function GenTry(const Node: TJSTryStatement): TJSValue;
+    function RunTryBlock(const Node: TJSTryStatement; const Frame: TJSStatementFrame): TJSValue;
+    function ThrownValueOf(const Error: Exception): TJSValue;
+    procedure RunCatchClause(const Node: TJSTryStatement; const Frame: TJSStatementFrame);
+    procedure BindCatchParameter(const Handler: TJSCatchClause; const Frame: TJSStatementFrame);
+    procedure RunFinalizerBlock(const Node: TJSTryStatement; const Frame: TJSStatementFrame);
 
     function VisitProgram(const Node: TJSProgram): TJSValue;
     procedure InstantiateTopLevel(const Statements: TObjectList<TJSStatement>; const ScopeInfo: TJSScopeInfo);
@@ -408,6 +525,7 @@ type
     procedure EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
     function VisitScopedBlock(const Node: TJSBlockStatement): TJSValue;
     function CreateFunctionObject(const Node: TJSFunctionDeclaration): IJSFunction;
+    procedure ConvertToGeneratorFunction(const Func: IJSFunction);
     function VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
     function IsLexicalDeclaration(const Node: TJSASTNode): Boolean;
     function VisitLexicalForStatement(const Node: TJSForStatement; const OwnLabels: TArray<string>): TJSValue;
@@ -574,6 +692,9 @@ type
     function OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
                                  const Line: Integer = 0; const Column: Integer = 0): Boolean;
     procedure RegisterNativeFunction(const Name: string; const Func: TNativeFunction);
+    // Runs the body of a generator until it yields, returns or throws, and returns the result object of next.
+    function ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                             const Value: TJSValue): TJSValue;
     procedure RegisterEval(const ProgramParser: TJSProgramParser);
     function CreateFunctionFromSource(const Source: string): TJSValue;
     function ThrowTypeErrorFunction: IJSFunction;
@@ -595,6 +716,8 @@ type
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
+    property GeneratorFunctionPrototype: IJSObject read FGeneratorFunctionPrototype write FGeneratorFunctionPrototype;
+    property GeneratorPrototype: IJSObject read FGeneratorPrototype write FGeneratorPrototype;
     property GCRootProvider: TJSGCRootProvider read FGCRootProvider write FGCRootProvider;
     property JobRunner: TProc read FJobRunner write FJobRunner;
     property JobDiscarder: TProc read FJobDiscarder write FJobDiscarder;
@@ -666,6 +789,20 @@ const
   METHOD_APPLY = 'apply';
   METHOD_BIND = 'bind';
   ARGUMENT_LIST_NOT_OBJECT = 'Function.prototype.apply requires an array-like object as argument list';
+
+  GENERATOR_RUNNING = 'Generator is already running';
+  UNSUPPORTED_RESUME_MODE = 'Unsupported resume mode: %d';
+  DELEGATE_NOT_ITERABLE = 'The operand of yield* is not iterable';
+  DELEGATE_METHOD_NOT_CALLABLE = 'The iterator''s %s method is not a function';
+  DELEGATE_NEXT_NOT_CALLABLE = 'The iterator''s next method is not a function';
+  DELEGATE_RESULT_NOT_AN_OBJECT = 'The result of an iterator method is not an object';
+  DELEGATE_WITHOUT_THROW = 'The iterator does not provide a throw method';
+  DELEGATE_THROW_PROPERTY = 'throw';
+  DELEGATE_RETURN_PROPERTY = 'return';
+  DONE_PROPERTY = 'done';
+  VALUE_PROPERTY = 'value';
+  WITH_IN_STRICT_MODE = 'with statement is not allowed in strict mode';
+  NO_CASE = -1;
 
   CONSTRUCTOR_ERROR = 'Error';
   CONSTRUCTOR_TYPE_ERROR = 'TypeError';
@@ -1106,6 +1243,7 @@ begin
   inherited Create;
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
+  FGenerators := TJSGeneratorRegistry.Create;
   FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
   FBoundFunctions := TDictionary<Pointer, TJSBoundFunction>.Create;
   FCurrentProgram := nil;
@@ -1128,6 +1266,9 @@ end;
 
 destructor TJSInterpreter.Destroy;
 begin
+  FGenerator := nil;
+  FGenerators.ReleaseAll;
+
   if Assigned(FThrowTypeError) then
     FThrowTypeError.Prototype := nil;
 
@@ -1147,8 +1288,11 @@ begin
     Scope.Clear;
   end;
   FScopeRegistry.Free;
+  FGenerators.Free;
   FFunctionPrograms.Free;
   FBoundFunctions.Free;
+  FGeneratorFunctionPrototype := nil;
+  FGeneratorPrototype := nil;
   FEvalVariableScope := nil;
   FEvalFunction := nil;
   FThrowTypeError := nil;
@@ -1842,6 +1986,14 @@ begin
     Exit;
   end;
 
+  if Node.IsRemembered then
+  begin
+    if Node = FBypassNode then
+      FBypassNode := nil
+    else
+      Exit(VisitRemembered(Node));
+  end;
+
   case Node.NodeType of
     TJSASTNodeType.Program_:
       Result := VisitProgram(TJSProgram(Node));
@@ -1925,6 +2077,8 @@ begin
       Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
     TJSASTNodeType.TemplateObject:
       Result := VisitTemplateObject(TJSTemplateObject(Node));
+    TJSASTNodeType.YieldExpression:
+      Result := VisitYield(TJSYieldExpression(Node));
     else
       Result := TJSValue.CreateUndefined;
   end;
@@ -2452,7 +2606,16 @@ begin
 
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
-  AttachPrototype(Func);
+
+  if Node.IsGenerator then
+  begin
+    ConvertToGeneratorFunction(Func);
+    AttachGeneratorPrototype(Func);
+  end
+  else
+  begin
+    AttachPrototype(Func);
+  end;
 
   Result := Func;
 end;
@@ -3185,6 +3348,1394 @@ begin
     Visit(Node.Finalizer);
 end;
 
+{ TJSYieldSignal }
+
+constructor TJSYieldSignal.Create(const Node: TJSASTNode; const Value: TJSValue; const IsResult: Boolean);
+begin
+  inherited Create('');
+  FNode := Node;
+  FValue := Value;
+  FIsResult := IsResult;
+end;
+
+{ TJSStatementFrame }
+
+destructor TJSStatementFrame.Destroy;
+begin
+  Pending.Free;
+  inherited;
+end;
+
+procedure TJSStatementFrame.EnumerateReferences(const Visit: TProc<IInterface>);
+begin
+  Visit(Scope);
+  Visit(OuterScope);
+  Visit(Iterator);
+  VisitValue(Subject, Visit);
+  VisitValue(Current, Visit);
+  VisitValue(Thrown, Visit);
+  VisitValue(NextMethod, Visit);
+  VisitValue(Received.Value, Visit);
+
+  Visit(Source.Elements);
+  Visit(Source.ArrayLike);
+
+  if Assigned(Source.Protocol) then
+    Source.Protocol.EnumerateReferences(Visit);
+
+  for var Item in Source.Items do
+  begin
+    VisitValue(Item, Visit);
+  end;
+
+  if Pending is TJSThrowSignal then
+    VisitValue(TJSThrowSignal(Pending).Value, Visit)
+  else if Pending is TJSReturnSignal then
+    VisitValue(TJSReturnSignal(Pending).Value, Visit);
+end;
+
+class procedure TJSStatementFrame.VisitValue(const Value: TJSValue; const Visit: TProc<IInterface>);
+begin
+  if Value.IsObject then
+    Visit(Value.ToObject);
+end;
+
+{ Generators }
+
+procedure TJSInterpreter.AttachGeneratorPrototype(const Func: IJSFunction);
+begin
+  const PrototypeObj: IJSObject = TJSObject.Create;
+  PrototypeObj.Prototype := FGeneratorPrototype;
+
+  var PrototypeDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(PrototypeObj));
+  PrototypeDescriptor.Enumerable := False;
+  PrototypeDescriptor.Configurable := False;
+  Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
+end;
+
+function TJSInterpreter.GeneratorPrototypeFor(const Func: IJSFunction): IJSObject;
+begin
+  const PrototypeValue = Func.GetProperty(PROTOTYPE_PROPERTY);
+  if PrototypeValue.IsObject then
+    Exit(PrototypeValue.ToObject);
+
+  Result := FGeneratorPrototype;
+end;
+
+function TJSInterpreter.CreateGeneratorObject(const Func: IJSFunction): TJSValue;
+begin
+  const Generator = TJSGeneratorObject.Create(FGenerators);
+  const Held: IJSObject = Generator;
+
+  Generator.Prototype := GeneratorPrototypeFor(Func);
+  Generator.Func := Func;
+  Generator.Scope := FCurrentScope;
+  Generator.VarScope := FVarScope;
+  Generator.ThisObject := FThisValue;
+  Generator.IsStrict := FStrictMode;
+  Generator.Callee := ActiveCallee;
+  Generator.NewTarget := ActiveNewTarget;
+  Generator.Binding := ActiveBinding;
+
+  Result := TJSValue.CreateObject(Held);
+end;
+
+function TJSInterpreter.CreateIterationResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
+begin
+  Result := TJSIteratorResults.CreateResult(FObjectPrototype, Value, IsDone);
+end;
+
+function TJSInterpreter.ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                                        const Value: TJSValue): TJSValue;
+begin
+  case Generator.State of
+    TJSGeneratorState.Executing:
+      raise TJSErrorFactory.TypeError(GENERATOR_RUNNING);
+    TJSGeneratorState.Completed:
+      Exit(ResumeCompletedGenerator(Mode, Value));
+    TJSGeneratorState.SuspendedStart:
+      begin
+        const EndsBeforeStarting = (Mode <> TJSResumeMode.Next);
+        if EndsBeforeStarting then
+        begin
+          Generator.Finish;
+          Exit(ResumeCompletedGenerator(Mode, Value));
+        end;
+      end;
+  end;
+
+  Result := RunGenerator(Generator, Mode, Value);
+end;
+
+function TJSInterpreter.ResumeCompletedGenerator(const Mode: TJSResumeMode; const Value: TJSValue): TJSValue;
+begin
+  case Mode of
+    TJSResumeMode.Next:
+      Result := CreateIterationResult(TJSValue.CreateUndefined, True);
+    TJSResumeMode.Return:
+      Result := CreateIterationResult(Value, True);
+    TJSResumeMode.Throw:
+      raise TJSThrowSignal.Create(Value);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_RESUME_MODE, [Ord(Mode)]);
+  end;
+end;
+
+function TJSInterpreter.RunGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                                     const Value: TJSValue): TJSValue;
+begin
+  EnterCallDepth;
+
+  const OldThis = FThisValue;
+  const OldThisPrimitive = FThisPrimitive;
+  const OldStrictMode = FStrictMode;
+  const OldScope = FCurrentScope;
+  const OldVarScope = FVarScope;
+  const OldContext = FContext;
+  const OldGenerator = FGenerator;
+  const IsResuming = (Generator.State = TJSGeneratorState.SuspendedYield);
+
+  FThisValue := Generator.ThisObject;
+  FStrictMode := Generator.IsStrict;
+  FThisPrimitive := StrictPrimitiveThis(FThisValue, FStrictMode);
+  FCurrentScope := Generator.Scope;
+  FVarScope := Generator.VarScope;
+  EnterGeneratorContext(Generator);
+  FGenerator := Generator;
+  Generator.State := TJSGeneratorState.Executing;
+  Inc(FCallDepth);
+  try
+    try
+      if IsResuming then
+        DepositResumption(Generator, Mode, Value);
+
+      GenExec(TJSBlockStatement(Generator.Func.BodyNode));
+
+      Generator.Finish;
+      Result := CreateIterationResult(TJSValue.CreateUndefined, True);
+    except
+      on Signal: TJSYieldSignal do
+      begin
+        Generator.State := TJSGeneratorState.SuspendedYield;
+        Generator.SuspendedAt := Signal.Node;
+
+        if Signal.IsResult then
+          Result := Signal.Value
+        else
+          Result := CreateIterationResult(Signal.Value, False);
+      end;
+      on Signal: TJSReturnSignal do
+      begin
+        Generator.Finish;
+        Result := CreateIterationResult(Signal.Value, True);
+      end;
+      on Exception do
+      begin
+        Generator.Finish;
+        raise;
+      end;
+    end;
+  finally
+    Dec(FCallDepth);
+    FGenerator := OldGenerator;
+    FCurrentScope := OldScope;
+    FVarScope := OldVarScope;
+    FThisValue := OldThis;
+    FThisPrimitive := OldThisPrimitive;
+    FStrictMode := OldStrictMode;
+    FContext := OldContext;
+  end;
+end;
+
+procedure TJSInterpreter.EnterGeneratorContext(const Generator: TJSGeneratorObject);
+begin
+  const HasContext = Assigned(Generator.Callee) or Assigned(Generator.NewTarget) or Assigned(Generator.Binding);
+  if not HasContext then
+  begin
+    FContext := Default(TJSCallContext);
+    Exit;
+  end;
+
+  FContext.Callee := Pointer(Generator.Callee);
+  FContext.NewTarget := Pointer(Generator.NewTarget);
+  FContext.Binding := Pointer(Generator.Binding);
+end;
+
+procedure TJSInterpreter.DepositResumption(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                                           const Value: TJSValue);
+begin
+  var Resumption: TJSResumption;
+  Resumption.Mode := Mode;
+  Resumption.Value := Value;
+
+  const Node = Generator.SuspendedAt;
+  const IsDelegate = (Node is TJSYieldExpression) and TJSYieldExpression(Node).IsDelegate;
+  if not IsDelegate then
+  begin
+    Generator.Remember(Node, Resumption);
+    Exit;
+  end;
+
+  var Frame: TJSGeneratorFrame;
+  if Generator.FindFrame(Node, Frame) then
+    TJSStatementFrame(Frame).Received := Resumption;
+end;
+
+function TJSInterpreter.VisitRemembered(const Node: TJSASTNode): TJSValue;
+begin
+  var Entry: TJSResumption;
+  if FGenerator.Recall(Node, Entry) then
+    Exit(ConsumeResumption(Entry));
+
+  FBypassNode := Node;
+  Result := Visit(Node);
+
+  Entry.Mode := TJSResumeMode.Next;
+  Entry.Value := Result;
+  FGenerator.Remember(Node, Entry);
+end;
+
+function TJSInterpreter.ConsumeResumption(const Entry: TJSResumption): TJSValue;
+begin
+  case Entry.Mode of
+    TJSResumeMode.Next:
+      Result := Entry.Value;
+    TJSResumeMode.Throw:
+      raise TJSThrowSignal.Create(Entry.Value);
+    TJSResumeMode.Return:
+      raise TJSReturnSignal.Create(Entry.Value);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_RESUME_MODE, [Ord(Entry.Mode)]);
+  end;
+end;
+
+function TJSInterpreter.VisitYield(const Node: TJSYieldExpression): TJSValue;
+begin
+  if Node.IsDelegate then
+    Exit(VisitYieldDelegate(Node));
+
+  var Operand := TJSValue.CreateUndefined;
+  if Assigned(Node.Argument) then
+    Operand := Visit(Node.Argument);
+
+  raise TJSYieldSignal.Create(Node, Operand, False);
+end;
+
+function TJSInterpreter.VisitYieldDelegate(const Node: TJSYieldExpression): TJSValue;
+begin
+  const Frame = FrameFor(Node);
+
+  var IsSuspended := False;
+  try
+    try
+      Result := DelegateStep(Node, Frame);
+    except
+      on TJSYieldSignal do
+      begin
+        IsSuspended := True;
+        raise;
+      end;
+    end;
+  finally
+    if not IsSuspended then
+      FGenerator.DropFrame(Node);
+  end;
+end;
+
+function TJSInterpreter.DelegateStep(const Node: TJSYieldExpression; const Frame: TJSStatementFrame): TJSValue;
+begin
+  if Frame.Phase = 0 then
+  begin
+    const Iterable = Visit(Node.Argument);
+    OpenDelegate(Iterable, Frame);
+    Frame.Received.Mode := TJSResumeMode.Next;
+    Frame.Received.Value := TJSValue.CreateUndefined;
+    Frame.Phase := 1;
+  end;
+
+  const Outcome = DelegateOutcome(Frame);
+  const IsDone = Outcome.GetProperty(DONE_PROPERTY).ToBoolean;
+  if IsDone then
+  begin
+    Result := Outcome.GetProperty(VALUE_PROPERTY);
+    if Frame.Received.Mode = TJSResumeMode.Return then
+      raise TJSReturnSignal.Create(Result);
+
+    Exit;
+  end;
+
+  raise TJSYieldSignal.Create(Node, TJSValue.CreateObject(Outcome), True);
+end;
+
+procedure TJSInterpreter.OpenDelegate(const Iterable: TJSValue; const Frame: TJSStatementFrame);
+begin
+  var IteratorFunction: IJSFunction;
+  if not FindIteratorMethod(Iterable, IteratorFunction) then
+    raise TJSErrorFactory.TypeError(DELEGATE_NOT_ITERABLE);
+
+  const IteratorValue = CallFunction(IteratorFunction, nil, ThisObjectFor(IteratorFunction, Iterable));
+  if not IteratorValue.IsObject then
+    raise TJSErrorFactory.TypeError(ITERATOR_NOT_AN_OBJECT);
+
+  Frame.Iterator := IteratorValue.ToObject;
+  Frame.NextMethod := Frame.Iterator.GetProperty(ITERATOR_NEXT_PROPERTY);
+end;
+
+function TJSInterpreter.FindDelegateMethod(const Frame: TJSStatementFrame; const Name: string): IJSFunction;
+begin
+  Result := nil;
+
+  const Method = Frame.Iterator.GetProperty(Name);
+  if Method.IsNullOrUndefined then
+    Exit;
+
+  const IsCallable = Method.IsFunction and Supports(Method.ToObject, IJSFunction, Result);
+  if not IsCallable then
+    raise TJSErrorFactory.TypeError(Format(DELEGATE_METHOD_NOT_CALLABLE, [Name]));
+end;
+
+function TJSInterpreter.DelegateOutcome(const Frame: TJSStatementFrame): IJSObject;
+begin
+  var Outcome: TJSValue;
+
+  case Frame.Received.Mode of
+    TJSResumeMode.Next:
+      Outcome := CallDelegateNext(Frame);
+    TJSResumeMode.Throw:
+      Outcome := CallDelegateThrow(Frame);
+    TJSResumeMode.Return:
+      Outcome := CallDelegateReturn(Frame);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_RESUME_MODE, [Ord(Frame.Received.Mode)]);
+  end;
+
+  if not Outcome.IsObject then
+    raise TJSErrorFactory.TypeError(DELEGATE_RESULT_NOT_AN_OBJECT);
+
+  Result := Outcome.ToObject;
+end;
+
+function TJSInterpreter.CallDelegateNext(const Frame: TJSStatementFrame): TJSValue;
+begin
+  var NextFunction: IJSFunction;
+  const IsCallable = Frame.NextMethod.IsFunction and Supports(Frame.NextMethod.ToObject, IJSFunction, NextFunction);
+  if not IsCallable then
+    raise TJSErrorFactory.TypeError(DELEGATE_NEXT_NOT_CALLABLE);
+
+  Result := CallFunction(NextFunction, [Frame.Received.Value], Frame.Iterator);
+end;
+
+function TJSInterpreter.CallDelegateThrow(const Frame: TJSStatementFrame): TJSValue;
+begin
+  const ThrowMethod = FindDelegateMethod(Frame, DELEGATE_THROW_PROPERTY);
+  if Assigned(ThrowMethod) then
+    Exit(CallFunction(ThrowMethod, [Frame.Received.Value], Frame.Iterator));
+
+  CloseDelegate(Frame);
+  raise TJSErrorFactory.TypeError(DELEGATE_WITHOUT_THROW);
+end;
+
+function TJSInterpreter.CallDelegateReturn(const Frame: TJSStatementFrame): TJSValue;
+begin
+  const ReturnMethod = FindDelegateMethod(Frame, DELEGATE_RETURN_PROPERTY);
+  if not Assigned(ReturnMethod) then
+    raise TJSReturnSignal.Create(Frame.Received.Value);
+
+  Result := CallFunction(ReturnMethod, [Frame.Received.Value], Frame.Iterator);
+end;
+
+procedure TJSInterpreter.CloseDelegate(const Frame: TJSStatementFrame);
+begin
+  const ReturnMethod = FindDelegateMethod(Frame, DELEGATE_RETURN_PROPERTY);
+  if not Assigned(ReturnMethod) then
+    Exit;
+
+  const Outcome = CallFunction(ReturnMethod, nil, Frame.Iterator);
+  if not Outcome.IsObject then
+    raise TJSErrorFactory.TypeError(DELEGATE_RESULT_NOT_AN_OBJECT);
+end;
+
+function TJSInterpreter.FrameFor(const Node: TJSASTNode): TJSStatementFrame;
+begin
+  var Existing: TJSGeneratorFrame;
+  if FGenerator.FindFrame(Node, Existing) then
+    Exit(TJSStatementFrame(Existing));
+
+  Result := TJSStatementFrame.Create;
+  FGenerator.AddFrame(Node, Result);
+end;
+
+procedure TJSInterpreter.RunRemembering(const Action: TProc);
+begin
+  var IsSuspended := False;
+  try
+    try
+      Action;
+    except
+      on TJSYieldSignal do
+      begin
+        IsSuspended := True;
+        raise;
+      end;
+    end;
+  finally
+    if not IsSuspended then
+      FGenerator.ForgetMemory;
+  end;
+end;
+
+function TJSInterpreter.EvaluateRemembering(const Node: TJSExpression): TJSValue;
+begin
+  if (Node = nil) or (not Node.ContainsYield) then
+    Exit(Visit(Node));
+
+  var Evaluated := TJSValue.CreateUndefined;
+  RunRemembering(
+    procedure
+    begin
+      Evaluated := Visit(Node);
+    end);
+
+  Result := Evaluated;
+end;
+
+function TJSInterpreter.GenExec(const Node: TJSStatement): TJSValue;
+begin
+  if (Node = nil) or (not Node.ContainsYield) then
+    Exit(ExecuteStatement(Node));
+
+  ConsumeStep;
+
+  var IsSuspended := False;
+  try
+    try
+      Result := GenStatement(Node);
+    except
+      on TJSYieldSignal do
+      begin
+        IsSuspended := True;
+        raise;
+      end;
+    end;
+  finally
+    if not IsSuspended then
+      FGenerator.DropFrame(Node);
+  end;
+end;
+
+function TJSInterpreter.GenStatement(const Node: TJSStatement): TJSValue;
+begin
+  case Node.NodeType of
+    TJSASTNodeType.BlockStatement:
+      Result := GenBlock(TJSBlockStatement(Node));
+    TJSASTNodeType.VariableDeclaration:
+      Result := GenDeclaration(TJSVariableDeclaration(Node));
+    TJSASTNodeType.ExpressionStatement:
+      Result := EvaluateRemembering(TJSExpressionStatement(Node).Expression);
+    TJSASTNodeType.IfStatement:
+      Result := GenIf(TJSIfStatement(Node));
+    TJSASTNodeType.WhileStatement:
+      Result := GenWhile(TJSWhileStatement(Node));
+    TJSASTNodeType.DoWhileStatement:
+      Result := GenDoWhile(TJSDoWhileStatement(Node));
+    TJSASTNodeType.ForStatement:
+      Result := GenFor(TJSForStatement(Node));
+    TJSASTNodeType.ForInStatement:
+      Result := GenForIn(TJSForInStatement(Node));
+    TJSASTNodeType.ForOfStatement:
+      Result := GenForOf(TJSForOfStatement(Node));
+    TJSASTNodeType.ReturnStatement:
+      Result := GenReturn(TJSReturnStatement(Node));
+    TJSASTNodeType.ThrowStatement:
+      Result := GenThrow(TJSThrowStatement(Node));
+    TJSASTNodeType.SwitchStatement:
+      Result := GenSwitch(TJSSwitchStatement(Node));
+    TJSASTNodeType.TryStatement:
+      Result := GenTry(TJSTryStatement(Node));
+    TJSASTNodeType.LabeledStatement:
+      Result := GenLabeled(TJSLabeledStatement(Node));
+    TJSASTNodeType.WithStatement:
+      Result := GenWith(TJSWithStatement(Node));
+  else
+    Result := ExecuteStatement(Node);
+  end;
+end;
+
+function TJSInterpreter.GenReturn(const Node: TJSReturnStatement): TJSValue;
+begin
+  var ReturnValue := TJSValue.CreateUndefined;
+  if Assigned(Node.Argument) then
+    ReturnValue := EvaluateRemembering(Node.Argument);
+
+  raise TJSReturnSignal.Create(ReturnValue);
+end;
+
+function TJSInterpreter.GenThrow(const Node: TJSThrowStatement): TJSValue;
+begin
+  const ThrownValue = EvaluateRemembering(Node.Argument);
+
+  raise TJSThrowSignal.Create(ThrownValue);
+end;
+
+function TJSInterpreter.GenBlock(const Node: TJSBlockStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  const NeedsScope = Assigned(Node.ScopeInfo) and (not Node.IsFunctionBody);
+
+  if Frame.Phase = 0 then
+  begin
+    Frame.Phase := 1;
+    Frame.OuterScope := FCurrentScope;
+
+    if NeedsScope then
+    begin
+      EnterLexicalScope(Node.ScopeInfo);
+      Frame.Scope := FCurrentScope;
+    end;
+  end
+  else if NeedsScope then
+  begin
+    FCurrentScope := Frame.Scope;
+  end;
+
+  try
+    while Frame.Index < Node.Body.Count do
+    begin
+      Result := GenExec(Node.Body[Frame.Index]);
+      Inc(Frame.Index);
+    end;
+  finally
+    if NeedsScope then
+      FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+function TJSInterpreter.GenDeclaration(const Node: TJSVariableDeclaration): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  while Frame.Index < Node.Declarations.Count do
+  begin
+    const Declarator = Node.Declarations[Frame.Index];
+
+    if Declarator.ContainsYield then
+    begin
+      RunRemembering(
+        procedure
+        begin
+          InitializeDeclarator(Node, Declarator);
+        end);
+    end
+    else
+    begin
+      InitializeDeclarator(Node, Declarator);
+    end;
+
+    Inc(Frame.Index);
+  end;
+end;
+
+procedure TJSInterpreter.InitializeDeclarator(const Node: TJSVariableDeclaration;
+                                              const Declarator: TJSVariableDeclarator);
+begin
+  const IsLexical = (Node.Kind <> TJSDeclarationKind.Var_);
+
+  if Assigned(Declarator.Pattern) then
+  begin
+    if (not IsLexical) and (not Assigned(Declarator.Init)) then
+      Exit;
+
+    const BoundValue = Visit(Declarator.Init);
+    if IsLexical then
+      BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Lexical)
+    else
+      BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Variable);
+
+    Exit;
+  end;
+
+  var InitialValue := TJSValue.CreateUndefined;
+  if Assigned(Declarator.Init) then
+    InitialValue := VisitNamed(Declarator.Init, Declarator.Id.Name);
+
+  if IsLexical then
+    FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue)
+  else if Assigned(Declarator.Init) then
+    FCurrentScope.SetVariable(Declarator.Id.Name, InitialValue);
+end;
+
+function TJSInterpreter.GenIf(const Node: TJSIfStatement): TJSValue;
+begin
+  const Frame = FrameFor(Node);
+
+  if Frame.Phase = 0 then
+  begin
+    const TestValue = EvaluateRemembering(Node.Test);
+    if TestValue.ToBoolean then
+      Frame.Phase := 1
+    else
+      Frame.Phase := 2;
+  end;
+
+  if Frame.Phase = 1 then
+    Exit(GenExec(Node.Consequent));
+
+  Result := TJSValue.CreateUndefined;
+  if Assigned(Node.Alternate) then
+    Result := GenExec(Node.Alternate);
+end;
+
+function TJSInterpreter.GenWhile(const Node: TJSWhileStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  if Frame.Phase = 0 then
+  begin
+    Frame.Labels := TakeLoopLabels;
+    Frame.Phase := 1;
+  end;
+
+  while True do
+  begin
+    if Frame.Phase = 1 then
+    begin
+      const TestValue = EvaluateRemembering(Node.Test);
+      if not TestValue.ToBoolean then
+        Break;
+
+      Frame.Phase := 2;
+    end;
+
+    try
+      Result := GenExec(Node.Body);
+    except
+      on Signal: TJSBreakSignal do
+      begin
+        if Signal.IsLabelled then
+          raise;
+
+        Break;
+      end;
+      on Signal: TJSContinueSignal do
+      begin
+        if not Signal.AppliesTo(Frame.Labels) then
+          raise;
+      end;
+    end;
+
+    Frame.Phase := 1;
+  end;
+end;
+
+function TJSInterpreter.GenDoWhile(const Node: TJSDoWhileStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  if Frame.Phase = 0 then
+  begin
+    Frame.Labels := TakeLoopLabels;
+    Frame.Phase := 1;
+  end;
+
+  while True do
+  begin
+    if Frame.Phase = 1 then
+    begin
+      try
+        Result := GenExec(Node.Body);
+      except
+        on Signal: TJSBreakSignal do
+        begin
+          if Signal.IsLabelled then
+            raise;
+
+          Break;
+        end;
+        on Signal: TJSContinueSignal do
+        begin
+          if not Signal.AppliesTo(Frame.Labels) then
+            raise;
+        end;
+      end;
+
+      Frame.Phase := 2;
+    end;
+
+    const TestValue = EvaluateRemembering(Node.Test);
+    if not TestValue.ToBoolean then
+      Break;
+
+    Frame.Phase := 1;
+  end;
+end;
+
+function TJSInterpreter.GenFor(const Node: TJSForStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  const IsLexical = IsLexicalDeclaration(Node.Init);
+
+  if Frame.Phase = 0 then
+  begin
+    Frame.Labels := TakeLoopLabels;
+    Frame.OuterScope := FCurrentScope;
+    Frame.Phase := 1;
+
+    if IsLexical then
+    begin
+      FCurrentScope := TJSScope.Create(Frame.OuterScope);
+      if Node.MayCaptureScope then
+        RegisterScope(FCurrentScope);
+
+      DeclareLexicalNames(TJSVariableDeclaration(Node.Init));
+      Frame.Scope := FCurrentScope;
+    end;
+  end
+  else if IsLexical then
+  begin
+    FCurrentScope := Frame.Scope;
+  end;
+
+  try
+    RunForHead(Node, Frame, IsLexical);
+    Result := RunForBody(Node, Frame, IsLexical);
+  finally
+    if IsLexical then
+      FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+procedure TJSInterpreter.RunForHead(const Node: TJSForStatement; const Frame: TJSStatementFrame;
+                                    const IsLexical: Boolean);
+begin
+  if Frame.Phase <> 1 then
+    Exit;
+
+  if Node.Init is TJSStatement then
+    GenExec(TJSStatement(Node.Init))
+  else if Node.Init is TJSExpression then
+    EvaluateRemembering(TJSExpression(Node.Init));
+
+  if IsLexical and Node.MayCaptureScope then
+  begin
+    CopyIterationScope;
+    Frame.Scope := FCurrentScope;
+  end;
+
+  Frame.Phase := 2;
+end;
+
+function TJSInterpreter.RunForBody(const Node: TJSForStatement; const Frame: TJSStatementFrame;
+                                   const IsLexical: Boolean): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  while True do
+  begin
+    if Frame.Phase = 2 then
+    begin
+      const HasTest = Assigned(Node.Test);
+      if HasTest then
+      begin
+        const TestValue = EvaluateRemembering(Node.Test);
+        if not TestValue.ToBoolean then
+          Break;
+      end;
+
+      Frame.Phase := 3;
+    end;
+
+    if Frame.Phase = 3 then
+    begin
+      try
+        Result := GenExec(Node.Body);
+      except
+        on Signal: TJSBreakSignal do
+        begin
+          if Signal.IsLabelled then
+            raise;
+
+          Break;
+        end;
+        on Signal: TJSContinueSignal do
+        begin
+          if not Signal.AppliesTo(Frame.Labels) then
+            raise;
+        end;
+      end;
+
+      Frame.Phase := 4;
+    end;
+
+    if Frame.Phase = 4 then
+    begin
+      if IsLexical and Node.MayCaptureScope then
+      begin
+        CopyIterationScope;
+        Frame.Scope := FCurrentScope;
+      end;
+
+      Frame.Phase := 5;
+    end;
+
+    if Assigned(Node.Update) then
+      EvaluateRemembering(Node.Update);
+
+    Frame.Phase := 2;
+  end;
+end;
+
+function TJSInterpreter.EvaluateLoopSubject(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  const IsLexical = IsLexicalDeclaration(Node.Left);
+  if not IsLexical then
+    Exit(EvaluateRemembering(TJSExpression(Node.Right)));
+
+  if not Assigned(Frame.Scope) then
+  begin
+    FCurrentScope := TJSScope.Create(Frame.OuterScope);
+    if Node.MayCaptureScope then
+      RegisterScope(FCurrentScope);
+
+    DeclareLexicalNames(TJSVariableDeclaration(Node.Left));
+    Frame.Scope := FCurrentScope;
+  end
+  else
+  begin
+    FCurrentScope := Frame.Scope;
+  end;
+
+  try
+    Result := EvaluateRemembering(TJSExpression(Node.Right));
+  finally
+    FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+procedure TJSInterpreter.BindLoopVariable(const Node: TJSForInStatement; const Frame: TJSStatementFrame);
+begin
+  if Node.Left.ContainsYield then
+  begin
+    RunRemembering(
+      procedure
+      begin
+        AssignLoopVariable(Node, Frame.OuterScope, Frame.Current);
+      end);
+  end
+  else
+  begin
+    AssignLoopVariable(Node, Frame.OuterScope, Frame.Current);
+  end;
+
+  Frame.Scope := FCurrentScope;
+end;
+
+function TJSInterpreter.RunLoopIteration(const Node: TJSForInStatement; const Frame: TJSStatementFrame;
+                                         out KeepLooping: Boolean): TJSValue;
+begin
+  KeepLooping := True;
+  Result := TJSValue.CreateUndefined;
+
+  try
+    Result := GenExec(Node.Body);
+  except
+    on Signal: TJSBreakSignal do
+    begin
+      if Signal.IsLabelled then
+        raise;
+
+      KeepLooping := False;
+    end;
+    on Signal: TJSContinueSignal do
+    begin
+      if not Signal.AppliesTo(Frame.Labels) then
+        raise;
+    end;
+  end;
+end;
+
+function TJSInterpreter.GenForIn(const Node: TJSForInStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  if Frame.Phase = 0 then
+  begin
+    Frame.Labels := TakeLoopLabels;
+    Frame.OuterScope := FCurrentScope;
+    Frame.Phase := 1;
+  end;
+
+  try
+    if Frame.Phase = 1 then
+    begin
+      Frame.Subject := EvaluateLoopSubject(Node, Frame);
+      Frame.Scope := nil;
+      Frame.Phase := 2;
+    end;
+
+    if Frame.Phase = 2 then
+    begin
+      if Frame.Subject.IsNullOrUndefined then
+        Exit;
+
+      const Subject = ToScopeObject(Frame.Subject);
+      Frame.Subject := TJSValue.CreateObject(Subject);
+      Frame.Keys := CollectEnumerableKeys(Subject);
+      Frame.Phase := 3;
+    end;
+
+    Result := RunForInIterations(Node, Frame);
+  finally
+    FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+function TJSInterpreter.RunForInIterations(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Subject = Frame.Subject.ToObject;
+  var Proxy: IJSProxy;
+  const IsProxy = TJSObjectOperations.AsProxy(Subject, Proxy);
+
+  while Frame.Index < Length(Frame.Keys) do
+  begin
+    if Frame.Phase = 3 then
+    begin
+      const PropName = Frame.Keys[Frame.Index];
+      const IsDeleted = (not IsProxy) and (not Subject.HasProperty(PropName));
+      if IsDeleted then
+      begin
+        Inc(Frame.Index);
+        Continue;
+      end;
+
+      FCurrentScope := Frame.OuterScope;
+      Frame.Current := TJSValue.CreateString(PropName);
+      BindLoopVariable(Node, Frame);
+      Frame.Phase := 4;
+    end
+    else
+    begin
+      FCurrentScope := Frame.Scope;
+    end;
+
+    var KeepLooping: Boolean;
+    Result := RunLoopIteration(Node, Frame, KeepLooping);
+    if not KeepLooping then
+      Break;
+
+    Inc(Frame.Index);
+    Frame.Phase := 3;
+  end;
+end;
+
+function TJSInterpreter.GenForOf(const Node: TJSForOfStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  if Frame.Phase = 0 then
+  begin
+    Frame.Labels := TakeLoopLabels;
+    Frame.OuterScope := FCurrentScope;
+    Frame.Phase := 1;
+  end;
+
+  try
+    if Frame.Phase = 1 then
+    begin
+      Frame.Subject := EvaluateLoopSubject(Node, Frame);
+      Frame.Scope := nil;
+      Frame.Phase := 2;
+    end;
+
+    if Frame.Phase = 2 then
+    begin
+      if not TryOpenIterationSource(Frame.Subject, Frame.Source) then
+        raise TJSErrorFactory.TypeError(NOT_ITERABLE_LOOP);
+
+      Frame.Phase := 3;
+    end;
+
+    Result := RunForOfIterations(Node, Frame);
+  finally
+    FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+function TJSInterpreter.RunForOfIterations(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  try
+    while True do
+    begin
+      if Frame.Phase = 3 then
+      begin
+        if not Frame.Source.HasNext then
+          Break;
+
+        FCurrentScope := Frame.OuterScope;
+        Frame.Current := Frame.Source.Next;
+        Frame.Phase := 4;
+      end;
+
+      if Frame.Phase = 4 then
+      begin
+        BindLoopVariable(Node, Frame);
+        Frame.Phase := 5;
+      end
+      else
+      begin
+        FCurrentScope := Frame.Scope;
+      end;
+
+      var KeepLooping: Boolean;
+      Result := RunLoopIteration(Node, Frame, KeepLooping);
+      if not KeepLooping then
+      begin
+        Frame.Source.Close;
+        Break;
+      end;
+
+      Frame.Phase := 3;
+    end;
+  except
+    on TJSYieldSignal do
+      raise;
+    on EJSExecutionInterrupted do
+      raise;
+    on EJSControlFlowSignal do
+    begin
+      Frame.Source.Close;
+      raise;
+    end;
+    on Exception do
+    begin
+      Frame.Source.CloseAfterThrow;
+      raise;
+    end;
+  end;
+end;
+
+function TJSInterpreter.GenSwitch(const Node: TJSSwitchStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  const HasScope = Assigned(Node.ScopeInfo);
+
+  if Frame.Phase = 0 then
+  begin
+    Frame.Subject := EvaluateRemembering(Node.Discriminant);
+    Frame.OuterScope := FCurrentScope;
+    Frame.Extra := NO_CASE;
+    Frame.Phase := 1;
+
+    if HasScope then
+    begin
+      EnterLexicalScope(Node.ScopeInfo);
+      Frame.Scope := FCurrentScope;
+    end;
+  end
+  else if HasScope then
+  begin
+    FCurrentScope := Frame.Scope;
+  end;
+
+  try
+    if Frame.Phase = 1 then
+      SelectSwitchCase(Node, Frame);
+
+    if Frame.Phase = 2 then
+      Result := RunSwitchCases(Node, Frame);
+  finally
+    if HasScope then
+      FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+procedure TJSInterpreter.SelectSwitchCase(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame);
+begin
+  while Frame.Index < Node.Cases.Count do
+  begin
+    const SwitchCase = Node.Cases[Frame.Index];
+
+    if not Assigned(SwitchCase.Test) then
+    begin
+      Frame.Extra := Frame.Index;
+      Inc(Frame.Index);
+      Continue;
+    end;
+
+    const TestValue = EvaluateRemembering(SwitchCase.Test);
+    if StrictEquals(Frame.Subject, TestValue) then
+    begin
+      Frame.Phase := 2;
+      Exit;
+    end;
+
+    Inc(Frame.Index);
+  end;
+
+  const HasDefaultCase = (Frame.Extra <> NO_CASE);
+  if HasDefaultCase then
+  begin
+    Frame.Index := Frame.Extra;
+    Frame.Phase := 2;
+  end
+  else
+  begin
+    Frame.Phase := 3;
+  end;
+end;
+
+function TJSInterpreter.RunSwitchCases(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  try
+    while Frame.Index < Node.Cases.Count do
+    begin
+      const Consequent = Node.Cases[Frame.Index].Consequent;
+
+      while Frame.Inner < Consequent.Count do
+      begin
+        Result := GenExec(Consequent[Frame.Inner]);
+        Inc(Frame.Inner);
+      end;
+
+      Inc(Frame.Index);
+      Frame.Inner := 0;
+    end;
+  except
+    on Signal: TJSBreakSignal do
+    begin
+      if Signal.IsLabelled then
+        raise;
+    end;
+  end;
+end;
+
+function TJSInterpreter.GenLabeled(const Node: TJSLabeledStatement): TJSValue;
+begin
+  const Frame = FrameFor(Node);
+
+  if Frame.Phase = 0 then
+  begin
+    Frame.Phase := 1;
+
+    const BodyIsLoop = (Node.Body.NodeType in [TJSASTNodeType.WhileStatement,
+                                               TJSASTNodeType.DoWhileStatement,
+                                               TJSASTNodeType.ForStatement,
+                                               TJSASTNodeType.ForInStatement,
+                                               TJSASTNodeType.ForOfStatement,
+                                               TJSASTNodeType.LabeledStatement]);
+    if BodyIsLoop then
+      FLoopLabels := FLoopLabels + [Node.LabelName]
+    else
+      FLoopLabels := nil;
+  end;
+
+  Result := TJSValue.CreateUndefined;
+  try
+    try
+      Result := GenExec(Node.Body);
+    except
+      on Signal: TJSBreakSignal do
+      begin
+        const IsAddressedToOtherLabel = (Signal.TargetLabel <> Node.LabelName);
+        if IsAddressedToOtherLabel then
+          raise;
+      end;
+    end;
+  finally
+    FLoopLabels := nil;
+  end;
+end;
+
+function TJSInterpreter.GenWith(const Node: TJSWithStatement): TJSValue;
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.SyntaxError(WITH_IN_STRICT_MODE, Node.Line, Node.Column);
+
+  const Frame = FrameFor(Node);
+
+  if Frame.Phase = 0 then
+  begin
+    const TargetValue = EvaluateRemembering(Node.Target);
+    const ScopeObject = ToScopeObject(TargetValue);
+
+    Frame.OuterScope := FCurrentScope;
+    FCurrentScope := TJSObjectScope.Create(Frame.OuterScope, ScopeObject, @FStrictMode);
+    RegisterScope(FCurrentScope);
+    Frame.Scope := FCurrentScope;
+    Frame.Phase := 1;
+  end
+  else
+  begin
+    FCurrentScope := Frame.Scope;
+  end;
+
+  try
+    Result := GenExec(Node.Body);
+  finally
+    FCurrentScope := Frame.OuterScope;
+  end;
+end;
+
+function TJSInterpreter.GenTry(const Node: TJSTryStatement): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  const Frame = FrameFor(Node);
+  if Frame.Phase = 0 then
+  begin
+    Frame.OuterScope := FCurrentScope;
+    Frame.Phase := 1;
+  end;
+
+  if Frame.Phase = 1 then
+    Result := RunTryBlock(Node, Frame);
+
+  if Frame.Phase = 2 then
+    RunCatchClause(Node, Frame);
+
+  if Frame.Phase = 3 then
+    RunFinalizerBlock(Node, Frame);
+end;
+
+function TJSInterpreter.RunTryBlock(const Node: TJSTryStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  try
+    Result := GenExec(Node.Block);
+    Frame.Phase := 3;
+  except
+    on TJSYieldSignal do
+      raise;
+    on EJSExecutionInterrupted do
+      raise;
+    on Error: Exception do
+    begin
+      FCurrentScope := Frame.OuterScope;
+
+      const IsCatchable = Assigned(Node.Handler) and (not (Error is EJSControlFlowSignal));
+      if IsCatchable then
+      begin
+        Frame.Thrown := ThrownValueOf(Error);
+        Frame.Phase := 2;
+      end
+      else
+      begin
+        Frame.Pending := Exception(AcquireExceptionObject);
+        Frame.Phase := 3;
+      end;
+    end;
+  end;
+end;
+
+function TJSInterpreter.ThrownValueOf(const Error: Exception): TJSValue;
+begin
+  if Error is TJSThrowSignal then
+    Exit(TJSThrowSignal(Error).Value);
+
+  Result := CreateErrorValue(Error);
+end;
+
+procedure TJSInterpreter.RunCatchClause(const Node: TJSTryStatement; const Frame: TJSStatementFrame);
+begin
+  try
+    if Frame.Index = 0 then
+    begin
+      BindCatchParameter(Node.Handler, Frame);
+      Frame.Index := 1;
+    end
+    else
+    begin
+      FCurrentScope := Frame.Scope;
+    end;
+
+    GenExec(Node.Handler.Body);
+    FCurrentScope := Frame.OuterScope;
+    Frame.Phase := 3;
+  except
+    on TJSYieldSignal do
+      raise;
+    on EJSExecutionInterrupted do
+      raise;
+    on Exception do
+    begin
+      FCurrentScope := Frame.OuterScope;
+      Frame.Pending := Exception(AcquireExceptionObject);
+      Frame.Phase := 3;
+    end;
+  end;
+end;
+
+procedure TJSInterpreter.BindCatchParameter(const Handler: TJSCatchClause; const Frame: TJSStatementFrame);
+begin
+  PushScope;
+  Frame.Scope := FCurrentScope;
+
+  if not Assigned(Handler.Pattern) then
+  begin
+    FCurrentScope.DeclareVariable(Handler.Param.Name, Frame.Thrown);
+    Exit;
+  end;
+
+  for var Name in TJSPatternNames.Of_(Handler.Pattern) do
+  begin
+    FCurrentScope.DeclareLexical(Name, False);
+  end;
+
+  BindTarget(Handler.Pattern, Frame.Thrown, TJSBindingMode.Lexical);
+end;
+
+procedure TJSInterpreter.RunFinalizerBlock(const Node: TJSTryStatement; const Frame: TJSStatementFrame);
+begin
+  if Assigned(Node.Finalizer) then
+  begin
+    FCurrentScope := Frame.OuterScope;
+
+    try
+      GenExec(Node.Finalizer);
+    except
+      on TJSYieldSignal do
+        raise;
+      else
+      begin
+        FreeAndNil(Frame.Pending);
+        raise;
+      end;
+    end;
+  end;
+
+  if Assigned(Frame.Pending) then
+  begin
+    const Pending = Frame.Pending;
+    Frame.Pending := nil;
+    raise Pending;
+  end;
+end;
+
+procedure TJSInterpreter.ConvertToGeneratorFunction(const Func: IJSFunction);
+begin
+  if Assigned(FGeneratorFunctionPrototype) then
+    Func.Prototype := FGeneratorFunctionPrototype;
+
+  Func.IsConstructor := False;
+end;
+
 function TJSInterpreter.VisitIdentifier(const Node: TJSIdentifier): TJSValue;
 begin
   const GlobalSlot = GlobalDataSlot(Node);
@@ -3439,7 +4990,10 @@ begin
   end;
 
   const Func = CreateOrdinaryFunction(Node);
-  AttachPrototype(Func);
+  if Node.IsGenerator then
+    AttachGeneratorPrototype(Func)
+  else
+    AttachPrototype(Func);
 
   if Assigned(Node.Id) then
     BindFunctionName(Func, Node.Id.Name);
@@ -3472,6 +5026,9 @@ begin
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
 
+  if Node.IsGenerator then
+    ConvertToGeneratorFunction(Func);
+
   Result := Func;
 end;
 
@@ -3480,6 +5037,9 @@ begin
   Result := CreateOrdinaryFunction(Node);
   Result.IsConstructor := False;
   Result.Name := Name;
+
+  if Node.IsGenerator then
+    AttachGeneratorPrototype(Result);
 end;
 
 procedure TJSInterpreter.BindHomeObject(const Func: IJSFunction; const Home: IJSObject);
@@ -5610,6 +7170,9 @@ begin
     if Assigned(ParameterScope) then
       CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
 
+    if FunctionBody.IsGeneratorBody then
+      Exit(CreateGeneratorObject(Func));
+
     try
       Visit(TJSASTNode(Func.BodyNode));
       Result := TJSValue.CreateUndefined;
@@ -6228,6 +7791,27 @@ begin
   Work.Add(Item);
 end;
 
+procedure TJSInterpreter.GCMarkGenerator(const Generator: TJSGeneratorObject; const Live: TDictionary<Pointer, Byte>;
+                                         const Work: TList<IInterface>);
+begin
+  if not Assigned(Generator) then
+    Exit;
+
+  const Held: IJSObject = Generator;
+  GCMark(Held, Live, Work);
+end;
+
+procedure TJSInterpreter.GCMarkGeneratorReferences(const Generator: IJSGenerator;
+                                                   const Live: TDictionary<Pointer, Byte>;
+                                                   const Work: TList<IInterface>);
+begin
+  Generator.EnumerateReferences(
+    procedure(Reference: IInterface)
+    begin
+      GCMark(Reference, Live, Work);
+    end);
+end;
+
 procedure TJSInterpreter.GCMarkBinding(const Binding: IJSThisBinding; const Live: TDictionary<Pointer, Byte>;
                                        const Work: TList<IInterface>);
 begin
@@ -6272,6 +7856,7 @@ begin
     GCMark(FGlobalScope, Live, Work);
     GCMark(FCurrentScope, Live, Work);
     GCMark(FVarScope, Live, Work);
+    GCMarkGenerator(FGenerator, Live, Work);
     GCMark(FThisValue, Live, Work);
     GCMark(FGlobalObject, Live, Work);
     GCMark(ActiveCallee, Live, Work);
@@ -6333,6 +7918,10 @@ begin
         var ArgumentsScope: IJSArgumentsScope;
         if Supports(Obj, IJSArgumentsScope, ArgumentsScope) then
           GCMark(ArgumentsScope.MappedScope, Live, Work);
+
+        var Generator: IJSGenerator;
+        if Supports(Obj, IJSGenerator, Generator) then
+          GCMarkGeneratorReferences(Generator, Live, Work);
 
         GCMark(Obj.Prototype, Live, Work);
         GCMarkOwnProperties(Obj, Live, Work);

@@ -40,6 +40,7 @@ uses
   JS4D.BinaryBuiltins,
   JS4D.ProxyBuiltins,
   JS4D.PromiseBuiltins,
+  JS4D.GeneratorBuiltins,
   JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
@@ -65,6 +66,7 @@ type
     FBinaryBuiltins: TJSBinaryBuiltins;
     FProxyBuiltins: TJSProxyBuiltins;
     FPromiseBuiltins: TJSPromiseBuiltins;
+    FGeneratorBuiltins: TJSGeneratorBuiltins;
     FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
@@ -337,6 +339,7 @@ begin
   FIteratorBuiltins.Free;
   FReflectBuiltins.Free;
   FPromiseBuiltins.Free;
+  FGeneratorBuiltins.Free;
   FProxyBuiltins.Free;
   FBinaryBuiltins.Free;
   FCollectionBuiltins.Free;
@@ -689,6 +692,9 @@ begin
 
   FIteratorBuiltins := TJSIteratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype);
   FIteratorBuiltins.Register;
+
+  FGeneratorBuiltins := TJSGeneratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype.Prototype);
+  FGeneratorBuiltins.Register;
 
   FCollectionBuiltins := TJSCollectionBuiltins.Create(FInterpreter);
   FCollectionBuiltins.Register;

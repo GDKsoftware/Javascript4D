@@ -71,7 +71,8 @@ type
     AssignmentPattern,
     SuperExpression,
     NewTargetExpression,
-    ClassExpression
+    ClassExpression,
+    YieldExpression
   );
 
   TJSASTNode = class
@@ -79,6 +80,8 @@ type
     FNodeType: TJSASTNodeType;
     FLine: Integer;
     FColumn: Integer;
+    FContainsYield: Boolean;
+    FIsRemembered: Boolean;
 
   public
     constructor Create(const NodeType: TJSASTNodeType);
@@ -86,6 +89,11 @@ type
     property NodeType: TJSASTNodeType read FNodeType;
     property Line: Integer read FLine write FLine;
     property Column: Integer read FColumn write FColumn;
+    // Set on the nodes of a generator body that are a yield or hold one, so that the body can be suspended there.
+    property ContainsYield: Boolean read FContainsYield write FContainsYield;
+    // Set on the nodes of an expression that holds a yield: a generator that is resumed evaluates that expression
+    // again and takes the results of the nodes that are already evaluated from its memory.
+    property IsRemembered: Boolean read FIsRemembered write FIsRemembered;
   end;
 
   TJSExpression = class(TJSASTNode)
@@ -335,6 +343,7 @@ type
     FBody: TJSStatement;
     FIsStrict: Boolean;
     FIsArrow: Boolean;
+    FIsGenerator: Boolean;
     FSourceText: string;
 
   public
@@ -347,6 +356,7 @@ type
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property IsArrow: Boolean read FIsArrow write FIsArrow;
+    property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
@@ -618,6 +628,19 @@ type
     property SourceText: string read FSourceText write FSourceText;
   end;
 
+  TJSYieldExpression = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+    FIsDelegate: Boolean;
+
+  public
+    constructor Create(const Argument: TJSExpression; const IsDelegate: Boolean);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument;
+    property IsDelegate: Boolean read FIsDelegate;
+  end;
+
   TJSTemplatePart = record
     Cooked: string;
     Raw: string;
@@ -656,6 +679,7 @@ type
     FReferencesArguments: Boolean;
     FDeclaresStrictMode: Boolean;
     FIsFunctionBody: Boolean;
+    FIsGeneratorBody: Boolean;
     FScopeInfo: TJSScopeInfo;
     FParameterInfo: TJSParameterInfo;
 
@@ -664,6 +688,7 @@ type
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property IsGeneratorBody: Boolean read FIsGeneratorBody write FIsGeneratorBody;
     property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
@@ -711,6 +736,7 @@ type
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
     FHoistsToVar: Boolean;
+    FIsGenerator: Boolean;
     FSourceText: string;
 
   public
@@ -723,6 +749,7 @@ type
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
+    property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
@@ -1216,6 +1243,21 @@ begin
   FParams.Free;
   FParameterInfo.Free;
   FBody.Free;
+  inherited;
+end;
+
+{ TJSYieldExpression }
+
+constructor TJSYieldExpression.Create(const Argument: TJSExpression; const IsDelegate: Boolean);
+begin
+  inherited Create(TJSASTNodeType.YieldExpression);
+  FArgument := Argument;
+  FIsDelegate := IsDelegate;
+end;
+
+destructor TJSYieldExpression.Destroy;
+begin
+  FArgument.Free;
   inherited;
 end;
 

@@ -44,6 +44,7 @@ implementation
 
 const
   NO_CLASS_DECLARATION = -1;
+  YIELD_NAME = 'yield';
 
 constructor TJSSlashContext.Create;
 begin
@@ -118,6 +119,11 @@ begin
   const EndsTemplate = (PreviousType = TJSTokenType.TemplateChunk) and FPreviousToken.IsTemplateTail;
   if EndsTemplate then
     Exit(True);
+
+  const IsYieldKeyword = (PreviousType = TJSTokenType.Identifier) and (FPreviousToken.Value = YIELD_NAME) and
+                         (not FPreviousToken.HasEscape);
+  if IsYieldKeyword then
+    Exit(False);
 
   Result := PreviousType in [
     TJSTokenType.Identifier,
