@@ -70,6 +70,8 @@ type
 
     procedure Register;
     procedure ReleasePromises;
+
+    property Operations: TJSPromiseOperations read FOperations;
   end;
 
 implementation

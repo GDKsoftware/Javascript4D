@@ -69,6 +69,7 @@ uses
   JS4D.Tests.Classes in 'JS4D.Tests.Classes.pas',
   JS4D.Tests.Promises in 'JS4D.Tests.Promises.pas',
   JS4D.Tests.Generators in 'JS4D.Tests.Generators.pas',
+  JS4D.Tests.AsyncFunctions in 'JS4D.Tests.AsyncFunctions.pas',
   JS4D.Tests.FunctionExpressionNames in 'JS4D.Tests.FunctionExpressionNames.pas',
   JS4D.Tests.FunctionParameters in 'JS4D.Tests.FunctionParameters.pas',
   JS4D.Tests.TemplateLiterals in 'JS4D.Tests.TemplateLiterals.pas',

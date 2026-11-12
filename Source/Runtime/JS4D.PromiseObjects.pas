@@ -21,11 +21,21 @@ type
     IsInternal: Boolean;
   end;
 
+  // Native code that waits for a promise to settle, such as an async function at an await. It takes the place of
+  // the handler functions of a reaction, so that an await makes no function objects.
+  IJSPromiseContinuation = interface
+    ['{B3D07E52-61A4-4C89-8F1D-5E2A9C74B016}']
+    procedure Resume(const IsRejection: Boolean; const Value: TJSValue);
+    // Hands the values that the continuation keeps to the garbage collector.
+    procedure EnumerateReferences(const Callback: TProc<TJSValue>);
+  end;
+
   TJSPromiseReaction = record
     Capability: TJSPromiseCapability;
     HasCapability: Boolean;
     OnFulfilled: TJSValue;
     OnRejected: TJSValue;
+    Continuation: IJSPromiseContinuation;
   end;
 
   IJSPromise = interface(IJSObject)
@@ -173,6 +183,9 @@ begin
     Callback(Reaction.Capability.Reject);
     Callback(Reaction.OnFulfilled);
     Callback(Reaction.OnRejected);
+
+    if Assigned(Reaction.Continuation) then
+      Reaction.Continuation.EnumerateReferences(Callback);
   end;
 end;
 

@@ -72,7 +72,8 @@ type
     SuperExpression,
     NewTargetExpression,
     ClassExpression,
-    YieldExpression
+    YieldExpression,
+    AwaitExpression
   );
 
   TJSASTNode = class
@@ -344,6 +345,7 @@ type
     FIsStrict: Boolean;
     FIsArrow: Boolean;
     FIsGenerator: Boolean;
+    FIsAsync: Boolean;
     FSourceText: string;
 
   public
@@ -357,6 +359,7 @@ type
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property IsArrow: Boolean read FIsArrow write FIsArrow;
     property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
+    property IsAsync: Boolean read FIsAsync write FIsAsync;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
@@ -641,6 +644,17 @@ type
     property IsDelegate: Boolean read FIsDelegate;
   end;
 
+  TJSAwaitExpression = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+
+  public
+    constructor Create(const Argument: TJSExpression);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument;
+  end;
+
   TJSTemplatePart = record
     Cooked: string;
     Raw: string;
@@ -680,6 +694,7 @@ type
     FDeclaresStrictMode: Boolean;
     FIsFunctionBody: Boolean;
     FIsGeneratorBody: Boolean;
+    FIsAsyncBody: Boolean;
     FScopeInfo: TJSScopeInfo;
     FParameterInfo: TJSParameterInfo;
 
@@ -689,6 +704,7 @@ type
 
     property Body: TObjectList<TJSStatement> read FBody;
     property IsGeneratorBody: Boolean read FIsGeneratorBody write FIsGeneratorBody;
+    property IsAsyncBody: Boolean read FIsAsyncBody write FIsAsyncBody;
     property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
@@ -737,6 +753,7 @@ type
     FIsStrict: Boolean;
     FHoistsToVar: Boolean;
     FIsGenerator: Boolean;
+    FIsAsync: Boolean;
     FSourceText: string;
 
   public
@@ -750,6 +767,7 @@ type
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
     property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
+    property IsAsync: Boolean read FIsAsync write FIsAsync;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
@@ -1256,6 +1274,20 @@ begin
 end;
 
 destructor TJSYieldExpression.Destroy;
+begin
+  FArgument.Free;
+  inherited;
+end;
+
+{ TJSAwaitExpression }
+
+constructor TJSAwaitExpression.Create(const Argument: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.AwaitExpression);
+  FArgument := Argument;
+end;
+
+destructor TJSAwaitExpression.Destroy;
 begin
   FArgument.Free;
   inherited;

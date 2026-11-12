@@ -36,6 +36,15 @@ type
 
   TJSGeneratorRegistry = class;
 
+  // What the interpreter needs from the code that owns promises to run an async function: a promise for its
+  // result, the loop that resumes the suspended body at each await, and a way to reject the promise.
+  TJSAsyncHost = class abstract
+  public
+    function CreateResult: IJSObject; virtual; abstract;
+    procedure Start(const Result: IJSObject; const Body: IJSGenerator); virtual; abstract;
+    procedure Reject(const Result: IJSObject; const Reason: TJSValue); virtual; abstract;
+  end;
+
   TJSGeneratorObject = class(TJSObjectImpl, IJSGenerator)
   private
     FState: TJSGeneratorState;

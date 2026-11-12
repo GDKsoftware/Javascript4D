@@ -120,6 +120,9 @@ type
     property IsResult: Boolean read FIsResult;
   end;
 
+  // How the body of a generator or an async function came back from a run.
+  TJSBodyOutcome = (Yielded, Delegated, Finished);
+
   TJSThrowSignal = class(Exception)
   private
     FValue: TJSValue;
@@ -316,6 +319,8 @@ type
     FGenerators: TJSGeneratorRegistry;
     FGeneratorFunctionPrototype: IJSObject;
     FGeneratorPrototype: IJSObject;
+    FAsyncFunctionPrototype: IJSObject;
+    FAsyncHost: TJSAsyncHost;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
     procedure PushScope;
@@ -456,10 +461,19 @@ type
     procedure AttachGeneratorPrototype(const Func: IJSFunction);
     function GeneratorPrototypeFor(const Func: IJSFunction): IJSObject;
     function CreateGeneratorObject(const Func: IJSFunction): TJSValue;
+    function CreateSuspendedBody(const Func: IJSFunction): IJSGenerator;
+    function StartAsyncFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                const Body: TJSBlockStatement): TJSValue;
+    procedure BindFunctionParameters(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                     const Body: TJSBlockStatement);
+    function VisitAwait(const Node: TJSAwaitExpression): TJSValue;
+    procedure ConvertToAsyncFunction(const Func: IJSFunction);
     function CreateIterationResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
     function ResumeCompletedGenerator(const Mode: TJSResumeMode; const Value: TJSValue): TJSValue;
     function RunGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                           const Value: TJSValue): TJSValue;
+    function AdvanceGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                              const Value: TJSValue; out Outcome: TJSBodyOutcome): TJSValue;
     procedure EnterGeneratorContext(const Generator: TJSGeneratorObject);
     procedure DepositResumption(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                                 const Value: TJSValue);
@@ -695,6 +709,10 @@ type
     // Runs the body of a generator until it yields, returns or throws, and returns the result object of next.
     function ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                              const Value: TJSValue): TJSValue;
+    // Runs a suspended body until its next await or its end. Value is what the await produced; at the end it is
+    // the value that the body returns.
+    function AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode; const Value: TJSValue;
+                         out Outcome: TJSBodyOutcome): TJSValue;
     procedure RegisterEval(const ProgramParser: TJSProgramParser);
     function CreateFunctionFromSource(const Source: string): TJSValue;
     function ThrowTypeErrorFunction: IJSFunction;
@@ -718,6 +736,8 @@ type
 
     property GeneratorFunctionPrototype: IJSObject read FGeneratorFunctionPrototype write FGeneratorFunctionPrototype;
     property GeneratorPrototype: IJSObject read FGeneratorPrototype write FGeneratorPrototype;
+    property AsyncFunctionPrototype: IJSObject read FAsyncFunctionPrototype write FAsyncFunctionPrototype;
+    property AsyncHost: TJSAsyncHost read FAsyncHost write FAsyncHost;
     property GCRootProvider: TJSGCRootProvider read FGCRootProvider write FGCRootProvider;
     property JobRunner: TProc read FJobRunner write FJobRunner;
     property JobDiscarder: TProc read FJobDiscarder write FJobDiscarder;
@@ -791,6 +811,8 @@ const
   ARGUMENT_LIST_NOT_OBJECT = 'Function.prototype.apply requires an array-like object as argument list';
 
   GENERATOR_RUNNING = 'Generator is already running';
+  UNSUPPORTED_BODY_OUTCOME = 'Unsupported body outcome: %d';
+  ASYNC_UNAVAILABLE = 'Async functions need the Promise built-ins';
   UNSUPPORTED_RESUME_MODE = 'Unsupported resume mode: %d';
   DELEGATE_NOT_ITERABLE = 'The operand of yield* is not iterable';
   DELEGATE_METHOD_NOT_CALLABLE = 'The iterator''s %s method is not a function';
@@ -1293,6 +1315,8 @@ begin
   FBoundFunctions.Free;
   FGeneratorFunctionPrototype := nil;
   FGeneratorPrototype := nil;
+  FAsyncFunctionPrototype := nil;
+  FAsyncHost := nil;
   FEvalVariableScope := nil;
   FEvalFunction := nil;
   FThrowTypeError := nil;
@@ -2079,6 +2103,8 @@ begin
       Result := VisitTemplateObject(TJSTemplateObject(Node));
     TJSASTNodeType.YieldExpression:
       Result := VisitYield(TJSYieldExpression(Node));
+    TJSASTNodeType.AwaitExpression:
+      Result := VisitAwait(TJSAwaitExpression(Node));
     else
       Result := TJSValue.CreateUndefined;
   end;
@@ -2611,6 +2637,10 @@ begin
   begin
     ConvertToGeneratorFunction(Func);
     AttachGeneratorPrototype(Func);
+  end
+  else if Node.IsAsync then
+  begin
+    ConvertToAsyncFunction(Func);
   end
   else
   begin
@@ -3424,10 +3454,17 @@ end;
 
 function TJSInterpreter.CreateGeneratorObject(const Func: IJSFunction): TJSValue;
 begin
-  const Generator = TJSGeneratorObject.Create(FGenerators);
-  const Held: IJSObject = Generator;
+  const Suspended = CreateSuspendedBody(Func);
+  Suspended.Prototype := GeneratorPrototypeFor(Func);
 
-  Generator.Prototype := GeneratorPrototypeFor(Func);
+  Result := TJSValue.CreateObject(Suspended);
+end;
+
+function TJSInterpreter.CreateSuspendedBody(const Func: IJSFunction): IJSGenerator;
+begin
+  const Generator = TJSGeneratorObject.Create(FGenerators);
+  Result := Generator;
+
   Generator.Func := Func;
   Generator.Scope := FCurrentScope;
   Generator.VarScope := FVarScope;
@@ -3436,8 +3473,53 @@ begin
   Generator.Callee := ActiveCallee;
   Generator.NewTarget := ActiveNewTarget;
   Generator.Binding := ActiveBinding;
+end;
 
-  Result := TJSValue.CreateObject(Held);
+function TJSInterpreter.StartAsyncFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                           const Body: TJSBlockStatement): TJSValue;
+begin
+  if not Assigned(FAsyncHost) then
+    raise TJSErrorFactory.TypeError(ASYNC_UNAVAILABLE);
+
+  const ResultPromise = FAsyncHost.CreateResult;
+  Result := TJSValue.CreateObject(ResultPromise);
+
+  var Suspended: IJSGenerator;
+  try
+    BindFunctionParameters(Func, Args, Body);
+    Suspended := CreateSuspendedBody(Func);
+  except
+    on EJSExecutionInterrupted do
+      raise;
+    on Error: Exception do
+    begin
+      FAsyncHost.Reject(ResultPromise, ExceptionToValue(Error));
+      Exit;
+    end;
+  end;
+
+  FAsyncHost.Start(ResultPromise, Suspended);
+end;
+
+function TJSInterpreter.VisitAwait(const Node: TJSAwaitExpression): TJSValue;
+begin
+  const Operand = Visit(Node.Argument);
+
+  raise TJSYieldSignal.Create(Node, Operand, False);
+end;
+
+procedure TJSInterpreter.ConvertToAsyncFunction(const Func: IJSFunction);
+begin
+  if Assigned(FAsyncFunctionPrototype) then
+    Func.Prototype := FAsyncFunctionPrototype;
+
+  Func.IsConstructor := False;
+end;
+
+function TJSInterpreter.AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode; const Value: TJSValue;
+                                    out Outcome: TJSBodyOutcome): TJSValue;
+begin
+  Result := AdvanceGenerator((Body as TObject) as TJSGeneratorObject, Mode, Value, Outcome);
 end;
 
 function TJSInterpreter.CreateIterationResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
@@ -3484,6 +3566,21 @@ end;
 function TJSInterpreter.RunGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                                      const Value: TJSValue): TJSValue;
 begin
+  var Outcome: TJSBodyOutcome;
+  const Produced = AdvanceGenerator(Generator, Mode, Value, Outcome);
+
+  case Outcome of
+    TJSBodyOutcome.Yielded   : Result := CreateIterationResult(Produced, False);
+    TJSBodyOutcome.Delegated : Result := Produced;
+    TJSBodyOutcome.Finished  : Result := CreateIterationResult(Produced, True);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_BODY_OUTCOME, [Ord(Outcome)]);
+  end;
+end;
+
+function TJSInterpreter.AdvanceGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
+                                         const Value: TJSValue; out Outcome: TJSBodyOutcome): TJSValue;
+begin
   EnterCallDepth;
 
   const OldThis = FThisValue;
@@ -3512,22 +3609,25 @@ begin
       GenExec(TJSBlockStatement(Generator.Func.BodyNode));
 
       Generator.Finish;
-      Result := CreateIterationResult(TJSValue.CreateUndefined, True);
+      Outcome := TJSBodyOutcome.Finished;
+      Result := TJSValue.CreateUndefined;
     except
       on Signal: TJSYieldSignal do
       begin
         Generator.State := TJSGeneratorState.SuspendedYield;
         Generator.SuspendedAt := Signal.Node;
 
+        Result := Signal.Value;
         if Signal.IsResult then
-          Result := Signal.Value
+          Outcome := TJSBodyOutcome.Delegated
         else
-          Result := CreateIterationResult(Signal.Value, False);
+          Outcome := TJSBodyOutcome.Yielded;
       end;
       on Signal: TJSReturnSignal do
       begin
         Generator.Finish;
-        Result := CreateIterationResult(Signal.Value, True);
+        Outcome := TJSBodyOutcome.Finished;
+        Result := Signal.Value;
       end;
       on Exception do
       begin
@@ -4972,6 +5072,9 @@ begin
   Func.ClosureScope := FCurrentScope;
   Func.IsArrow := True;
   Func.IsConstructor := False;
+  if Node.IsAsync then
+    ConvertToAsyncFunction(Func);
+
   Func.LexicalThis := CurrentThisObject;
   Func.Frame := CaptureFrame;
 
@@ -4992,7 +5095,7 @@ begin
   const Func = CreateOrdinaryFunction(Node);
   if Node.IsGenerator then
     AttachGeneratorPrototype(Func)
-  else
+  else if not Node.IsAsync then
     AttachPrototype(Func);
 
   if Assigned(Node.Id) then
@@ -5027,7 +5130,9 @@ begin
   RegisterFunction(Func);
 
   if Node.IsGenerator then
-    ConvertToGeneratorFunction(Func);
+    ConvertToGeneratorFunction(Func)
+  else if Node.IsAsync then
+    ConvertToAsyncFunction(Func);
 
   Result := Func;
 end;
@@ -7147,28 +7252,10 @@ begin
     end;
 
     const FunctionBody = TJSBlockStatement(Func.BodyNode);
-    const ParameterInfo = FunctionBody.ParameterInfo;
-    var ParameterScope: IJSScope := nil;
+    if FunctionBody.IsAsyncBody then
+      Exit(StartAsyncFunction(Func, Args, FunctionBody));
 
-    if Assigned(ParameterInfo) then
-    begin
-      ParameterScope := BindParametersWithExpressions(Func, Args, ParameterInfo);
-    end
-    else
-    begin
-      for var Index := 0 to Length(Func.Parameters) - 1 do
-      begin
-        if Index < Length(Args) then
-          FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
-        else
-          FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
-      end;
-    end;
-
-    InstantiateTopLevel(FunctionBody.Body, FunctionBody.ScopeInfo);
-
-    if Assigned(ParameterScope) then
-      CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
+    BindFunctionParameters(Func, Args, FunctionBody);
 
     if FunctionBody.IsGeneratorBody then
       Exit(CreateGeneratorObject(Func));
@@ -7189,6 +7276,33 @@ begin
     FStrictMode := OldStrictMode;
     FContext := OldContext;
   end;
+end;
+
+procedure TJSInterpreter.BindFunctionParameters(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                                const Body: TJSBlockStatement);
+begin
+  const ParameterInfo = Body.ParameterInfo;
+  var ParameterScope: IJSScope := nil;
+
+  if Assigned(ParameterInfo) then
+  begin
+    ParameterScope := BindParametersWithExpressions(Func, Args, ParameterInfo);
+  end
+  else
+  begin
+    for var Index := 0 to Length(Func.Parameters) - 1 do
+    begin
+      if Index < Length(Args) then
+        FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
+      else
+        FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
+    end;
+  end;
+
+  InstantiateTopLevel(Body.Body, Body.ScopeInfo);
+
+  if Assigned(ParameterScope) then
+    CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
 end;
 
 function TJSInterpreter.StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;

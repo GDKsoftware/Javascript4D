@@ -51,6 +51,7 @@ type
     procedure SettlePromise(const Promise: IJSPromise; const State: TJSPromiseState; const Value: TJSValue);
     procedure EnqueueReaction(const Reaction: TJSPromiseReaction; const IsRejection: Boolean;
                               const Argument: TJSValue);
+    procedure AddReaction(const Promise: IJSPromise; const Reaction: TJSPromiseReaction);
     procedure EnqueueThenable(const Promise: IJSPromise; const Thenable: TJSValue; const ThenFunction: TJSValue);
     procedure RunJob(const Job: TJSPromiseJob);
     procedure RunReaction(const Job: TJSPromiseJob);
@@ -77,6 +78,7 @@ type
     function Invoke(const Target: TJSValue; const Name: string; const Args: TArray<TJSValue>): TJSValue;
     procedure PerformThen(const Promise: IJSPromise; const OnFulfilled: TJSValue; const OnRejected: TJSValue;
                           const Capability: TJSPromiseCapability; const HasCapability: Boolean);
+    procedure PerformAwait(const Promise: IJSPromise; const Continuation: IJSPromiseContinuation);
     function TryCall(const Func: IJSFunction; const Args: TArray<TJSValue>; const This: IJSObject;
                      out Outcome: TJSValue): Boolean;
     function TypeErrorValue(const Message: string): TJSValue;
@@ -390,6 +392,21 @@ begin
   if TJSBinarySupport.AsFunction(OnRejected, Ignored) then
     Reaction.OnRejected := OnRejected;
 
+  AddReaction(Promise, Reaction);
+end;
+
+procedure TJSPromiseOperations.PerformAwait(const Promise: IJSPromise; const Continuation: IJSPromiseContinuation);
+begin
+  var Reaction := Default(TJSPromiseReaction);
+  Reaction.OnFulfilled := TJSValue.CreateUndefined;
+  Reaction.OnRejected := TJSValue.CreateUndefined;
+  Reaction.Continuation := Continuation;
+
+  AddReaction(Promise, Reaction);
+end;
+
+procedure TJSPromiseOperations.AddReaction(const Promise: IJSPromise; const Reaction: TJSPromiseReaction);
+begin
   case Promise.State of
     TJSPromiseState.Pending   : Promise.AddReaction(Reaction);
     TJSPromiseState.Fulfilled : EnqueueReaction(Reaction, False, Promise.Result);
@@ -457,6 +474,12 @@ end;
 
 procedure TJSPromiseOperations.RunReaction(const Job: TJSPromiseJob);
 begin
+  if Assigned(Job.Reaction.Continuation) then
+  begin
+    Job.Reaction.Continuation.Resume(Job.IsRejection, Job.Argument);
+    Exit;
+  end;
+
   var Handler: TJSValue;
   if Job.IsRejection then
     Handler := Job.Reaction.OnRejected
@@ -513,6 +536,10 @@ begin
   MarkValue(Job.Reaction.Capability.Reject);
   MarkValue(Job.Reaction.OnFulfilled);
   MarkValue(Job.Reaction.OnRejected);
+
+  if Assigned(Job.Reaction.Continuation) then
+    Job.Reaction.Continuation.EnumerateReferences(MarkValue);
+
   MarkValue(Job.Argument);
   MarkValue(Job.Thenable);
   MarkValue(Job.ThenFunction);

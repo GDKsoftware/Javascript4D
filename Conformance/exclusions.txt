@@ -4,7 +4,6 @@
 
 # Language syntax and semantics
 arbitrary-module-namespace-names
-async-functions
 async-iteration
 caller
 class-fields-private

@@ -41,6 +41,7 @@ uses
   JS4D.ProxyBuiltins,
   JS4D.PromiseBuiltins,
   JS4D.GeneratorBuiltins,
+  JS4D.AsyncFunctionBuiltins,
   JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
@@ -67,6 +68,7 @@ type
     FProxyBuiltins: TJSProxyBuiltins;
     FPromiseBuiltins: TJSPromiseBuiltins;
     FGeneratorBuiltins: TJSGeneratorBuiltins;
+    FAsyncFunctionBuiltins: TJSAsyncFunctionBuiltins;
     FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
@@ -339,6 +341,7 @@ begin
   FIteratorBuiltins.Free;
   FReflectBuiltins.Free;
   FPromiseBuiltins.Free;
+  FAsyncFunctionBuiltins.Free;
   FGeneratorBuiltins.Free;
   FProxyBuiltins.Free;
   FBinaryBuiltins.Free;
@@ -710,6 +713,9 @@ begin
 
   FPromiseBuiltins := TJSPromiseBuiltins.Create(FInterpreter);
   FPromiseBuiltins.Register;
+
+  FAsyncFunctionBuiltins := TJSAsyncFunctionBuiltins.Create(FInterpreter, FPromiseBuiltins.Operations);
+  FAsyncFunctionBuiltins.Register;
 
   AssignMissingFunctionPrototypes;
 end;

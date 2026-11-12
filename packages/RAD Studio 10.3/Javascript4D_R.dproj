@@ -159,6 +159,8 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.PromiseBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorObjects.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorBuiltins.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.AsyncRunner.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.AsyncFunctionBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ReflectBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Conversions.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CaseMapping.pas"/>

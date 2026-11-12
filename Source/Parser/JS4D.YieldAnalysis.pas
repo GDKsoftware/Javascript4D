@@ -331,6 +331,11 @@ begin
         MarkExpression(TJSYieldExpression(Node).Argument);
         Result := True;
       end;
+    TJSASTNodeType.AwaitExpression:
+      begin
+        MarkExpression(TJSAwaitExpression(Node).Argument);
+        Result := True;
+      end;
   end;
 end;
 
@@ -443,6 +448,8 @@ begin
       end;
     TJSASTNodeType.YieldExpression:
       Remember(TJSYieldExpression(Node).Argument);
+    TJSASTNodeType.AwaitExpression:
+      Remember(TJSAwaitExpression(Node).Argument);
   end;
 end;
 

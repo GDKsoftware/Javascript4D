@@ -106,6 +106,8 @@ contains
   JS4D.PromiseBuiltins in '..\..\Source\Runtime\JS4D.PromiseBuiltins.pas',
   JS4D.GeneratorObjects in '..\..\Source\Runtime\JS4D.GeneratorObjects.pas',
   JS4D.GeneratorBuiltins in '..\..\Source\Runtime\JS4D.GeneratorBuiltins.pas',
+  JS4D.AsyncRunner in '..\..\Source\Runtime\JS4D.AsyncRunner.pas',
+  JS4D.AsyncFunctionBuiltins in '..\..\Source\Runtime\JS4D.AsyncFunctionBuiltins.pas',
   JS4D.ReflectBuiltins in '..\..\Source\Runtime\JS4D.ReflectBuiltins.pas',
   JS4D.Conversions in '..\..\Source\Runtime\JS4D.Conversions.pas',
   JS4D.CaseMapping in '..\..\Source\Runtime\JS4D.CaseMapping.pas',

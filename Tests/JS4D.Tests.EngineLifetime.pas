@@ -155,6 +155,24 @@ type
     [TestCase('Generator with a pending completion in a finally block', 'var log = []; function* g() { try { try { throw { f: function () { return g; } }; } finally { yield 1; } } catch (e) { log.push(e); } } var it = g(); it.next(); var it2 = g(); it2.next();', '#')]
     [TestCase('Generator iterated by a loop of another generator', 'function* inner() { yield () => inner; yield 2; } function* outer() { for (var x of inner()) { yield x; } } var it = outer(); it.next();', '#')]
     [TestCase('Generator iterated by spread and destructuring', 'function* g() { yield function () { return g; }; yield 2; yield 3; } var a = [...g()]; var [b, ...c] = g(); var [d] = g();', '#')]
+    [TestCase('Async function awaiting a promise that never settles', 'var gate = new Promise(function () {}); async function f() { var a = {}; await gate; return a; } f(); f();', '#')]
+    [TestCase('Async function whose promise holds itself', 'var gate = new Promise(function () {}); async function f(x) { var o = { f: f, x: x }; await gate; return o; } var p = f(0); p.me = p; p.then(function (o) { return o; });', '#')]
+    [TestCase('Async arrow that captures its own promise', 'var gate = new Promise(function () {}); var p = (async () => { await gate; return p; })(); p.q = [p];', '#')]
+    [TestCase('Async function resolved with a closure over itself', 'async function f() { return function () { return f; }; } f().then(function (g) { g.f = f; });', '#')]
+    [TestCase('Async methods', 'var gate = new Promise(function () {}); class C { async m() { await gate; return this; } static async s() { await gate; return C; } } var c = new C(); c.p = c.m(); c.q = C.s(); var o = { async m() { await gate; return o; } }; o.p = o.m();', '#')]
+    [TestCase('Async method using super', 'var gate = new Promise(function () {}); class A { m() { return A; } } class B extends A { async m() { await gate; return super.m(); } } new B().m();', '#')]
+    [TestCase('Async function awaiting settled promises in a loop', 'async function f() { for (var i = 0; i < 200; i++) { await i; } var o = { f: f }; return o; } f().then(function (o) { return o; });', '#')]
+    [TestCase('Async function awaiting a rejected promise', 'async function f() { try { await Promise.reject({ f: f }); } catch (e) { e.q = [e.f]; } } f(); async function g() { await Promise.reject(g); } g().catch(function (e) { return e; });', '#')]
+    [TestCase('Async function with try catch finally and awaits', 'var gate = new Promise(function () {}); async function f() { try { try { await gate; } finally { await gate; } } catch (e) { await gate; } } f();', '#')]
+    [TestCase('Async function awaiting inside loops and switch', 'var gate = new Promise(function () {}); async function f() { for (let i = 0; i < 3; i++) { switch (i) { case 0: await gate; } } for (const x of [() => f]) { await gate; } } f();', '#')]
+    [TestCase('Async function awaiting a thenable', 'var t = { then: function (res) { res({ f: f }); } }; async function f() { return await t; } f();', '#')]
+    [TestCase('Async function awaiting itself through a thenable', 'var gate = new Promise(function () {}); async function f() { await { then: function (res) { res(f); } }; await gate; } f();', '#')]
+    [TestCase('Returned promise adopted by an async function', 'var gate = new Promise(function () {}); async function g() { return gate; } async function f() { return g(); } f(); f();', '#')]
+    [TestCase('Async functions called from async functions', 'var gate = new Promise(function () {}); async function a(n) { if (n > 0) { await a(n - 1); } await gate; } a(20);', '#')]
+    [TestCase('AsyncFunction constructor', 'var AF = Object.getPrototypeOf(async function () { }).constructor; var g = new AF("a", "await a; return () => a;"); g(1); var gate = new Promise(function () {}); new AF("await gate;")();', '#')]
+    [TestCase('Many suspended async functions', 'var gate = new Promise(function () {}); async function f(i) { var v = { i: i }; await gate; return v; } var all = []; for (var i = 0; i < 500; i++) { all.push(f(i)); }', '#')]
+    [TestCase('Async function handed its own result', 'var holder = {}; async function f() { await 0; return holder.p; } holder.p = f(); holder.p.then(function (v) { return v; });', '#')]
+    [TestCase('Async function with a pending job at the end of the script', 'async function f() { await 1; await 2; await 3; } f(); f();', '#')]
     [TestCase('AggregateError', 'var e = new AggregateError([1, {}], "m"); AggregateError([1]); e.errors;', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
@@ -197,6 +215,9 @@ type
     [TestCase('Promise jobs pending after a script error', 'Promise.resolve().then(function () { return Promise; }); new Promise(function (res) { res(1); }).then(function () {}); throw new Error("x");', '#')]
     [TestCase('Generator that throws', 'function* g() { yield 1; throw new Error("x"); } var it = g(); it.next(); it.next();', '#')]
     [TestCase('Generator suspended when the script fails', 'function* g() { try { yield { f: function () { return g; } }; } finally { yield 2; } } var it = g(); it.next(); it.return(1); throw new Error("x");', '#')]
+    [TestCase('Async function awaiting when the script fails', 'var gate = new Promise(function () {}); async function f() { var o = { f: f }; await gate; return o; } f(); throw new Error("x");', '#')]
+    [TestCase('Async function that throws', 'async function f() { var o = { f: f }; await 0; throw o; } f(); f().catch(function (e) { return e; });', '#')]
+    [TestCase('Async function with a failing parameter default', 'async function f(a = () => f, b = null.x) { } f(); f().catch(function () { });', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

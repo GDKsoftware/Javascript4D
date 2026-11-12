@@ -7,31 +7,22 @@ language/export/
 language/import/
 language/module-code/
 language/literals/bigint/
-language/expressions/async-arrow-function/
-language/expressions/async-function/
 language/expressions/async-generator/
-language/expressions/await/
 language/expressions/coalesce/
 language/expressions/dynamic-import/
 language/expressions/import.meta/
 language/expressions/logical-assignment/
 language/expressions/optional-chaining/
-language/statements/async-function/
 language/statements/async-generator/
 language/statements/await-using/
 language/statements/for-await-of/
 language/statements/using/
 language/eval-code/direct/async-gen-
-language/eval-code/direct/async-
-language/expressions/object/method-definition/async-super-call-body.js
-language/expressions/object/method-definition/async-super-call-param.js
-language/statements/switch/scope-lex-async-
 
 # Built-ins introduced after ES5.1
 built-ins/AbstractModuleSource/
 built-ins/AsyncDisposableStack/
 built-ins/AsyncFromSyncIteratorPrototype/
-built-ins/AsyncFunction/
 built-ins/AsyncGeneratorFunction/
 built-ins/AsyncGeneratorPrototype/
 built-ins/AsyncIteratorPrototype/
