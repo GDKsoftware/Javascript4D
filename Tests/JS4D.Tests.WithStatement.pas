@@ -92,6 +92,30 @@ type
 
     [Test]
     procedure Assignment_WritesVariableResolvedBeforeEvalDeclaresShadow;
+
+    [Test]
+    procedure With_ReadChecksBindingAgainAfterResolution;
+
+    [Test]
+    procedure With_CallResolvesCalleeOnce;
+
+    [Test]
+    procedure With_CallReadsCalleeFromBindingObject;
+
+    [Test]
+    procedure With_AssignmentChecksBindingAgainBeforeSet;
+
+    [Test]
+    procedure With_CompoundAssignmentReadsAndWritesResolvedBinding;
+
+    [Test]
+    procedure With_IncrementAndDecrementReadUnscopablesOnce;
+
+    [Test]
+    procedure With_ReadOfBindingDeletedWhileResolving_IsUndefinedInSloppyCode;
+
+    [Test]
+    procedure With_ReadOfBindingDeletedWhileResolving_ThrowsReferenceErrorInStrictCode;
   end;
 
 implementation
@@ -292,6 +316,96 @@ begin
     'innerX * 10 + x';
 
   Assert.AreEqual(21.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_ReadChecksBindingAgainAfterResolution;
+begin
+  const Script =
+    'var log = []; var proxy = new Proxy({ p: 7 }, {' + sLineBreak +
+    '  has: function (t, k) { log.push("has:" + String(k)); return Reflect.has(t, k); },' + sLineBreak +
+    '  get: function (t, k, r) { log.push("get:" + String(k)); return Reflect.get(t, k, r); } });' + sLineBreak +
+    'with (proxy) { p; }' + sLineBreak +
+    'log.join()';
+
+  Assert.AreEqual('has:p,get:Symbol(Symbol.unscopables),has:p,get:p', FEngine.Evaluate(Script).AsString);
+end;
+
+procedure TWithStatementTests.With_CallResolvesCalleeOnce;
+begin
+  const Script =
+    'var log = []; var proxy = new Proxy({}, {' + sLineBreak +
+    '  has: function (t, k) { log.push("has:" + String(k)); return Reflect.has(t, k); } });' + sLineBreak +
+    'function f() { with (proxy) { Object(); } }' + sLineBreak +
+    'f(); log.join()';
+
+  Assert.AreEqual('has:Object', FEngine.Evaluate(Script).AsString);
+end;
+
+procedure TWithStatementTests.With_CallReadsCalleeFromBindingObject;
+begin
+  const Script =
+    'var log = []; var proxy = new Proxy({ Object: Object }, {' + sLineBreak +
+    '  has: function (t, k) { log.push("has:" + String(k)); return Reflect.has(t, k); },' + sLineBreak +
+    '  get: function (t, k, r) { log.push("get:" + String(k)); return Reflect.get(t, k, r); } });' + sLineBreak +
+    'function f() { with (proxy) { Object(); } }' + sLineBreak +
+    'f(); log.join()';
+
+  Assert.AreEqual('has:Object,get:Symbol(Symbol.unscopables),has:Object,get:Object',
+                  FEngine.Evaluate(Script).AsString);
+end;
+
+procedure TWithStatementTests.With_AssignmentChecksBindingAgainBeforeSet;
+begin
+  const Script =
+    'var log = []; var proxy = new Proxy({ p: 0 }, {' + sLineBreak +
+    '  has: function (t, k) { log.push("has:" + String(k)); return Reflect.has(t, k); },' + sLineBreak +
+    '  get: function (t, k, r) { log.push("get:" + String(k)); return Reflect.get(t, k, r); },' + sLineBreak +
+    '  set: function (t, k, v, r) { log.push("set:" + String(k)); return Reflect.set(t, k, v, r); } });' + sLineBreak +
+    'with (proxy) { p = 1; }' + sLineBreak +
+    'log.slice(0, 4).join()';
+
+  Assert.AreEqual('has:p,get:Symbol(Symbol.unscopables),has:p,set:p', FEngine.Evaluate(Script).AsString);
+end;
+
+procedure TWithStatementTests.With_CompoundAssignmentReadsAndWritesResolvedBinding;
+begin
+  const Script =
+    'var log = []; var proxy = new Proxy({ p: 0 }, {' + sLineBreak +
+    '  has: function (t, k) { log.push("has:" + String(k)); return Reflect.has(t, k); },' + sLineBreak +
+    '  get: function (t, k, r) { log.push("get:" + String(k)); return Reflect.get(t, k, r); },' + sLineBreak +
+    '  set: function (t, k, v, r) { log.push("set:" + String(k)); return Reflect.set(t, k, v, r); } });' + sLineBreak +
+    'with (proxy) { p += 1; }' + sLineBreak +
+    'log.join()';
+
+  Assert.AreEqual('has:p,get:Symbol(Symbol.unscopables),has:p,get:p,has:p,set:p', FEngine.Evaluate(Script).AsString);
+end;
+
+procedure TWithStatementTests.With_IncrementAndDecrementReadUnscopablesOnce;
+begin
+  const Script =
+    'var calls = 0; var o = { x: 4, get [Symbol.unscopables]() { calls++; return {}; } };' + sLineBreak +
+    'with (o) { x++; x--; ++x; --x; }' + sLineBreak +
+    'calls * 10 + o.x';
+
+  Assert.AreEqual(44.0, FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TWithStatementTests.With_ReadOfBindingDeletedWhileResolving_IsUndefinedInSloppyCode;
+begin
+  const Script =
+    'var env = { binding: 0, get [Symbol.unscopables]() { delete env.binding; return null; } };' + sLineBreak +
+    'var r; with (env) { r = binding; } r';
+
+  Assert.IsTrue(FEngine.Evaluate(Script).IsUndefined);
+end;
+
+procedure TWithStatementTests.With_ReadOfBindingDeletedWhileResolving_ThrowsReferenceErrorInStrictCode;
+begin
+  const Source =
+    'var env = { binding: 0, get [Symbol.unscopables]() { delete env.binding; return null; } };' + sLineBreak +
+    'with (env) { (function () { "use strict"; binding; })(); }';
+
+  Assert.IsTrue(EvaluatesToError(Source, 'ReferenceError'));
 end;
 
 end.

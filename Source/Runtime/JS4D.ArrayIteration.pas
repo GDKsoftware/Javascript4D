@@ -10,7 +10,9 @@ uses
   JS4D.Types,
   JS4D.Errors,
   JS4D.Builtins,
-  JS4D.ArrayLike;
+  JS4D.ArrayLike,
+  JS4D.ObjectOperations,
+  JS4D.Conversions;
 
 type
   TJSArrayIteration = class
@@ -27,11 +29,16 @@ type
       METHOD_LAST_INDEX_OF = 'lastIndexOf';
       METHOD_FIND = 'find';
       METHOD_FIND_INDEX = 'findIndex';
+      METHOD_INCLUDES = 'includes';
+      METHOD_AT = 'at';
+      METHOD_FLAT = 'flat';
+      METHOD_FLAT_MAP = 'flatMap';
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
       REDUCE_OF_EMPTY_ARRAY = 'Reduce of empty array with no initial value';
 
+    class procedure NotifyBeforeElements(const BeforeElements: TProc); static;
     class function ToIntegerClamped(const Value: TJSValue): Int64; static;
     class function RequireCallback(const MethodName: string; const Args: TArray<TJSValue>): IJSFunction; static;
     class function CallbackArguments(const Element: TJSValue; const Index: Int64;
@@ -40,9 +47,9 @@ type
     class function ForEach(const Target: IJSObject; const Args: TArray<TJSValue>;
                            const Executor: TJSCallbackExecutor): TJSValue; static;
     class function Map(const Target: IJSObject; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
-                       const ArrayPrototype: IJSObject): TJSValue; static;
+                       const ArrayPrototype: IJSObject; const BeforeElements: TProc): TJSValue; static;
     class function Filter(const Target: IJSObject; const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
-                          const ArrayPrototype: IJSObject): TJSValue; static;
+                          const ArrayPrototype: IJSObject; const BeforeElements: TProc): TJSValue; static;
     class function Some(const Target: IJSObject; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor): TJSValue; static;
     class function Every(const Target: IJSObject; const Args: TArray<TJSValue>;
@@ -59,13 +66,26 @@ type
     class function FindIndex(const Target: IJSObject; const Args: TArray<TJSValue>;
                              const Executor: TJSCallbackExecutor): TJSValue; static;
     class function IndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
+    class function ReadElement(const Target: IJSObject; const Index: Int64): TJSValue; static;
+    class function At(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
+    class function Includes(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
+    class function FlatDepth(const Args: TArray<TJSValue>): Double; static;
+    class procedure FlattenInto(const Flattened: IJSArray; const Source: IJSObject; const SourceLength: Int64;
+                                const Depth: Double; const Level: Integer; const Mapper: IJSFunction;
+                                const Executor: TJSCallbackExecutor; const Limits: TJSLimits); static;
+    class function Flat(const Target: IJSObject; const Args: TArray<TJSValue>; const ArrayPrototype: IJSObject;
+                        const Limits: TJSLimits; const BeforeElements: TProc): TJSValue; static;
+    class function FlatMap(const Target: IJSObject; const Args: TArray<TJSValue>;
+                           const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
+                           const Limits: TJSLimits; const BeforeElements: TProc): TJSValue; static;
     class function LastIndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
 
   public
     class function Handles(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
-                        const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject): TJSValue; static;
+                        const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
+                        const Limits: TJSLimits; const BeforeElements: TProc = nil): TJSValue; static;
   end;
 
 implementation
@@ -82,18 +102,25 @@ begin
             (MethodName = METHOD_INDEX_OF) or
             (MethodName = METHOD_LAST_INDEX_OF) or
             (MethodName = METHOD_FIND) or
-            (MethodName = METHOD_FIND_INDEX);
+            (MethodName = METHOD_FIND_INDEX) or
+            (MethodName = METHOD_INCLUDES) or
+            (MethodName = METHOD_AT) or
+            (MethodName = METHOD_FLAT) or
+            (MethodName = METHOD_FLAT_MAP);
 end;
 
 class function TJSArrayIteration.CreatesResultArray(const MethodName: string): Boolean;
 begin
   Result := (MethodName = METHOD_MAP) or
-            (MethodName = METHOD_FILTER);
+            (MethodName = METHOD_FILTER) or
+            (MethodName = METHOD_FLAT) or
+            (MethodName = METHOD_FLAT_MAP);
 end;
 
 class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName: string;
                                       const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
-                                      const ArrayPrototype: IJSObject): TJSValue;
+                                      const ArrayPrototype: IJSObject; const Limits: TJSLimits;
+                                      const BeforeElements: TProc): TJSValue;
 begin
   if not Assigned(Target) then
     raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
@@ -102,10 +129,10 @@ begin
     Exit(ForEach(Target, Args, Executor));
 
   if MethodName = METHOD_MAP then
-    Exit(Map(Target, Args, Executor, ArrayPrototype));
+    Exit(Map(Target, Args, Executor, ArrayPrototype, BeforeElements));
 
   if MethodName = METHOD_FILTER then
-    Exit(Filter(Target, Args, Executor, ArrayPrototype));
+    Exit(Filter(Target, Args, Executor, ArrayPrototype, BeforeElements));
 
   if MethodName = METHOD_SOME then
     Exit(Some(Target, Args, Executor));
@@ -128,10 +155,144 @@ begin
   if MethodName = METHOD_INDEX_OF then
     Exit(IndexOf(Target, Args));
 
+  if MethodName = METHOD_INCLUDES then
+    Exit(Includes(Target, Args));
+
+  if MethodName = METHOD_AT then
+    Exit(At(Target, Args));
+
+  if MethodName = METHOD_FLAT then
+    Exit(Flat(Target, Args, ArrayPrototype, Limits, BeforeElements));
+
+  if MethodName = METHOD_FLAT_MAP then
+    Exit(FlatMap(Target, Args, Executor, ArrayPrototype, Limits, BeforeElements));
+
   if MethodName = METHOD_LAST_INDEX_OF then
     Exit(LastIndexOf(Target, Args));
 
   raise ENotSupportedException.CreateFmt('Unsupported array iteration method: %s', [MethodName]);
+end;
+
+class function TJSArrayIteration.ReadElement(const Target: IJSObject; const Index: Int64): TJSValue;
+begin
+  if not TJSArrayLike.TryGetElement(Target, Index, Result) then
+    Result := TJSValue.CreateUndefined;
+end;
+
+class function TJSArrayIteration.At(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  const Relative = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 0));
+
+  var Position := Relative;
+  if Relative < 0 then
+    Position := Count + Relative;
+
+  const IsInRange = (Position >= 0) and (Position < Count);
+  if IsInRange then
+    Result := ReadElement(Target, Trunc(Position))
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+class function TJSArrayIteration.Includes(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  if Count = 0 then
+    Exit(TJSValue.CreateBoolean(False));
+
+  const FromIndex = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 1));
+  if FromIndex >= Count then
+    Exit(TJSValue.CreateBoolean(False));
+
+  var Start := FromIndex;
+  if FromIndex < 0 then
+    Start := Max(Count + FromIndex, 0);
+
+  const SearchElement = TJSArrayLike.Argument(Args, 0);
+  for var Index: Int64 := Trunc(Start) to Count - 1 do
+  begin
+    const Element = TJSArrayLike.GetElement(Target, Index);
+    const IsSame = Element.StrictEquals(SearchElement) or (Element.IsNaN and SearchElement.IsNaN);
+    if IsSame then
+      Exit(TJSValue.CreateBoolean(True));
+  end;
+
+  Result := TJSValue.CreateBoolean(False);
+end;
+
+class function TJSArrayIteration.FlatDepth(const Args: TArray<TJSValue>): Double;
+begin
+  const DepthArg = TJSArrayLike.Argument(Args, 0);
+  if DepthArg.IsUndefined then
+    Exit(1);
+
+  Result := Max(TJSConversions.ToIntegerOrInfinity(DepthArg), 0);
+end;
+
+class procedure TJSArrayIteration.FlattenInto(const Flattened: IJSArray; const Source: IJSObject;
+                                              const SourceLength: Int64; const Depth: Double; const Level: Integer;
+                                              const Mapper: IJSFunction; const Executor: TJSCallbackExecutor;
+                                              const Limits: TJSLimits);
+begin
+  for var Index: Int64 := 0 to SourceLength - 1 do
+  begin
+    var Element: TJSValue;
+    if not TJSArrayLike.TryGetElement(Source, Index, Element) then
+      Continue;
+
+    if Assigned(Mapper) then
+      Element := Executor(Mapper, CallbackArguments(Element, Index, Source));
+
+    const ShouldFlatten = (Depth > 0) and TJSObjectOperations.IsArray(Element);
+    if ShouldFlatten then
+    begin
+      Limits.EnsureNestingDepth(Level + 1);
+
+      const Nested = Element.ToObject;
+      FlattenInto(Flattened, Nested, TJSArrayLike.ToLength(Nested), Depth - 1, Level + 1, nil, Executor, Limits);
+      Continue;
+    end;
+
+    Limits.EnsureArrayLength(Int64(Flattened.Length) + 1);
+    Flattened.Push(Element);
+  end;
+end;
+
+class function TJSArrayIteration.Flat(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                      const ArrayPrototype: IJSObject; const Limits: TJSLimits;
+                                      const BeforeElements: TProc): TJSValue;
+begin
+  const SourceLength = TJSArrayLike.ToLength(Target);
+  const Depth = FlatDepth(Args);
+  NotifyBeforeElements(BeforeElements);
+
+  const Flattened: IJSArray = TJSArray.Create;
+  Flattened.Prototype := ArrayPrototype;
+  FlattenInto(Flattened, Target, SourceLength, Depth, 0, nil, nil, Limits);
+
+  Result := TJSValue.CreateObject(Flattened);
+end;
+
+class function TJSArrayIteration.FlatMap(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                         const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
+                                         const Limits: TJSLimits; const BeforeElements: TProc): TJSValue;
+begin
+  const SourceLength = TJSArrayLike.ToLength(Target);
+  const Mapper = RequireCallback(METHOD_FLAT_MAP, Args);
+  NotifyBeforeElements(BeforeElements);
+
+  const Flattened: IJSArray = TJSArray.Create;
+  Flattened.Prototype := ArrayPrototype;
+  FlattenInto(Flattened, Target, SourceLength, 1, 0, Mapper, Executor, Limits);
+
+  Result := TJSValue.CreateObject(Flattened);
+end;
+
+class procedure TJSArrayIteration.NotifyBeforeElements(const BeforeElements: TProc);
+begin
+  if Assigned(BeforeElements) then
+    BeforeElements();
 end;
 
 class function TJSArrayIteration.ToIntegerClamped(const Value: TJSValue): Int64;
@@ -177,10 +338,12 @@ begin
 end;
 
 class function TJSArrayIteration.Map(const Target: IJSObject; const Args: TArray<TJSValue>;
-                                     const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject): TJSValue;
+                                     const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
+                                     const BeforeElements: TProc): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_MAP, Args);
+  NotifyBeforeElements(BeforeElements);
   if Count > MaxInt then
     raise TJSErrorFactory.InvalidArrayLength;
 
@@ -204,10 +367,11 @@ end;
 
 class function TJSArrayIteration.Filter(const Target: IJSObject; const Args: TArray<TJSValue>;
                                         const Executor: TJSCallbackExecutor;
-                                        const ArrayPrototype: IJSObject): TJSValue;
+                                        const ArrayPrototype: IJSObject; const BeforeElements: TProc): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_FILTER, Args);
+  NotifyBeforeElements(BeforeElements);
   const Kept: IJSArray = TJSArray.Create;
   Kept.Prototype := ArrayPrototype;
 

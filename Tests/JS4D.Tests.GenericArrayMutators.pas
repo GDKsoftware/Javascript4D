@@ -181,6 +181,32 @@ type
     [TestCase('concat', 'concat')]
     [TestCase('sort', 'sort')]
     procedure Method_NullThis_ThrowsTypeError(const MethodName: string);
+
+    [Test]
+    [TestCase('PushSafeLimit', 'Array.prototype.push.call(o, null)', '|')]
+    [TestCase('PushAboveSafeLimit', 'o.length = Math.pow(2, 53) + 2; Array.prototype.push.call(o, null)', '|')]
+    [TestCase('PushInfinity', 'o.length = Infinity; Array.prototype.push.call(o, null)', '|')]
+    [TestCase('UnshiftSafeLimit', 'Array.prototype.unshift.call(o, null)', '|')]
+    [TestCase('UnshiftInfinity', 'o.length = Infinity; Array.prototype.unshift.call(o, null)', '|')]
+    [TestCase('SpliceInsert', 'Array.prototype.splice.call(o, 0, 0, null)', '|')]
+    [TestCase('SpliceInsertInfinity', 'o.length = Infinity; Array.prototype.splice.call(o, 0, 0, null)', '|')]
+    [TestCase('ConcatSpreadable', 's.length = o.length; [1].concat(s)', '|')]
+    procedure ArrayLikeAtSafeIntegerLimit_GrowingMethod_ThrowsTypeError(const Statement: string);
+
+    [Test]
+    procedure Push_LengthAtSafeIntegerLimitWithoutItems_KeepsLength;
+
+    [Test]
+    procedure Splice_NoArgumentsOnHugeLength_ClampsLengthWithoutMovingElements;
+
+    [Test]
+    procedure Unshift_HugeLength_ReadsTheTopElementFirst;
+
+    [Test]
+    procedure Reverse_HugeLength_SwapsTheOutermostElementsFirst;
+
+    [Test]
+    procedure Concat_HugeSpreadableLength_ReadsIndexZeroFirst;
   end;
 
 implementation
@@ -575,6 +601,68 @@ begin
   const Script = Format('var x = [0, 1, 2, 3, 4]; %s', [Expression]);
 
   Assert.AreEqual(Double(Expected), FEngine.Evaluate(Script).AsNumber);
+end;
+
+procedure TGenericArrayMutatorTests.ArrayLikeAtSafeIntegerLimit_GrowingMethod_ThrowsTypeError(const Statement: string);
+begin
+  const Preamble =
+    'var o = { length: Math.pow(2, 53) - 1 };' +
+    'var s = {}; s[Symbol.isConcatSpreadable] = true;';
+
+  Assert.IsTrue(ThrowsTypeError(Preamble + Statement + ';'));
+end;
+
+procedure TGenericArrayMutatorTests.Push_LengthAtSafeIntegerLimitWithoutItems_KeepsLength;
+begin
+  const Script =
+    'var o = { length: Math.pow(2, 53) - 1 };' + sLineBreak +
+    'Array.prototype.push.call(o) === Math.pow(2, 53) - 1 && o.length === Math.pow(2, 53) - 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Splice_NoArgumentsOnHugeLength_ClampsLengthWithoutMovingElements;
+begin
+  const Script =
+    'var o = { length: Math.pow(2, 53) + 2 };' + sLineBreak +
+    'Array.prototype.splice.call(o);' + sLineBreak +
+    'o.length === Math.pow(2, 53) - 1';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Unshift_HugeLength_ReadsTheTopElementFirst;
+begin
+  const Script =
+    'var stopped = false;' + sLineBreak +
+    'var o = { length: Math.pow(2, 53) - 2, get "9007199254740989"() { throw 1; } };' + sLineBreak +
+    'try { Array.prototype.unshift.call(o, null); } catch (e) { stopped = (e === 1); }' + sLineBreak +
+    'stopped && o.length === Math.pow(2, 53) - 2';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Reverse_HugeLength_SwapsTheOutermostElementsFirst;
+begin
+  const Script =
+    'var stopped = false;' + sLineBreak +
+    'var o = { length: Math.pow(2, 53) + 2, get "9007199254740990"() { throw 1; } };' + sLineBreak +
+    'try { Array.prototype.reverse.call(o); } catch (e) { stopped = (e === 1); }' + sLineBreak +
+    'stopped';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
+end;
+
+procedure TGenericArrayMutatorTests.Concat_HugeSpreadableLength_ReadsIndexZeroFirst;
+begin
+  const Script =
+    'var stopped = false;' + sLineBreak +
+    'var s = { length: Math.pow(2, 53) - 1, get 0() { throw 1; } };' + sLineBreak +
+    's[Symbol.isConcatSpreadable] = true;' + sLineBreak +
+    'try { [].concat(s); } catch (e) { stopped = (e === 1); }' + sLineBreak +
+    'stopped';
+
+  Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
 end.

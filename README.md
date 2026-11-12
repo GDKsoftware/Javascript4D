@@ -9,7 +9,13 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 ## Features
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
-- **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over arrays and strings
+- **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over any iterable
+- **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
+- **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
+- **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
+- **Proxy and Reflect**: all proxy traps with their invariants, and every `Reflect` function
+- **ArrayBuffer, DataView and typed arrays**: `ArrayBuffer`, `DataView` with endianness, and all typed array constructors with the `%TypedArray%` methods, `from` and `of`; the host can detach buffers
+- **ES2015 and later library methods**: `Symbol.match`, `replace`, `search` and `split` on `RegExp.prototype` with the String methods delegating to them, sticky and unicode regular expressions, `String.prototype.replaceAll`, `at`, `String.fromCodePoint`, `Object.hasOwn`, `Object.setPrototypeOf`, `Object.fromEntries`, `Array.prototype.at`, `includes`, `flat` and `flatMap`, and the `**` operator
 - **Pure Delphi**: No external dependencies or DLLs required
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
@@ -273,22 +279,33 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators, Symbol and Proxy, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators and Promise, are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2468 | 2426 | 98.3% |
-| built-ins/Date | 492 | 492 | 100.0% |
-| built-ins/Function | 413 | 382 | 92.5% |
-| built-ins/JSON | 108 | 105 | 97.2% |
-| built-ins/Math | 276 | 268 | 97.1% |
-| built-ins/Number | 280 | 268 | 95.7% |
-| built-ins/Object | 3080 | 3019 | 98.0% |
-| built-ins/RegExp | 581 | 562 | 96.7% |
-| built-ins/String | 905 | 879 | 97.1% |
-| language/expressions | 3330 | 3276 | 98.4% |
-| language/statements | 2293 | 2259 | 98.5% |
-| **Total** | 16551 | 16118 | 97.4% |
+| built-ins/Array | 2752 | 2745 | 99.7% |
+| built-ins/ArrayBuffer | 78 | 78 | 100.0% |
+| built-ins/DataView | 376 | 374 | 99.5% |
+| built-ins/Date | 599 | 597 | 99.7% |
+| built-ins/Function | 438 | 417 | 95.2% |
+| built-ins/JSON | 135 | 130 | 96.3% |
+| built-ins/Map | 154 | 154 | 100.0% |
+| built-ins/Math | 312 | 312 | 100.0% |
+| built-ins/Number | 304 | 301 | 99.0% |
+| built-ins/Object | 3297 | 3279 | 99.5% |
+| built-ins/Proxy | 268 | 268 | 100.0% |
+| built-ins/Reflect | 153 | 153 | 100.0% |
+| built-ins/RegExp | 804 | 780 | 97.0% |
+| built-ins/Set | 194 | 194 | 100.0% |
+| built-ins/String | 1165 | 1154 | 99.1% |
+| built-ins/Symbol | 75 | 73 | 97.3% |
+| built-ins/TypedArray | 703 | 703 | 100.0% |
+| built-ins/TypedArrayConstructors | 364 | 361 | 99.2% |
+| built-ins/WeakMap | 92 | 92 | 100.0% |
+| built-ins/WeakSet | 77 | 77 | 100.0% |
+| language/expressions | 3581 | 3543 | 98.9% |
+| language/statements | 2510 | 2483 | 98.9% |
+| **Total** | 20788 | 20577 | 99.0% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

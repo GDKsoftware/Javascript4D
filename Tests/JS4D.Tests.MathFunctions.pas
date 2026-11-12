@@ -79,6 +79,19 @@ type
     [TestCase('MinOfValues', 'Math.min(3, 1, 2)#1', '#')]
     [TestCase('MaxWithNaN', 'Math.max(1, NaN, 2)#NaN', '#')]
     [TestCase('MinWithLeadingNaN', 'Math.min(NaN, 1)#NaN', '#')]
+    [TestCase('LogPositiveZero', 'Math.log(0)#-Infinity', '#')]
+    [TestCase('LogNegativeZero', 'Math.log(-0)#-Infinity', '#')]
+    [TestCase('LogNegative', 'Math.log(-1)#NaN', '#')]
+    [TestCase('LogNaN', 'Math.log(NaN)#NaN', '#')]
+    [TestCase('LogOne', 'Math.log(1)#0', '#')]
+    [TestCase('PowNegativeInfinityFraction', 'Math.pow(-Infinity, 0.5)#Infinity', '#')]
+    [TestCase('PowNegativeInfinityOddPower', 'Math.pow(-Infinity, 3)#-Infinity', '#')]
+    [TestCase('PowNegativeInfinityEvenPower', 'Math.pow(-Infinity, 2)#Infinity', '#')]
+    [TestCase('PowNegativeInfinityNegativeFraction', '1 / Math.pow(-Infinity, -0.5)#Infinity', '#')]
+    [TestCase('PowNegativeInfinityNegativeOddPower', '1 / Math.pow(-Infinity, -3)#-Infinity', '#')]
+    [TestCase('PowPositiveInfinityNegativePower', 'Math.pow(Infinity, -2)#0', '#')]
+    [TestCase('MaxConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.max(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
+    [TestCase('MinConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.min(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
     procedure Function_OnOrdinaryValues_ReturnsSpecResult(const Expression, Expected: string);
   end;
 

@@ -5,6 +5,7 @@
 # Language features introduced after ES5.1
 language/export/
 language/import/
+language/computed-property-names/class/
 language/module-code/
 language/literals/bigint/
 language/expressions/async-arrow-function/
@@ -14,7 +15,6 @@ language/expressions/await/
 language/expressions/class/
 language/expressions/coalesce/
 language/expressions/dynamic-import/
-language/expressions/exponentiation/
 language/expressions/generators/
 language/expressions/import.meta/
 language/expressions/logical-assignment/
@@ -29,6 +29,8 @@ language/statements/class/
 language/statements/for-await-of/
 language/statements/generators/
 language/statements/using/
+language/eval-code/direct/gen-
+language/eval-code/direct/async-gen-
 language/statements/switch/scope-lex-async-
 language/statements/switch/scope-lex-class.js
 language/statements/switch/scope-lex-generator.js
@@ -36,8 +38,6 @@ language/statements/switch/scope-lex-generator.js
 # Built-ins introduced after ES5.1
 built-ins/AbstractModuleSource/
 built-ins/AggregateError/
-built-ins/ArrayBuffer/
-built-ins/ArrayIteratorPrototype/
 built-ins/AsyncDisposableStack/
 built-ins/AsyncFromSyncIteratorPrototype/
 built-ins/AsyncFunction/
@@ -46,29 +46,16 @@ built-ins/AsyncGeneratorPrototype/
 built-ins/AsyncIteratorPrototype/
 built-ins/Atomics/
 built-ins/BigInt/
-built-ins/DataView/
 built-ins/DisposableStack/
 built-ins/FinalizationRegistry/
 built-ins/GeneratorFunction/
 built-ins/GeneratorPrototype/
 built-ins/Iterator/
-built-ins/Map/
-built-ins/MapIteratorPrototype/
 built-ins/Promise/
-built-ins/Proxy/
-built-ins/Reflect/
 built-ins/RegExpStringIteratorPrototype/
-built-ins/Set/
-built-ins/SetIteratorPrototype/
 built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/
-built-ins/StringIteratorPrototype/
 built-ins/SuppressedError/
-built-ins/Symbol/
 built-ins/Temporal/
-built-ins/TypedArray/
-built-ins/TypedArrayConstructors/
 built-ins/Uint8Array/
-built-ins/WeakMap/
 built-ins/WeakRef/
-built-ins/WeakSet/

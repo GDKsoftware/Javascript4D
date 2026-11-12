@@ -69,6 +69,21 @@ type
     procedure Literal_OutOfRange_BecomesInfinityOrZero(const Expression: string; const Expected: string);
 
     [Test]
+    [TestCase('AboveLargestMidpoint', '1.797693134862315808e+308|Infinity', '|')]
+    [TestCase('BelowLargestMidpoint', '1.797693134862315807e+308|1.7976931348623157e+308', '|')]
+    [TestCase('LongFraction', '0.12345678901234567890|0.12345678901234568', '|')]
+    [TestCase('SmallestDenormal', '5e-324|5e-324', '|')]
+    [TestCase('BelowHalfOfSmallestDenormal', '2.4703282292062327e-324|0', '|')]
+    [TestCase('AboveHalfOfSmallestDenormal', '2.4703282292062328e-324|5e-324', '|')]
+    [TestCase('TieRoundsToEven', '9007199254740993|9007199254740992', '|')]
+    [TestCase('TieRoundsUpToEven', '9007199254740995|9007199254740996', '|')]
+    [TestCase('PowerOfTen', '1e23|1e+23', '|')]
+    [TestCase('ManyDigits', '123456789012345678901234567890|1.2345678901234568e+29', '|')]
+    [TestCase('ManyLeadingZeros', '0.000000000000000000000000000001|1e-30', '|')]
+    [TestCase('HugeDigitsWithExponent', '1000000000000000000000000000000e-11|10000000000000000000', '|')]
+    procedure Number_DecimalText_RoundsToNearestDouble(const Text: string; const Expected: string);
+
+    [Test]
     [TestCase('Decimal', '"11"|undefined|11', '|')]
     [TestCase('FalseRadix', '"11"|false|11', '|')]
     [TestCase('ZeroRadixString', '"11"|"0"|11', '|')]
@@ -173,6 +188,15 @@ begin
   const Actual = StringOf(Expression);
 
   Assert.AreEqual(Expected, Actual);
+end;
+
+procedure TNumberParsingTests.Number_DecimalText_RoundsToNearestDouble(const Text: string; const Expected: string);
+begin
+  const FromString = StringOf(Format('Number("%s")', [Text]));
+  const FromLiteral = StringOf(Text);
+
+  Assert.AreEqual(Expected, FromString);
+  Assert.AreEqual(Expected, FromLiteral);
 end;
 
 procedure TNumberParsingTests.ParseInt_Arguments_FollowsSpecification(const Text: string;

@@ -31,6 +31,7 @@ type
     class function IsOddInteger(const Value: Double): Boolean; static;
     class function ZeroPower(const Base, Exponent: Double): Double; static;
     class function InfinitePower(const Base, Exponent: Double): Double; static;
+    class function InfiniteBasePower(const Base, Exponent: Double): Double; static;
     class function SnapToWholePower(const Logarithm, Base, Argument: Double): Double; static;
     class function LogOfLargeValue(const Value: Double): Double; static;
     class function RoundToNormalSingle(const Value: Double): Double; static;
@@ -262,6 +263,25 @@ begin
     Result := 0;
 end;
 
+class function TJSMathFunctions.InfiniteBasePower(const Base, Exponent: Double): Double;
+begin
+  const IsNegativeOddPower = (Base.Sign and IsOddInteger(Exponent));
+
+  const IsPositiveExponent = (Exponent > 0);
+  if IsPositiveExponent then
+  begin
+    if IsNegativeOddPower then
+      Exit(NegInfinity);
+
+    Exit(Infinity);
+  end;
+
+  if IsNegativeOddPower then
+    Exit(NegativeZero);
+
+  Result := 0;
+end;
+
 class function TJSMathFunctions.Power(const Base, Exponent: Double): Double;
 begin
   if IsNaN(Exponent) then
@@ -278,6 +298,9 @@ begin
 
   if Base = 0 then
     Exit(ZeroPower(Base, Exponent));
+
+  if IsInfinite(Base) then
+    Exit(InfiniteBasePower(Base, Exponent));
 
   Result := System.Math.Power(Base, Exponent);
 end;

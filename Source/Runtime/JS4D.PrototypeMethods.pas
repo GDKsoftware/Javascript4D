@@ -10,6 +10,7 @@ uses
   JS4D.Errors,
   JS4D.ArgumentsObject,
   JS4D.Interpreter,
+  JS4D.SymbolRegistry,
   JS4D.Builtins;
 
 type
@@ -18,8 +19,6 @@ type
   TJSPrototypeMethods = class
   private
     FInterpreter: TJSInterpreter;
-    FMathObject: IJSObject;
-    FJSONObject: IJSObject;
 
     procedure DefineMethod(const PrototypeObj: IJSObject; const MethodName: string; const Method: TNativeFunction);
     function ObjectToPrimitive(const Source: IJSObject; const PreferString: Boolean): TJSValue;
@@ -77,6 +76,8 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
+  JS4D.Conversions,
   JS4D.LocaleArguments,
   JS4D.LocaleNumberFormat;
 
@@ -92,8 +93,6 @@ const
   METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_IS_PROTOTYPE_OF = 'isPrototypeOf';
   METHOD_EXEC = 'exec';
-  METHOD_TEST = 'test';
-  METHOD_SPLIT = 'split';
   METHOD_STARTS_WITH = 'startsWith';
   METHOD_ENDS_WITH = 'endsWith';
   METHOD_INCLUDES = 'includes';
@@ -110,11 +109,9 @@ const
   CLASS_DATE = 'Date';
   CLASS_REGEXP = 'RegExp';
   CLASS_ERROR = 'Error';
-  CLASS_MATH = 'Math';
-  CLASS_JSON = 'JSON';
+  CLASS_SYMBOL = 'Symbol';
   CALLED_ON_NULL_OR_UNDEFINED = '%s.prototype.%s called on null or undefined';
   CALLED_ON_INCOMPATIBLE_TYPE = '%s.prototype.%s called on an incompatible receiver';
-  CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   NOT_A_REGEXP = 'RegExp.prototype.toString called on a value that is not a regular expression';
   NOT_A_REGEXP_RECEIVER = 'RegExp.prototype method called on a value that is not a regular expression';
   NOT_A_REGEXP_GETTER_RECEIVER = 'RegExp.prototype.%s getter called on a value that is not a regular expression';
@@ -179,26 +176,7 @@ end;
 
 function TJSPrototypeMethods.ObjectToPrimitive(const Source: IJSObject; const PreferString: Boolean): TJSValue;
 begin
-  var ConversionNames := [METHOD_VALUE_OF, METHOD_TO_STRING];
-
-  if PreferString then
-    ConversionNames := [METHOD_TO_STRING, METHOD_VALUE_OF];
-
-  for var ConversionName in ConversionNames do
-  begin
-    const Conversion = Source.GetProperty(ConversionName);
-
-    var Func: IJSFunction;
-    const IsCallable = Conversion.IsFunction and Supports(Conversion.ToObject, IJSFunction, Func);
-    if not IsCallable then
-      Continue;
-
-    const Converted = FInterpreter.CallFunction(Func, nil, Source);
-    if not Converted.IsObject then
-      Exit(Converted);
-  end;
-
-  raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
+  Result := TJSValue.CreateObject(Source).ToPrimitive(PreferString);
 end;
 
 function TJSPrototypeMethods.ObjectToText(const Source: IJSObject): string;
@@ -276,15 +254,9 @@ function TJSPrototypeMethods.ConvertStringArguments(const MethodName: string;
 begin
   SetLength(Result, Length(Args));
 
-  const IsLimitFirst = (MethodName = METHOD_SPLIT) and (Length(Args) > 1);
-  if IsLimitFirst then
-    Result[1] := ConvertStringArgument(MethodName, Args, 1);
-
   for var Index := 0 to Length(Args) - 1 do
   begin
-    const IsConverted = IsLimitFirst and (Index = 1);
-    if not IsConverted then
-      Result[Index] := ConvertStringArgument(MethodName, Args, Index);
+    Result[Index] := ConvertStringArgument(MethodName, Args, Index);
   end;
 end;
 
@@ -313,9 +285,16 @@ function TJSPrototypeMethods.ClassTagOf(const Source: IJSObject): string;
 begin
   var Wrapper: IJSPrimitiveWrapper;
   if Supports(Source, IJSPrimitiveWrapper, Wrapper) then
-    Exit(Wrapper.GetClassName);
+  begin
+    const IsSymbolWrapper = (Wrapper.GetClassName = CLASS_SYMBOL);
 
-  if Supports(Source, IJSArray) then
+    if IsSymbolWrapper then
+      Exit(CLASS_OBJECT);
+
+    Exit(Wrapper.GetClassName);
+  end;
+
+  if TJSObjectOperations.IsArray(TJSValue.CreateObject(Source)) then
     Exit(CLASS_ARRAY);
 
   if Supports(Source, IJSFunction) then
@@ -333,12 +312,6 @@ begin
   if Supports(Source, IJSError) then
     Exit(CLASS_ERROR);
 
-  if (Source as IInterface) = (FMathObject as IInterface) then
-    Exit(CLASS_MATH);
-
-  if (Source as IInterface) = (FJSONObject as IInterface) then
-    Exit(CLASS_JSON);
-
   Result := CLASS_OBJECT;
 end;
 
@@ -347,7 +320,13 @@ begin
   var ClassTag := CLASS_UNDEFINED;
 
   if Assigned(This) then
+  begin
     ClassTag := ClassTagOf(This);
+
+    const CustomTag = This.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag));
+    if CustomTag.IsString then
+      ClassTag := CustomTag.AsString;
+  end;
 
   const TagText = Format(CLASS_TAG_FORMAT, [ClassTag]);
 
@@ -585,7 +564,7 @@ begin
   if not (IsSearchMethod and HasSearchString) then
     Exit;
 
-  const IsRegExp = Supports(Args[0].ToObject, IJSRegExp);
+  const IsRegExp = TJSConversions.IsRegExp(Args[0]);
   if IsRegExp then
     raise TJSErrorFactory.TypeError(Format(REGEXP_SEARCH_STRING_MESSAGE, [MethodName]));
 end;
@@ -632,20 +611,18 @@ begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_NUMBER, MethodName);
   const NumberValue = Primitive.AsNumber;
 
-  const IsLocaleString = (MethodName = METHOD_TO_LOCALE_STRING);
+  if MethodName = METHOD_TO_LOCALE_STRING then
+  begin
+    var LocaleText: string;
+    if TryFormatLocaleNumber(NumberValue, Args, LocaleText) then
+      Exit(TJSValue.CreateString(LocaleText));
 
-  var LocaleText: string;
-  const IsLocaleFormatted = IsLocaleString and TryFormatLocaleNumber(NumberValue, Args, LocaleText);
-  if IsLocaleFormatted then
-    Exit(TJSValue.CreateString(LocaleText));
-
-  var BuiltinName := MethodName;
-  if IsLocaleString then
-    BuiltinName := METHOD_TO_STRING;
+    Exit(TJSBuiltins.CallNumberMethod(NumberValue, METHOD_TO_STRING, []));
+  end;
 
   const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, False);
 
-  Result := TJSBuiltins.CallNumberMethod(NumberValue, BuiltinName, PrimitiveArgs);
+  Result := TJSBuiltins.CallNumberMethod(NumberValue, MethodName, PrimitiveArgs);
 end;
 
 function TJSPrototypeMethods.CallBooleanMethod(const This: IJSObject; const MethodName: string): TJSValue;
@@ -661,9 +638,6 @@ end;
 procedure TJSPrototypeMethods.RegisterObjectMethods(const PrototypeObj: IJSObject; const MathObj: IJSObject;
                                                        const JSONObj: IJSObject);
 begin
-  FMathObject := MathObj;
-  FJSONObject := JSONObj;
-
   DefineMethod(PrototypeObj, METHOD_TO_STRING,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -739,13 +713,6 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := RegExpExec(This, Args);
-    end);
-
-  DefineMethod(PrototypeObj, METHOD_TEST,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      const Matched = RegExpExec(This, Args);
-      Result := TJSValue.CreateBoolean(not Matched.IsNull);
     end);
 end;
 

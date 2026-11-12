@@ -20,7 +20,6 @@ coalesce-expression
 decorators
 dynamic-import
 explicit-resource-management
-exponentiation
 export-defer
 export-star-as-namespace-from-module
 for-in-order
@@ -57,21 +56,8 @@ regexp-v-flag
 RegExp.escape
 
 # Symbols
-Symbol
 Symbol.asyncIterator
-Symbol.hasInstance
-Symbol.isConcatSpreadable
-Symbol.iterator
-Symbol.match
 Symbol.matchAll
-Symbol.prototype.description
-Symbol.replace
-Symbol.search
-Symbol.species
-Symbol.split
-Symbol.toPrimitive
-Symbol.toStringTag
-Symbol.unscopables
 symbols-as-weakmap-keys
 
 # Collections and objects
@@ -81,80 +67,31 @@ __setter__
 array-grouping
 cross-realm
 FinalizationRegistry
-globalThis
-Map
-Object.fromEntries
-Object.hasOwn
-Object.is
-Proxy
-proxy-missing-checks
-Reflect
-Reflect.construct
-Reflect.set
-Reflect.setPrototypeOf
-Set
 set-methods
 upsert
-WeakMap
 WeakRef
-WeakSet
 
 # Array and String additions
 array-find-from-last
 Array.fromAsync
-Array.prototype.at
-Array.prototype.flat
-Array.prototype.flatMap
-Array.prototype.includes
 change-array-by-copy
 stable-array-sort
-string-trimming
-String.fromCodePoint
-String.prototype.at
-String.prototype.endsWith
-String.prototype.includes
 String.prototype.isWellFormed
 String.prototype.matchAll
-String.prototype.replaceAll
 String.prototype.toWellFormed
-String.prototype.trimEnd
-String.prototype.trimStart
 
 # Binary data and concurrency
-align-detached-buffer-semantics-with-web-reality
-ArrayBuffer
 arraybuffer-transfer
 Atomics
 Atomics.pause
 Atomics.waitAsync
 BigInt
-DataView
-DataView.prototype.getFloat32
-DataView.prototype.getFloat64
-DataView.prototype.getInt16
-DataView.prototype.getInt32
-DataView.prototype.getInt8
-DataView.prototype.getUint16
-DataView.prototype.getUint32
-DataView.prototype.setUint8
 Float16Array
-Float32Array
-Float64Array
 immutable-arraybuffer
-Int16Array
-Int32Array
-Int8Array
 Math.sumPrecise
 resizable-arraybuffer
 SharedArrayBuffer
-stable-typedarray-sort
-TypedArray
-TypedArray.prototype.at
-Uint16Array
-Uint32Array
-Uint8Array
 uint8array-base64
-Uint8ClampedArray
 
 # Promises, errors and iterators
 AggregateError

@@ -39,9 +39,8 @@ const
   PhaseReasonFormat = 'negative phase: %s';
   FeatureReasonFormat = 'feature: %s';
   HostMemberReasonFormat = 'host member not provided: %s';
-  UnsupportedHostMembers: array[0..3] of string = ('$262.createRealm',
+  UnsupportedHostMembers: array[0..2] of string = ('$262.createRealm',
                                                    '$262.agent',
-                                                   '$262.detachArrayBuffer',
                                                    '$262.IsHTMLDDA');
   SkippedFlags: array[0..3] of string = ('module', 'async', 'CanBlockIsFalse', 'CanBlockIsTrue');
   ResolutionPhase = 'resolution';

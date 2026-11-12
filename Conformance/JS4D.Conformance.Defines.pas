@@ -40,7 +40,7 @@ const
   DefaultStepBudget = 2000000;
   DefaultMaxCallDepth = 100;
   DefaultMaxStringLength = 1000000;
-  DefaultMaxArrayLength = 100000;
+  DefaultMaxArrayLength = 0;
   ProgressInterval = 2000;
   StrictPrefix = '"use strict";' + #10;
   SyntaxErrorName = 'SyntaxError';

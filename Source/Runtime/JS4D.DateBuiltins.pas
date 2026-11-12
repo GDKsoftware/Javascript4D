@@ -58,6 +58,7 @@ type
     function ToIsoString(const This: IJSObject): TJSValue;
     function ToJson(const This: IJSObject): TJSValue;
 
+    procedure DefineToPrimitive;
     procedure DefineGettersAndSetters;
     procedure DefineStringMethods;
     procedure DefineUtilityMethods;
@@ -75,6 +76,7 @@ uses
   System.Math,
   System.StrUtils,
   JS4D.Errors,
+  JS4D.SymbolRegistry,
   JS4D.PrototypeMethods,
   JS4D.DateMath,
   JS4D.DateText,
@@ -84,6 +86,12 @@ uses
 const
   INVALID_DATE = 'Invalid Date';
   THIS_NOT_A_DATE = 'this is not a Date object';
+  THIS_NOT_AN_OBJECT = 'Date.prototype[Symbol.toPrimitive] called on a value that is not an object';
+  INVALID_HINT = 'Invalid hint for Date.prototype[Symbol.toPrimitive]';
+  TO_PRIMITIVE_FUNCTION_NAME = '[Symbol.toPrimitive]';
+  HINT_STRING = 'string';
+  HINT_NUMBER = 'number';
+  HINT_DEFAULT = 'default';
   INVALID_TIME_VALUE = 'Invalid time value';
   NOT_CALLABLE = 'toISOString is not a function';
   GET_PREFIX = 'get';
@@ -214,7 +222,7 @@ begin
   if Supports(Value.ToObject, IJSDate, SourceDate) then
     Exit(TJSDateMath.TimeClip(SourceDate.Time));
 
-  const Primitive = Value.ToPrimitive(False);
+  const Primitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Default);
   if Primitive.IsString then
     Result := TJSDateParser.Parse(Primitive.AsString)
   else
@@ -447,9 +455,10 @@ end;
 
 function TJSDateBuiltins.ToJson(const This: IJSObject): TJSValue;
 begin
-  const Subject = TJSValue.CreateObject(This);
-  if not Subject.IsObject then
+  if not Assigned(This) then
     raise TJSErrorFactory.TypeError(THIS_NOT_A_DATE);
+
+  const Subject = TJSValue.CreateObject(This);
 
   const Primitive = Subject.ToPrimitive(False);
   const IsNonFinite = Primitive.IsNumber and (not TJSDateMath.IsFinite(Primitive.AsNumber));
@@ -494,6 +503,37 @@ begin
   var GmtDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(UtcConverter));
   GmtDescriptor.Enumerable := False;
   FPrototype.DefineProperty('toGMTString', GmtDescriptor);
+end;
+
+procedure TJSDateBuiltins.DefineToPrimitive;
+begin
+  const Func: IJSFunction = TJSFunction.CreateNative(TO_PRIMITIVE_FUNCTION_NAME,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if not Assigned(This) then
+        raise TJSErrorFactory.TypeError(THIS_NOT_AN_OBJECT);
+
+      var HintName := '';
+      if (Length(Args) > 0) and Args[0].IsString then
+        HintName := Args[0].AsString;
+
+      var Hint: TJSPrimitiveHint;
+      if (HintName = HINT_STRING) or (HintName = HINT_DEFAULT) then
+        Hint := TJSPrimitiveHint.String_
+      else if HintName = HINT_NUMBER then
+        Hint := TJSPrimitiveHint.Number
+      else
+        raise TJSErrorFactory.TypeError(INVALID_HINT);
+
+      Result := TJSValue.CreateObject(This).OrdinaryToPrimitive(Hint);
+    end);
+  Func.IsConstructor := False;
+  DefineFunctionAttributes(Func, TO_PRIMITIVE_FUNCTION_NAME, 1);
+
+  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func));
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  FPrototype.DefineProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToPrimitive), Descriptor);
 end;
 
 procedure TJSDateBuiltins.DefineUtilityMethods;
@@ -590,6 +630,7 @@ begin
   DefineGettersAndSetters;
   DefineStringMethods;
   DefineUtilityMethods;
+  DefineToPrimitive;
 end;
 
 end.

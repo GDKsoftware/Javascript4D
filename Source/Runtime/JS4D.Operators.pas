@@ -18,7 +18,7 @@ type
       TWO_POW_32 = 4294967296.0;
       SHIFT_COUNT_MASK = 31;
 
-    class function IsDate(const Value: TJSValue): Boolean; static;
+
     class function Divide(const Dividend: Double; const Divisor: Double): Double; static;
     class function Remainder(const Dividend: Double; const Divisor: Double): Double; static;
     class function ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue; static;
@@ -43,16 +43,9 @@ type
 
 implementation
 
-class function TJSOperators.IsDate(const Value: TJSValue): Boolean;
-begin
-  var DateObject: IJSDate;
-
-  Result := Value.IsObject and Supports(Value.ToObject, IJSDate, DateObject);
-end;
-
 class function TJSOperators.ToPrimitive(const Value: TJSValue): TJSValue;
 begin
-  Result := Value.ToPrimitive(IsDate(Value));
+  Result := Value.ToPrimitiveWithHint(TJSPrimitiveHint.Default);
 end;
 
 class function TJSOperators.ToNumber(const Value: TJSValue): Double;
@@ -86,6 +79,7 @@ begin
     TJSAssignmentOperator.MultiplyAssign           : Result := TJSBinaryOperator.Multiply;
     TJSAssignmentOperator.DivideAssign             : Result := TJSBinaryOperator.Divide;
     TJSAssignmentOperator.ModuloAssign             : Result := TJSBinaryOperator.Modulo;
+    TJSAssignmentOperator.ExponentAssign           : Result := TJSBinaryOperator.Exponent;
     TJSAssignmentOperator.BitwiseAndAssign         : Result := TJSBinaryOperator.BitwiseAnd;
     TJSAssignmentOperator.BitwiseOrAssign          : Result := TJSBinaryOperator.BitwiseOr;
     TJSAssignmentOperator.BitwiseXorAssign         : Result := TJSBinaryOperator.BitwiseXor;
@@ -126,6 +120,12 @@ begin
         const LeftNumber = ToNumber(Left);
         const RightNumber = ToNumber(Right);
         Result := TJSValue.CreateNumber(Remainder(LeftNumber, RightNumber));
+      end;
+    TJSBinaryOperator.Exponent:
+      begin
+        const LeftNumber = ToNumber(Left);
+        const RightNumber = ToNumber(Right);
+        Result := TJSValue.CreateNumber(TJSMathFunctions.Power(LeftNumber, RightNumber));
       end;
     TJSBinaryOperator.LessThan,
     TJSBinaryOperator.LessThanOrEqual,

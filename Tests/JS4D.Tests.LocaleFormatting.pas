@@ -456,7 +456,7 @@ type
     [TestCase('Option427', 'new Date(Date.UTC(2024, 0, 15, 9, 5, 7)).toLocaleDateString("nl-NL", {weekday: "long", day: "numeric", month: "long", timeZone: "UTC"})|maandag 15 januari', '|')]
     [TestCase('NoArguments', '(8864.43).toLocaleString()|8864.43', '|')]
     [TestCase('UnknownLocale', '(8864.43).toLocaleString("xx-XX")|8864.43', '|')]
-    [TestCase('RadixAsFirstArgument', '(255).toLocaleString(16)|ff', '|')]
+    [TestCase('NumberAsLocale', '(255).toLocaleString(16)|255', '|')]
     [TestCase('NullLocale', '(8864.43).toLocaleString(null)|8864.43', '|')]
     [TestCase('DateNoArguments', 'new Date(2024, 0, 5, 14, 30, 5).toLocaleString() === new Date(2024, 0, 5, 14, 30, 5).toString()|true', '|')]
     [TestCase('DateUnknownLocale', 'new Date(2024, 0, 5, 14, 30, 5).toLocaleString("xx-XX") === new Date(2024, 0, 5, 14, 30, 5).toString()|true', '|')]

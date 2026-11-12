@@ -9,6 +9,8 @@ uses
   System.Generics.Collections,
   JS4D.Types,
   JS4D.Engine,
+  JS4D.BinaryData,
+  JS4D.Errors,
   JS4D.Conformance.Defines;
 
 type
@@ -40,6 +42,8 @@ const
   GlobalPropertyName = 'global';
   EvalScriptName = 'evalScript';
   GcName = 'gc';
+  DetachArrayBufferName = 'detachArrayBuffer';
+  NotAnArrayBuffer = 'detachArrayBuffer expects an ArrayBuffer';
   GlobalThisSource = 'this';
 
 constructor TTestSession.Create(const Limits: TSessionLimits);
@@ -109,6 +113,18 @@ begin
         Exit(TJSValue.CreateUndefined);
 
       Result := FEngine.Execute(Args[0].ToString);
+    end));
+
+  Result.SetProperty(DetachArrayBufferName, CreateNativeValue(DetachArrayBufferName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      var Buffer: IJSArrayBuffer;
+      const IsBuffer = (Length(Args) > 0) and Args[0].IsObject and Supports(Args[0].ToObject, IJSArrayBuffer, Buffer);
+      if not IsBuffer then
+        raise TJSErrorFactory.TypeError(NotAnArrayBuffer);
+
+      Buffer.Detach;
+      Result := TJSValue.CreateNull;
     end));
 
   Result.SetProperty(GcName, CreateNativeValue(GcName,

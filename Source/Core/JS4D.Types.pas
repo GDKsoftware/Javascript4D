@@ -9,7 +9,8 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   JS4D.PcreMatcher,
-  JS4D.SlotMap;
+  JS4D.SlotMap,
+  JS4D.SymbolRegistry;
 
 type
   TJSValueType = (
@@ -20,7 +21,14 @@ type
     String_,
     Object_,
     Function_,
-    Array_
+    Array_,
+    Symbol
+  );
+
+  TJSPrimitiveHint = (
+    Default,
+    Number,
+    String_
   );
 
   TJSErrorType = (
@@ -58,6 +66,7 @@ type
   IJSArray = interface;
   IJSScope = interface;
   IJSFunction = interface;
+  IJSSymbol = interface;
 
   TJSValue = record
   private
@@ -69,6 +78,7 @@ type
 
     class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
       const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
+    function TryConvertThroughToPrimitive(const Hint: TJSPrimitiveHint; out Converted: TJSValue): Boolean;
 
   public
     class function CreateUndefined: TJSValue; static;
@@ -77,6 +87,7 @@ type
     class function CreateNumber(const Value: Double): TJSValue; static;
     class function CreateString(const Value: string): TJSValue; static;
     class function CreateObject(const Value: IJSObject): TJSValue; static;
+    class function CreateSymbol(const Value: IJSSymbol): TJSValue; static;
     class function CreateNaN: TJSValue; static;
     class function CreateInfinity(const Negative: Boolean = False): TJSValue; static;
 
@@ -89,6 +100,7 @@ type
     function IsObject: Boolean;
     function IsFunction: Boolean;
     function IsArray: Boolean;
+    function IsSymbol: Boolean;
     function IsNaN: Boolean;
     function IsInfinity: Boolean;
 
@@ -104,6 +116,13 @@ type
     function ToLimitedString(const Limits: TJSLimits): string;
     function ToObject: IJSObject;
     function ToPrimitive(const PreferString: Boolean): TJSValue;
+    function ToPrimitiveWithHint(const Hint: TJSPrimitiveHint): TJSValue;
+    // The valueOf and toString lookup of ToPrimitive, without Symbol.toPrimitive.
+    function OrdinaryToPrimitive(const Hint: TJSPrimitiveHint): TJSValue;
+    // The text a value has when it is used as a property name: the key of a symbol, otherwise its string form.
+    function ToPropertyKey(const Limits: TJSLimits): string;
+    // Text of a symbol value as shown by String(symbol) and Symbol.prototype.toString.
+    function SymbolDescriptiveString: string;
 
     function Clone: TJSValue;
 
@@ -112,6 +131,7 @@ type
     property AsNumber: Double read FNumberValue;
     property AsString: string read FStringValue;
     property AsObject: IJSObject read FObjectRef;
+    property AsSymbolKey: string read FStringValue;
   end;
 
   IJSScope = interface
@@ -203,6 +223,8 @@ type
     procedure DeleteProperty(const Name: string);
     function IsPropertyConfigurable(const Name: string): Boolean;
     function GetOwnPropertyNames: TArray<string>;
+    // Keys of the properties named by a symbol, in creation order. GetOwnPropertyNames never lists them.
+    function GetOwnSymbolKeys: TArray<string>;
     function GetPrototype: IJSObject;
     procedure SetPrototype(const Value: IJSObject);
     property Prototype: IJSObject read GetPrototype write SetPrototype;
@@ -223,6 +245,7 @@ type
   IJSArray = interface(IJSObject)
     ['{B2C3D4E5-F6A7-8901-BCDE-F23456789012}']
     function GetLength: Integer;
+    function GetLogicalLength: Int64;
     function GetElement(const Index: Integer): TJSValue;
     procedure SetElement(const Index: Integer; const Value: TJSValue);
     procedure Push(const Value: TJSValue);
@@ -231,6 +254,7 @@ type
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
     property Length: Integer read GetLength;
+    property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
 
@@ -339,10 +363,34 @@ type
     property Primitive: TJSValue read GetPrimitive;
   end;
 
+  IJSSymbol = interface(IJSObject)
+    ['{6B1E0F3A-52C7-4D98-8A14-0E7C93D5B2F1}']
+    function GetKey: string;
+    function GetDescription: string;
+    function GetHasDescription: Boolean;
+    property Key: string read GetKey;
+    property Description: string read GetDescription;
+    property HasDescription: Boolean read GetHasDescription;
+  end;
+
+  // Implemented by objects that answer for the numeric keys of the whole prototype chain behind them: a typed array
+  // (an invalid index ends a property assignment) and a proxy (it decides for itself, the chain is not walked past it).
+  IJSIntegerIndexedKeys = interface
+    ['{5D2B8E41-7C3A-4F96-A0D1-2E6B9C48F713}']
+    function IsInvalidIndexKey(const Name: string): Boolean;
+  end;
+
+  TJSIntegerIndexedKeys = class
+  public
+    // True when Name is an invalid index for the first object in the chain starting at Start that answers for it.
+    class function IsInvalidIndexKey(const Start: IJSObject; const Name: string): Boolean; static;
+  end;
+
   TJSObjectImpl = class(TInterfacedObject, IJSObject)
   private
     FProperties: TJSPropertyMap;
     FOrderedKeys: TList<string>;
+    FSymbols: TDictionary<string, IJSSymbol>;
     FPrototype: IJSObject;
     FFrozen: Boolean;
     FSealed: Boolean;
@@ -353,8 +401,9 @@ type
     function AddDefinedProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
     class function TryParseArrayIndex(const Name: string; out Index: Int64): Boolean; static;
     class function CompareIndexNames(const Left, Right: string): Integer; static;
-    function HasIndexKey: Boolean;
-    class procedure ReleaseClosure(const Value: TJSValue); static;
+    function HasIndexKey(const Keys: TArray<string>): Boolean;
+    procedure RememberSymbol(const Key: string);
+    function OrderedStringKeys: TArray<string>;
 
   protected
     class function CanRedefine(const Current: TJSPropertyDescriptor;
@@ -362,13 +411,15 @@ type
     class function ApplyDefinition(const Current: TJSPropertyDescriptor;
                                    const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
 
-    function GetPrototype: IJSObject;
-    procedure SetPrototype(const Value: IJSObject);
+    function GetPrototype: IJSObject; virtual;
+    procedure SetPrototype(const Value: IJSObject); virtual;
     function GetPropertyLayoutVersion: Cardinal;
     function GetPropertyThroughDescriptor(const Name: string): TJSValue;
     function HasStandardPropertyLookup: Boolean; virtual;
 
     procedure StoreOwnValue(const Name: string; const Value: TJSValue);
+    procedure AppendProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    procedure RemoveProperty(const Name: string);
 
     // Releasing a very deeply nested chain of arrays and objects would recurse through one destructor
     // per level and overflow the stack. A destructor calls ReleaseNested first, which empties the nested
@@ -382,24 +433,25 @@ type
     destructor Destroy; override;
 
     function HasProperty(const Name: string): Boolean; virtual;
-    function GetProperty(const Name: string): TJSValue;
+    function GetProperty(const Name: string): TJSValue; virtual;
     procedure SetProperty(const Name: string; const Value: TJSValue); virtual;
     procedure SetNonConfigurableProperty(const Name: string; const Value: TJSValue);
     procedure DeleteProperty(const Name: string); virtual;
-    function IsPropertyConfigurable(const Name: string): Boolean;
+    function IsPropertyConfigurable(const Name: string): Boolean; virtual;
     function GetOwnPropertyNames: TArray<string>; virtual;
+    function GetOwnSymbolKeys: TArray<string>; virtual;
 
-    function IsFrozen: Boolean;
-    function IsSealed: Boolean;
-    function IsExtensible: Boolean;
+    function IsFrozen: Boolean; virtual;
+    function IsSealed: Boolean; virtual;
+    function IsExtensible: Boolean; virtual;
     procedure Freeze; virtual;
-    procedure Seal;
-    procedure PreventExtensions;
+    procedure Seal; virtual;
+    procedure PreventExtensions; virtual;
     function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; virtual;
     function HasOwnProperty(const Name: string): Boolean; virtual;
     function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; virtual;
     function TryGetOwnSlot(const Name: string; out Slot: PJSPropertyDescriptor): Boolean;
-    procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+    procedure DefineProperty(const Name: string; const Descriptor: TJSPropertyDescriptor); virtual;
     function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; virtual;
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
@@ -452,7 +504,8 @@ type
     constructor CreateNative(const Name: string; const Func: TNativeFunction);
     destructor Destroy; override;
 
-    class procedure DefineLength(const Target: IJSObject; const Count: Integer); static;
+    class procedure DefineLength(const Target: IJSObject; const Count: Integer); overload; static;
+    class procedure DefineLength(const Target: IJSObject; const Count: Double); overload; static;
     class procedure DefineName(const Target: IJSObject; const Name: string); static;
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -476,6 +529,7 @@ type
   private
     FElements: TList<TJSValue>;
     FHoles: TDictionary<Integer, Boolean>;
+    FSparseLength: Int64;
     FLengthWritable: Boolean;
 
     function GetLengthDescriptor: TJSPropertyDescriptor;
@@ -492,26 +546,34 @@ type
                                    const Descriptor: TJSPropertyDescriptor);
     procedure ForgetSpecialElement(const Index: Integer);
     function IsLockedElement(const Index: Integer): Boolean;
-    function ResizeTo(const NewLength: Integer): Boolean;
+    function ResizeTo(const NewLength: Int64): Boolean;
     function ShrinkTo(const NewLength: Integer): Boolean;
+    function ShrinkSparsePart(const NewLength: Int64): Int64;
     procedure GrowTo(const NewLength: Integer);
+    function IsSparseIndex(const Index: Int64): Boolean;
+    function SparseElementIndexes: TList<Int64>;
+    procedure AppendSparseNames(const Names: TList<string>);
     procedure MarkHoles(const FromIndex: Integer; const ToIndex: Integer);
     procedure ForgetHolesBetween(const FromIndex: Integer; const ToIndex: Integer);
+    function TryReadNamedDataProperty(const Name: string; out Value: TJSValue): Boolean;
 
   protected
     function HasStandardPropertyLookup: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     function GetLength: Integer;
+    function GetLogicalLength: Int64;
     function GetElement(const Index: Integer): TJSValue;
     procedure SetElement(const Index: Integer; const Value: TJSValue);
 
   public
     class function TryParseIndex(const Name: string; out Index: Integer): Boolean; static;
+    class function CoerceLength(const Value: TJSValue): Int64; static;
 
     constructor Create;
     destructor Destroy; override;
 
+    function GetProperty(const Name: string): TJSValue; override;
     procedure Push(const Value: TJSValue);
     function Pop: TJSValue;
     function HasElement(const Index: Integer): Boolean;
@@ -528,6 +590,7 @@ type
     function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
 
     property Length: Integer read GetLength;
+    property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
 
@@ -646,6 +709,28 @@ type
     property Primitive: TJSValue read GetPrimitive;
   end;
 
+  TJSSymbolImpl = class(TJSObjectImpl, IJSSymbol)
+  private
+    FId: Integer;
+    FKey: string;
+    FDescription: string;
+    FHasDescription: Boolean;
+
+  protected
+    function GetKey: string;
+    function GetDescription: string;
+    function GetHasDescription: Boolean;
+
+  public
+    constructor Create(const Description: string; const HasDescription: Boolean);
+    constructor CreateWellKnown(const Which: TJSWellKnownSymbol);
+    destructor Destroy; override;
+
+    property Key: string read GetKey;
+    property Description: string read GetDescription;
+    property HasDescription: Boolean read GetHasDescription;
+  end;
+
   TJSObject = TJSObjectImpl;
   TJSFunction = TJSFunctionImpl;
   TJSArray = TJSArrayImpl;
@@ -708,6 +793,13 @@ const
   VALUE_OF_METHOD = 'valueOf';
   TO_STRING_METHOD = 'toString';
   CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
+  SYMBOL_TO_NUMBER = 'Cannot convert a Symbol value to a number';
+  SYMBOL_TO_STRING = 'Cannot convert a Symbol value to a string';
+  TO_PRIMITIVE_NOT_CALLABLE = 'Symbol.toPrimitive is not a function';
+  SYMBOL_STRING_FORMAT = 'Symbol(%s)';
+  HINT_DEFAULT = 'default';
+  HINT_NUMBER = 'number';
+  HINT_STRING = 'string';
   INFINITY_STRING = 'Infinity';
   NEGATIVE_INFINITY_STRING = '-Infinity';
   OBJECT_STRING = '[object Object]';
@@ -717,11 +809,14 @@ const
   CLASS_NAME_STRING = 'String';
   CLASS_NAME_NUMBER = 'Number';
   CLASS_NAME_BOOLEAN = 'Boolean';
+  CLASS_NAME_SYMBOL = 'Symbol';
 
   PROP_NAME = 'name';
   PROP_MESSAGE = 'message';
   PROP_STACK = 'stack';
   PROP_LAST_INDEX = 'lastIndex';
+  MAX_SAFE_LAST_INDEX = 9007199254740991.0;
+  LAST_INDEX_READ_ONLY = 'Cannot assign to read only property ''lastIndex''';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
 
@@ -859,6 +954,14 @@ begin
   Result.FObjectRef := Value;
 end;
 
+class function TJSValue.CreateSymbol(const Value: IJSSymbol): TJSValue;
+begin
+  Result := Default(TJSValue);
+  Result.FValueType := TJSValueType.Symbol;
+  Result.FObjectRef := Value;
+  Result.FStringValue := Value.Key;
+end;
+
 class function TJSValue.CreateNaN: TJSValue;
 begin
   Result := Default(TJSValue);
@@ -922,6 +1025,11 @@ begin
   Result := FValueType = TJSValueType.Array_;
 end;
 
+function TJSValue.IsSymbol: Boolean;
+begin
+  Result := FValueType = TJSValueType.Symbol;
+end;
+
 function TJSValue.IsNaN: Boolean;
 begin
   Result := IsNumber and System.Math.IsNaN(FNumberValue);
@@ -944,7 +1052,8 @@ begin
         const SameSign = FNumberValue.Sign = Other.FNumberValue.Sign;
         Result := BothNaN or ((FNumberValue = Other.FNumberValue) and SameSign);
       end;
-    TJSValueType.String_:
+    TJSValueType.String_,
+    TJSValueType.Symbol:
       Result := FStringValue = Other.FStringValue;
     TJSValueType.Object_,
     TJSValueType.Function_,
@@ -1005,6 +1114,8 @@ begin
       begin
         Result := TJSNumberParse.StringToNumber(FStringValue);
       end;
+    TJSValueType.Symbol:
+      raise TJSErrorFactory.TypeError(SYMBOL_TO_NUMBER);
     TJSValueType.Object_:
       begin
         // Date objects coerce to their timestamp (ms since epoch) per ES spec.
@@ -1064,6 +1175,8 @@ begin
       end;
     TJSValueType.String_:
       Result := FStringValue;
+    TJSValueType.Symbol:
+      raise TJSErrorFactory.TypeError(SYMBOL_TO_STRING);
     TJSValueType.Object_:
       begin
         var Wrapper: IJSPrimitiveWrapper;
@@ -1155,11 +1268,31 @@ end;
 
 function TJSValue.ToPrimitive(const PreferString: Boolean): TJSValue;
 begin
+  if PreferString then
+    Result := ToPrimitiveWithHint(TJSPrimitiveHint.String_)
+  else
+    Result := ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+end;
+
+function TJSValue.ToPrimitiveWithHint(const Hint: TJSPrimitiveHint): TJSValue;
+begin
+  if not IsObject then
+    Exit(Self);
+
+  var Converted: TJSValue;
+  if TryConvertThroughToPrimitive(Hint, Converted) then
+    Exit(Converted);
+
+  Result := OrdinaryToPrimitive(Hint);
+end;
+
+function TJSValue.OrdinaryToPrimitive(const Hint: TJSPrimitiveHint): TJSValue;
+begin
   if not IsObject then
     Exit(Self);
 
   var ConversionNames := [VALUE_OF_METHOD, TO_STRING_METHOD];
-  if PreferString then
+  if Hint = TJSPrimitiveHint.String_ then
     ConversionNames := [TO_STRING_METHOD, VALUE_OF_METHOD];
 
   for var ConversionName in ConversionNames do
@@ -1179,6 +1312,58 @@ begin
   raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
 end;
 
+function TJSValue.TryConvertThroughToPrimitive(const Hint: TJSPrimitiveHint; out Converted: TJSValue): Boolean;
+begin
+  Result := False;
+
+  const Exotic = FObjectRef.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToPrimitive));
+  if Exotic.IsNullOrUndefined then
+    Exit;
+
+  var Func: IJSFunction;
+  const IsCallable = Exotic.IsFunction and Supports(Exotic.ToObject, IJSFunction, Func);
+  if not IsCallable then
+    raise TJSErrorFactory.TypeError(TO_PRIMITIVE_NOT_CALLABLE);
+
+  var HintName := HINT_DEFAULT;
+  case Hint of
+    TJSPrimitiveHint.Number  : HintName := HINT_NUMBER;
+    TJSPrimitiveHint.String_ : HintName := HINT_STRING;
+  end;
+
+  Converted := Func.Call(FObjectRef, [CreateString(HintName)]);
+  if Converted.IsObject then
+    raise TJSErrorFactory.TypeError(CANNOT_CONVERT_TO_PRIMITIVE);
+
+  Result := True;
+end;
+
+function TJSValue.ToPropertyKey(const Limits: TJSLimits): string;
+begin
+  if IsSymbol then
+    Exit(FStringValue);
+
+  const NeedsConversion = IsObject and (not IsArray);
+  if not NeedsConversion then
+    Exit(ToLimitedString(Limits));
+
+  const Primitive = ToPrimitiveWithHint(TJSPrimitiveHint.String_);
+  if Primitive.IsSymbol then
+    Exit(Primitive.FStringValue);
+
+  Result := Primitive.ToLimitedString(Limits);
+end;
+
+function TJSValue.SymbolDescriptiveString: string;
+begin
+  var Symbol: IJSSymbol;
+  const HasDescription = Supports(FObjectRef, IJSSymbol, Symbol) and Symbol.HasDescription;
+  if HasDescription then
+    Result := Format(SYMBOL_STRING_FORMAT, [Symbol.Description])
+  else
+    Result := Format(SYMBOL_STRING_FORMAT, ['']);
+end;
+
 function TJSValue.Clone: TJSValue;
 begin
   case FValueType of
@@ -1192,6 +1377,8 @@ begin
       Result := CreateNumber(FNumberValue);
     TJSValueType.String_:
       Result := CreateString(FStringValue);
+    TJSValueType.Symbol:
+      Result := Self;
     else
       Result := CreateObject(FObjectRef);
   end;
@@ -1225,17 +1412,17 @@ begin
   for var Position := 0 to FProperties.Count - 1 do
   begin
     const PropertyValue = FProperties.SlotAt(Position).Value;
-    const PropertyObject = PropertyValue.ToObject;
-    var Func: IJSFunction;
+    const IsNestedObject = PropertyValue.IsObject and (not PropertyValue.IsFunction);
 
-    if PropertyValue.IsFunction and Supports(PropertyObject, IJSFunction, Func) then
-      Func.ClosureScope := nil
-    else if PropertyValue.IsObject then
-      Pending.Add(PropertyObject);
+    if IsNestedObject then
+      Pending.Add(PropertyValue.ToObject);
   end;
 
   FProperties.Clear;
   FOrderedKeys.Clear;
+
+  if Assigned(FSymbols) then
+    FSymbols.Clear;
 end;
 
 procedure TJSObjectImpl.ReleaseNested;
@@ -1270,19 +1457,43 @@ begin
 
   ReleaseNested;
 
-  for var Position := 0 to FProperties.Count - 1 do
-  begin
-    const Slot = FProperties.SlotAt(Position);
-
-    ReleaseClosure(Slot.Value);
-    ReleaseClosure(Slot.Getter);
-    ReleaseClosure(Slot.Setter);
-  end;
-
   FProperties.Clear;
   FProperties.Free;
   FOrderedKeys.Free;
+  FSymbols.Free;
   inherited;
+end;
+
+procedure TJSObjectImpl.RememberSymbol(const Key: string);
+begin
+  const Found = TJSSymbolRegistry.Find(Key);
+  const IsLiveSymbol = Found is TJSSymbolImpl;
+  if not IsLiveSymbol then
+    Exit;
+
+  if not Assigned(FSymbols) then
+    FSymbols := TDictionary<string, IJSSymbol>.Create;
+
+  FSymbols.AddOrSetValue(Key, TJSSymbolImpl(Found));
+end;
+
+
+procedure TJSObjectImpl.AppendProperty(const Name: string; const Descriptor: TJSPropertyDescriptor);
+begin
+  FProperties.Add(Name, Descriptor);
+  FOrderedKeys.Add(Name);
+
+  if TJSSymbolRegistry.IsKey(Name) then
+    RememberSymbol(Name);
+end;
+
+procedure TJSObjectImpl.RemoveProperty(const Name: string);
+begin
+  FProperties.Remove(Name);
+  FOrderedKeys.Remove(Name);
+
+  if Assigned(FSymbols) then
+    FSymbols.Remove(Name);
 end;
 
 function TJSObjectImpl.GetPrototype: IJSObject;
@@ -1301,14 +1512,6 @@ begin
 
   if (not Result) and (FPrototype <> nil) then
     Result := FPrototype.HasProperty(Name);
-end;
-
-class procedure TJSObjectImpl.ReleaseClosure(const Value: TJSValue);
-begin
-  var Func: IJSFunction;
-
-  if Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func) then
-    Func.ClosureScope := nil;
 end;
 
 function TJSObjectImpl.InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
@@ -1399,6 +1602,25 @@ begin
   end;
 end;
 
+class function TJSIntegerIndexedKeys.IsInvalidIndexKey(const Start: IJSObject; const Name: string): Boolean;
+begin
+  Result := False;
+
+  const CanBeNumericKey = (Name <> '') and CharInSet(Name[1], ['0'..'9', '-', 'I', 'N']);
+  if not CanBeNumericKey then
+    Exit;
+
+  var Current := Start;
+  while Assigned(Current) do
+  begin
+    var IndexedKeys: IJSIntegerIndexedKeys;
+    if Supports(Current, IJSIntegerIndexedKeys, IndexedKeys) then
+      Exit(IndexedKeys.IsInvalidIndexKey(Name));
+
+    Current := Current.Prototype;
+  end;
+end;
+
 procedure TJSObjectImpl.SetProperty(const Name: string; const Value: TJSValue);
 var
   PrototypeDescriptor: TJSPropertyDescriptor;
@@ -1418,9 +1640,11 @@ begin
   if BlockedByInherited or (not FExtensible) then
     Exit;
 
+  if (not HasInherited) and TJSIntegerIndexedKeys.IsInvalidIndexKey(FPrototype, Name) then
+    Exit;
+
   Descriptor := TJSPropertyDescriptor.Create(Value);
-  FProperties.Add(Name, Descriptor);
-  FOrderedKeys.Add(Name);
+  AppendProperty(Name, Descriptor);
 end;
 
 procedure TJSObjectImpl.StoreOwnValue(const Name: string; const Value: TJSValue);
@@ -1451,18 +1675,14 @@ begin
     Descriptor.Writable := False;
     Descriptor.Enumerable := False;
     Descriptor.Configurable := False;
-    FProperties.Add(Name, Descriptor);
-    FOrderedKeys.Add(Name);
+    AppendProperty(Name, Descriptor);
   end;
 end;
 
 procedure TJSObjectImpl.DeleteProperty(const Name: string);
 begin
   if FProperties.ContainsKey(Name) then
-  begin
-    FProperties.Remove(Name);
-    FOrderedKeys.Remove(Name);
-  end;
+    RemoveProperty(Name);
 end;
 
 function TJSObjectImpl.IsPropertyConfigurable(const Name: string): Boolean;
@@ -1513,9 +1733,9 @@ begin
   Result := CompareValue(LeftIndex, RightIndex);
 end;
 
-function TJSObjectImpl.HasIndexKey: Boolean;
+function TJSObjectImpl.HasIndexKey(const Keys: TArray<string>): Boolean;
 begin
-  for var Name in FOrderedKeys do
+  for var Name in Keys do
   begin
     var Index: Int64;
     if TryParseArrayIndex(Name, Index) then
@@ -1525,15 +1745,56 @@ begin
   Result := False;
 end;
 
+function TJSObjectImpl.OrderedStringKeys: TArray<string>;
+begin
+  const HasSymbols = Assigned(FSymbols) and (FSymbols.Count > 0);
+  if not HasSymbols then
+    Exit(FOrderedKeys.ToArray);
+
+  const Keys = TList<string>.Create;
+  try
+    for var Name in FOrderedKeys do
+    begin
+      if not FSymbols.ContainsKey(Name) then
+        Keys.Add(Name);
+    end;
+
+    Result := Keys.ToArray;
+  finally
+    Keys.Free;
+  end;
+end;
+
+function TJSObjectImpl.GetOwnSymbolKeys: TArray<string>;
+begin
+  const HasSymbols = Assigned(FSymbols) and (FSymbols.Count > 0);
+  if not HasSymbols then
+    Exit(nil);
+
+  const Keys = TList<string>.Create;
+  try
+    for var Name in FOrderedKeys do
+    begin
+      if FSymbols.ContainsKey(Name) then
+        Keys.Add(Name);
+    end;
+
+    Result := Keys.ToArray;
+  finally
+    Keys.Free;
+  end;
+end;
+
 function TJSObjectImpl.GetOwnPropertyNames: TArray<string>;
 begin
-  if not HasIndexKey then
-    Exit(FOrderedKeys.ToArray);
+  const Keys = OrderedStringKeys;
+  if not HasIndexKey(Keys) then
+    Exit(Keys);
 
   const IndexNames = TList<string>.Create;
   const OtherNames = TList<string>.Create;
   try
-    for var Name in FOrderedKeys do
+    for var Name in Keys do
     begin
       var Index: Int64;
       if TryParseArrayIndex(Name, Index) then
@@ -1629,8 +1890,7 @@ begin
     if not FExtensible then
       Exit;
 
-    FProperties.Add(Name, Descriptor);
-    FOrderedKeys.Add(Name);
+    AppendProperty(Name, Descriptor);
   end;
 end;
 
@@ -1667,8 +1927,7 @@ begin
     Descriptor.Writable := Definition.Writable;
   end;
 
-  FProperties.Add(Name, Descriptor);
-  FOrderedKeys.Add(Name);
+  AppendProperty(Name, Descriptor);
   Result := True;
 end;
 
@@ -1804,6 +2063,7 @@ begin
   inherited Create;
   FIsNative := False;
   FIsConstructor := True;
+  DefineLength(Self, 0);
   DefineName(Self, '');
 end;
 
@@ -1814,6 +2074,7 @@ begin
   FNativeFunction := Func;
   FIsNative := True;
   FIsConstructor := True;
+  DefineLength(Self, 0);
   DefineName(Self, Name);
 end;
 
@@ -1853,6 +2114,11 @@ begin
 end;
 
 class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Integer);
+begin
+  DefineLength(Target, Double(Count));
+end;
+
+class procedure TJSFunctionImpl.DefineLength(const Target: IJSObject; const Count: Double);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Count));
   Descriptor.Writable := False;
@@ -1924,12 +2190,86 @@ end;
 
 class function TJSArrayImpl.TryParseIndex(const Name: string; out Index: Integer): Boolean;
 begin
-  Result := TryStrToInt(Name, Index) and (Index >= 0) and (IntToStr(Index) = Name);
+  var ElementIndex: Int64;
+  Result := TryParseArrayIndex(Name, ElementIndex) and (ElementIndex <= MaxInt);
+
+  if Result then
+    Index := Integer(ElementIndex)
+  else
+    Index := 0;
+end;
+
+class function TJSArrayImpl.CoerceLength(const Value: TJSValue): Int64;
+const
+  UINT32_RANGE = 4294967296.0;
+begin
+  const FirstPrimitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const FirstNumber = FirstPrimitive.ToNumber;
+  const IsFinite = (not System.Math.IsNaN(FirstNumber)) and (not System.Math.IsInfinite(FirstNumber));
+
+  var Unsigned := 0.0;
+  if IsFinite then
+  begin
+    const Whole = Int(FirstNumber);
+    Unsigned := Whole - (Int(Whole / UINT32_RANGE) * UINT32_RANGE);
+    if Unsigned < 0 then
+      Unsigned := Unsigned + UINT32_RANGE;
+  end;
+
+  const SecondPrimitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const SecondNumber = SecondPrimitive.ToNumber;
+  if SecondNumber <> Unsigned then
+    raise TJSErrorFactory.InvalidArrayLength;
+
+  Result := Trunc(Unsigned);
+end;
+
+function TJSArrayImpl.GetLogicalLength: Int64;
+begin
+  Result := FElements.Count;
+
+  if FSparseLength > Result then
+    Result := FSparseLength;
+end;
+
+function TJSArrayImpl.IsSparseIndex(const Index: Int64): Boolean;
+const
+  MAX_DENSE_GAP = 1024 * 1024;
+begin
+  Result := (Index - FElements.Count) > MAX_DENSE_GAP;
+end;
+
+function TJSArrayImpl.SparseElementIndexes: TList<Int64>;
+begin
+  Result := TList<Int64>.Create;
+
+  for var Name in FOrderedKeys do
+  begin
+    var Index: Int64;
+    const IsSparseElement = TryParseArrayIndex(Name, Index) and (Index >= FElements.Count);
+    if IsSparseElement then
+      Result.Add(Index);
+  end;
+end;
+
+procedure TJSArrayImpl.AppendSparseNames(const Names: TList<string>);
+begin
+  const Indexes = SparseElementIndexes;
+  try
+    Indexes.Sort;
+
+    for var Index in Indexes do
+    begin
+      Names.Add(IntToStr(Index));
+    end;
+  finally
+    Indexes.Free;
+  end;
 end;
 
 function TJSArrayImpl.GetLengthDescriptor: TJSPropertyDescriptor;
 begin
-  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(FElements.Count));
+  Result := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(GetLogicalLength));
   Result.Writable := FLengthWritable and (not FFrozen);
   Result.Enumerable := False;
   Result.Configurable := False;
@@ -2001,8 +2341,7 @@ begin
   FElements[Index] := TJSValue.CreateUndefined;
   MarkHoles(Index, Index);
 
-  FProperties.Add(Name, Descriptor);
-  FOrderedKeys.Add(Name);
+  AppendProperty(Name, Descriptor);
 end;
 
 function TJSArrayImpl.IsLockedElement(const Index: Integer): Boolean;
@@ -2058,14 +2397,62 @@ begin
   Result := (KeptLength = NewLength);
 end;
 
-function TJSArrayImpl.ResizeTo(const NewLength: Integer): Boolean;
+function TJSArrayImpl.ShrinkSparsePart(const NewLength: Int64): Int64;
+begin
+  Result := NewLength;
+
+  const Indexes = SparseElementIndexes;
+  try
+    Indexes.Sort;
+
+    for var Position := Indexes.Count - 1 downto 0 do
+    begin
+      const Index = Indexes[Position];
+      if Index < NewLength then
+        Break;
+
+      const Name = IntToStr(Index);
+      if not FProperties[Name].Configurable then
+        Exit(Index + 1);
+
+      RemoveProperty(Name);
+    end;
+  finally
+    Indexes.Free;
+  end;
+end;
+
+function TJSArrayImpl.ResizeTo(const NewLength: Int64): Boolean;
 begin
   Result := True;
 
-  if NewLength < FElements.Count then
-    Result := ShrinkTo(NewLength)
-  else
-    GrowTo(NewLength);
+  const OldLength = GetLogicalLength;
+  if NewLength = OldLength then
+    Exit;
+
+  if NewLength > OldLength then
+  begin
+    if IsSparseIndex(NewLength) then
+      FSparseLength := NewLength
+    else
+      GrowTo(Integer(NewLength));
+
+    Exit;
+  end;
+
+  var KeptLength := NewLength;
+  const HasSparsePart = (FSparseLength > FElements.Count);
+  if HasSparsePart then
+    KeptLength := ShrinkSparsePart(NewLength);
+
+  if KeptLength > FElements.Count then
+  begin
+    FSparseLength := KeptLength;
+    Exit(KeptLength = NewLength);
+  end;
+
+  FSparseLength := 0;
+  Result := ShrinkTo(Integer(KeptLength)) and (KeptLength = NewLength);
 end;
 
 function TJSArrayImpl.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
@@ -2103,12 +2490,15 @@ begin
         Names.Add(Name);
     end;
 
+    if FSparseLength > FElements.Count then
+      AppendSparseNames(Names);
+
     Names.Add(LENGTH_PROPERTY);
 
     for var Key in inherited GetOwnPropertyNames do
     begin
-      var Index: Integer;
-      if not TryParseIndex(Key, Index) then
+      var Index: Int64;
+      if not TryParseArrayIndex(Key, Index) then
         Names.Add(Key);
     end;
 
@@ -2130,6 +2520,53 @@ begin
   Result := False;
 end;
 
+function TJSArrayImpl.GetProperty(const Name: string): TJSValue;
+begin
+  if TryReadNamedDataProperty(Name, Result) then
+    Exit;
+
+  Result := inherited GetProperty(Name);
+end;
+
+// Reads a data property that is neither an element nor the length by walking the prototype chain slots
+// directly, which avoids building a property descriptor for every step.
+function TJSArrayImpl.TryReadNamedDataProperty(const Name: string; out Value: TJSValue): Boolean;
+begin
+  Result := False;
+
+  const CanBeElementKey = (Name = '') or CharInSet(Name[1], ['0'..'9', '-', 'I', 'N']) or (Name = LENGTH_PROPERTY);
+  if CanBeElementKey then
+    Exit;
+
+  var Current: TJSObjectImpl := Self;
+  while True do
+  begin
+    var Slot: PJSPropertyDescriptor;
+    if Current.FProperties.TryGetSlot(Name, Slot) then
+    begin
+      if Slot.IsAccessor then
+        Exit;
+
+      Value := Slot.Value;
+      Exit(True);
+    end;
+
+    const Next = Current.FPrototype;
+    if Next = nil then
+    begin
+      Value := TJSValue.CreateUndefined;
+      Exit(True);
+    end;
+
+    const IsPlainHolder = (Next is TJSObjectImpl) and
+                          (TJSObjectImpl(Next).HasStandardPropertyLookup or (Next is TJSArrayImpl));
+    if not IsPlainHolder then
+      Exit;
+
+    Current := TJSObjectImpl(Next);
+  end;
+end;
+
 function TJSArrayImpl.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   Result := TryGetElementDescriptor(Name, Descriptor) or inherited TryGetPropertyDescriptor(Name, Descriptor);
@@ -2149,13 +2586,29 @@ begin
     Exit;
   end;
 
-  var Index: Integer;
-  if not TryParseIndex(Name, Index) then
+  var ElementIndex: Int64;
+  if not TryParseArrayIndex(Name, ElementIndex) then
   begin
     inherited SetProperty(Name, Value);
     Exit;
   end;
 
+  if IsSparseIndex(ElementIndex) then
+  begin
+    const SparseLengthBlocksIndex = (ElementIndex >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
+    if SparseLengthBlocksIndex then
+      Exit;
+
+    inherited SetProperty(Name, Value);
+
+    const IsStored = FProperties.ContainsKey(Name);
+    if IsStored and (ElementIndex >= GetLogicalLength) then
+      FSparseLength := ElementIndex + 1;
+
+    Exit;
+  end;
+
+  const Index = Integer(ElementIndex);
   if HasElement(Index) then
   begin
     if not FFrozen then
@@ -2164,8 +2617,7 @@ begin
     Exit;
   end;
 
-  const LengthDescriptor = GetLengthDescriptor;
-  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  const LengthBlocksIndex = (Index >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
   if LengthBlocksIndex then
     Exit;
 
@@ -2199,24 +2651,22 @@ end;
 
 function TJSArrayImpl.DefineLength(const Definition: TJSPropertyDefinition): Boolean;
 begin
-  var NewLength := 0.0;
+  var NewLength: Int64 := 0;
+  var Coerced := Definition;
 
   if Definition.HasValue then
   begin
-    NewLength := Definition.Value.ToNumber;
-    const IsValidLength = (not System.Math.IsNaN(NewLength)) and (NewLength >= 0) and (Frac(NewLength) = 0) and
-                          (NewLength <= MaxInt);
-    if not IsValidLength then
-      raise TJSErrorFactory.InvalidArrayLength;
+    NewLength := CoerceLength(Definition.Value);
+    Coerced.Value := TJSValue.CreateNumber(NewLength);
   end;
 
   const Current = GetLengthDescriptor;
-  Result := CanRedefine(Current, Definition);
+  Result := CanRedefine(Current, Coerced);
   if not Result then
     Exit;
 
   if Definition.HasValue then
-    Result := ResizeTo(Trunc(NewLength));
+    Result := ResizeTo(NewLength);
 
   if Definition.HasWritable then
     FLengthWritable := Definition.Writable;
@@ -2227,18 +2677,31 @@ begin
   if Name = LENGTH_PROPERTY then
     Exit(DefineLength(Definition));
 
-  var Index: Integer;
-  if not TryParseIndex(Name, Index) then
+  var ElementIndex: Int64;
+  if not TryParseArrayIndex(Name, ElementIndex) then
     Exit(inherited DefineOwnProperty(Name, Definition));
 
-  Result := DefineElement(Index, Name, Definition);
+  if IsSparseIndex(ElementIndex) then
+  begin
+    const LengthBlocksIndex = (ElementIndex >= GetLogicalLength) and (not GetLengthDescriptor.Writable);
+    if LengthBlocksIndex then
+      Exit(False);
+
+    Result := inherited DefineOwnProperty(Name, Definition);
+    if Result and (ElementIndex >= GetLogicalLength) then
+      FSparseLength := ElementIndex + 1;
+
+    Exit;
+  end;
+
+  Result := DefineElement(Integer(ElementIndex), Name, Definition);
 end;
 
 function TJSArrayImpl.DefineElement(const Index: Integer; const Name: string;
                                     const Definition: TJSPropertyDefinition): Boolean;
 begin
   const LengthDescriptor = GetLengthDescriptor;
-  const LengthBlocksIndex = (Index >= FElements.Count) and (not LengthDescriptor.Writable);
+  const LengthBlocksIndex = (Index >= GetLogicalLength) and (not LengthDescriptor.Writable);
   if LengthBlocksIndex then
     Exit(False);
 
@@ -2302,13 +2765,10 @@ procedure TJSArrayImpl.DetachNested(const Pending: TList<IJSObject>);
 begin
   for var Element in FElements do
   begin
-    const ElementObject = Element.ToObject;
-    var Func: IJSFunction;
+    const IsNestedObject = Element.IsObject and (not Element.IsFunction);
 
-    if Element.IsFunction and Supports(ElementObject, IJSFunction, Func) then
-      Func.ClosureScope := nil
-    else if Element.IsObject then
-      Pending.Add(ElementObject);
+    if IsNestedObject then
+      Pending.Add(Element.ToObject);
   end;
 
   FElements.Clear;
@@ -2319,16 +2779,6 @@ end;
 destructor TJSArrayImpl.Destroy;
 begin
   ReleaseNested;
-
-  for var Element in FElements do
-  begin
-    if Element.IsFunction then
-    begin
-      var Func: IJSFunction;
-      if Supports(Element.ToObject, IJSFunction, Func) then
-        Func.ClosureScope := nil;
-    end;
-  end;
 
   FElements.Clear;
   FreeAndNil(FElements);
@@ -2376,7 +2826,7 @@ end;
 
 function TJSArrayImpl.IsDenseAndMutable: Boolean;
 begin
-  const HasHoles = Assigned(FHoles) and (FHoles.Count > 0);
+  const HasHoles = (Assigned(FHoles) and (FHoles.Count > 0)) or (FSparseLength > FElements.Count);
   const IsLocked = FFrozen or FSealed or (not FExtensible) or (not FLengthWritable);
 
   Result := not (HasHoles or IsLocked);
@@ -2394,6 +2844,13 @@ end;
 
 procedure TJSArrayImpl.Push(const Value: TJSValue);
 begin
+  const HasSparsePart = (FSparseLength > FElements.Count);
+  if HasSparsePart then
+  begin
+    SetProperty(IntToStr(FSparseLength), Value);
+    Exit;
+  end;
+
   FElements.Add(Value);
 end;
 
@@ -2506,7 +2963,10 @@ begin
   if Pattern.IsEmpty then
     CompilablePattern := EMPTY_PATTERN_GROUP;
 
-  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern), FIgnoreCase, FMultiline);
+  const NeedsCodeUnits = (not FUnicode) and TJSRegExpTranslator.HasSurrogateEscape(CompilablePattern);
+  const UtfMode = FUnicode or (FIgnoreCase and not NeedsCodeUnits);
+  FMatcher := TJSPcreMatcher.Create(TJSRegExpTranslator.Translate(CompilablePattern, FUnicode, UtfMode),
+                                    FIgnoreCase, FMultiline, UtfMode);
 
   var LastIndexDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(0));
   LastIndexDescriptor.Enumerable := False;
@@ -2572,11 +3032,20 @@ end;
 
 function TJSRegExpImpl.ReadLastIndex: Int64;
 begin
-  Result := GetProperty(PROP_LAST_INDEX).ToInteger;
+  const Primitive = GetProperty(PROP_LAST_INDEX).ToPrimitiveWithHint(TJSPrimitiveHint.Number);
+  const Number = Primitive.ToNumber;
+  if System.Math.IsNaN(Number) then
+    Exit(0);
+
+  Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_LAST_INDEX));
 end;
 
 procedure TJSRegExpImpl.WriteLastIndex(const Value: Integer);
 begin
+  const IsWritable = GetOwnPropertyDescriptor(PROP_LAST_INDEX).Writable;
+  if not IsWritable then
+    raise TJSErrorFactory.TypeError(LAST_INDEX_READ_ONLY);
+
   SetProperty(PROP_LAST_INDEX, TJSValue.CreateNumber(Value));
 end;
 
@@ -2619,7 +3088,7 @@ begin
   if not UsesLastIndex then
     Start := 0;
 
-  const InRange = (Start >= 0) and (Start <= Length(Str));
+  const InRange = (Start <= Length(Str));
   if InRange then
     Result := MatchAt(Str, Integer(Start))
   else
@@ -2631,7 +3100,9 @@ begin
 
   if not Result.Found then
   begin
-    WriteLastIndex(0);
+    if UsesLastIndex then
+      WriteLastIndex(0);
+
     Exit;
   end;
 
@@ -2734,6 +3205,49 @@ begin
     Result := -1;
 end;
 
+{ TJSSymbolImpl }
+
+constructor TJSSymbolImpl.Create(const Description: string; const HasDescription: Boolean);
+begin
+  inherited Create;
+  FId := TJSSymbolRegistry.NextId;
+  FKey := TJSSymbolRegistry.KeyFor(FId);
+  FDescription := Description;
+  FHasDescription := HasDescription;
+  TJSSymbolRegistry.Add(FId, Self);
+end;
+
+constructor TJSSymbolImpl.CreateWellKnown(const Which: TJSWellKnownSymbol);
+begin
+  inherited Create;
+  FId := Ord(Which) + 1;
+  FKey := TJSSymbolRegistry.WellKnownKey(Which);
+  FDescription := TJSSymbolRegistry.WellKnownDescription(Which);
+  FHasDescription := True;
+  TJSSymbolRegistry.Add(FId, Self);
+end;
+
+destructor TJSSymbolImpl.Destroy;
+begin
+  TJSSymbolRegistry.Remove(FId);
+  inherited;
+end;
+
+function TJSSymbolImpl.GetKey: string;
+begin
+  Result := FKey;
+end;
+
+function TJSSymbolImpl.GetDescription: string;
+begin
+  Result := FDescription;
+end;
+
+function TJSSymbolImpl.GetHasDescription: Boolean;
+begin
+  Result := FHasDescription;
+end;
+
 { TJSPrimitiveWrapperImpl }
 
 constructor TJSPrimitiveWrapperImpl.Create(const Primitive: TJSValue);
@@ -2753,6 +3267,8 @@ begin
     Result := CLASS_NAME_STRING
   else if FPrimitive.IsNumber then
     Result := CLASS_NAME_NUMBER
+  else if FPrimitive.IsSymbol then
+    Result := CLASS_NAME_SYMBOL
   else
     Result := CLASS_NAME_BOOLEAN;
 end;

@@ -10,69 +10,41 @@ uses
 type
   TJSPatternOperations = class
   private
-    class function CollectMatches(const Str: string; const Pattern: IJSRegExp): TArray<TJSRegExpMatch>; static;
     class function IsTemplateDigit(const Text: string; const Position: Integer): Boolean; static;
     class function TryParseGroupNumber(const Text: string; const Position: Integer; const GroupCount: Integer;
-                                    out Number: Integer; out Consumed: Integer): Boolean; static;
-    class function ExpandTemplate(const Template: string; const Str: string; const Found: TJSRegExpMatch): string; static;
-    class function ReplacementFor(const Str: string; const Found: TJSRegExpMatch; const ReplaceValue: TJSValue;
-                                  const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string; static;
-    class function BuildReplaced(const Str: string; const Matches: TArray<TJSRegExpMatch>; const ReplaceValue: TJSValue;
-                                 const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string; static;
-    class function CallReplacer(const Func: IJSFunction; const Str: string; const Found: TJSRegExpMatch;
-                                const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string; static;
+                                       out Number: Integer; out Consumed: Integer): Boolean; static;
+    class function TryExpandNamedCapture(const Template: string; const Position: Integer;
+                                         const NamedCaptures: IJSObject; const Limits: TJSLimits;
+                                         out Expansion: string; out Consumed: Integer): Boolean; static;
+    class function ReplacementFor(const Str: string; const Position: Integer; const SearchText: string;
+                                  const ReplaceValue: TJSValue; const Executor: TJSCallbackExecutor;
+                                  const Limits: TJSLimits): string; static;
+    class function FindMatchPositions(const Str: string; const SearchText: string;
+                                      const ReplaceAll: Boolean): TArray<Integer>; static;
 
   public
-    class function Replace(const Str: string; const Pattern: IJSRegExp; const ReplaceValue: TJSValue;
-                           const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string; static;
+    class function GetSubstitution(const Template: string; const Str: string; const Position: Integer;
+                                   const Matched: string; const Captures: TArray<TJSValue>;
+                                   const NamedCaptures: IJSObject; const Limits: TJSLimits): string; static;
     class function ReplaceText(const Str: string; const SearchText: string; const ReplaceValue: TJSValue;
-                               const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string; static;
-    class function Split(const Str: string; const Pattern: IJSRegExp; const Limit: Int64;
-                         const Limits: TJSLimits): IJSArray; static;
+                               const ReplaceAll: Boolean; const Executor: TJSCallbackExecutor;
+                               const Limits: TJSLimits): string; static;
+    class function SplitText(const Str: string; const Separator: string; const Limit: Int64;
+                             const Limits: TJSLimits): IJSArray; static;
   end;
 
 implementation
 
 uses
   System.SysUtils,
-  System.Math;
+  System.Math,
+  JS4D.Conversions;
 
 const
   DOLLAR = '$';
+  NAMED_CAPTURE_START = '<';
+  NAMED_CAPTURE_END = '>';
   MAX_GROUP_DIGITS = 2;
-
-class function TJSPatternOperations.CollectMatches(const Str: string; const Pattern: IJSRegExp): TArray<TJSRegExpMatch>;
-begin
-  Result := nil;
-
-  if not Pattern.Global then
-  begin
-    const Found = Pattern.MatchAt(Str, 0);
-    if Found.Found then
-      Result := [Found]
-    else
-      Pattern.LastIndex := 0;
-
-    Exit;
-  end;
-
-  Pattern.LastIndex := 0;
-
-  var Position := 0;
-  while Position <= Length(Str) do
-  begin
-    const Found = Pattern.MatchAt(Str, Position);
-    if not Found.Found then
-      Break;
-
-    Result := Result + [Found];
-
-    Position := Found.Index + Found.Length;
-    const IsEmptyMatch = (Found.Length = 0);
-    if IsEmptyMatch then
-      Inc(Position);
-  end;
-end;
 
 class function TJSPatternOperations.IsTemplateDigit(const Text: string; const Position: Integer): Boolean;
 begin
@@ -80,8 +52,8 @@ begin
 end;
 
 class function TJSPatternOperations.TryParseGroupNumber(const Text: string; const Position: Integer;
-                                                     const GroupCount: Integer; out Number: Integer;
-                                                     out Consumed: Integer): Boolean;
+                                                        const GroupCount: Integer; out Number: Integer;
+                                                        out Consumed: Integer): Boolean;
 begin
   Number := 0;
   Consumed := 0;
@@ -113,60 +85,93 @@ begin
   end;
 end;
 
-class function TJSPatternOperations.ExpandTemplate(const Template: string; const Str: string;
-                                                   const Found: TJSRegExpMatch): string;
+class function TJSPatternOperations.TryExpandNamedCapture(const Template: string; const Position: Integer;
+                                                          const NamedCaptures: IJSObject; const Limits: TJSLimits;
+                                                          out Expansion: string; out Consumed: Integer): Boolean;
+begin
+  Expansion := '';
+  Consumed := 0;
+
+  const NameStart = Position + 2;
+  const NameEnd = Pos(NAMED_CAPTURE_END, Template, NameStart);
+  const IsComplete = Assigned(NamedCaptures) and (NameEnd > 0);
+  if not IsComplete then
+    Exit(False);
+
+  const CaptureName = Copy(Template, NameStart, NameEnd - NameStart);
+  const Capture = NamedCaptures.GetProperty(CaptureName);
+  if not Capture.IsUndefined then
+    Expansion := TJSConversions.ToText(Capture, Limits);
+
+  Consumed := NameEnd - Position + 1;
+  Result := True;
+end;
+
+class function TJSPatternOperations.GetSubstitution(const Template: string; const Str: string; const Position: Integer;
+                                                    const Matched: string; const Captures: TArray<TJSValue>;
+                                                    const NamedCaptures: IJSObject;
+                                                    const Limits: TJSLimits): string;
 begin
   var Builder := TStringBuilder.Create;
   try
-    var Position := 1;
-    while Position <= Length(Template) do
+    var Cursor := 1;
+    while Cursor <= Length(Template) do
     begin
-      const Current = Template[Position];
-      const HasNext = (Position < Length(Template));
+      const Current = Template[Cursor];
+      const HasNext = (Cursor < Length(Template));
       if (Current <> DOLLAR) or (not HasNext) then
       begin
         Builder.Append(Current);
-        Inc(Position);
+        Inc(Cursor);
         Continue;
       end;
 
-      const Selector = Template[Position + 1];
+      const Selector = Template[Cursor + 1];
       var GroupNumber: Integer;
-      var DigitCount: Integer;
+      var Consumed: Integer;
+      var Expansion: string;
 
       if Selector = DOLLAR then
       begin
         Builder.Append(DOLLAR);
-        Inc(Position, 2);
+        Inc(Cursor, 2);
       end
       else if Selector = '&' then
       begin
-        Builder.Append(Copy(Str, Found.Index + 1, Found.Length));
-        Inc(Position, 2);
+        Builder.Append(Matched);
+        Inc(Cursor, 2);
       end
       else if Selector = '`' then
       begin
-        Builder.Append(Copy(Str, 1, Found.Index));
-        Inc(Position, 2);
+        Builder.Append(Copy(Str, 1, Position));
+        Inc(Cursor, 2);
       end
       else if Selector = '''' then
       begin
-        Builder.Append(Copy(Str, Found.Index + Found.Length + 1, MaxInt));
-        Inc(Position, 2);
+        Builder.Append(Copy(Str, Position + Length(Matched) + 1, MaxInt));
+        Inc(Cursor, 2);
       end
-      else if TryParseGroupNumber(Template, Position + 1, Length(Found.Captures), GroupNumber, DigitCount) then
+      else if TryParseGroupNumber(Template, Cursor + 1, Length(Captures), GroupNumber, Consumed) then
       begin
-        const Capture = Found.Captures[GroupNumber - 1];
+        const Capture = Captures[GroupNumber - 1];
         if not Capture.IsUndefined then
-          Builder.Append(Capture.ToString);
+          Builder.Append(TJSConversions.ToText(Capture, Limits));
 
-        Inc(Position, 1 + DigitCount);
+        Inc(Cursor, 1 + Consumed);
+      end
+      else if (Selector = NAMED_CAPTURE_START) and
+              TryExpandNamedCapture(Template, Cursor, NamedCaptures, Limits, Expansion, Consumed) then
+      begin
+        Builder.Append(Expansion);
+        Inc(Cursor, Consumed);
       end
       else
       begin
         Builder.Append(Current);
-        Inc(Position);
+        Inc(Cursor);
       end;
+
+      Limits.EnsureStringLength(Builder.Length);
     end;
 
     Result := Builder.ToString;
@@ -175,46 +180,68 @@ begin
   end;
 end;
 
-class function TJSPatternOperations.CallReplacer(const Func: IJSFunction; const Str: string;
-                                                 const Found: TJSRegExpMatch; const Executor: TJSCallbackExecutor;
-                                                 const Limits: TJSLimits): string;
-begin
-  const MatchedText = Copy(Str, Found.Index + 1, Found.Length);
-  var CallArgs: TArray<TJSValue> := [TJSValue.CreateString(MatchedText)];
-  CallArgs := CallArgs + Found.Captures;
-  CallArgs := CallArgs + [TJSValue.CreateNumber(Found.Index), TJSValue.CreateString(Str)];
-
-  const Returned = Executor(Func, CallArgs);
-
-  Result := Returned.ToLimitedString(Limits);
-end;
-
-class function TJSPatternOperations.ReplacementFor(const Str: string; const Found: TJSRegExpMatch;
-                                                   const ReplaceValue: TJSValue; const Executor: TJSCallbackExecutor;
+class function TJSPatternOperations.ReplacementFor(const Str: string; const Position: Integer;
+                                                   const SearchText: string; const ReplaceValue: TJSValue;
+                                                   const Executor: TJSCallbackExecutor;
                                                    const Limits: TJSLimits): string;
 begin
-  var Func: IJSFunction;
-  const IsCallback = ReplaceValue.IsFunction and Supports(ReplaceValue.ToObject, IJSFunction, Func);
-  if IsCallback then
-    Exit(CallReplacer(Func, Str, Found, Executor, Limits));
+  const Func = TJSConversions.AsFunction(ReplaceValue);
+  if Assigned(Func) then
+  begin
+    const CallArgs: TArray<TJSValue> = [TJSValue.CreateString(SearchText), TJSValue.CreateNumber(Position),
+                                        TJSValue.CreateString(Str)];
 
-  Result := ExpandTemplate(ReplaceValue.ToLimitedString(Limits), Str, Found);
+    Exit(TJSConversions.ToText(Executor(Func, CallArgs), Limits));
+  end;
+
+  Result := GetSubstitution(ReplaceValue.AsString, Str, Position, SearchText, nil, nil, Limits);
 end;
 
-class function TJSPatternOperations.BuildReplaced(const Str: string; const Matches: TArray<TJSRegExpMatch>;
-                                                  const ReplaceValue: TJSValue; const Executor: TJSCallbackExecutor;
-                                                  const Limits: TJSLimits): string;
+class function TJSPatternOperations.FindMatchPositions(const Str: string; const SearchText: string;
+                                                       const ReplaceAll: Boolean): TArray<Integer>;
 begin
+  Result := nil;
+
+  const IsEmptySearch = SearchText.IsEmpty;
+  if IsEmptySearch then
+  begin
+    const LastPosition = IfThen(ReplaceAll, Length(Str), 0);
+    for var Position := 0 to LastPosition do
+    begin
+      Result := Result + [Position];
+    end;
+
+    Exit;
+  end;
+
+  var Found := Pos(SearchText, Str);
+  while Found > 0 do
+  begin
+    Result := Result + [Found - 1];
+    if not ReplaceAll then
+      Break;
+
+    Found := Pos(SearchText, Str, Found + Length(SearchText));
+  end;
+end;
+
+class function TJSPatternOperations.ReplaceText(const Str: string; const SearchText: string;
+                                                const ReplaceValue: TJSValue; const ReplaceAll: Boolean;
+                                                const Executor: TJSCallbackExecutor;
+                                                const Limits: TJSLimits): string;
+begin
+  const Positions = FindMatchPositions(Str, SearchText, ReplaceAll);
+
   var Builder := TStringBuilder.Create;
   try
     var Copied := 0;
-    for var Found in Matches do
+    for var Position in Positions do
     begin
-      Builder.Append(Copy(Str, Copied + 1, Found.Index - Copied));
-      Builder.Append(ReplacementFor(Str, Found, ReplaceValue, Executor, Limits));
+      Builder.Append(Copy(Str, Copied + 1, Position - Copied));
+      Builder.Append(ReplacementFor(Str, Position, SearchText, ReplaceValue, Executor, Limits));
       Limits.EnsureStringLength(Builder.Length);
 
-      Copied := Found.Index + Found.Length;
+      Copied := Position + Length(SearchText);
     end;
 
     Builder.Append(Copy(Str, Copied + 1, MaxInt));
@@ -226,85 +253,43 @@ begin
   end;
 end;
 
-class function TJSPatternOperations.Replace(const Str: string; const Pattern: IJSRegExp; const ReplaceValue: TJSValue;
-                                            const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string;
-begin
-  const Matches = CollectMatches(Str, Pattern);
-
-  Result := BuildReplaced(Str, Matches, ReplaceValue, Executor, Limits);
-end;
-
-class function TJSPatternOperations.ReplaceText(const Str: string; const SearchText: string; const ReplaceValue: TJSValue;
-                                                const Executor: TJSCallbackExecutor; const Limits: TJSLimits): string;
-begin
-  const Position = Pos(SearchText, Str);
-  if Position = 0 then
-    Exit(Str);
-
-  var Found := Default(TJSRegExpMatch);
-  Found.Found := True;
-  Found.Index := Position - 1;
-  Found.Length := Length(SearchText);
-
-  Result := BuildReplaced(Str, [Found], ReplaceValue, Executor, Limits);
-end;
-
-class function TJSPatternOperations.Split(const Str: string; const Pattern: IJSRegExp; const Limit: Int64;
-                                          const Limits: TJSLimits): IJSArray;
+class function TJSPatternOperations.SplitText(const Str: string; const Separator: string; const Limit: Int64;
+                                              const Limits: TJSLimits): IJSArray;
 begin
   Result := TJSArray.Create;
 
   if Limit = 0 then
     Exit;
 
-  const Size = Length(Str);
-  if Size = 0 then
+  if Separator.IsEmpty then
   begin
-    if not Pattern.MatchAt(Str, 0).Found then
-      Result.Push(TJSValue.CreateString(Str));
+    const PartCount = Min(Length(Str), Limit);
+    Limits.EnsureArrayLength(PartCount);
+
+    for var Index := 1 to PartCount do
+    begin
+      Result.Push(TJSValue.CreateString(Str[Index]));
+    end;
 
     Exit;
   end;
 
-  var PieceStart := 0;
-  var Cursor := 0;
-
-  while Cursor < Size do
+  var PieceStart := 1;
+  while Result.Length < Limit do
   begin
-    const Found = Pattern.MatchAt(Str, Cursor);
-    const MatchesInside = Found.Found and (Found.Index < Size);
-    if not MatchesInside then
-      Break;
-
-    const MatchEnd = Min(Found.Index + Found.Length, Size);
-    const IsEmptyAtPieceStart = (MatchEnd = PieceStart);
-    if IsEmptyAtPieceStart then
-    begin
-      Cursor := Found.Index + 1;
-      Continue;
-    end;
+    const NextPosition = Pos(Separator, Str, PieceStart);
 
     Limits.EnsureArrayLength(Int64(Result.Length) + 1);
-    const Piece = Copy(Str, PieceStart + 1, Found.Index - PieceStart);
-    Result.Push(TJSValue.CreateString(Piece));
-    if Result.Length = Limit then
-      Exit;
 
-    for var Capture in Found.Captures do
+    if NextPosition = 0 then
     begin
-      Limits.EnsureArrayLength(Int64(Result.Length) + 1);
-      Result.Push(Capture);
-      if Result.Length = Limit then
-        Exit;
+      Result.Push(TJSValue.CreateString(Copy(Str, PieceStart, MaxInt)));
+      Break;
     end;
 
-    PieceStart := MatchEnd;
-    Cursor := PieceStart;
+    Result.Push(TJSValue.CreateString(Copy(Str, PieceStart, NextPosition - PieceStart)));
+    PieceStart := NextPosition + Length(Separator);
   end;
-
-  Limits.EnsureArrayLength(Int64(Result.Length) + 1);
-  const LastPiece = Copy(Str, PieceStart + 1, MaxInt);
-  Result.Push(TJSValue.CreateString(LastPiece));
 end;
 
 end.

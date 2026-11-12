@@ -8,7 +8,9 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Errors,
-  JS4D.ArrayLike;
+  JS4D.ArrayLike,
+  JS4D.BinaryData,
+  JS4D.IteratorProtocol;
 
 type
   TJSArrayIteratorKind = (Keys, Values, Entries);
@@ -24,12 +26,9 @@ type
   // object on every step, so elements added before the iterator is exhausted are still visited.
   TJSArrayIterator = class(TJSObjectImpl, IJSArrayIterator)
   private
-    const
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
-
     var
       FTarget: IJSObject;
+      FTypedArray: IJSTypedArray;
       FKind: TJSArrayIteratorKind;
       FArrayPrototype: IJSObject;
       FObjectPrototype: IJSObject;
@@ -51,12 +50,16 @@ type
 
 implementation
 
+const
+  DETACHED_TYPED_ARRAY = 'Cannot perform %ArrayIteratorPrototype%.next on a detached ArrayBuffer';
+
 constructor TJSArrayIterator.Create(const Target: IJSObject; const Kind: TJSArrayIteratorKind;
                                     const ArrayPrototype: IJSObject; const ObjectPrototype: IJSObject);
 begin
   inherited Create;
 
   FTarget := Target;
+  Supports(Target, IJSTypedArray, FTypedArray);
   FKind := Kind;
   FArrayPrototype := ArrayPrototype;
   FObjectPrototype := ObjectPrototype;
@@ -67,11 +70,23 @@ begin
   if FIsExhausted then
     Exit(False);
 
-  Result := FPosition < TJSArrayLike.ToLength(FTarget);
+  if Assigned(FTypedArray) then
+  begin
+    if FTypedArray.IsDetached then
+      raise TJSErrorFactory.TypeError(DETACHED_TYPED_ARRAY);
+
+    Result := FPosition < FTypedArray.Length;
+  end
+  else
+  begin
+    Result := FPosition < TJSArrayLike.ToLength(FTarget);
+  end;
+
   if not Result then
   begin
     FIsExhausted := True;
     FTarget := nil;
+    FTypedArray := nil;
   end;
 end;
 
@@ -118,12 +133,7 @@ end;
 
 function TJSArrayIterator.CreateResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
 begin
-  const ResultObject = TJSObject.Create;
-  ResultObject.Prototype := FObjectPrototype;
-  ResultObject.SetProperty(VALUE_PROPERTY, Value);
-  ResultObject.SetProperty(DONE_PROPERTY, TJSValue.CreateBoolean(IsDone));
-
-  Result := TJSValue.CreateObject(ResultObject);
+  Result := TJSIteratorResults.CreateResult(FObjectPrototype, Value, IsDone);
 end;
 
 end.

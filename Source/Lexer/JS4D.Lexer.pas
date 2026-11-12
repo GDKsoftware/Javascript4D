@@ -1149,6 +1149,16 @@ begin
     ASTERISK:
       begin
         Advance;
+        if CurrentChar = ASTERISK then
+        begin
+          Advance;
+          if CurrentChar = EQUAL_CHAR then
+          begin
+            Advance;
+            Exit(TJSToken.Create(TJSTokenType.ExponentAssign, '**=', FLine, StartColumn));
+          end;
+          Exit(TJSToken.Create(TJSTokenType.Exponent, '**', FLine, StartColumn));
+        end;
         if CurrentChar = EQUAL_CHAR then
         begin
           Advance;

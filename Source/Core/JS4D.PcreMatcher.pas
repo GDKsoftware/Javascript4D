@@ -24,7 +24,8 @@ type
     class function NextClassState(const Current: Char; const InsideClass: Boolean): Boolean; static;
 
   public
-    constructor Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean);
+    constructor Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
+                       const UtfMode: Boolean);
     destructor Destroy; override;
 
     function TryMatch(const Subject: string; const Start: Integer): Boolean;
@@ -50,11 +51,15 @@ const
   MAX_QUANTIFIER_DIGITS = 5;
   ESCAPE_LENGTH = 2;
 
-constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean);
+constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
+                                  const UtfMode: Boolean);
 begin
   inherited Create;
   FPattern := ClampQuantifierBounds(Pattern);
-  FOptions := PCRE_UTF8 or PCRE_NEWLINE_ANY or PCRE_JAVASCRIPT_COMPAT or PCRE_DOLLAR_ENDONLY;
+  FOptions := PCRE_NEWLINE_ANY or PCRE_JAVASCRIPT_COMPAT or PCRE_DOLLAR_ENDONLY;
+
+  if UtfMode then
+    FOptions := FOptions or PCRE_UTF8;
 
   if IgnoreCase then
     FOptions := FOptions or PCRE_CASELESS;

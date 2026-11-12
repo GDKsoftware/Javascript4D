@@ -32,7 +32,8 @@ type
 
   public
     class function ToDefinition(const Value: TJSValue): TJSPropertyDefinition; static;
-    class function ToDescriptorObject(const Descriptor: TJSPropertyDescriptor): IJSObject; static;
+    class function ToDescriptorObject(const Descriptor: TJSPropertyDescriptor;
+                                      const ObjectPrototype: IJSObject): IJSObject; static;
     class function WithCheckedLength(const Target: IJSObject; const Name: string;
                                      const Definition: TJSPropertyDefinition;
                                      const Limits: TJSLimits): TJSPropertyDefinition; static;
@@ -45,6 +46,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectKeys,
   JS4D.ArrayLike;
 
 class function TJSPropertyDescriptors.ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean;
@@ -91,9 +93,11 @@ begin
     raise TJSErrorFactory.TypeError(MIXED_DESCRIPTOR);
 end;
 
-class function TJSPropertyDescriptors.ToDescriptorObject(const Descriptor: TJSPropertyDescriptor): IJSObject;
+class function TJSPropertyDescriptors.ToDescriptorObject(const Descriptor: TJSPropertyDescriptor;
+                                                         const ObjectPrototype: IJSObject): IJSObject;
 begin
   Result := TJSObject.Create;
+  Result.Prototype := ObjectPrototype;
 
   if Descriptor.IsAccessor then
   begin
@@ -125,12 +129,10 @@ begin
   if not SetsArrayLength then
     Exit;
 
-  const RequestedLength = TJSArrayLike.ToNumber(Definition.Value);
+  const RequestedLength = TJSArray.CoerceLength(Definition.Value);
   Result.Value := TJSValue.CreateNumber(RequestedLength);
 
-  const IsStorableLength = (not IsNaN(RequestedLength)) and (RequestedLength >= 0) and (RequestedLength <= MaxInt);
-  if IsStorableLength then
-    Limits.EnsureArrayLength(Trunc(RequestedLength));
+  Limits.EnsureArrayLength(RequestedLength);
 end;
 
 class procedure TJSPropertyDescriptors.Define(const Target: IJSObject; const Name: string;
@@ -156,7 +158,7 @@ begin
   var Names: TArray<string> := nil;
   var Definitions: TArray<TJSPropertyDefinition> := nil;
 
-  for var Name in Source.GetOwnPropertyNames do
+  for var Name in TJSObjectKeys.All(Source) do
   begin
     const Descriptor = Source.GetOwnPropertyDescriptor(Name);
     if not Descriptor.Enumerable then
@@ -177,7 +179,7 @@ class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not Target.TryGetPropertyDescriptor(Name, Descriptor) then
-    Exit(Target.IsExtensible);
+    Exit(Target.IsExtensible or TJSIntegerIndexedKeys.IsInvalidIndexKey(Target, Name));
 
   if Descriptor.IsAccessor then
     Exit(Descriptor.Setter.IsFunction);
