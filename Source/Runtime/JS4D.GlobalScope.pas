@@ -6,6 +6,7 @@ interface
 
 uses
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.AST,
   JS4D.ObjectScope,
@@ -224,7 +225,10 @@ end;
 
 procedure TJSGlobalScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
 begin
-  FGlobalObject.SetProperty(Name, Value);
+  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
+    Exit;
+
+  FGlobalObject.DefineProperty(Name, TJSPropertyDescriptor.Create(Value));
 end;
 
 function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;

@@ -62,7 +62,6 @@ symbols-as-weakmap-keys
 
 # Collections and objects
 __getter__
-__proto__
 __setter__
 array-grouping
 cross-realm

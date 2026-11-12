@@ -97,6 +97,7 @@
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.SlotMap.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.PropertyKey.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.BigNatural.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
@@ -192,6 +193,11 @@
         <DCCReference Include="JS4D.Tests.TypedArrays.pas"/>
         <DCCReference Include="JS4D.Tests.SparseArrays.pas"/>
         <DCCReference Include="JS4D.Tests.Proxy.pas"/>
+        <DCCReference Include="JS4D.Tests.PropertyKeys.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayConversion.pas"/>
+        <DCCReference Include="JS4D.Tests.DeepPrototypeChains.pas"/>
+        <DCCReference Include="JS4D.Tests.ProtoAccessor.pas"/>
+        <DCCReference Include="JS4D.Tests.ProxyLimits.pas"/>
         <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>

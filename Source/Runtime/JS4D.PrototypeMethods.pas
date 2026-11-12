@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors,
   JS4D.ArgumentsObject,
@@ -655,6 +656,9 @@ begin
     begin
       Result := ObjectValueOf(This);
     end);
+
+  const ValueOfFunction = PrototypeObj.GetOwnPropertyDescriptor(METHOD_VALUE_OF).Value.ToObject;
+  (ValueOfFunction as TJSFunctionImpl).IntrinsicRole := TJSIntrinsicRole.ObjectValueOf;
 
   DefineMethod(PrototypeObj, METHOD_IS_PROTOTYPE_OF,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue

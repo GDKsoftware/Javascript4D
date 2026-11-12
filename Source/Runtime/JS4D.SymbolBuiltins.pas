@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
@@ -47,7 +48,7 @@ type
 
     function ToText(const Value: TJSValue): string;
     class function ThisSymbolValue(const This: IJSObject; const MethodName: string): TJSValue; static;
-    class procedure DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                  const IsConfigurable: Boolean); static;
     function CreateMethod(const Name: string; const ParameterCount: Integer;
                           const Method: TNativeFunction): IJSFunction;
@@ -133,7 +134,7 @@ begin
   Result := Wrapper.Primitive;
 end;
 
-class procedure TJSSymbolBuiltins.DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+class procedure TJSSymbolBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                                const IsConfigurable: Boolean);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);

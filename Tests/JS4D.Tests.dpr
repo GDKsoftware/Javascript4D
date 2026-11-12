@@ -16,6 +16,7 @@ uses
   JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
   JS4D.SlotMap in '..\Source\Core\JS4D.SlotMap.pas',
+  JS4D.PropertyKey in '..\Source\Core\JS4D.PropertyKey.pas',
   JS4D.BigNatural in '..\Source\Core\JS4D.BigNatural.pas',
   JS4D.DecimalConversion in '..\Source\Core\JS4D.DecimalConversion.pas',
   JS4D.NumberFormat in '..\Source\Core\JS4D.NumberFormat.pas',
@@ -113,6 +114,11 @@ uses
   JS4D.Tests.TypedArrays in 'JS4D.Tests.TypedArrays.pas',
   JS4D.Tests.Proxy in 'JS4D.Tests.Proxy.pas',
   JS4D.Tests.SparseArrays in 'JS4D.Tests.SparseArrays.pas',
+  JS4D.Tests.PropertyKeys in 'JS4D.Tests.PropertyKeys.pas',
+  JS4D.Tests.ArrayConversion in 'JS4D.Tests.ArrayConversion.pas',
+  JS4D.Tests.DeepPrototypeChains in 'JS4D.Tests.DeepPrototypeChains.pas',
+  JS4D.Tests.ProtoAccessor in 'JS4D.Tests.ProtoAccessor.pas',
+  JS4D.Tests.ProxyLimits in 'JS4D.Tests.ProxyLimits.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
 var

@@ -6,7 +6,8 @@ interface
 
 uses
   System.SysUtils,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  JS4D.PropertyKey;
 
 type
   TJSASTNode = class;
@@ -131,6 +132,7 @@ type
   TJSIdentifier = class(TJSExpression)
   private
     FName: string;
+    FKey: TJSPropertyKey;
 
   public
     BindingCache: TJSBindingCache;
@@ -138,6 +140,8 @@ type
     constructor Create(const Name: string);
 
     property Name: string read FName;
+    // The name as a property key, for member access like object.name.
+    property Key: TJSPropertyKey read FKey;
   end;
 
   TJSLiteralType = (
@@ -946,6 +950,7 @@ constructor TJSIdentifier.Create(const Name: string);
 begin
   inherited Create(TJSASTNodeType.Identifier);
   FName := Name;
+  FKey := Name;
 end;
 
 { TJSLiteral }

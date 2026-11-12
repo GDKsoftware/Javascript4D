@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.ProxyObjects;
@@ -44,10 +45,10 @@ type
                           const Method: TNativeFunction): IJSFunction;
     function DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
                           const Method: TNativeFunction): IJSFunction;
-    procedure DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+    procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                            const IsWritable: Boolean);
-    procedure DefineConstant(const Target: IJSObject; const Key: string; const Value: TJSValue);
-    procedure DefineGetter(const Target: IJSObject; const Key: string; const FunctionName: string;
+    procedure DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
+    procedure DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const FunctionName: string;
                            const Method: TNativeFunction);
     procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
     procedure DefineSpeciesGetter(const Constructor_: IJSObject);
@@ -142,7 +143,7 @@ begin
   DefineMember(Target, Name, TJSValue.CreateObject(Result), True);
 end;
 
-procedure TJSBinarySupport.DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+procedure TJSBinarySupport.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                         const IsWritable: Boolean);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);
@@ -152,7 +153,7 @@ begin
   Target.DefineProperty(Key, Descriptor);
 end;
 
-procedure TJSBinarySupport.DefineConstant(const Target: IJSObject; const Key: string; const Value: TJSValue);
+procedure TJSBinarySupport.DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);
   Descriptor.Writable := False;
@@ -161,7 +162,7 @@ begin
   Target.DefineProperty(Key, Descriptor);
 end;
 
-procedure TJSBinarySupport.DefineGetter(const Target: IJSObject; const Key: string; const FunctionName: string;
+procedure TJSBinarySupport.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const FunctionName: string;
                                         const Method: TNativeFunction);
 begin
   var Descriptor := Default(TJSPropertyDescriptor);

@@ -148,7 +148,7 @@ begin
           Result.FNumber := Value.AsNumber;
       end;
     TJSValueType.String_  : Result.FText := Value.AsString;
-    TJSValueType.Symbol   : Result.FText := Value.AsSymbolKey;
+    TJSValueType.Symbol   : Result.FText := Value.AsSymbolKey.Stored;
     TJSValueType.Object_  : Result.FIdentity := Pointer(Value.AsObject as IInterface);
   end;
 

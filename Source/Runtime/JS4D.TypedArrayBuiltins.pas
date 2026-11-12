@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.BinaryData,
   JS4D.BinarySupport,
