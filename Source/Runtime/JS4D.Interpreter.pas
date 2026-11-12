@@ -868,6 +868,23 @@ const
   CONSTRUCTOR_DATE = 'Date';
 
   STEP_CHECK_INTERVAL = 1024;
+  OPERATORS_OF_NUMBERS = [TJSBinaryOperator.Add,
+                          TJSBinaryOperator.Subtract,
+                          TJSBinaryOperator.Multiply,
+                          TJSBinaryOperator.Divide,
+                          TJSBinaryOperator.Modulo,
+                          TJSBinaryOperator.Exponent,
+                          TJSBinaryOperator.LessThan,
+                          TJSBinaryOperator.LessThanOrEqual,
+                          TJSBinaryOperator.GreaterThan,
+                          TJSBinaryOperator.GreaterThanOrEqual,
+                          TJSBinaryOperator.BitwiseAnd,
+                          TJSBinaryOperator.BitwiseOr,
+                          TJSBinaryOperator.BitwiseXor,
+                          TJSBinaryOperator.LeftShift,
+                          TJSBinaryOperator.RightShift,
+                          TJSBinaryOperator.UnsignedRightShift];
+
   EMPTY_COMPLETION_NODES = [TJSASTNodeType.VariableDeclaration,
                             TJSASTNodeType.FunctionDeclaration,
                             TJSASTNodeType.EmptyStatement];
@@ -2069,104 +2086,113 @@ begin
     Exit;
   end;
 
-  if Node.IsRemembered then
-  begin
-    if Node = FBypassNode then
-      FBypassNode := nil
-    else
-      Exit(VisitRemembered(Node));
-  end;
+  var Kind := Node.DispatchType;
 
-  case Node.NodeType of
-    TJSASTNodeType.Program_:
-      Result := VisitProgram(TJSProgram(Node));
-    TJSASTNodeType.BlockStatement:
-      Result := VisitBlockStatement(TJSBlockStatement(Node));
-    TJSASTNodeType.VariableDeclaration:
-      Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
-    TJSASTNodeType.FunctionDeclaration:
-      Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
-    TJSASTNodeType.ExpressionStatement:
-      Result := VisitExpressionStatement(TJSExpressionStatement(Node));
-    TJSASTNodeType.IfStatement:
-      Result := VisitIfStatement(TJSIfStatement(Node));
-    TJSASTNodeType.WhileStatement:
-      Result := VisitWhileStatement(TJSWhileStatement(Node));
-    TJSASTNodeType.DoWhileStatement:
-      Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
-    TJSASTNodeType.WithStatement:
-      Result := VisitWithStatement(TJSWithStatement(Node));
-    TJSASTNodeType.LabeledStatement:
-      Result := VisitLabeledStatement(TJSLabeledStatement(Node));
-    TJSASTNodeType.ForStatement:
-      Result := VisitForStatement(TJSForStatement(Node));
-    TJSASTNodeType.ForInStatement:
-      Result := VisitForInStatement(TJSForInStatement(Node));
-    TJSASTNodeType.ForOfStatement:
-      Result := VisitForOfStatement(TJSForOfStatement(Node));
-    TJSASTNodeType.ReturnStatement:
-      Result := VisitReturnStatement(TJSReturnStatement(Node));
-    TJSASTNodeType.BreakStatement:
-      Result := VisitBreakStatement(TJSBreakStatement(Node));
-    TJSASTNodeType.ContinueStatement:
-      Result := VisitContinueStatement(TJSContinueStatement(Node));
-    TJSASTNodeType.SwitchStatement:
-      Result := VisitSwitchStatement(TJSSwitchStatement(Node));
-    TJSASTNodeType.ThrowStatement:
-      Result := VisitThrowStatement(TJSThrowStatement(Node));
-    TJSASTNodeType.TryStatement:
-      Result := VisitTryStatement(TJSTryStatement(Node));
-    TJSASTNodeType.EmptyStatement:
-      Result := TJSValue.CreateUndefined;
-    TJSASTNodeType.DebuggerStatement:
-      Result := TJSValue.CreateUndefined;
-    TJSASTNodeType.Identifier:
-      Result := VisitIdentifier(TJSIdentifier(Node));
-    TJSASTNodeType.Literal:
-      Result := VisitLiteral(TJSLiteral(Node));
-    TJSASTNodeType.ArrayExpression:
-      Result := VisitArrayExpression(TJSArrayExpression(Node));
-    TJSASTNodeType.ObjectExpression:
-      Result := VisitObjectExpression(TJSObjectExpression(Node));
-    TJSASTNodeType.FunctionExpression:
-      Result := VisitFunctionExpression(TJSFunctionExpression(Node));
-    TJSASTNodeType.UnaryExpression:
-      Result := VisitUnaryExpression(TJSUnaryExpression(Node));
-    TJSASTNodeType.BinaryExpression:
-      Result := VisitBinaryExpression(TJSBinaryExpression(Node));
-    TJSASTNodeType.LogicalExpression:
-      Result := VisitLogicalExpression(TJSLogicalExpression(Node));
-    TJSASTNodeType.AssignmentExpression:
-      Result := VisitAssignmentExpression(TJSAssignmentExpression(Node));
-    TJSASTNodeType.UpdateExpression:
-      Result := VisitUpdateExpression(TJSUpdateExpression(Node));
-    TJSASTNodeType.ConditionalExpression:
-      Result := VisitConditionalExpression(TJSConditionalExpression(Node));
-    TJSASTNodeType.CallExpression:
-      Result := VisitCallExpression(TJSCallExpression(Node));
-    TJSASTNodeType.MemberExpression:
-      Result := VisitMemberExpression(TJSMemberExpression(Node));
-    TJSASTNodeType.NewExpression:
-      Result := VisitNewExpression(TJSNewExpression(Node));
-    TJSASTNodeType.SequenceExpression:
-      Result := VisitSequenceExpression(TJSSequenceExpression(Node));
-    TJSASTNodeType.ThisExpression:
-      Result := VisitThisExpression(TJSThisExpression(Node));
-    TJSASTNodeType.ClassExpression:
-      Result := VisitClassExpression(TJSClassExpression(Node), EMPTY_NAME);
-    TJSASTNodeType.NewTargetExpression:
-      Result := VisitNewTargetExpression;
-    TJSASTNodeType.TemplateLiteral:
-      Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
-    TJSASTNodeType.TemplateObject:
-      Result := VisitTemplateObject(TJSTemplateObject(Node));
-    TJSASTNodeType.YieldExpression:
-      Result := VisitYield(TJSYieldExpression(Node));
-    TJSASTNodeType.AwaitExpression:
-      Result := VisitAwait(TJSAwaitExpression(Node));
-    else
-      Result := TJSValue.CreateUndefined;
-  end;
+  repeat
+    case Kind of
+      TJSASTNodeType.Program_:
+        Result := VisitProgram(TJSProgram(Node));
+      TJSASTNodeType.BlockStatement:
+        Result := VisitBlockStatement(TJSBlockStatement(Node));
+      TJSASTNodeType.VariableDeclaration:
+        Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
+      TJSASTNodeType.FunctionDeclaration:
+        Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
+      TJSASTNodeType.ExpressionStatement:
+        Result := VisitExpressionStatement(TJSExpressionStatement(Node));
+      TJSASTNodeType.IfStatement:
+        Result := VisitIfStatement(TJSIfStatement(Node));
+      TJSASTNodeType.WhileStatement:
+        Result := VisitWhileStatement(TJSWhileStatement(Node));
+      TJSASTNodeType.DoWhileStatement:
+        Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
+      TJSASTNodeType.WithStatement:
+        Result := VisitWithStatement(TJSWithStatement(Node));
+      TJSASTNodeType.LabeledStatement:
+        Result := VisitLabeledStatement(TJSLabeledStatement(Node));
+      TJSASTNodeType.ForStatement:
+        Result := VisitForStatement(TJSForStatement(Node));
+      TJSASTNodeType.ForInStatement:
+        Result := VisitForInStatement(TJSForInStatement(Node));
+      TJSASTNodeType.ForOfStatement:
+        Result := VisitForOfStatement(TJSForOfStatement(Node));
+      TJSASTNodeType.ReturnStatement:
+        Result := VisitReturnStatement(TJSReturnStatement(Node));
+      TJSASTNodeType.BreakStatement:
+        Result := VisitBreakStatement(TJSBreakStatement(Node));
+      TJSASTNodeType.ContinueStatement:
+        Result := VisitContinueStatement(TJSContinueStatement(Node));
+      TJSASTNodeType.SwitchStatement:
+        Result := VisitSwitchStatement(TJSSwitchStatement(Node));
+      TJSASTNodeType.ThrowStatement:
+        Result := VisitThrowStatement(TJSThrowStatement(Node));
+      TJSASTNodeType.TryStatement:
+        Result := VisitTryStatement(TJSTryStatement(Node));
+      TJSASTNodeType.EmptyStatement:
+        Result := TJSValue.CreateUndefined;
+      TJSASTNodeType.DebuggerStatement:
+        Result := TJSValue.CreateUndefined;
+      TJSASTNodeType.Identifier:
+        Result := VisitIdentifier(TJSIdentifier(Node));
+      TJSASTNodeType.Literal:
+        Result := VisitLiteral(TJSLiteral(Node));
+      TJSASTNodeType.ArrayExpression:
+        Result := VisitArrayExpression(TJSArrayExpression(Node));
+      TJSASTNodeType.ObjectExpression:
+        Result := VisitObjectExpression(TJSObjectExpression(Node));
+      TJSASTNodeType.FunctionExpression:
+        Result := VisitFunctionExpression(TJSFunctionExpression(Node));
+      TJSASTNodeType.UnaryExpression:
+        Result := VisitUnaryExpression(TJSUnaryExpression(Node));
+      TJSASTNodeType.BinaryExpression:
+        Result := VisitBinaryExpression(TJSBinaryExpression(Node));
+      TJSASTNodeType.LogicalExpression:
+        Result := VisitLogicalExpression(TJSLogicalExpression(Node));
+      TJSASTNodeType.AssignmentExpression:
+        Result := VisitAssignmentExpression(TJSAssignmentExpression(Node));
+      TJSASTNodeType.UpdateExpression:
+        Result := VisitUpdateExpression(TJSUpdateExpression(Node));
+      TJSASTNodeType.ConditionalExpression:
+        Result := VisitConditionalExpression(TJSConditionalExpression(Node));
+      TJSASTNodeType.CallExpression:
+        Result := VisitCallExpression(TJSCallExpression(Node));
+      TJSASTNodeType.MemberExpression:
+        Result := VisitMemberExpression(TJSMemberExpression(Node));
+      TJSASTNodeType.NewExpression:
+        Result := VisitNewExpression(TJSNewExpression(Node));
+      TJSASTNodeType.SequenceExpression:
+        Result := VisitSequenceExpression(TJSSequenceExpression(Node));
+      TJSASTNodeType.ThisExpression:
+        Result := VisitThisExpression(TJSThisExpression(Node));
+      TJSASTNodeType.ClassExpression:
+        Result := VisitClassExpression(TJSClassExpression(Node), EMPTY_NAME);
+      TJSASTNodeType.NewTargetExpression:
+        Result := VisitNewTargetExpression;
+      TJSASTNodeType.TemplateLiteral:
+        Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
+      TJSASTNodeType.TemplateObject:
+        Result := VisitTemplateObject(TJSTemplateObject(Node));
+      TJSASTNodeType.YieldExpression:
+        Result := VisitYield(TJSYieldExpression(Node));
+      TJSASTNodeType.AwaitExpression:
+        Result := VisitAwait(TJSAwaitExpression(Node));
+      TJSASTNodeType.Remembered:
+        begin
+          if Node = FBypassNode then
+          begin
+            FBypassNode := nil;
+            Kind := Node.NodeType;
+            Continue;
+          end;
+
+          Result := VisitRemembered(Node);
+        end;
+      else
+        Result := TJSValue.CreateUndefined;
+    end;
+
+    Break;
+  until False;
 end;
 
 function TJSInterpreter.VisitProgram(const Node: TJSProgram): TJSValue;
@@ -5683,7 +5709,11 @@ begin
   const Left = Visit(Node.Left);
   const Right = Visit(Node.Right);
 
-  Result := ApplyBinary(Node, Left, Right);
+  // The arithmetic and relational operators are the common case: they skip the call that tells all operators apart.
+  if Node.Operator in OPERATORS_OF_NUMBERS then
+    Result := TJSOperators.Apply(Node.Operator, Left, Right, FLimits)
+  else
+    Result := ApplyBinary(Node, Left, Right);
 end;
 
 function TJSInterpreter.VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;

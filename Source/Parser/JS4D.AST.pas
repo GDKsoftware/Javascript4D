@@ -73,7 +73,9 @@ type
     NewTargetExpression,
     ClassExpression,
     YieldExpression,
-    AwaitExpression
+    AwaitExpression,
+    // Only a dispatch kind: the nodes that a generator replays carry it instead of their own type.
+    Remembered
   );
 
   TJSASTNode = class
@@ -83,8 +85,10 @@ type
     FColumn: Integer;
     FContainsYield: Boolean;
     FIsRemembered: Boolean;
+    FDispatchType: TJSASTNodeType;
 
     procedure ReleaseDescendants;
+    procedure SetIsRemembered(const Value: Boolean);
 
   protected
     // Moves the child nodes out of the node into the list and clears the fields that held them. A tree is freed
@@ -104,7 +108,10 @@ type
     property ContainsYield: Boolean read FContainsYield write FContainsYield;
     // Set on the nodes of an expression that holds a yield: a generator that is resumed evaluates that expression
     // again and takes the results of the nodes that are already evaluated from its memory.
-    property IsRemembered: Boolean read FIsRemembered write FIsRemembered;
+    property IsRemembered: Boolean read FIsRemembered write SetIsRemembered;
+    // What the interpreter switches on: the type of the node, or Remembered while the node is remembered. This
+    // keeps the check for remembered nodes out of the path that every node takes.
+    property DispatchType: TJSASTNodeType read FDispatchType;
   end;
 
   TJSExpression = class(TJSASTNode)
@@ -1184,6 +1191,17 @@ constructor TJSASTNode.Create(const NodeType: TJSASTNodeType);
 begin
   inherited Create;
   FNodeType := NodeType;
+  FDispatchType := NodeType;
+end;
+
+procedure TJSASTNode.SetIsRemembered(const Value: Boolean);
+begin
+  FIsRemembered := Value;
+
+  if Value then
+    FDispatchType := TJSASTNodeType.Remembered
+  else
+    FDispatchType := FNodeType;
 end;
 
 procedure TJSASTNode.BeforeDestruction;

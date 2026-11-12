@@ -51,6 +51,7 @@ type
     procedure Generator_FollowsSpecification(const Script, Expected: string);
 
     [Test]
+    [TestCase('A generator that runs its own body while evaluating a remembered expression', 'function* g(n) { return (n > 0 ? g(n - 1).next().value : 0) + (yield n); } var it = g(2); var a = it.next().value; var b = it.next(10).value; var r = a + "," + b;~2,11', '~')]
     [TestCase('Yield inside a binary expression', 'function* g() { var x = 1 + (yield 1) * 2; return x; } var it = g(); it.next(); var r = it.next(5).value;~11', '~')]
     [TestCase('Operands before the yield are not evaluated again', 'var log = []; function f(n) { log.push(n); return n; } function* g() { return f(1) + (yield f(2)) + f(3); } var it = g(); it.next(); var v = it.next(10).value; var r = log.join() + ":" + v;~1,2,3:14', '~')]
     [TestCase('The left operand keeps its value', 'var x = 1; function* g() { return x + (yield); } var it = g(); it.next(); x = 100; var r = it.next(1).value;~2', '~')]
