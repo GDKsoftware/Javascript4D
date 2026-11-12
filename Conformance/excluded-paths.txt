@@ -26,12 +26,14 @@ language/statements/generators/
 language/statements/using/
 language/eval-code/direct/gen-
 language/eval-code/direct/async-gen-
+language/eval-code/direct/async-
+language/expressions/object/method-definition/async-super-call-body.js
+language/expressions/object/method-definition/async-super-call-param.js
 language/statements/switch/scope-lex-async-
 language/statements/switch/scope-lex-generator.js
 
 # Built-ins introduced after ES5.1
 built-ins/AbstractModuleSource/
-built-ins/AggregateError/
 built-ins/AsyncDisposableStack/
 built-ins/AsyncFromSyncIteratorPrototype/
 built-ins/AsyncFunction/
@@ -45,7 +47,6 @@ built-ins/FinalizationRegistry/
 built-ins/GeneratorFunction/
 built-ins/GeneratorPrototype/
 built-ins/Iterator/
-built-ins/Promise/
 built-ins/RegExpStringIteratorPrototype/
 built-ins/ShadowRealm/
 built-ins/SharedArrayBuffer/

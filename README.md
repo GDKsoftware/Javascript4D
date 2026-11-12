@@ -13,6 +13,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported yet
 - **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
 - **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
+- **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. Reactions run as microtasks: `Execute` runs every pending job when the script ends (also when it throws), so callbacks have run before it returns. `Engine.RunPendingJobs` runs jobs that are still waiting. The step budget covers the jobs, so a promise loop that never ends raises `EJSStepBudgetExceeded`. Unhandled rejections are ignored
 - **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
 - **Proxy and Reflect**: all proxy traps with their invariants, and every `Reflect` function
 - **ArrayBuffer, DataView and typed arrays**: `ArrayBuffer`, `DataView` with endianness, and all typed array constructors with the `%TypedArray%` methods, `from` and `of`; the host can detach buffers
@@ -281,11 +282,12 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as generators and Promise, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as generators and BigInt, are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
 | built-ins/Array | 2752 | 2748 | 99.9% |
+| built-ins/AggregateError | 23 | 23 | 100.0% |
 | built-ins/ArrayBuffer | 80 | 80 | 100.0% |
 | built-ins/DataView | 376 | 374 | 99.5% |
 | built-ins/Date | 599 | 598 | 99.8% |
@@ -296,6 +298,7 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 | built-ins/Number | 304 | 301 | 99.0% |
 | built-ins/Object | 3313 | 3297 | 99.5% |
 | built-ins/Proxy | 272 | 272 | 100.0% |
+| built-ins/Promise | 642 | 638 | 99.4% |
 | built-ins/Reflect | 153 | 153 | 100.0% |
 | built-ins/RegExp | 804 | 780 | 97.0% |
 | built-ins/Set | 194 | 194 | 100.0% |
@@ -307,7 +310,7 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 | built-ins/WeakSet | 77 | 77 | 100.0% |
 | language/expressions | 4301 | 4276 | 99.4% |
 | language/statements | 3283 | 3262 | 99.4% |
-| **Total** | 22388 | 22251 | 99.4% |
+| **Total** | 23059 | 22922 | 99.4% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

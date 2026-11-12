@@ -39,6 +39,7 @@ uses
   JS4D.CollectionBuiltins,
   JS4D.BinaryBuiltins,
   JS4D.ProxyBuiltins,
+  JS4D.PromiseBuiltins,
   JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
@@ -63,6 +64,7 @@ type
     FCollectionBuiltins: TJSCollectionBuiltins;
     FBinaryBuiltins: TJSBinaryBuiltins;
     FProxyBuiltins: TJSProxyBuiltins;
+    FPromiseBuiltins: TJSPromiseBuiltins;
     FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
@@ -145,6 +147,9 @@ type
     function Evaluate(const Expression: string): TJSValue;
     procedure Cancel;
     procedure CollectGarbage;
+    // Runs the promise jobs that are still waiting. Execute does that itself when a script ends, so a host only
+    // needs this after work that queued jobs outside a script.
+    procedure RunPendingJobs;
 
     procedure RegisterFunction(const Name: string; const Func: TNativeFunction);
     procedure SetVariable(const Name: string; const Value: TJSValue);
@@ -323,11 +328,15 @@ begin
   if Assigned(FCollectionBuiltins) then
     FCollectionBuiltins.ReleaseCollections;
 
+  if Assigned(FPromiseBuiltins) then
+    FPromiseBuiltins.ReleasePromises;
+
   FInterpreter.Free;
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
   FReflectBuiltins.Free;
+  FPromiseBuiltins.Free;
   FProxyBuiltins.Free;
   FBinaryBuiltins.Free;
   FCollectionBuiltins.Free;
@@ -354,6 +363,11 @@ end;
 function TJSEngine.Execute(const Source: string): TJSValue;
 begin
   Result := FInterpreter.Execute(ParseProgram(Source, False, Default(TJSSourceContext)));
+end;
+
+procedure TJSEngine.RunPendingJobs;
+begin
+  FInterpreter.RunPendingJobs;
 end;
 
 procedure TJSEngine.CollectGarbage;
@@ -687,6 +701,9 @@ begin
 
   FBinaryBuiltins := TJSBinaryBuiltins.Create(FInterpreter);
   FBinaryBuiltins.Register;
+
+  FPromiseBuiltins := TJSPromiseBuiltins.Create(FInterpreter);
+  FPromiseBuiltins.Register;
 
   AssignMissingFunctionPrototypes;
 end;

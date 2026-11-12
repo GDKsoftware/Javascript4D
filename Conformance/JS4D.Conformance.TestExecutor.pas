@@ -35,6 +35,7 @@ type
     function CreateEngineFaultResult(const Observed: TObservedError): TVariantResult;
     function RunTestSource(const Session: TTestSession; const TestCase: TTestCase; const Source: string): TVariantResult;
     function JudgeCompletion(const TestCase: TTestCase): TVariantResult;
+    function JudgeAsyncCompletion(const Session: TTestSession): TVariantResult;
     function JudgeError(const TestCase: TTestCase; const Observed: TObservedError): TVariantResult;
     function JudgeNegativeError(const TestCase: TTestCase; const Observed: TObservedError): TVariantResult;
     function CreateResult(const Outcome: TTestOutcome; const Detail: string): TVariantResult;
@@ -52,6 +53,11 @@ implementation
 
 const
   RawFlag = 'raw';
+  AsyncFlag = 'async';
+  DonePrintHandleFile = 'doneprintHandle.js';
+  AsyncCompleteMessage = 'Test262:AsyncTestComplete';
+  AsyncFailurePrefix = 'Test262:AsyncTestFailure:';
+  AsyncNotSignalledDetail = 'async test did not report completion';
   NoStrictFlag = 'noStrict';
   OnlyStrictFlag = 'onlyStrict';
   MaxDetailLength = 160;
@@ -194,6 +200,10 @@ begin
       Session.Run(HarnessSource(BaseFile, Variant));
     end;
 
+    const IsAsync = TestCase.Metadata.HasFlag(AsyncFlag);
+    if IsAsync then
+      Session.Run(HarnessSource(DonePrintHandleFile, Variant));
+
     for var Include in TestCase.Metadata.Includes do
     begin
       Session.Run(HarnessSource(Include, Variant));
@@ -215,7 +225,12 @@ function TTestExecutor.RunTestSource(const Session: TTestSession; const TestCase
 begin
   try
     Session.Run(Source);
-    Result := JudgeCompletion(TestCase);
+
+    const IsAsync = TestCase.Metadata.HasFlag(AsyncFlag);
+    if IsAsync then
+      Result := JudgeAsyncCompletion(Session)
+    else
+      Result := JudgeCompletion(TestCase);
   except
     on E: Exception do
     begin
@@ -223,6 +238,20 @@ begin
       Result := JudgeError(TestCase, Observed);
     end;
   end;
+end;
+
+function TTestExecutor.JudgeAsyncCompletion(const Session: TTestSession): TVariantResult;
+begin
+  for var Line in Session.Printed do
+  begin
+    if Line = AsyncCompleteMessage then
+      Exit(CreateResult(TTestOutcome.Passed, ''));
+
+    if Line.StartsWith(AsyncFailurePrefix) then
+      Exit(CreateResult(TTestOutcome.Failed, Line.Substring(Length(AsyncFailurePrefix)).Trim));
+  end;
+
+  Result := CreateResult(TTestOutcome.Failed, AsyncNotSignalledDetail);
 end;
 
 function TTestExecutor.JudgeCompletion(const TestCase: TTestCase): TVariantResult;

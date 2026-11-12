@@ -125,6 +125,23 @@ type
     [TestCase('Eval inside a method', 'class A { f() { return this; } } class B extends A { m() { return eval("super.f()"); } n() { return eval("() => super.f()"); } } new B().m(); new B().n()();', '#')]
     [TestCase('Class created in a loop', 'var cs = []; for (let i = 0; i < 3; i++) { cs.push(class { static i() { return i; } }); }', '#')]
     [TestCase('Subclass chain of many classes', 'var C = class {}; for (var i = 0; i < 50; i++) { C = class extends C {}; } new C();', '#')]
+    [TestCase('Promise with pending reactions', 'var p = new Promise(function () {}); p.then(function () { return p; }); p.catch(function () {}); p.finally(function () {});', '#')]
+    [TestCase('Resolve functions kept by the script', 'var res, rej; var p = new Promise(function (a, b) { res = a; rej = b; }); p.then(function () { return res; }); p.self = p; p.res = res; p.rej = rej;', '#')]
+    [TestCase('Settled promise holding itself', 'var p = Promise.resolve({}); p.then(function (v) { v.p = p; p.v = v; });', '#')]
+    [TestCase('Promise chain', 'var p = Promise.resolve(1); for (var i = 0; i < 50; i++) { p = p.then(function (v) { return v; }); }', '#')]
+    [TestCase('Long promise chain', 'var p = Promise.resolve(1); for (var i = 0; i < 100000; i++) { p = p.then(function (v) { return v; }); }', '#')]
+    [TestCase('Long chain of pending promises', 'var r; var p = new Promise(function (res) { r = res; }); var q = p; for (var i = 0; i < 100000; i++) { q = q.then(function (v) { return v; }); }', '#')]
+    [TestCase('Thenable resolving a promise', 'var t = { then: function (res) { res(1); }, p: null }; t.p = Promise.resolve(t); t.p.then(function () { return t; });', '#')]
+    [TestCase('Promise combinators', 'Promise.all([1, new Promise(function () {})]); Promise.race([new Promise(function () {})]); Promise.allSettled([Promise.reject(1), 2]); Promise.any([Promise.resolve(1)]); Promise.any([]); Promise.all([Promise.resolve(1)]).then(function (v) { return v; });', '#')]
+    [TestCase('Combinator that never settles', 'var p = new Promise(function () {}); var all = Promise.all([p, p]); all.q = all; var any = Promise.any([p]); any.q = [any, all];', '#')]
+    [TestCase('Rejected combinators', 'Promise.all([Promise.reject(1)]).catch(function () {}); Promise.any([Promise.reject(1), Promise.reject(2)]).catch(function (e) { return e.errors; });', '#')]
+    [TestCase('Promise subclass', 'class P extends Promise {} P.resolve(1).then(function () {}); new P(function (res) { res(1); }).finally(function () {}); P.all([1]);', '#')]
+    [TestCase('Promise finally and with resolvers', 'Promise.resolve(1).finally(function () { return 2; }); Promise.reject(1).finally(function () {}).catch(function () {}); var w = Promise.withResolvers(); w.promise.then(function () {}); w.resolve(w);', '#')]
+    [TestCase('Promise species constructor', 'function C(ex) { ex(function () {}, function () {}); } var p = Promise.resolve(1); p.constructor = { [Symbol.species]: C }; p.then(function () {});', '#')]
+    [TestCase('Promise rejected with a closure over itself', 'var p = Promise.reject(function () { return p; }); p.catch(function (f) { return f; });', '#')]
+    [TestCase('Promise reaction creating promises', 'var f = function () { return Promise.resolve(f); }; Promise.resolve().then(f).then(f);', '#')]
+    [TestCase('Promise try', 'Promise.try(function () { return Promise; }); Promise.try(function () { throw 1; }).catch(function () {});', '#')]
+    [TestCase('AggregateError', 'var e = new AggregateError([1, {}], "m"); AggregateError([1]); e.errors;', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]
@@ -163,6 +180,7 @@ type
     [TestCase('Super call to a non constructor', 'class A {} class B extends A { constructor() { super(); } } Object.setPrototypeOf(B, {}); new B();', '#')]
     [TestCase('Error thrown by a class constructor', 'class A { constructor() { this.f = () => A; throw new Error("x"); } } new A();', '#')]
     [TestCase('Error thrown by the parent constructor', 'class A { constructor() { throw new Error("x"); } } class B extends A { constructor() { var f = () => super(); f(); } } new B();', '#')]
+    [TestCase('Promise jobs pending after a script error', 'Promise.resolve().then(function () { return Promise; }); new Promise(function (res) { res(1); }).then(function () {}); throw new Error("x");', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
   end;
 

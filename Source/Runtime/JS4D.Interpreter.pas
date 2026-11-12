@@ -125,6 +125,9 @@ type
   TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean;
                                            const Context: TJSSourceContext): TJSProgram;
 
+  // Hands every value that an extension of the interpreter keeps outside the scripts to the garbage collector.
+  TJSGCRootProvider = reference to procedure(const MarkValue: TProc<TJSValue>);
+
   TJSBoundFunction = record
     Target: IJSFunction;
     Arguments: TArray<TJSValue>;
@@ -247,6 +250,9 @@ type
     FLimits: TJSLimits;
     FCallDepth: Integer;
     FProgramParser: TJSProgramParser;
+    FGCRootProvider: TJSGCRootProvider;
+    FJobRunner: TProc;
+    FJobDiscarder: TProc;
     FEvalFunction: IJSFunction;
     FDirectEvalCall: Boolean;
     FEvalVariableScope: IJSScope;
@@ -371,6 +377,7 @@ type
                                  const BoundArgs: TArray<TJSValue>): IJSFunction;
 
     procedure BeginExecution;
+    procedure DrainJobs;
     procedure ConsumeStep; inline;
     procedure ReachStepCheckpoint;
     procedure OpenStepSlice;
@@ -548,6 +555,9 @@ type
     destructor Destroy; override;
 
     function Execute(const Program_: TJSProgram): TJSValue;
+    // Runs the pending jobs of the host extensions when no script is running; a script that is running runs them itself.
+    procedure RunPendingJobs;
+    function ExceptionToValue(const Error: Exception): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
@@ -585,6 +595,9 @@ type
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 
+    property GCRootProvider: TJSGCRootProvider read FGCRootProvider write FGCRootProvider;
+    property JobRunner: TProc read FJobRunner write FJobRunner;
+    property JobDiscarder: TProc read FJobDiscarder write FJobDiscarder;
     property GlobalScope: IJSScope read FGlobalScope;
     property GlobalObject: IJSObject read FGlobalObject;
     property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
@@ -1140,6 +1153,9 @@ begin
   FEvalFunction := nil;
   FThrowTypeError := nil;
   FProgramParser := nil;
+  FGCRootProvider := nil;
+  FJobRunner := nil;
+  FJobDiscarder := nil;
 
   FCurrentScope := nil;
   FVarScope := nil;
@@ -1741,7 +1757,24 @@ begin
   FContext := Default(TJSCallContext);
   try
     FCurrentProgram := Program_;
-    Result := Visit(Program_);
+    try
+      Result := Visit(Program_);
+    except
+      on EJSExecutionInterrupted do
+      begin
+        if Assigned(FJobDiscarder) then
+          FJobDiscarder;
+
+        raise;
+      end;
+      on Exception do
+      begin
+        DrainJobs;
+        raise;
+      end;
+    end;
+
+    DrainJobs;
   finally
     FCurrentScope := OuterScope;
     FVarScope := OuterVarScope;
@@ -1751,6 +1784,48 @@ begin
     FContext := OuterContext;
     Dec(FExecutionDepth);
   end;
+end;
+
+procedure TJSInterpreter.DrainJobs;
+begin
+  const IsOutermostScript = (FExecutionDepth = 1);
+  if (not IsOutermostScript) or (not Assigned(FJobRunner)) then
+    Exit;
+
+  try
+    FJobRunner;
+  except
+    on EJSExecutionInterrupted do
+    begin
+      if Assigned(FJobDiscarder) then
+        FJobDiscarder;
+
+      raise;
+    end;
+  end;
+end;
+
+procedure TJSInterpreter.RunPendingJobs;
+begin
+  const IsScriptRunning = (FExecutionDepth > 0);
+  if IsScriptRunning or (not Assigned(FJobRunner)) then
+    Exit;
+
+  BeginExecution;
+  Inc(FExecutionDepth);
+  try
+    DrainJobs;
+  finally
+    Dec(FExecutionDepth);
+  end;
+end;
+
+function TJSInterpreter.ExceptionToValue(const Error: Exception): TJSValue;
+begin
+  if Error is TJSThrowSignal then
+    Exit(TJSThrowSignal(Error).Value);
+
+  Result := CreateErrorValue(Error);
 end;
 
 function TJSInterpreter.ExecuteStatement(const Node: TJSStatement): TJSValue;
@@ -6202,6 +6277,15 @@ begin
     GCMark(ActiveCallee, Live, Work);
     GCMark(ActiveNewTarget, Live, Work);
     GCMarkBinding(ActiveBinding, Live, Work);
+    if Assigned(FGCRootProvider) then
+    begin
+      FGCRootProvider(
+        procedure(Value: TJSValue)
+        begin
+          GCMarkValue(Value, Live, Work);
+        end);
+    end;
+
     for var Func in FFunctionRegistry do
       if Func.IsNative then
         GCMark(Func, Live, Work);

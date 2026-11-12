@@ -90,7 +90,6 @@ SharedArrayBuffer
 uint8array-base64
 
 # Promises, errors and iterators
-AggregateError
 await-dictionary
 error-cause
 error-stack-accessor
@@ -101,12 +100,6 @@ iterator-includes
 iterator-sequencing
 Iterator.prototype.join
 joint-iteration
-Promise
-promise-try
-promise-with-resolvers
-Promise.allSettled
-Promise.any
-Promise.prototype.finally
 
 # Internationalization, Temporal and proposals
 canonical-tz
