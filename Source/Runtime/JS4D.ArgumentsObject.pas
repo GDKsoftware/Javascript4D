@@ -37,6 +37,7 @@ type
     function HasStandardPropertyLookup: Boolean; override;
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
     function GetMappedScope: IJSScope;
+    procedure ReleaseReferences; override;
 
   public
     constructor Create(const Scope: IJSScope; const ParameterNames: TArray<string>; const ArgumentCount: Integer);
@@ -60,6 +61,13 @@ begin
 
   FScope := Scope;
   MapParameters(ParameterNames, ArgumentCount);
+end;
+
+procedure TJSArgumentsObject.ReleaseReferences;
+begin
+  FMappedNames := nil;
+  FScope := nil;
+  inherited;
 end;
 
 function TJSArgumentsObject.GetMappedScope: IJSScope;

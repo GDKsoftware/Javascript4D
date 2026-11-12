@@ -16,6 +16,7 @@ uses
   JS4D.PcreMatcher in '..\Source\Core\JS4D.PcreMatcher.pas',
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
   JS4D.SlotMap in '..\Source\Core\JS4D.SlotMap.pas',
+  JS4D.ObjectHeap in '..\Source\Core\JS4D.ObjectHeap.pas',
   JS4D.PropertyKey in '..\Source\Core\JS4D.PropertyKey.pas',
   JS4D.BigNatural in '..\Source\Core\JS4D.BigNatural.pas',
   JS4D.DecimalConversion in '..\Source\Core\JS4D.DecimalConversion.pas',

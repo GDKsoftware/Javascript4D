@@ -81,6 +81,10 @@ end;
 
 Anything still referenced from a global variable, including closures, survives collection. Only script functions and scopes that the host retains directly (raw values held outside the engine) should not be relied upon across a collection; keep persistent state in globals.
 
+`CollectGarbage` does not reclaim objects that only reference each other (`a.b = b; b.a = a`); in a running engine they live until the engine is freed. Freeing the engine releases all memory of every object it created, whatever the script did with cycles through objects, arrays, Map and Set entries, proxies, typed arrays, promises and generators.
+
+A value that the host still holds when the engine is freed (a `TJSValue` returned by `Evaluate`, for example) keeps its contents, and so does everything it refers to; functions and the collections, promises and generators of the engine are emptied, and a script function from the engine can no longer be called. A cycle that the host keeps holding is not released by the host letting go of it; break the cycle first.
+
 ## Promises and the Job Queue
 
 Promise reactions and the continuations of async functions are jobs in a queue that belongs to the engine. `Execute` runs the queue empty when the script ends, also when the script throws, so `then` callbacks and the code after an `await` have run when `Execute` returns:
@@ -158,7 +162,7 @@ Every JavaScript call recurses in the interpreter, so unbounded recursion overfl
 
 **Checked after the fact.** A `replace` with a regular expression is refused up front when the source length plus the number of matches times the replacement length exceeds the limit, but a replacement that expands `$` patterns is only caught by the check on the finished result. `JSON.parse` does not limit the arrays it builds from its input.
 
-**Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. The engine does not collect reference cycles, so a script that builds one should break it before it ends.
+**Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. A running engine does not collect reference cycles (see Memory Management), but a script can build as many as it likes: freeing the engine breaks every one of them.
 
 **Host-side conversion.** `TJSValue.ToString` is meant for values the host holds. It caps array nesting at the default call depth but does not limit the text length; inside the engine every conversion goes through `ToLimitedString` with the engine's limits.
 

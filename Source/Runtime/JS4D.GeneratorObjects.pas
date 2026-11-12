@@ -65,6 +65,9 @@ type
     procedure EnumerateValue(const Value: TJSValue; const Visit: TProc<IInterface>);
     procedure EnumerateReferences(const Visit: TProc<IInterface>);
 
+  protected
+    procedure ReleaseReferences; override;
+
   public
     constructor Create(const Registry: TJSGeneratorRegistry);
     destructor Destroy; override;
@@ -153,6 +156,12 @@ begin
   FNewTarget := nil;
   FBinding := nil;
   FFunction := nil;
+end;
+
+procedure TJSGeneratorObject.ReleaseReferences;
+begin
+  Finish;
+  inherited;
 end;
 
 procedure TJSGeneratorObject.ForgetAll;

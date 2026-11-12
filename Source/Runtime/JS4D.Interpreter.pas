@@ -12,6 +12,7 @@ uses
   System.Generics.Collections,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ObjectHeap,
   JS4D.AST,
   JS4D.Errors,
   JS4D.Builtins,
@@ -288,6 +289,8 @@ type
     FOrdinaryHasInstance: IJSFunction;
     FArrayConstructor: IJSFunction;
     FArraySpeciesGetter: IJSFunction;
+    FHeap: TJSHeap;
+    FHeapEntries: Integer;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
@@ -710,6 +713,10 @@ type
     procedure RunPendingJobs;
     function ExceptionToValue(const Error: Exception): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
+    // Makes the objects that the code makes from here on belong to this engine, until LeaveHeap restores the heap
+    // that EnterHeap returned.
+    function EnterHeap: TJSHeap;
+    procedure LeaveHeap(const Previous: TJSHeap);
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Method: IJSObject);
@@ -1283,6 +1290,7 @@ end;
 constructor TJSInterpreter.Create;
 begin
   inherited Create;
+  FHeap := TJSHeap.Create;
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
   FGenerators := TJSGeneratorRegistry.Create;
@@ -1298,8 +1306,14 @@ begin
   FLimits := TJSLimits.Default;
   FCallDepth := 0;
   FStackFloor := TJSStackGuard.CurrentFloor;
-  FGlobalObject := TJSObject.Create;
-  FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
+  const PreviousHeap = EnterHeap;
+  try
+    FGlobalObject := TJSObject.Create;
+    FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
+  finally
+    LeaveHeap(PreviousHeap);
+  end;
+
   FGlobalScope := FGlobalBindings;
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
@@ -1360,6 +1374,10 @@ begin
   FFunctionPrototype := nil;
   FRegExpPrototype := nil;
   FSymbolPrototype := nil;
+  FStringPrototype := nil;
+  FNumberPrototype := nil;
+  FBooleanPrototype := nil;
+  FParameterInitScope := nil;
   FIteration := Default(TJSIterationIntrinsics);
   for var Group := Low(TJSIntrinsicGroup) to High(TJSIntrinsicGroup) do
   begin
@@ -1368,6 +1386,8 @@ begin
   FOrdinaryHasInstance := nil;
   FArrayConstructor := nil;
   FArraySpeciesGetter := nil;
+  FHeap.ReleaseAll;
+  FHeap.Free;
   inherited;
 end;
 
@@ -1948,6 +1968,7 @@ begin
   const OuterContext = FContext;
 
   Inc(FExecutionDepth);
+  const PreviousHeap = EnterHeap;
   FCurrentScope := FGlobalScope;
   FVarScope := FGlobalScope;
   FThisValue := nil;
@@ -1980,6 +2001,7 @@ begin
     FThisPrimitive := OuterThisPrimitive;
     FStrictMode := OuterStrictMode;
     FContext := OuterContext;
+    LeaveHeap(PreviousHeap);
     Dec(FExecutionDepth);
   end;
 end;
@@ -2011,9 +2033,11 @@ begin
 
   BeginExecution;
   Inc(FExecutionDepth);
+  const PreviousHeap = EnterHeap;
   try
     DrainJobs;
   finally
+    LeaveHeap(PreviousHeap);
     Dec(FExecutionDepth);
   end;
 end;
@@ -7480,8 +7504,33 @@ begin
     Arr.Prototype := FArrayPrototype;
 end;
 
+function TJSInterpreter.EnterHeap: TJSHeap;
+begin
+  Result := TJSHeap.Switch(FHeap);
+  Inc(FHeapEntries);
+end;
+
+procedure TJSInterpreter.LeaveHeap(const Previous: TJSHeap);
+begin
+  Dec(FHeapEntries);
+  TJSHeap.Switch(Previous);
+end;
+
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
 begin
+  const IsCalledByHost = (FHeapEntries = 0);
+  if IsCalledByHost then
+  begin
+    const PreviousHeap = EnterHeap;
+    try
+      Result := CallFunction(Func, Args, ThisObj);
+    finally
+      LeaveHeap(PreviousHeap);
+    end;
+
+    Exit;
+  end;
+
   const IsClassConstructor = Func.Kind in [TJSFunctionKind.BaseConstructor, TJSFunctionKind.DerivedConstructor];
   if IsClassConstructor then
     raise TJSErrorFactory.TypeError(Format(CLASS_CONSTRUCTOR_CALL, [Func.Name]));

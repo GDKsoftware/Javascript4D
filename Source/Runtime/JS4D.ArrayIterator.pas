@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.PropertyKey,
+  JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.Errors,
   JS4D.ArrayLike,
@@ -40,6 +41,9 @@ type
     function CreateEntry(const Index: Int64): TJSValue;
     function CreateResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+
   public
     constructor Create(const Target: IJSObject; const Kind: TJSArrayIteratorKind;
                        const ArrayPrototype: IJSObject; const ObjectPrototype: IJSObject);
@@ -64,6 +68,15 @@ begin
   FKind := Kind;
   FArrayPrototype := ArrayPrototype;
   FObjectPrototype := ObjectPrototype;
+end;
+
+procedure TJSArrayIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FTarget);
+  ReportReference(Visit, FTypedArray);
+  ReportReference(Visit, FArrayPrototype);
+  ReportReference(Visit, FObjectPrototype);
 end;
 
 function TJSArrayIterator.HasNext: Boolean;

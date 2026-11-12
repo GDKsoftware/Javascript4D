@@ -9,6 +9,8 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
+  JS4D.PropertyKey,
+  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -180,6 +182,51 @@ type
     [TestCase('JSON reviver with a throwing proxy length', 'var bad = new Proxy([], { get: function (t, n) { if (n === "length") { throw 1; } } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); } catch (e) {}', '#')]
     [TestCase('JSON holder with an inherited setter', 'Object.defineProperty(Object.prototype, "", { set: function () { throw 1; }, configurable: true }); JSON.parse("2", function (k, v) { return v; }); JSON.stringify(2, function (k, v) { return v; }); delete Object.prototype[""];', '#')]
     [TestCase('AggregateError', 'var e = new AggregateError([1, {}], "m"); AggregateError([1]); e.errors;', '#')]
+    [TestCase('Two objects referring to each other', 'var a = {}; var b = {}; a.b = b; b.a = a;', '#')]
+    [TestCase('Object holding itself', 'var a = {}; a.a = a; a[Symbol.iterator] = a; Object.defineProperty(a, "g", { value: a });', '#')]
+    [TestCase('Object cycle through an accessor pair', 'var a = {}; var g = {}; Object.defineProperty(a, "x", { get: function () { return 1; }, set: function (v) {}, configurable: true }); a.g = g; g.a = a;', '#')]
+    [TestCase('Cycle through the prototype', 'var a = {}; var b = Object.create(a); a.child = b; var c = {}; c.__proto__ = a; a.c = c;', '#')]
+    [TestCase('Object created without a prototype', 'var a = Object.create(null); var b = Object.create(a); a.b = b; b.a = a;', '#')]
+    [TestCase('Array containing itself', 'var a = []; a.push(a);', '#')]
+    [TestCase('Arrays referring to each other', 'var a = [1, 2]; var b = [a]; a[5] = b; a.length = 10; b.x = a; a.y = b;', '#')]
+    [TestCase('Sparse array holding itself', 'var a = []; a[4294967294] = a; a[3000000000] = [a]; a[0] = a;', '#')]
+    [TestCase('Array of objects pointing back', 'var a = []; for (var i = 0; i < 10; i++) { a.push({ list: a, i: i }); }', '#')]
+    [TestCase('Map with itself as key and value', 'var m = new Map(); m.set(m, m);', '#')]
+    [TestCase('Set and map in a cycle', 'var s = new Set(); var m = new Map(); s.add(m); m.set("s", s); m.set(s, [m, s]);', '#')]
+    [TestCase('Weak collections in a cycle', 'var k = {}; var w = new WeakMap(); w.set(k, w); k.w = w; var ws = new WeakSet(); ws.add(ws); ws.add(k);', '#')]
+    [TestCase('Proxy whose target refers back', 'var t = {}; var p = new Proxy(t, {}); t.p = p;', '#')]
+    [TestCase('Proxy whose handler refers back', 'var h = {}; var p = new Proxy({}, h); h.p = p; h.get = function (t, k) { return p; };', '#')]
+    [TestCase('Proxy that is its own target through an array', 'var a = []; var p = new Proxy(a, {}); a.push(p); p.push(p);', '#')]
+    [TestCase('Revoked proxy in a cycle', 'var o = {}; var r = Proxy.revocable(o, o); o.p = r.proxy; o.r = r; r.revoke();', '#')]
+    [TestCase('Typed array and buffer in a cycle', 'var a = new Uint8Array(4); a.self = a; a.buffer.owner = a; a.view = new DataView(a.buffer); a.view.a = a;', '#')]
+    [TestCase('Error holding itself', 'var e = new Error("x"); e.self = e; e.cause = e; var a = new AggregateError([e]); e.a = a;', '#')]
+    [TestCase('Date regular expression and wrappers holding themselves', 'var d = new Date(0); d.d = d; var r = /a/g; r.r = r; var n = new Number(1); n.n = n; var s = new String("a"); s.s = s; var b = new Boolean(true); b.b = b;', '#')]
+    [TestCase('Arguments object holding itself', '(function () { arguments.a = arguments; arguments[5] = arguments; var o = { args: arguments }; arguments.o = o; })(1, 2);', '#')]
+    [TestCase('Iterator holding its source', 'var a = [1]; var it = a[Symbol.iterator](); a.it = it; it.a = a; var m = new Map([[1, 2]]); var mi = m.keys(); m.mi = mi; mi.m = m; var si = "ab"[Symbol.iterator](); si.si = si;', '#')]
+    [TestCase('Bound function in a cycle', 'var o = {}; var f = function () { return o; }.bind(o); o.f = f; f.o = o;', '#')]
+    [TestCase('Large ring of objects', 'var first = {}; var prev = first; for (var i = 0; i < 100000; i++) { var o = {}; prev.next = o; prev = o; } prev.next = first;', '#')]
+    [TestCase('Large ring of arrays', 'var first = []; var prev = first; for (var i = 0; i < 100000; i++) { var o = []; prev.push(o); prev = o; } prev.push(first);', '#')]
+    [TestCase('Large doubly linked list', 'var head = { prev: null, next: null }; var tail = head; for (var i = 0; i < 100000; i++) { var n = { prev: tail, next: null }; tail.next = n; tail = n; }', '#')]
+    [TestCase('Large graph of mixed objects', 'var all = []; for (var i = 0; i < 20000; i++) { var o = { i: i, list: all, m: new Map(), arr: [] }; o.m.set(o, o); o.arr.push(o); all.push(o); }', '#')]
+    [TestCase('Cycle through closures and objects', 'function make() { var a = {}; var b = { a: a }; a.b = b; a.f = function () { return b; }; return b; } var r = make(); r.self = r; r.g = function () { return r; };', '#')]
+    [TestCase('Cycle through a scope and a plain object', '(function () { var o = {}; var p = { o: o }; o.p = p; })(); { let a = {}; let b = [a]; a.b = b; }', '#')]
+    [TestCase('Objects cycling through class instances', 'class A { constructor() { this.me = this; this.list = [this]; } } var a = new A(); a.other = new A(); a.other.other = a; a.other.back = a.constructor;', '#')]
+    [TestCase('Subclass instances referring to each other', 'class A { constructor(n) { this.n = n; } } class B extends A { constructor() { super(1); this.self = this; } } var b = new B(); var c = new B(); b.c = c; c.b = b; B.prototype.inst = b; A.cache = [b, c];', '#')]
+    [TestCase('Class with static members referring to instances', 'class A { static make() { return new A(); } } A.inst = A.make(); A.inst.cls = A; A.list = [A.inst, A];', '#')]
+    [TestCase('Promise settled with a cycle', 'var o = {}; o.p = Promise.resolve(o); var q = Promise.reject(o); q.catch(function () {}); o.q = q;', '#')]
+    [TestCase('Pending promise referring to its value', 'var o = {}; var p = new Promise(function () {}); o.p = p; p.o = o; p.then(function () { return o; });', '#')]
+    [TestCase('Promises held by objects of a cycle', 'var a = {}; var b = {}; a.b = b; b.a = a; a.p = Promise.resolve(b); b.p = new Promise(function (res) { res(a); });', '#')]
+    [TestCase('Suspended generator holding a cycle', 'function* g() { var a = {}; var b = [a]; a.b = b; yield a; yield b; } var it = g(); it.next(); it.o = it;', '#')]
+    [TestCase('Generator objects in a cycle', 'function* g(o) { yield o; } var a = {}; var b = { a: a }; a.b = b; a.it = g(b); a.it.next(); b.it = g(a);', '#')]
+    [TestCase('Cycle reachable from the global object', 'globalThis.self = globalThis; var g = { g: globalThis }; g.g.g = g;', '#')]
+    [TestCase('Cycle hanging from Object prototype', 'var a = {}; a.a = a; Object.prototype.hook = a;', '#')]
+    [TestCase('Cycle hanging from Array prototype', 'var b = [1]; b.push(b); Array.prototype.other = b;', '#')]
+    [TestCase('Cycle hanging from Function prototype', 'var a = {}; a.a = a; Function.prototype.f = [a];', '#')]
+    [TestCase('Cycle hanging from Map prototype', 'var a = {}; a.a = a; Map.prototype.m = new Map([[a, a]]);', '#')]
+    [TestCase('Cycle hanging from Promise prototype', 'var a = {}; a.a = a; Promise.prototype.p = a;', '#')]
+    [TestCase('Cycle through a built-in constructor', 'var a = {}; a.ctor = Array; Array.cache = a; a.proto = Object.getPrototypeOf(a); Object.cache = [a]; Error.cache = new Error("x");', '#')]
+    [TestCase('Cycles hanging from every built-in after using the features', 'new Proxy({}, {}); new Proxy(function () {}, {}); Promise.resolve(1).then(function () {}); function* g() { yield 1; } g().next(); (async function () { await 1; })(); new Uint8Array(2); new DataView(new ArrayBuffer(2)); /a/g.exec("a"); new Date(); JSON.stringify({ a: [1] }); Reflect.ownKeys({}); Symbol("x"); "x".split(""); [].concat([1]).map(function (x) { return x; }); new Map([[1, 2]]).keys().next(); new Set([1]).entries().next(); new WeakMap(); (1).toFixed(2); String(true); var a = {}; a.a = a; var names = Object.getOwnPropertyNames(globalThis); for (var i = 0; i < names.length; i++) { var c = globalThis[names[i]]; if (typeof c === "function") { try { c.__cycle = [a]; if (c.prototype) { c.prototype.__cycle = [a]; } } catch (e) {} } } Object.getPrototypeOf(function* () {}).__cycle = a; Object.getPrototypeOf(async function () {}).__cycle = a; Object.getPrototypeOf([][Symbol.iterator]()).__cycle = a; Object.getPrototypeOf(new Map().keys()).__cycle = a; Object.getPrototypeOf(Int8Array).prototype.__cycle = a; String.prototype.__cycle = a; Number.prototype.__cycle = a; Boolean.prototype.__cycle = a; Symbol.prototype.__cycle = a;', '#')]
+    [TestCase('Async function holding a cycle', 'var gate = new Promise(function () {}); async function f() { var a = {}; a.a = a; await gate; return a; } var o = { p: f() }; o.o = o;', '#')]
     procedure Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 
     [Test]
@@ -236,7 +283,17 @@ type
     [TestCase('Long chain with a pending await', 'var f = eval("(async function () { return (await 1)" + "+1".repeat(100000) + "; })"); f();', '#')]
     [TestCase('Source that nests too deeply', 'for (var i = 0; i < 3; i++) { try { eval("{".repeat(100000) + "}".repeat(100000)); } catch (e) { } }', '#')]
     [TestCase('Statement nesting that is parsed', 'eval("if (1) ".repeat(900) + "1;");', '#')]
+    [TestCase('Objects of a cycle when the script fails', 'var a = {}; var b = [a, new Map([[a, a]])]; a.b = b; var p = new Proxy(a, {}); a.p = p; throw new Error("x");', '#')]
     procedure Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
+
+    [Test]
+    procedure Engine_HostHeldObject_KeepsItsContentsAfterDestruction;
+
+    [Test]
+    procedure Engine_HostHeldCycle_KeepsItsContentsAfterDestruction;
+
+    [Test]
+    procedure Engine_HostHeldArrayAndProxy_KeepTheirContentsAfterDestruction;
   end;
 
 implementation
@@ -244,7 +301,6 @@ implementation
 const
   WARM_UP_RUNS = 2;
   MEASURED_RUNS = 5;
-  TOLERATED_BYTES = 8 * 1024;
 
 function TEngineLifetimeTests.AllocatedBytes: Int64;
 begin
@@ -297,14 +353,78 @@ procedure TEngineLifetimeTests.Engine_AfterDestruction_ReleasesAllMemory(const S
 begin
   const LeakedBytes = BytesLeakedByEngines(Script, False);
 
-  Assert.IsTrue(LeakedBytes < TOLERATED_BYTES, Format('Leaked %d bytes', [LeakedBytes]));
+  Assert.IsTrue(LeakedBytes = 0, Format('Leaked %d bytes', [LeakedBytes]));
 end;
 
 procedure TEngineLifetimeTests.Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
 begin
   const LeakedBytes = BytesLeakedByEngines(Script, True);
 
-  Assert.IsTrue(LeakedBytes < TOLERATED_BYTES, Format('Leaked %d bytes', [LeakedBytes]));
+  Assert.IsTrue(LeakedBytes = 0, Format('Leaked %d bytes', [LeakedBytes]));
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldObject_KeepsItsContentsAfterDestruction;
+begin
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Held := Engine.Evaluate('({ name: "held", list: [1, 2, { deep: true }], next: { n: 5 } })');
+  finally
+    Engine.Free;
+  end;
+
+  const Subject = Held.ToObject;
+  const List = Subject.GetProperty('list').ToObject;
+  const Deep = List.GetProperty('2').ToObject;
+  const Next = Subject.GetProperty('next').ToObject;
+
+  Assert.AreEqual('held', Subject.GetProperty('name').ToString);
+  Assert.AreEqual('3', List.GetProperty('length').ToString);
+  Assert.AreEqual('true', Deep.GetProperty('deep').ToString);
+  Assert.AreEqual('5', Next.GetProperty('n').ToString);
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldCycle_KeepsItsContentsAfterDestruction;
+begin
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Held := Engine.Evaluate('var a = { id: 1 }; var b = { id: 2, a: a }; a.b = b; a');
+  finally
+    Engine.Free;
+  end;
+
+  const First = Held.ToObject;
+  const Second = First.GetProperty('b').ToObject;
+  const Back = Second.GetProperty('a').ToObject;
+
+  Assert.AreEqual('2', Second.GetProperty('id').ToString);
+  Assert.AreEqual('1', Back.GetProperty('id').ToString);
+
+  First.SetProperty('b', TJSValue.CreateUndefined);
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldArrayAndProxy_KeepTheirContentsAfterDestruction;
+begin
+  var HeldArray: TJSValue;
+  var HeldProxy: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    HeldArray := Engine.Evaluate('[1, [2, 3], { k: "v" }]');
+    HeldProxy := Engine.Evaluate('new Proxy({ x: 7 }, {})');
+  finally
+    Engine.Free;
+  end;
+
+  const Items = HeldArray.ToObject;
+  const Inner = Items.GetProperty('1').ToObject;
+  const Record_ = Items.GetProperty('2').ToObject;
+  const Proxied = HeldProxy.ToObject;
+
+  Assert.AreEqual('3', Items.GetProperty('length').ToString);
+  Assert.AreEqual('3', Inner.GetProperty('1').ToString);
+  Assert.AreEqual('v', Record_.GetProperty('k').ToString);
+  Assert.AreEqual('7', Proxied.GetProperty('x').ToString);
 end;
 
 end.

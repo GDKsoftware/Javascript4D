@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.IteratorProtocol,
   JS4D.OrderedStore;
@@ -45,6 +46,9 @@ type
     function GetKind: TJSCollectionKind;
     function GetStore: TJSOrderedStore;
 
+  protected
+    procedure ReleaseReferences; override;
+
   public
     constructor Create(const Kind: TJSCollectionKind; const Registry: TJSCollectionRegistry);
     destructor Destroy; override;
@@ -80,6 +84,9 @@ type
     function Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
     procedure Finish;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+
   public
     constructor Create(const Collection: IJSCollection; const Kind: TJSCollectionIterationKind;
                        const ArrayPrototype: IJSObject; const ObjectPrototype: IJSObject);
@@ -108,6 +115,12 @@ begin
     FRegistry.Remove(Self);
 
   FStore.Free;
+  inherited;
+end;
+
+procedure TJSCollectionObject.ReleaseReferences;
+begin
+  FStore.Clear;
   inherited;
 end;
 
@@ -188,6 +201,14 @@ destructor TJSCollectionIterator.Destroy;
 begin
   FCursor.Free;
   inherited;
+end;
+
+procedure TJSCollectionIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FCollection);
+  ReportReference(Visit, FArrayPrototype);
+  ReportReference(Visit, FObjectPrototype);
 end;
 
 function TJSCollectionIterator.GetSourceKind: TJSCollectionKind;

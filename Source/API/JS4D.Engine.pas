@@ -317,7 +317,13 @@ begin
   FPrograms := TList<TJSProgram>.Create;
   FOnConsoleOutput := nil;
   FInterpreter.RegisterEval(ParseProgram);
-  RegisterBuiltInFunctions;
+
+  const PreviousHeap = FInterpreter.EnterHeap;
+  try
+    RegisterBuiltInFunctions;
+  finally
+    FInterpreter.LeaveHeap(PreviousHeap);
+  end;
 end;
 
 destructor TJSEngine.Destroy;
@@ -335,7 +341,6 @@ begin
   if Assigned(FPromiseBuiltins) then
     FPromiseBuiltins.ReleasePromises;
 
-  FInterpreter.Free;
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
@@ -351,6 +356,7 @@ begin
   FStringPatternMethods.Free;
   FSymbolBuiltins.Free;
   FArrayIteratorPrototype := nil;
+  FInterpreter.Free;
   inherited;
 end;
 

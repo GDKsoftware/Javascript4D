@@ -76,6 +76,7 @@ type
   protected
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
+    procedure ReleaseReferences; override;
 
   public
     constructor Create(const Registry: TJSPromiseRegistry);
@@ -163,6 +164,12 @@ procedure TJSPromiseObject.ReleaseHeldValues;
 begin
   ReleaseNested;
   Reset;
+end;
+
+procedure TJSPromiseObject.ReleaseReferences;
+begin
+  ReleaseHeldValues;
+  inherited;
 end;
 
 procedure TJSPromiseObject.Reset;

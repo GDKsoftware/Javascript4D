@@ -113,6 +113,7 @@
         <DCCReference Include="..\..\Source\Core\JS4D.LocaleNumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.SlotMap.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.ObjectHeap.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.PropertyKey.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.SymbolRegistry.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.StackGuard.pas"/>

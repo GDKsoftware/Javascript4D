@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.PropertyKey,
+  JS4D.ObjectHeap,
   JS4D.Types;
 
 type
@@ -111,6 +112,9 @@ type
     function GetByteOffset: Integer;
     function GetByteLength: Integer;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+
   public
     constructor Create(const Buffer: IJSArrayBuffer; const ByteOffset: Integer; const ByteLength: Integer);
   end;
@@ -135,6 +139,7 @@ type
 
   protected
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
 
   private
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
@@ -369,6 +374,12 @@ begin
   FByteLength := ByteLength;
 end;
 
+procedure TJSDataViewObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FBuffer);
+end;
+
 function TJSDataViewObject.GetBuffer: IJSArrayBuffer;
 begin
   Result := FBuffer;
@@ -396,6 +407,12 @@ begin
   FBuffer := Buffer;
   FByteOffset := ByteOffset;
   FLength := Length;
+end;
+
+procedure TJSTypedArrayObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FBuffer);
 end;
 
 function TJSTypedArrayObject.GetKind: TJSElementKind;

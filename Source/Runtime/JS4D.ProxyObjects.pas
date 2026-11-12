@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   JS4D.PropertyKey,
+  JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.Errors,
   JS4D.ObjectOperations;
@@ -27,6 +28,9 @@ type
   TJSConstructorFunction = class(TJSFunctionImpl, IJSNativeConstructor)
   private
     FHandler: TJSConstructHandler;
+
+  protected
+    procedure ReleaseReferences; override;
 
   public
     constructor CreateConstructor(const Name: string; const Func: TNativeFunction;
@@ -62,7 +66,7 @@ type
     destructor Destroy; override;
   end;
 
-  TJSProxyRuntime = class(TInterfacedObject, IJSProxyRuntime)
+  TJSProxyRuntime = class(TJSHeapObject, IJSProxyRuntime)
   private
     const
       MAX_NESTED_OPERATIONS = 200;
@@ -77,6 +81,10 @@ type
 
     function GetObjectPrototype: IJSObject;
     function GetArrayPrototype: IJSObject;
+
+  protected
+    procedure ReleaseReferences; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
 
   public
     constructor Create(const ObjectPrototype: IJSObject; const ArrayPrototype: IJSObject;
@@ -171,6 +179,8 @@ type
     destructor Destroy; override;
 
     procedure Revoke;
+    // Revokes the proxy and lets go of the runtime it shares with the other proxies of its engine.
+    procedure Release;
     function IsRevoked: Boolean;
     procedure RequireLive(const Operation: string);
     // Hands the target and the handler over to Pending when nothing else holds this core, so that releasing a
@@ -198,6 +208,7 @@ type
     function GetProxyHandler: IJSObject;
 
     property Target: IJSObject read FTarget;
+    property Runtime: IJSProxyRuntime read FRuntime;
   end;
 
   TJSProxyObject = class(TJSObjectImpl, IJSProxy, IJSIntegerIndexedKeys)
@@ -214,6 +225,8 @@ type
     function KeepsPlainProperties: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
+    procedure ReleaseReferences; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
 
   public
     constructor Create(const Core: TJSProxyCore);
@@ -256,6 +269,7 @@ type
     function KeepsPlainProperties: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
+    procedure ReleaseReferences; override;
 
   public
     constructor Create(const Core: TJSProxyCore; const IsConstructorTarget: Boolean);
@@ -342,6 +356,12 @@ begin
   FHandler := Handler;
 end;
 
+procedure TJSConstructorFunction.ReleaseReferences;
+begin
+  FHandler := nil;
+  inherited;
+end;
+
 destructor TJSConstructorFunction.Destroy;
 begin
   FHandler := nil;
@@ -373,6 +393,18 @@ begin
   FObjectPrototype := nil;
   FArrayPrototype := nil;
   inherited;
+end;
+
+procedure TJSProxyRuntime.ReleaseReferences;
+begin
+  FObjectPrototype := nil;
+  FArrayPrototype := nil;
+end;
+
+procedure TJSProxyRuntime.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  ReportReference(Visit, FObjectPrototype);
+  ReportReference(Visit, FArrayPrototype);
 end;
 
 function TJSProxyRuntime.GetObjectPrototype: IJSObject;
@@ -482,6 +514,12 @@ begin
   FTarget := nil;
   FTargetFunction := nil;
   FHandler := nil;
+end;
+
+procedure TJSProxyCore.Release;
+begin
+  Revoke;
+  FRuntime := nil;
 end;
 
 function TJSProxyCore.IsRevoked: Boolean;
@@ -1268,6 +1306,22 @@ begin
   Result := TJSValue.CreateObject(Self);
 end;
 
+procedure TJSProxyObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  const Handler = FCore.GetProxyHandler;
+
+  ReportReference(Visit, FCore.Target);
+  ReportReference(Visit, Handler);
+  ReportReference(Visit, FCore.Runtime);
+end;
+
+procedure TJSProxyObject.ReleaseReferences;
+begin
+  FCore.Release;
+  inherited;
+end;
+
 function TJSProxyObject.HoldsNested: Boolean;
 begin
   Result := (Assigned(FCore) and FCore.HoldsOnlyItsTargets) or inherited HoldsNested;
@@ -1442,6 +1496,12 @@ begin
     Exit(FCore.Construct(Args, NewTarget));
 
   Result := FCore.Construct(Args, Self);
+end;
+
+procedure TJSProxyFunction.ReleaseReferences;
+begin
+  FCore.Release;
+  inherited;
 end;
 
 function TJSProxyFunction.HoldsNested: Boolean;

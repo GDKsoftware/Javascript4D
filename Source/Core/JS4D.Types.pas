@@ -11,7 +11,8 @@ uses
   JS4D.PcreMatcher,
   JS4D.SlotMap,
   JS4D.PropertyKey,
-  JS4D.SymbolRegistry;
+  JS4D.SymbolRegistry,
+  JS4D.ObjectHeap;
 
 type
   TJSValueType = (
@@ -454,7 +455,7 @@ type
     class function IsInvalidIndexKey(const Start: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
-  TJSObjectImpl = class(TInterfacedObject, IJSObject)
+  TJSObjectImpl = class(TJSHeapObject, IJSObject)
   private
     FProperties: TJSPropertyMap;
     FOrderedKeys: TList<string>;
@@ -519,6 +520,9 @@ type
     procedure DetachNested(const Pending: TList<IJSObject>); virtual;
     procedure ReleaseNested;
     function HoldsExclusivePrototype: Boolean;
+    procedure ReleaseReferences; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+    class procedure ReportValue(const Visit: TJSHeapVisitor; const Value: TJSValue); static;
 
   public
     constructor Create;
@@ -578,6 +582,8 @@ type
     FFrame: IJSFrame;
 
   protected
+    procedure ReleaseReferences; override;
+    function IsReleasedWithEngine: Boolean; override;
     function GetName: string;
     procedure SetName(const Value: string);
     function GetParameters: TArray<string>;
@@ -683,6 +689,8 @@ type
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
+    procedure ReleaseReferences; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
     function GetLength: Integer;
     function GetLogicalLength: Int64;
     function GetElement(const Index: Integer): TJSValue;
@@ -1691,6 +1699,41 @@ begin
   end;
 end;
 
+procedure TJSObjectImpl.ReleaseReferences;
+begin
+  ReleaseNested;
+
+  FPrototypeImpl := nil;
+  FPrototype := nil;
+
+  FProperties.Clear;
+  FOrderedKeys.Clear;
+
+  if Assigned(FSymbols) then
+    FSymbols.Clear;
+end;
+
+procedure TJSObjectImpl.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  ReportReference(Visit, FPrototype);
+
+  for var Position := 0 to FProperties.Count - 1 do
+  begin
+    const Slot = FProperties.SlotAt(Position);
+    if not Slot.IsAccessor then
+      ReportValue(Visit, Slot.Value);
+  end;
+end;
+
+class procedure TJSObjectImpl.ReportValue(const Visit: TJSHeapVisitor; const Value: TJSValue);
+begin
+  if not Value.IsObject then
+    Exit;
+
+  const Referenced = Value.ToObject;
+  ReportReference(Visit, Referenced);
+end;
+
 destructor TJSObjectImpl.Destroy;
 begin
   ReleaseNested;
@@ -2518,6 +2561,20 @@ begin
   FFrame := nil;
 end;
 
+function TJSFunctionImpl.IsReleasedWithEngine: Boolean;
+begin
+  Result := True;
+end;
+
+procedure TJSFunctionImpl.ReleaseReferences;
+begin
+  FClosureScope := nil;
+  FLexicalThis := nil;
+  FNativeFunction := nil;
+  ReleaseCapturedContext;
+  inherited;
+end;
+
 function TJSFunctionImpl.GetHomeObject: IJSObject;
 begin
   Result := FHomeObject;
@@ -3246,6 +3303,27 @@ begin
   end;
 
   inherited DetachNested(Pending);
+end;
+
+procedure TJSArrayImpl.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+
+  for var Element in FElements do
+  begin
+    ReportValue(Visit, Element);
+  end;
+end;
+
+procedure TJSArrayImpl.ReleaseReferences;
+begin
+  inherited;
+
+  FElements.Clear;
+  FSparseLength := 0;
+
+  if Assigned(FHoles) then
+    FHoles.Clear;
 end;
 
 destructor TJSArrayImpl.Destroy;
