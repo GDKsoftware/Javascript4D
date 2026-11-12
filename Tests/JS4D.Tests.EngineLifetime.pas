@@ -344,7 +344,6 @@ type
     [TestCase('Class instance', 'class A { get v() { return 1; } }; new A()', '#')]
     [TestCase('Object with accessors', '({ get a() { return 1; }, set a(v) {}, b: [1] })', '#')]
     [TestCase('Boxed symbol', 'Object(Symbol("s"))', '#')]
-    [TestCase('Cycle', 'var a = { n: 1 }; a.a = a; a', '#')]
     procedure Engine_HostHeldObject_ReadingPropertiesAfterDestruction_DoesNotCrash(const Script: string);
 
     [Test]
@@ -352,6 +351,9 @@ type
 
     [Test]
     procedure Engine_HostHeldCycle_KeepsItsContentsAfterDestruction;
+
+    [Test]
+    procedure Engine_HostHeldSelfReference_KeepsItsContentsAfterDestruction;
 
     [Test]
     procedure Engine_HostHeldArrayAndProxy_KeepTheirContentsAfterDestruction;
@@ -565,6 +567,24 @@ begin
   Assert.AreEqual('1', Back.GetProperty('id').ToString);
 
   First.SetProperty('b', TJSValue.CreateUndefined);
+end;
+
+procedure TEngineLifetimeTests.Engine_HostHeldSelfReference_KeepsItsContentsAfterDestruction;
+begin
+  var Held: TJSValue;
+  const Engine = TJSEngine.Create;
+  try
+    Held := Engine.Evaluate('var a = { n: 1 }; a.a = a; a');
+  finally
+    Engine.Free;
+  end;
+
+  const Subject = Held.ToObject;
+  const Itself = Subject.GetProperty('a').ToObject;
+
+  Assert.AreEqual('1', Itself.GetProperty('n').ToString);
+
+  Subject.SetProperty('a', TJSValue.CreateUndefined);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldArrayAndProxy_KeepTheirContentsAfterDestruction;
