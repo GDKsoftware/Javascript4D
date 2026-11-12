@@ -148,9 +148,14 @@ type
   TJSMemberReference = record
     Base: TJSValue;
     Key: TJSValue;
-    KeyText: TJSPropertyKey;
+    NamedKey: PJSPropertyKey;
+    ComputedKey: TJSPropertyKey;
     HasKeyText: Boolean;
     IsSuper: Boolean;
+
+    // The key of the node for a name, the evaluated key for a computed member. Not a copy: a copy of the key
+    // costs a string reference count on every property access.
+    function KeyPointer: PJSPropertyKey; inline;
   end;
 
   // Not reference counted: the callee, new target and binding outlive the call that stores them here.
@@ -212,6 +217,7 @@ type
     Items: TArray<TJSValue>;
     Position: Integer;
 
+    function ReadNamedElement(const Source: IJSObject): TJSValue;
     function HasNext: Boolean;
     function Next: TJSValue;
     function Remaining: TArray<TJSValue>;
@@ -632,6 +638,7 @@ type
     function VisitCallExpression(const Node: TJSCallExpression): TJSValue;
     function VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
     procedure RequireObjectCoercible(const Value: TJSValue; const PropName: string);
+    procedure RequireCoercibleBase(const Reference: TJSMemberReference);
     function ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
     function DescribeReferenceKey(const Reference: TJSMemberReference): string;
     function ToPropertyKey(const Key: TJSValue): TJSPropertyKey;
@@ -1189,6 +1196,12 @@ begin
   Result := (Position < Length(Items));
 end;
 
+// Kept apart from Next so that the property key made from the index is not set up for every element.
+function TJSIterationSource.ReadNamedElement(const Source: IJSObject): TJSValue;
+begin
+  Result := Source.GetProperty(TJSArrayLike.IndexName(Position));
+end;
+
 function TJSIterationSource.Next: TJSValue;
 begin
   if Assigned(Protocol) then
@@ -1203,11 +1216,11 @@ begin
       if Elements.HasElement(Position) then
         Result := Elements.GetElement(Position)
       else
-        Result := Elements.GetProperty(TJSArrayLike.IndexName(Position));
+        Result := ReadNamedElement(Elements);
     end
     else if Assigned(ArrayLike) then
     begin
-      Result := ArrayLike.GetProperty(TJSArrayLike.IndexName(Position));
+      Result := ReadNamedElement(ArrayLike);
     end
     else
     begin
@@ -6693,6 +6706,21 @@ begin
     raise TJSErrorFactory.TypeError(Format(CANNOT_ACCESS_PROPERTY, [PropName]));
 end;
 
+function TJSMemberReference.KeyPointer: PJSPropertyKey;
+begin
+  if Assigned(NamedKey) then
+    Exit(NamedKey);
+
+  Result := @ComputedKey;
+end;
+
+// The description of the key is only built for the error, not for every property access.
+procedure TJSInterpreter.RequireCoercibleBase(const Reference: TJSMemberReference);
+begin
+  if Reference.Base.IsNullOrUndefined then
+    RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
+end;
+
 function TJSInterpreter.VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
 begin
   var Reference := ResolveMemberReference(Node);
@@ -6712,9 +6740,14 @@ begin
   Result.HasKeyText := not Node.Computed;
 
   if Node.Computed then
-    Result.Key := Visit(Node.Property_)
+  begin
+    Result.NamedKey := nil;
+    Result.Key := Visit(Node.Property_);
+  end
   else
-    Result.KeyText := TJSIdentifier(Node.Property_).Key;
+  begin
+    Result.NamedKey := TJSIdentifier(Node.Property_).KeyPointer;
+  end;
 end;
 
 function TJSInterpreter.SuperBase: IJSObject;
@@ -6735,7 +6768,7 @@ begin
   if not Assigned(Base) then
     raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
 
-  Result := TJSObjectOperations.GetWithReceiver(Base, Reference.KeyText, Reference.Base);
+  Result := TJSObjectOperations.GetWithReceiver(Base, Reference.KeyPointer^, Reference.Base);
 end;
 
 procedure TJSInterpreter.WriteSuperMember(var Reference: TJSMemberReference; const Value: TJSValue);
@@ -6746,9 +6779,9 @@ begin
   if not Assigned(Base) then
     raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
 
-  const IsStored = TJSObjectOperations.SetWithReceiver(Base, Reference.KeyText, Value, Reference.Base);
+  const IsStored = TJSObjectOperations.SetWithReceiver(Base, Reference.KeyPointer^, Value, Reference.Base);
   if (not IsStored) and FStrictMode then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Reference.KeyText.Text]));
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Reference.KeyPointer.Text]));
 end;
 
 function TJSInterpreter.CallSuperMethod(const Node: TJSCallExpression;
@@ -6793,7 +6826,7 @@ end;
 function TJSInterpreter.DescribeReferenceKey(const Reference: TJSMemberReference): string;
 begin
   if Reference.HasKeyText then
-    Exit(Reference.KeyText.Text);
+    Exit(Reference.KeyPointer.Text);
 
   if Reference.Key.IsObject then
     Exit(OBJECT_KEY_DESCRIPTION);
@@ -6814,7 +6847,7 @@ begin
   if Reference.HasKeyText then
     Exit;
 
-  Reference.Key.ReadPropertyKey(FLimits, Reference.KeyText);
+  Reference.Key.ReadPropertyKey(FLimits, Reference.ComputedKey);
   Reference.HasKeyText := True;
 end;
 
@@ -6823,10 +6856,10 @@ begin
   if Reference.IsSuper then
     Exit(ReadSuperMember(Reference));
 
-  RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
+  RequireCoercibleBase(Reference);
   ResolveReferenceKey(Reference);
 
-  Result := ReadMember(Reference.Base, Reference.KeyText);
+  Result := ReadMember(Reference.Base, Reference.KeyPointer^);
 end;
 
 procedure TJSInterpreter.PutReferenceValue(var Reference: TJSMemberReference; const Value: TJSValue);
@@ -6837,10 +6870,10 @@ begin
     Exit;
   end;
 
-  RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
+  RequireCoercibleBase(Reference);
   ResolveReferenceKey(Reference);
 
-  WriteMember(Reference.Base, Reference.KeyText, Value);
+  WriteMember(Reference.Base, Reference.KeyPointer^, Value);
 end;
 
 function TJSInterpreter.ReadMember(const Base: TJSValue; const PropName: TJSPropertyKey): TJSValue;

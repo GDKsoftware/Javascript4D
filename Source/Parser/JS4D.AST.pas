@@ -160,6 +160,8 @@ type
     property Name: string read FName;
     // The name as a property key, for member access like object.name.
     property Key: TJSPropertyKey read FKey;
+    // The same key without copying it. Valid as long as the node lives.
+    function KeyPointer: PJSPropertyKey; inline;
   end;
 
   TJSLiteralType = (
@@ -1057,6 +1059,11 @@ begin
   inherited Create(TJSASTNodeType.Identifier);
   FName := Name;
   FKey := Name;
+end;
+
+function TJSIdentifier.KeyPointer: PJSPropertyKey;
+begin
+  Result := @FKey;
 end;
 
 { TJSLiteral }

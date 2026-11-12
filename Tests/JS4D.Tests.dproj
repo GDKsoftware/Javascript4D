@@ -203,6 +203,7 @@
         <DCCReference Include="JS4D.Tests.DeepPrototypeChains.pas"/>
         <DCCReference Include="JS4D.Tests.ProtoAccessor.pas"/>
         <DCCReference Include="JS4D.Tests.ProxyLimits.pas"/>
+        <DCCReference Include="JS4D.Tests.HotPathSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>

@@ -22,6 +22,8 @@ type
     FHasLexicals: Boolean;
 
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
+    procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
+    function CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -167,6 +169,12 @@ begin
   if IsCacheCurrent then
     Exit(Cache.Slot);
 
+  Result := CacheOwnSlot(Cache, Name);
+end;
+
+// Kept apart from FindOwnSlot so that the property key made from the name is only set up when the cache misses.
+function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
     Exit(nil);
 
@@ -175,12 +183,23 @@ begin
   Cache.Slot          := Result;
 end;
 
+procedure TJSGlobalScope.SetGlobalProperty(const Name: string; const Value: TJSValue);
+begin
+  var Slot: PJSPropertyDescriptor;
+  const IsWritableData = FGlobalStorage.TryGetOwnSlot(Name, Slot) and (not Slot.IsAccessor) and Slot.Writable;
+
+  if IsWritableData then
+    Slot.Value := Value
+  else
+    FGlobalObject.SetProperty(Name, Value);
+end;
+
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
   if HasLexical(Name) then
     AssignVariable(Name, Value)
   else
-    FGlobalObject.SetProperty(Name, Value);
+    SetGlobalProperty(Name, Value);
 end;
 
 procedure TJSGlobalScope.AssignVariable(const Name: string; const Value: TJSValue);

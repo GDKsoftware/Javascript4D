@@ -5,6 +5,8 @@ unit JS4D.PropertyKey;
 interface
 
 type
+  PJSPropertyKey = ^TJSPropertyKey;
+
   // The name of a property: either a string or a symbol. A key made from a string never equals the key of a
   // symbol, whatever characters the string holds. Objects store a key under its stored form; that form is
   // unique per key, so one map can hold the string keys and the symbol keys of an object side by side.

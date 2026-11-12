@@ -665,6 +665,7 @@ type
     procedure MoveToSpecialElement(const Index: Integer; const Name: TJSPropertyKey;
                                    const Descriptor: TJSPropertyDescriptor);
     procedure ForgetSpecialElement(const Index: Integer);
+    procedure PushPastSparsePart(const Value: TJSValue);
     function IsLockedElement(const Index: Integer): Boolean;
     function ResizeTo(const NewLength: Int64): Boolean;
     function ShrinkTo(const NewLength: Integer): Boolean;
@@ -1620,7 +1621,7 @@ end;
 
 function TJSObjectImpl.HoldsExclusivePrototype: Boolean;
 begin
-  Result := (FPrototype is TJSObjectImpl) and (TJSObjectImpl(FPrototype).RefCount = 1);
+  Result := Assigned(FPrototypeImpl) and (FPrototypeImpl.RefCount = 1);
 end;
 
 function TJSObjectImpl.HoldsNested: Boolean;
@@ -3313,12 +3314,18 @@ begin
   MarkHoles(Index, Index);
 end;
 
+// Kept apart from Push so that the property key made from the index is not set up for every push.
+procedure TJSArrayImpl.PushPastSparsePart(const Value: TJSValue);
+begin
+  SetProperty(IntToStr(FSparseLength), Value);
+end;
+
 procedure TJSArrayImpl.Push(const Value: TJSValue);
 begin
   const HasSparsePart = (FSparseLength > FElements.Count);
   if HasSparsePart then
   begin
-    SetProperty(IntToStr(FSparseLength), Value);
+    PushPastSparsePart(Value);
     Exit;
   end;
 

@@ -124,6 +124,7 @@ uses
   JS4D.Tests.DeepPrototypeChains in 'JS4D.Tests.DeepPrototypeChains.pas',
   JS4D.Tests.ProtoAccessor in 'JS4D.Tests.ProtoAccessor.pas',
   JS4D.Tests.ProxyLimits in 'JS4D.Tests.ProxyLimits.pas',
+  JS4D.Tests.HotPathSemantics in 'JS4D.Tests.HotPathSemantics.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
 var
