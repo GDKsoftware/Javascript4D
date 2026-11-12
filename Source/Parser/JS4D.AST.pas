@@ -10,6 +10,12 @@ uses
   JS4D.PropertyKey;
 
 type
+  TJSSourceContext = record
+    AllowSuperProperty: Boolean;
+    AllowSuperCall: Boolean;
+    AllowNewTarget: Boolean;
+  end;
+
   TJSASTNode = class;
   TJSExpression = class;
   TJSStatement = class;
@@ -62,7 +68,10 @@ type
     SpreadElement,
     ArrayPattern,
     ObjectPattern,
-    AssignmentPattern
+    AssignmentPattern,
+    SuperExpression,
+    NewTargetExpression,
+    ClassExpression
   );
 
   TJSASTNode = class
@@ -517,6 +526,7 @@ type
     FObject_: TJSExpression;
     FProperty_: TJSExpression;
     FComputed: Boolean;
+    FIsSuper: Boolean;
 
   public
     constructor Create(const Obj: TJSExpression; const Prop: TJSExpression; const Computed: Boolean);
@@ -525,6 +535,7 @@ type
     property Object_: TJSExpression read FObject_;
     property Property_: TJSExpression read FProperty_;
     property Computed: Boolean read FComputed;
+    property IsSuper: Boolean read FIsSuper;
   end;
 
   TJSNewExpression = class(TJSExpression)
@@ -556,6 +567,55 @@ type
   TJSThisExpression = class(TJSExpression)
   public
     constructor Create;
+  end;
+
+  TJSSuperExpression = class(TJSExpression)
+  public
+    constructor Create;
+  end;
+
+  TJSNewTargetExpression = class(TJSExpression)
+  public
+    constructor Create;
+  end;
+
+  TJSClassMember = class(TJSASTNode)
+  private
+    FKey: TJSExpression;
+    FValue: TJSFunctionExpression;
+    FComputed: Boolean;
+    FIsStatic: Boolean;
+    FKind: TJSPropertyKind;
+
+  public
+    constructor Create(const Key: TJSExpression; const Value: TJSFunctionExpression; const Computed: Boolean;
+                       const IsStatic: Boolean; const Kind: TJSPropertyKind);
+    destructor Destroy; override;
+
+    property Key: TJSExpression read FKey;
+    property Value: TJSFunctionExpression read FValue;
+    property Computed: Boolean read FComputed;
+    property IsStatic: Boolean read FIsStatic;
+    property Kind: TJSPropertyKind read FKind;
+  end;
+
+  TJSClassExpression = class(TJSExpression)
+  private
+    FId: TJSIdentifier;
+    FSuperClass: TJSExpression;
+    FConstructor: TJSFunctionExpression;
+    FMembers: TObjectList<TJSClassMember>;
+    FSourceText: string;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Id: TJSIdentifier read FId write FId;
+    property SuperClass: TJSExpression read FSuperClass write FSuperClass;
+    property Constructor_: TJSFunctionExpression read FConstructor write FConstructor;
+    property Members: TObjectList<TJSClassMember> read FMembers;
+    property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSTemplatePart = record
@@ -1333,6 +1393,7 @@ begin
   FObject_ := Obj;
   FProperty_ := Prop;
   FComputed := Computed;
+  FIsSuper := Obj is TJSSuperExpression;
 end;
 
 destructor TJSMemberExpression.Destroy;
@@ -1377,6 +1438,57 @@ end;
 constructor TJSThisExpression.Create;
 begin
   inherited Create(TJSASTNodeType.ThisExpression);
+end;
+
+{ TJSSuperExpression }
+
+constructor TJSSuperExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.SuperExpression);
+end;
+
+{ TJSNewTargetExpression }
+
+constructor TJSNewTargetExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.NewTargetExpression);
+end;
+
+{ TJSClassMember }
+
+constructor TJSClassMember.Create(const Key: TJSExpression; const Value: TJSFunctionExpression;
+                                  const Computed: Boolean; const IsStatic: Boolean; const Kind: TJSPropertyKind);
+begin
+  inherited Create(TJSASTNodeType.ObjectProperty);
+  FKey := Key;
+  FValue := Value;
+  FComputed := Computed;
+  FIsStatic := IsStatic;
+  FKind := Kind;
+end;
+
+destructor TJSClassMember.Destroy;
+begin
+  FKey.Free;
+  FValue.Free;
+  inherited;
+end;
+
+{ TJSClassExpression }
+
+constructor TJSClassExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.ClassExpression);
+  FMembers := TObjectList<TJSClassMember>.Create(True);
+end;
+
+destructor TJSClassExpression.Destroy;
+begin
+  FId.Free;
+  FSuperClass.Free;
+  FConstructor.Free;
+  FMembers.Free;
+  inherited;
 end;
 
 { TJSTemplateLiteral }

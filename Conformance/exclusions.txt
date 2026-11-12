@@ -7,7 +7,6 @@ arbitrary-module-namespace-names
 async-functions
 async-iteration
 caller
-class
 class-fields-private
 class-fields-private-in
 class-fields-public
@@ -33,11 +32,9 @@ import.meta
 json-modules
 json-superset
 logical-assignment-operators
-new.target
 numeric-separator-literal
 optional-catch-binding
 optional-chaining
-super
 tail-call-optimization
 top-level-await
 u180e

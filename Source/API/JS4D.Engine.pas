@@ -87,7 +87,8 @@ type
     function GetMaxArrayLength: Integer;
     procedure SetMaxArrayLength(const Value: Integer);
 
-    function ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+    function ParseProgram(const Source: string; const IsStrictContext: Boolean;
+                          const Context: TJSSourceContext): TJSProgram;
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterStringRaw(const StringFunc: IJSFunction);
@@ -338,11 +339,12 @@ begin
   inherited;
 end;
 
-function TJSEngine.ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+function TJSEngine.ParseProgram(const Source: string; const IsStrictContext: Boolean;
+                                const Context: TJSSourceContext): TJSProgram;
 begin
   const Parser = TJSParser.Create(Source);
   try
-    Result := Parser.Parse(IsStrictContext);
+    Result := Parser.Parse(IsStrictContext, Context);
     FPrograms.Add(Result);
   finally
     Parser.Free;
@@ -351,7 +353,7 @@ end;
 
 function TJSEngine.Execute(const Source: string): TJSValue;
 begin
-  Result := FInterpreter.Execute(ParseProgram(Source, False));
+  Result := FInterpreter.Execute(ParseProgram(Source, False, Default(TJSSourceContext)));
 end;
 
 procedure TJSEngine.CollectGarbage;

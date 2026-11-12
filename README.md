@@ -10,6 +10,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over any iterable
+- **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported yet
 - **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
 - **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
 - **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
@@ -172,6 +173,7 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 - Operators (arithmetic, comparison, logical, bitwise)
 - Object literals and property access (shorthand properties, methods, computed keys, getters and setters)
 - Arrow functions with lexical `this` and `arguments`
+- Classes (`class`, `extends`, `super`, `new.target`, static members, accessors, computed names)
 - Template literals and tagged templates, `String.raw`
 - Default parameters, rest parameters and spread in calls, arrays and objects
 - Destructuring in declarations, parameters, assignments and `for-of` heads, with defaults and rest
@@ -279,33 +281,33 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators and Promise, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as generators and Promise, are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2752 | 2745 | 99.7% |
-| built-ins/ArrayBuffer | 78 | 78 | 100.0% |
+| built-ins/Array | 2752 | 2748 | 99.9% |
+| built-ins/ArrayBuffer | 80 | 80 | 100.0% |
 | built-ins/DataView | 376 | 374 | 99.5% |
-| built-ins/Date | 599 | 597 | 99.7% |
-| built-ins/Function | 438 | 417 | 95.2% |
+| built-ins/Date | 599 | 598 | 99.8% |
+| built-ins/Function | 446 | 442 | 99.1% |
 | built-ins/JSON | 135 | 130 | 96.3% |
 | built-ins/Map | 154 | 154 | 100.0% |
 | built-ins/Math | 312 | 312 | 100.0% |
 | built-ins/Number | 304 | 301 | 99.0% |
-| built-ins/Object | 3297 | 3279 | 99.5% |
-| built-ins/Proxy | 268 | 268 | 100.0% |
+| built-ins/Object | 3313 | 3297 | 99.5% |
+| built-ins/Proxy | 272 | 272 | 100.0% |
 | built-ins/Reflect | 153 | 153 | 100.0% |
 | built-ins/RegExp | 804 | 780 | 97.0% |
 | built-ins/Set | 194 | 194 | 100.0% |
-| built-ins/String | 1165 | 1154 | 99.1% |
-| built-ins/Symbol | 75 | 73 | 97.3% |
+| built-ins/String | 1167 | 1156 | 99.1% |
+| built-ins/Symbol | 75 | 74 | 98.7% |
 | built-ins/TypedArray | 703 | 703 | 100.0% |
-| built-ins/TypedArrayConstructors | 364 | 361 | 99.2% |
+| built-ins/TypedArrayConstructors | 364 | 362 | 99.5% |
 | built-ins/WeakMap | 92 | 92 | 100.0% |
 | built-ins/WeakSet | 77 | 77 | 100.0% |
-| language/expressions | 3581 | 3543 | 98.9% |
-| language/statements | 2510 | 2483 | 98.9% |
-| **Total** | 20788 | 20577 | 99.0% |
+| language/expressions | 4301 | 4276 | 99.4% |
+| language/statements | 3283 | 3262 | 99.4% |
+| **Total** | 22388 | 22251 | 99.4% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 

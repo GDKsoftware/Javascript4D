@@ -5,34 +5,28 @@
 # Language features introduced after ES5.1
 language/export/
 language/import/
-language/computed-property-names/class/
 language/module-code/
 language/literals/bigint/
 language/expressions/async-arrow-function/
 language/expressions/async-function/
 language/expressions/async-generator/
 language/expressions/await/
-language/expressions/class/
 language/expressions/coalesce/
 language/expressions/dynamic-import/
 language/expressions/generators/
 language/expressions/import.meta/
 language/expressions/logical-assignment/
-language/expressions/new.target/
 language/expressions/optional-chaining/
-language/expressions/super/
 language/expressions/yield/
 language/statements/async-function/
 language/statements/async-generator/
 language/statements/await-using/
-language/statements/class/
 language/statements/for-await-of/
 language/statements/generators/
 language/statements/using/
 language/eval-code/direct/gen-
 language/eval-code/direct/async-gen-
 language/statements/switch/scope-lex-async-
-language/statements/switch/scope-lex-class.js
 language/statements/switch/scope-lex-generator.js
 
 # Built-ins introduced after ES5.1

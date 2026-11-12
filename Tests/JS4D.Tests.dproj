@@ -145,6 +145,7 @@
         <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalStates.pas"/>
         <DCCReference Include="JS4D.Tests.ArrowFunctions.pas"/>
+        <DCCReference Include="JS4D.Tests.Classes.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionExpressionNames.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionParameters.pas"/>
         <DCCReference Include="JS4D.Tests.TemplateLiterals.pas"/>

@@ -122,7 +122,8 @@ type
     property Value: TJSValue read FValue;
   end;
 
-  TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+  TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean;
+                                           const Context: TJSSourceContext): TJSProgram;
 
   TJSBoundFunction = record
     Target: IJSFunction;
@@ -134,6 +135,14 @@ type
     Key: TJSValue;
     KeyText: TJSPropertyKey;
     HasKeyText: Boolean;
+    IsSuper: Boolean;
+  end;
+
+  // Not reference counted: the callee, new target and binding outlive the call that stores them here.
+  TJSCallContext = record
+    Callee: Pointer;
+    NewTarget: Pointer;
+    Binding: Pointer;
   end;
 
   TJSBindingMode = (Assign, Variable, Lexical);
@@ -246,6 +255,7 @@ type
     FEvalCallerScope: IJSScope;
     FParameterInitScope: IJSScope;
     FLoopLabels: TArray<string>;
+    FContext: TJSCallContext;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
     procedure PushScope;
@@ -311,6 +321,48 @@ type
     function EvaluateInstanceOf(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function EvaluateIn(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
+    function InvokeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject;
+                            const NewTarget: IJSFunction; const Binding: IJSThisBinding): TJSValue;
+    procedure EnterContext(const Func: IJSFunction; const NewTarget: IJSFunction; const Binding: IJSThisBinding);
+    function CaptureFrame: IJSFrame;
+    function ActiveCallee: IJSFunction;
+    function ActiveNewTarget: IJSFunction;
+    function ActiveBinding: IJSThisBinding;
+    function CurrentThisValue: TJSValue;
+    function ReadBoundThis(const Binding: IJSThisBinding): TJSValue;
+    function VisitNewTargetExpression: TJSValue;
+    function CurrentSourceContext: TJSSourceContext;
+    function SuperBase: IJSObject;
+    function ReadSuperMember(var Reference: TJSMemberReference): TJSValue;
+    procedure WriteSuperMember(var Reference: TJSMemberReference; const Value: TJSValue);
+    function CallSuperMethod(const Node: TJSCallExpression; const MemberExpr: TJSMemberExpression): TJSValue;
+    function VisitSuperCall(const Node: TJSCallExpression): TJSValue;
+    function ConstructScript(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                             const NewTarget: IJSFunction): TJSValue;
+    function ConstructBase(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                           const NewTarget: IJSFunction): TJSValue;
+    function ConstructDerived(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                              const NewTarget: IJSFunction): TJSValue;
+    function ConstructThroughParent(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                    const NewTarget: IJSFunction): TJSValue;
+    function ConstructNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                             const NewTarget: IJSFunction): TJSValue;
+    procedure AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
+    function ParentConstructorOf(const Func: IJSFunction): IJSFunction;
+    procedure EnterCallDepth;
+    function VisitClassExpression(const Node: TJSClassExpression; const InferredName: string): TJSValue;
+    procedure ResolveClassHeritage(const Node: TJSClassExpression; out PrototypeParent: IJSObject;
+                                   out ConstructorParent: IJSObject);
+    function CreateClassConstructor(const Node: TJSClassExpression; const Prototype: IJSObject;
+                                    const ConstructorParent: IJSObject; const ClassName: string): IJSFunction;
+    procedure DefineClassMember(const Member: TJSClassMember; const Constructor_: IJSFunction;
+                                const Prototype: IJSObject);
+    function ClassMemberKey(const Member: TJSClassMember; out KeyHolder: TJSValue): TJSPropertyKey;
+    procedure DefineClassMethod(const Target: IJSObject; const Key: TJSPropertyKey; const Member: TJSClassMember);
+    procedure DefineClassAccessor(const Target: IJSObject; const Key: TJSPropertyKey; const Member: TJSClassMember);
+    procedure DefineClassProperty(const Target: IJSObject; const Key: TJSPropertyKey;
+                                  const Definition: TJSPropertyDefinition);
+    procedure BindHomeObject(const Func: IJSFunction; const Home: IJSObject);
     procedure RequireLiveProxy(const Constructor_: IJSFunction);
     function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
     function ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
@@ -328,6 +380,9 @@ type
     procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     procedure GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
+    procedure GCMarkBinding(const Binding: IJSThisBinding; const Live: TDictionary<Pointer, Byte>;
+                            const Work: TList<IInterface>);
+    procedure GCMarkFrame(const Frame: IJSFrame; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     function ErrorConstructorName(const Error: Exception): string;
     function CreateErrorValue(const Error: Exception): TJSValue;
 
@@ -631,6 +686,78 @@ const
   ITERATOR_NOT_AN_OBJECT = 'The Symbol.iterator method did not return an object';
   ITERATOR_NEXT_PROPERTY = 'next';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
+  CLASS_CONSTRUCTOR_CALL = 'Class constructor %s cannot be invoked without ''new''';
+  THIS_BEFORE_SUPER = 'Must call super constructor in derived class before accessing ''this'' or returning from derived constructor';
+  SUPER_CALLED_TWICE = 'Super constructor may only be called once';
+  SUPER_NOT_CONSTRUCTOR = 'Super constructor is not a constructor';
+  SUPER_OUTSIDE_METHOD = '''super'' keyword unexpected here';
+  SUPER_BASE_NOT_OBJECT = 'Cannot read properties of the super base, which is null';
+  DELETE_SUPER_REFERENCE = 'Unsupported reference to ''super''';
+  DERIVED_RETURN_VALUE = 'Derived constructors may only return object or undefined';
+  CLASS_EXTENDS_NOT_CONSTRUCTOR = 'Class extends value is not a constructor or null';
+  CLASS_EXTENDS_BAD_PROTOTYPE = 'Class extends value does not have a valid prototype property';
+  CLASS_MEMBER_NOT_DEFINED = 'Cannot define class member ''%s''';
+
+type
+  TJSThisBinding = class(TInterfacedObject, IJSThisBinding)
+  private
+    FValue: IJSObject;
+
+    function GetValue: IJSObject;
+    procedure SetValue(const Value: IJSObject);
+  end;
+
+  TJSFrame = class(TInterfacedObject, IJSFrame)
+  private
+    FCallee: IJSFunction;
+    FNewTarget: IJSFunction;
+    FThisBinding: IJSThisBinding;
+
+    function GetCallee: IJSFunction;
+    function GetNewTarget: IJSFunction;
+    function GetThisBinding: IJSThisBinding;
+
+  public
+    constructor Create(const Callee: IJSFunction; const NewTarget: IJSFunction; const ThisBinding: IJSThisBinding);
+  end;
+
+{ TJSThisBinding }
+
+function TJSThisBinding.GetValue: IJSObject;
+begin
+  Result := FValue;
+end;
+
+procedure TJSThisBinding.SetValue(const Value: IJSObject);
+begin
+  FValue := Value;
+end;
+
+{ TJSFrame }
+
+constructor TJSFrame.Create(const Callee: IJSFunction; const NewTarget: IJSFunction;
+                            const ThisBinding: IJSThisBinding);
+begin
+  inherited Create;
+  FCallee := Callee;
+  FNewTarget := NewTarget;
+  FThisBinding := ThisBinding;
+end;
+
+function TJSFrame.GetCallee: IJSFunction;
+begin
+  Result := FCallee;
+end;
+
+function TJSFrame.GetNewTarget: IJSFunction;
+begin
+  Result := FNewTarget;
+end;
+
+function TJSFrame.GetThisBinding: IJSThisBinding;
+begin
+  Result := FThisBinding;
+end;
 
 { TJSScope }
 
@@ -994,8 +1121,10 @@ begin
   for var Func in FFunctionRegistry do
   begin
     Func.ClosureScope := nil;
+    Func.LexicalThis := nil;
     Func.NativeFunction := nil;
     Func.Prototype := nil;
+    Func.ReleaseCapturedContext;
     DetachProperties(Func);
   end;
   FFunctionRegistry.Free;
@@ -1602,12 +1731,14 @@ begin
   const OuterThis = FThisValue;
   const OuterThisPrimitive = FThisPrimitive;
   const OuterStrictMode = FStrictMode;
+  const OuterContext = FContext;
 
   Inc(FExecutionDepth);
   FCurrentScope := FGlobalScope;
   FVarScope := FGlobalScope;
   FThisValue := nil;
   FThisPrimitive := nil;
+  FContext := Default(TJSCallContext);
   try
     FCurrentProgram := Program_;
     Result := Visit(Program_);
@@ -1617,6 +1748,7 @@ begin
     FThisValue := OuterThis;
     FThisPrimitive := OuterThisPrimitive;
     FStrictMode := OuterStrictMode;
+    FContext := OuterContext;
     Dec(FExecutionDepth);
   end;
 end;
@@ -1710,6 +1842,10 @@ begin
       Result := VisitSequenceExpression(TJSSequenceExpression(Node));
     TJSASTNodeType.ThisExpression:
       Result := VisitThisExpression(TJSThisExpression(Node));
+    TJSASTNodeType.ClassExpression:
+      Result := VisitClassExpression(TJSClassExpression(Node), EMPTY_NAME);
+    TJSASTNodeType.NewTargetExpression:
+      Result := VisitNewTargetExpression;
     TJSASTNodeType.TemplateLiteral:
       Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
     TJSASTNodeType.TemplateObject:
@@ -1790,12 +1926,27 @@ end;
 function TJSInterpreter.EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
 begin
   const IsStrictContext = (IsDirect and FStrictMode);
-  Result := EvaluateProgram(FProgramParser(Source, IsStrictContext), IsDirect);
+
+  var Context := Default(TJSSourceContext);
+  if IsDirect then
+    Context := CurrentSourceContext;
+
+  Result := EvaluateProgram(FProgramParser(Source, IsStrictContext, Context), IsDirect);
+end;
+
+function TJSInterpreter.CurrentSourceContext: TJSSourceContext;
+begin
+  const Callee = ActiveCallee;
+  const HasCallee = Assigned(Callee);
+
+  Result.AllowNewTarget := (FCallDepth > 0);
+  Result.AllowSuperProperty := HasCallee and Assigned(Callee.HomeObject);
+  Result.AllowSuperCall := HasCallee and (Callee.Kind = TJSFunctionKind.DerivedConstructor);
 end;
 
 function TJSInterpreter.CreateFunctionFromSource(const Source: string): TJSValue;
 begin
-  const Program_ = FProgramParser(Source, False);
+  const Program_ = FProgramParser(Source, False, Default(TJSSourceContext));
 
   const HasSingleStatement = (Program_.Body.Count = 1);
   const IsExpressionStatement = HasSingleStatement and (Program_.Body[0] is TJSExpressionStatement);
@@ -1819,6 +1970,7 @@ begin
   const OldEvalVariableScope = FEvalVariableScope;
   const OldVarScope = FVarScope;
   const OldEvalCallerScope = FEvalCallerScope;
+  const OldContext = FContext;
   FEvalCallerScope := nil;
   if IsDirect and (not IsStrictSource) then
     FEvalCallerScope := FCurrentScope;
@@ -1847,10 +1999,12 @@ begin
   begin
     FThisValue := FGlobalObject;
     FThisPrimitive := nil;
+    FContext := Default(TJSCallContext);
   end;
   try
     Result := RunProgramBody(Program_);
   finally
+    FContext := OldContext;
     FCurrentProgram := OldProgram;
     FEvalVariableScope := OldEvalVariableScope;
     FVarScope := OldVarScope;
@@ -3097,6 +3251,7 @@ procedure TJSInterpreter.DefineLiteralMethod(const Target: IJSObject; const Name
                                              const Prop: TJSObjectProperty);
 begin
   const Method = CreateMethodFunction(TJSFunctionExpression(Prop.Value), FunctionNameForKey(Name));
+  BindHomeObject(Method, Target);
   Target.DefineProperty(Name, TJSPropertyDescriptor.Create(TJSValue.CreateObject(Method)));
 end;
 
@@ -3125,6 +3280,11 @@ end;
 
 function TJSInterpreter.VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
 begin
+  const IsAnonymousClass = (Node.NodeType = TJSASTNodeType.ClassExpression) and
+                           (not Assigned(TJSClassExpression(Node).Id));
+  if IsAnonymousClass then
+    Exit(VisitClassExpression(TJSClassExpression(Node), Name));
+
   Result := Visit(Node);
 
   if IsAnonymousFunctionDefinition(Node) then
@@ -3147,6 +3307,7 @@ begin
   const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
   const AccessorName = Format(NameFormat, [FunctionNameForKey(Name)]);
   const AccessorFunction = CreateMethodFunction(TJSFunctionExpression(Prop.Value), AccessorName);
+  BindHomeObject(AccessorFunction, Target);
   const Accessor = TJSValue.CreateObject(AccessorFunction);
 
   if IsGetter then
@@ -3186,6 +3347,7 @@ begin
   Func.IsArrow := True;
   Func.IsConstructor := False;
   Func.LexicalThis := CurrentThisObject;
+  Func.Frame := CaptureFrame;
 
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
@@ -3245,6 +3407,213 @@ begin
   Result.Name := Name;
 end;
 
+procedure TJSInterpreter.BindHomeObject(const Func: IJSFunction; const Home: IJSObject);
+begin
+  Func.HomeObject := Home;
+  Func.Kind := TJSFunctionKind.Method;
+end;
+
+function TJSInterpreter.VisitClassExpression(const Node: TJSClassExpression; const InferredName: string): TJSValue;
+begin
+  const OuterScope = FCurrentScope;
+  const OuterStrictMode = FStrictMode;
+  FStrictMode := True;
+  try
+    const HasBinding = Assigned(Node.Id);
+    var ClassName := InferredName;
+    if HasBinding then
+    begin
+      ClassName := Node.Id.Name;
+      FCurrentScope := TJSScope.Create(OuterScope);
+      RegisterScope(FCurrentScope);
+      FCurrentScope.DeclareLexical(ClassName, True);
+    end;
+
+    var PrototypeParent: IJSObject;
+    var ConstructorParent: IJSObject;
+    ResolveClassHeritage(Node, PrototypeParent, ConstructorParent);
+
+    const Prototype: IJSObject = TJSObject.Create;
+    Prototype.Prototype := PrototypeParent;
+
+    const Constructor_ = CreateClassConstructor(Node, Prototype, ConstructorParent, ClassName);
+    for var Member in Node.Members do
+    begin
+      DefineClassMember(Member, Constructor_, Prototype);
+    end;
+
+    Result := TJSValue.CreateObject(Constructor_);
+    if HasBinding then
+      FCurrentScope.InitializeLexical(ClassName, Result);
+  finally
+    FCurrentScope := OuterScope;
+    FStrictMode := OuterStrictMode;
+  end;
+end;
+
+procedure TJSInterpreter.ResolveClassHeritage(const Node: TJSClassExpression; out PrototypeParent: IJSObject;
+                                              out ConstructorParent: IJSObject);
+begin
+  PrototypeParent := FObjectPrototype;
+  ConstructorParent := FFunctionPrototype;
+
+  if not Assigned(Node.SuperClass) then
+    Exit;
+
+  const SuperValue = Visit(Node.SuperClass);
+  if SuperValue.IsNull then
+  begin
+    PrototypeParent := nil;
+    Exit;
+  end;
+
+  var SuperFunction: IJSFunction;
+  const IsConstructor = SuperValue.IsFunction and Supports(SuperValue.ToObject, IJSFunction, SuperFunction) and
+                        SuperFunction.IsConstructor;
+  if not IsConstructor then
+    raise TJSErrorFactory.TypeError(CLASS_EXTENDS_NOT_CONSTRUCTOR);
+
+  const PrototypeValue = SuperFunction.GetProperty(PROTOTYPE_PROPERTY);
+  if PrototypeValue.IsNull then
+    PrototypeParent := nil
+  else if PrototypeValue.IsObject then
+    PrototypeParent := PrototypeValue.ToObject
+  else
+    raise TJSErrorFactory.TypeError(CLASS_EXTENDS_BAD_PROTOTYPE);
+
+  ConstructorParent := SuperFunction;
+end;
+
+function TJSInterpreter.CreateClassConstructor(const Node: TJSClassExpression; const Prototype: IJSObject;
+                                               const ConstructorParent: IJSObject;
+                                               const ClassName: string): IJSFunction;
+begin
+  const Func = TJSFunction.Create;
+  Func.Prototype := ConstructorParent;
+  Func.Name := ClassName;
+  Func.SourceText := Node.SourceText;
+  Func.IsStrict := True;
+  Func.ClosureScope := FCurrentScope;
+
+  if Assigned(Node.SuperClass) then
+    Func.Kind := TJSFunctionKind.DerivedConstructor
+  else
+    Func.Kind := TJSFunctionKind.BaseConstructor;
+
+  if Assigned(Node.Constructor_) then
+  begin
+    Func.BodyNode := Node.Constructor_.Body;
+    AssignParameters(Func, Node.Constructor_.Params, Node.Constructor_.ParameterInfo);
+  end
+  else
+  begin
+    Func.IsDefaultConstructor := True;
+  end;
+
+  RegisterFunction(Func);
+  Func.HomeObject := Prototype;
+
+  const PrototypeValue = TJSValue.CreateObject(Prototype);
+  var PrototypeDescriptor := TJSPropertyDescriptor.Create(PrototypeValue);
+  PrototypeDescriptor.Writable := False;
+  PrototypeDescriptor.Enumerable := False;
+  PrototypeDescriptor.Configurable := False;
+  Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
+
+  const ConstructorValue = TJSValue.CreateObject(Func as IJSObject);
+  var ConstructorDescriptor := TJSPropertyDescriptor.Create(ConstructorValue);
+  ConstructorDescriptor.Enumerable := False;
+  Prototype.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
+
+  Result := Func;
+end;
+
+procedure TJSInterpreter.DefineClassMember(const Member: TJSClassMember; const Constructor_: IJSFunction;
+                                           const Prototype: IJSObject);
+begin
+  var Target := Prototype;
+  if Member.IsStatic then
+    Target := Constructor_;
+
+  var KeyHolder: TJSValue;
+  const Key = ClassMemberKey(Member, KeyHolder);
+
+  if Member.Kind = TJSPropertyKind.Method then
+    DefineClassMethod(Target, Key, Member)
+  else
+    DefineClassAccessor(Target, Key, Member);
+end;
+
+function TJSInterpreter.ClassMemberKey(const Member: TJSClassMember; out KeyHolder: TJSValue): TJSPropertyKey;
+begin
+  KeyHolder := TJSValue.CreateUndefined;
+
+  if Member.Computed then
+  begin
+    KeyHolder := Visit(Member.Key);
+    Exit(ToPropertyKey(KeyHolder));
+  end;
+
+  if Member.Key is TJSIdentifier then
+    Exit(TJSIdentifier(Member.Key).Name);
+
+  Result := VisitText(Member.Key);
+end;
+
+procedure TJSInterpreter.DefineClassMethod(const Target: IJSObject; const Key: TJSPropertyKey;
+                                           const Member: TJSClassMember);
+begin
+  const Method = CreateMethodFunction(Member.Value, FunctionNameForKey(Key));
+  BindHomeObject(Method, Target);
+
+  var Definition := Default(TJSPropertyDefinition);
+  Definition.HasValue := True;
+  Definition.Value := TJSValue.CreateObject(Method);
+  Definition.HasWritable := True;
+  Definition.Writable := True;
+  Definition.HasEnumerable := True;
+  Definition.HasConfigurable := True;
+  Definition.Configurable := True;
+
+  DefineClassProperty(Target, Key, Definition);
+end;
+
+procedure TJSInterpreter.DefineClassAccessor(const Target: IJSObject; const Key: TJSPropertyKey;
+                                             const Member: TJSClassMember);
+begin
+  const IsGetter = (Member.Kind = TJSPropertyKind.Getter);
+  const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
+  const AccessorName = Format(NameFormat, [FunctionNameForKey(Key)]);
+  const AccessorFunction = CreateMethodFunction(Member.Value, AccessorName);
+  BindHomeObject(AccessorFunction, Target);
+
+  var Definition := Default(TJSPropertyDefinition);
+  Definition.HasEnumerable := True;
+  Definition.HasConfigurable := True;
+  Definition.Configurable := True;
+
+  if IsGetter then
+  begin
+    Definition.HasGetter := True;
+    Definition.Getter := TJSValue.CreateObject(AccessorFunction);
+  end
+  else
+  begin
+    Definition.HasSetter := True;
+    Definition.Setter := TJSValue.CreateObject(AccessorFunction);
+  end;
+
+  DefineClassProperty(Target, Key, Definition);
+end;
+
+procedure TJSInterpreter.DefineClassProperty(const Target: IJSObject; const Key: TJSPropertyKey;
+                                             const Definition: TJSPropertyDefinition);
+begin
+  const IsDefined = Target.DefineOwnProperty(Key, Definition);
+  if not IsDefined then
+    raise TJSErrorFactory.TypeError(Format(CLASS_MEMBER_NOT_DEFINED, [Key.Text]));
+end;
+
 function TJSInterpreter.VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
 begin
   if Node.Argument is TJSIdentifier then
@@ -3270,6 +3639,12 @@ end;
 
 function TJSInterpreter.DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
 begin
+  if MemberExpr.IsSuper then
+  begin
+    CurrentThisValue;
+    raise TJSErrorFactory.ReferenceError(DELETE_SUPER_REFERENCE, Node.Line, Node.Column);
+  end;
+
   const ObjValue = Visit(MemberExpr.Object_);
   if ObjValue.IsNullOrUndefined then
     raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT, Node.Line, Node.Column);
@@ -4275,6 +4650,9 @@ begin
   if IsMemberCall then
   begin
     const MemberExpr = TJSMemberExpression(Node.Callee);
+    if MemberExpr.IsSuper then
+      Exit(CallSuperMethod(Node, MemberExpr));
+
     const ObjValue = Visit(MemberExpr.Object_);
     ThisValue := ObjValue;
 
@@ -4319,6 +4697,10 @@ begin
   else if Node.Callee is TJSIdentifier then
   begin
     CalleeValue := VisitCalleeIdentifier(TJSIdentifier(Node.Callee), ThisObj);
+  end
+  else if Node.Callee is TJSSuperExpression then
+  begin
+    Exit(VisitSuperCall(Node));
   end
   else
   begin
@@ -4484,13 +4866,92 @@ end;
 
 function TJSInterpreter.ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
 begin
-  Result.Base := Visit(Node.Object_);
+  Result.IsSuper := Node.IsSuper;
+
+  if Node.IsSuper then
+    Result.Base := CurrentThisValue
+  else
+    Result.Base := Visit(Node.Object_);
+
   Result.HasKeyText := not Node.Computed;
 
   if Node.Computed then
     Result.Key := Visit(Node.Property_)
   else
     Result.KeyText := TJSIdentifier(Node.Property_).Key;
+end;
+
+function TJSInterpreter.SuperBase: IJSObject;
+begin
+  const Callee = ActiveCallee;
+  const HasHome = Assigned(Callee) and Assigned(Callee.HomeObject);
+  if not HasHome then
+    raise TJSErrorFactory.SyntaxError(SUPER_OUTSIDE_METHOD);
+
+  Result := Callee.HomeObject.Prototype;
+end;
+
+function TJSInterpreter.ReadSuperMember(var Reference: TJSMemberReference): TJSValue;
+begin
+  const Base = SuperBase;
+  ResolveReferenceKey(Reference);
+
+  if not Assigned(Base) then
+    raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
+
+  Result := TJSObjectOperations.GetWithReceiver(Base, Reference.KeyText, Reference.Base);
+end;
+
+procedure TJSInterpreter.WriteSuperMember(var Reference: TJSMemberReference; const Value: TJSValue);
+begin
+  const Base = SuperBase;
+  ResolveReferenceKey(Reference);
+
+  if not Assigned(Base) then
+    raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
+
+  const IsStored = TJSObjectOperations.SetWithReceiver(Base, Reference.KeyText, Value, Reference.Base);
+  if (not IsStored) and FStrictMode then
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Reference.KeyText.Text]));
+end;
+
+function TJSInterpreter.CallSuperMethod(const Node: TJSCallExpression;
+                                        const MemberExpr: TJSMemberExpression): TJSValue;
+begin
+  var Reference := ResolveMemberReference(MemberExpr);
+  const CalleeValue = GetReferenceValue(Reference);
+  const Args = EvaluateArguments(Node.Arguments, Node.HasSpread);
+
+  var Func: IJSFunction;
+  const IsCallable = CalleeValue.IsFunction and Supports(CalleeValue.ToObject, IJSFunction, Func);
+  if not IsCallable then
+    raise TJSErrorFactory.NotAFunction(GetCalleeDescription(Node.Callee, CalleeValue), Node.Line, Node.Column);
+
+  const ThisObj = ThisObjectFor(Func, Reference.Base);
+  Result := CallFunction(Func, Args, ThisObj);
+end;
+
+function TJSInterpreter.VisitSuperCall(const Node: TJSCallExpression): TJSValue;
+begin
+  const Callee = ActiveCallee;
+  const Binding = ActiveBinding;
+  const NewTarget = ActiveNewTarget;
+  if (not Assigned(Callee)) or (not Assigned(Binding)) or (not Assigned(NewTarget)) then
+    raise TJSErrorFactory.SyntaxError(SUPER_OUTSIDE_METHOD);
+
+  const ParentFunction = ParentConstructorOf(Callee);
+  const Args = EvaluateArguments(Node.Arguments, Node.HasSpread);
+
+  if not Assigned(ParentFunction) then
+    raise TJSErrorFactory.TypeError(SUPER_NOT_CONSTRUCTOR, Node.Line, Node.Column);
+
+  const Created = Construct(ParentFunction, Args, NewTarget);
+
+  if Assigned(Binding.Value) then
+    raise TJSErrorFactory.ReferenceError(SUPER_CALLED_TWICE);
+
+  Binding.Value := Created.ToObject;
+  Result := Created;
 end;
 
 function TJSInterpreter.DescribeReferenceKey(const Reference: TJSMemberReference): string;
@@ -4523,6 +4984,9 @@ end;
 
 function TJSInterpreter.GetReferenceValue(var Reference: TJSMemberReference): TJSValue;
 begin
+  if Reference.IsSuper then
+    Exit(ReadSuperMember(Reference));
+
   RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
   ResolveReferenceKey(Reference);
 
@@ -4531,6 +4995,12 @@ end;
 
 procedure TJSInterpreter.PutReferenceValue(var Reference: TJSMemberReference; const Value: TJSValue);
 begin
+  if Reference.IsSuper then
+  begin
+    WriteSuperMember(Reference, Value);
+    Exit;
+  end;
+
   RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
   ResolveReferenceKey(Reference);
 
@@ -4654,17 +5124,135 @@ begin
     Exit(Construct(Bound.Target, Bound.Arguments + Args, NewTarget));
   end;
 
-  var NativeConstructor: IJSNativeConstructor;
-  if Func.IsNative and Supports(Func, IJSNativeConstructor, NativeConstructor) then
-    Exit(NativeConstructor.ConstructWith(Args, NewTarget));
+  if Func.IsNative then
+  begin
+    var NativeConstructor: IJSNativeConstructor;
+    if Supports(Func, IJSNativeConstructor, NativeConstructor) then
+      Exit(NativeConstructor.ConstructWith(Args, NewTarget));
+
+    Exit(ConstructNative(Func, Args, NewTarget));
+  end;
+
+  Result := ConstructScript(Func, Args, NewTarget);
+end;
+
+function TJSInterpreter.ConstructScript(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                        const NewTarget: IJSFunction): TJSValue;
+begin
+  if Func.Kind = TJSFunctionKind.DerivedConstructor then
+    Exit(ConstructDerived(Func, Args, NewTarget));
+
+  if Func.Kind = TJSFunctionKind.BaseConstructor then
+    Exit(ConstructBase(Func, Args, NewTarget));
 
   const NewObj = CreateInstanceFor(NewTarget);
-  const ReturnValue = CallFunction(Func, Args, NewObj);
+  const ReturnValue = InvokeFunction(Func, Args, NewObj, NewTarget, nil);
 
   if ReturnValue.IsObject then
     Result := ReturnValue
   else
     Result := TJSValue.CreateObject(NewObj);
+end;
+
+function TJSInterpreter.ConstructBase(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                      const NewTarget: IJSFunction): TJSValue;
+begin
+  const NewObj = CreateInstanceFor(NewTarget);
+  if Func.IsDefaultConstructor then
+    Exit(TJSValue.CreateObject(NewObj));
+
+  const ReturnValue = InvokeFunction(Func, Args, NewObj, NewTarget, nil);
+  if ReturnValue.IsObject then
+    Result := ReturnValue
+  else
+    Result := TJSValue.CreateObject(NewObj);
+end;
+
+function TJSInterpreter.ConstructDerived(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                         const NewTarget: IJSFunction): TJSValue;
+begin
+  if Func.IsDefaultConstructor then
+    Exit(ConstructThroughParent(Func, Args, NewTarget));
+
+  const Binding: IJSThisBinding = TJSThisBinding.Create;
+  const ReturnValue = InvokeFunction(Func, Args, nil, NewTarget, Binding);
+  if ReturnValue.IsObject then
+    Exit(ReturnValue);
+
+  if not ReturnValue.IsUndefined then
+    raise TJSErrorFactory.TypeError(DERIVED_RETURN_VALUE);
+
+  const ThisObj = Binding.Value;
+  if not Assigned(ThisObj) then
+    raise TJSErrorFactory.ReferenceError(THIS_BEFORE_SUPER);
+
+  Result := TJSValue.CreateObject(ThisObj);
+end;
+
+function TJSInterpreter.ParentConstructorOf(const Func: IJSFunction): IJSFunction;
+begin
+  Result := nil;
+
+  const Parent = Func.Prototype;
+  var ParentFunction: IJSFunction;
+  const IsConstructor = Assigned(Parent) and Supports(Parent, IJSFunction, ParentFunction) and
+                        ParentFunction.IsConstructor;
+  if IsConstructor then
+    Result := ParentFunction;
+end;
+
+function TJSInterpreter.ConstructThroughParent(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                               const NewTarget: IJSFunction): TJSValue;
+begin
+  ConsumeStep;
+  EnterCallDepth;
+
+  const Parent = ParentConstructorOf(Func);
+  if not Assigned(Parent) then
+    raise TJSErrorFactory.TypeError(SUPER_NOT_CONSTRUCTOR);
+
+  Inc(FCallDepth);
+  try
+    Result := Construct(Parent, Args, NewTarget);
+  finally
+    Dec(FCallDepth);
+  end;
+end;
+
+function TJSInterpreter.ConstructNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                        const NewTarget: IJSFunction): TJSValue;
+begin
+  const Instance = CreateInstanceFor(Func);
+  const ReturnValue = InvokeFunction(Func, Args, Instance, nil, nil);
+
+  const IsOwnTarget = ((NewTarget as IInterface) = (Func as IInterface));
+  if IsOwnTarget then
+  begin
+    if ReturnValue.IsObject then
+      Result := ReturnValue
+    else
+      Result := TJSValue.CreateObject(Instance);
+
+    Exit;
+  end;
+
+  const Created = ReturnValue.IsObject and ((ReturnValue.ToObject as IInterface) <> (Instance as IInterface));
+  const IsObjectConstructor = (Instance.Prototype as IInterface) = (FObjectPrototype as IInterface);
+  var Subject := Instance;
+  if Created and (not IsObjectConstructor) then
+    Subject := ReturnValue.ToObject;
+
+  AdoptNewTargetPrototype(Subject, NewTarget);
+  Result := TJSValue.CreateObject(Subject);
+end;
+
+procedure TJSInterpreter.AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
+begin
+  const Candidate = NewTarget.GetProperty(PROTOTYPE_PROPERTY);
+  if Candidate.IsObject then
+    Instance.Prototype := Candidate.ToObject
+  else
+    RequireLiveProxy(NewTarget);
 end;
 
 function TJSInterpreter.VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
@@ -4679,6 +5267,32 @@ end;
 
 function TJSInterpreter.VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 begin
+  Result := CurrentThisValue;
+end;
+
+function TJSInterpreter.ReadBoundThis(const Binding: IJSThisBinding): TJSValue;
+begin
+  const Value = Binding.Value;
+  if not Assigned(Value) then
+    raise TJSErrorFactory.ReferenceError(THIS_BEFORE_SUPER);
+
+  Result := TJSValue.CreateObject(Value);
+end;
+
+function TJSInterpreter.VisitNewTargetExpression: TJSValue;
+begin
+  const NewTarget = ActiveNewTarget;
+  if Assigned(NewTarget) then
+    Result := TJSValue.CreateObject(NewTarget)
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+function TJSInterpreter.CurrentThisValue: TJSValue;
+begin
+  if Assigned(FContext.Binding) then
+    Exit(ReadBoundThis(ActiveBinding));
+
   if Assigned(FThisPrimitive) then
     Result := FThisPrimitive.Value
   else if Assigned(FThisValue) then
@@ -4785,24 +5399,99 @@ end;
 
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
 begin
+  const IsClassConstructor = Func.Kind in [TJSFunctionKind.BaseConstructor, TJSFunctionKind.DerivedConstructor];
+  if IsClassConstructor then
+    raise TJSErrorFactory.TypeError(Format(CLASS_CONSTRUCTOR_CALL, [Func.Name]));
+
+  Result := InvokeFunction(Func, Args, ThisObj, nil, nil);
+end;
+
+procedure TJSInterpreter.EnterCallDepth;
+begin
+  if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
+    raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
+end;
+
+procedure TJSInterpreter.EnterContext(const Func: IJSFunction; const NewTarget: IJSFunction;
+                                      const Binding: IJSThisBinding);
+begin
+  const NeedsContext = (Func.Kind <> TJSFunctionKind.Plain) or Assigned(NewTarget) or Assigned(Binding);
+  if not NeedsContext then
+  begin
+    FContext := Default(TJSCallContext);
+    Exit;
+  end;
+
+  FContext.Callee := Pointer(Func);
+  FContext.NewTarget := Pointer(NewTarget);
+  FContext.Binding := Pointer(Binding);
+end;
+
+function TJSInterpreter.ActiveCallee: IJSFunction;
+begin
+  Result := IJSFunction(FContext.Callee);
+end;
+
+function TJSInterpreter.ActiveNewTarget: IJSFunction;
+begin
+  Result := IJSFunction(FContext.NewTarget);
+end;
+
+function TJSInterpreter.ActiveBinding: IJSThisBinding;
+begin
+  Result := IJSThisBinding(FContext.Binding);
+end;
+
+function TJSInterpreter.CaptureFrame: IJSFrame;
+begin
+  const HasContext = Assigned(FContext.Callee) or Assigned(FContext.NewTarget) or Assigned(FContext.Binding);
+  if HasContext then
+    Result := TJSFrame.Create(ActiveCallee, ActiveNewTarget, ActiveBinding)
+  else
+    Result := nil;
+end;
+
+function TJSInterpreter.InvokeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject;
+                                       const NewTarget: IJSFunction; const Binding: IJSThisBinding): TJSValue;
+begin
   ConsumeStep;
 
   if Func.IsNative then
     Exit(WithArrayPrototype(Func.NativeFunction(ThisObj, Args)));
 
-  if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
-    raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
+  EnterCallDepth;
 
   const OldThis = FThisValue;
   const OldThisPrimitive = FThisPrimitive;
   const OldStrictMode = FStrictMode;
   const OldScope = FCurrentScope;
   const OldVarScope = FVarScope;
+  const OldContext = FContext;
   const IsArrow = Func.IsArrow;
   if IsArrow then
-    FThisValue := Func.LexicalThis
+  begin
+    FThisValue := Func.LexicalThis;
+
+    const Captured = Func.Frame;
+    var CapturedCallee: IJSFunction := nil;
+    var CapturedNewTarget: IJSFunction := nil;
+    var CapturedBinding: IJSThisBinding := nil;
+    if Assigned(Captured) then
+    begin
+      CapturedCallee := Captured.Callee;
+      CapturedNewTarget := Captured.NewTarget;
+      CapturedBinding := Captured.ThisBinding;
+    end;
+
+    FContext.Callee := Pointer(CapturedCallee);
+    FContext.NewTarget := Pointer(CapturedNewTarget);
+    FContext.Binding := Pointer(CapturedBinding);
+  end
   else
+  begin
     FThisValue := ThisObj;
+    EnterContext(Func, NewTarget, Binding);
+  end;
   FStrictMode := Func.IsStrict;
   FThisPrimitive := StrictPrimitiveThis(FThisValue, Func.IsStrict);
 
@@ -4860,6 +5549,7 @@ begin
     FThisValue := OldThis;
     FThisPrimitive := OldThisPrimitive;
     FStrictMode := OldStrictMode;
+    FContext := OldContext;
   end;
 end;
 
@@ -5463,6 +6153,24 @@ begin
   Work.Add(Item);
 end;
 
+procedure TJSInterpreter.GCMarkBinding(const Binding: IJSThisBinding; const Live: TDictionary<Pointer, Byte>;
+                                       const Work: TList<IInterface>);
+begin
+  if Assigned(Binding) then
+    GCMark(Binding.Value, Live, Work);
+end;
+
+procedure TJSInterpreter.GCMarkFrame(const Frame: IJSFrame; const Live: TDictionary<Pointer, Byte>;
+                                     const Work: TList<IInterface>);
+begin
+  if not Assigned(Frame) then
+    Exit;
+
+  GCMark(Frame.Callee, Live, Work);
+  GCMark(Frame.NewTarget, Live, Work);
+  GCMarkBinding(Frame.ThisBinding, Live, Work);
+end;
+
 procedure TJSInterpreter.GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
 begin
   if Value.IsObject then
@@ -5491,6 +6199,9 @@ begin
     GCMark(FVarScope, Live, Work);
     GCMark(FThisValue, Live, Work);
     GCMark(FGlobalObject, Live, Work);
+    GCMark(ActiveCallee, Live, Work);
+    GCMark(ActiveNewTarget, Live, Work);
+    GCMarkBinding(ActiveBinding, Live, Work);
     for var Func in FFunctionRegistry do
       if Func.IsNative then
         GCMark(Func, Live, Work);
@@ -5522,6 +6233,8 @@ begin
         GCMark(Func.ClosureScope, Live, Work);
         GCMark(Func.LexicalThis, Live, Work);
         GCMark(Func.Prototype, Live, Work);
+        GCMark(Func.HomeObject, Live, Work);
+        GCMarkFrame(Func.Frame, Live, Work);
         GCMarkOwnProperties(Func, Live, Work);
       end
       else if Supports(Item, IJSArray, Arr) then
@@ -5551,6 +6264,7 @@ begin
         Func.ClosureScope := nil;
         Func.LexicalThis := nil;
         Func.NativeFunction := nil;
+        Func.ReleaseCapturedContext;
         DetachProperties(Func);
         FFunctionRegistry.Delete(Index);
       end;

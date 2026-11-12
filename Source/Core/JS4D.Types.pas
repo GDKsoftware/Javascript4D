@@ -291,6 +291,25 @@ type
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
   end;
 
+  TJSFunctionKind = (Plain, Method, BaseConstructor, DerivedConstructor);
+
+  IJSThisBinding = interface
+    ['{4A8C2F17-93D5-4E60-B1A7-5E0D6C3B9F82}']
+    function GetValue: IJSObject;
+    procedure SetValue(const Value: IJSObject);
+    property Value: IJSObject read GetValue write SetValue;
+  end;
+
+  IJSFrame = interface
+    ['{7D1E9A34-5B26-4C80-8F3D-A2B6C94E0715}']
+    function GetCallee: IJSFunction;
+    function GetNewTarget: IJSFunction;
+    function GetThisBinding: IJSThisBinding;
+    property Callee: IJSFunction read GetCallee;
+    property NewTarget: IJSFunction read GetNewTarget;
+    property ThisBinding: IJSThisBinding read GetThisBinding;
+  end;
+
   IJSFunction = interface(IJSObject)
     ['{C3D4E5F6-A7B8-9012-CDEF-345678901234}']
     function GetName: string;
@@ -316,6 +335,15 @@ type
     procedure SetLexicalThis(const Value: IJSObject);
     function GetSourceText: string;
     procedure SetSourceText(const Value: string);
+    function GetHomeObject: IJSObject;
+    procedure SetHomeObject(const Value: IJSObject);
+    function GetKind: TJSFunctionKind;
+    procedure SetKind(const Value: TJSFunctionKind);
+    function GetIsDefaultConstructor: Boolean;
+    procedure SetIsDefaultConstructor(const Value: Boolean);
+    function GetFrame: IJSFrame;
+    procedure SetFrame(const Value: IJSFrame);
+    procedure ReleaseCapturedContext;
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -329,6 +357,10 @@ type
     property IsArrow: Boolean read GetIsArrow write SetIsArrow;
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
     property SourceText: string read GetSourceText write SetSourceText;
+    property HomeObject: IJSObject read GetHomeObject write SetHomeObject;
+    property Kind: TJSFunctionKind read GetKind write SetKind;
+    property IsDefaultConstructor: Boolean read GetIsDefaultConstructor write SetIsDefaultConstructor;
+    property Frame: IJSFrame read GetFrame write SetFrame;
   end;
 
   IJSError = interface(IJSObject)
@@ -536,6 +568,10 @@ type
     FLexicalThis: IJSObject;
     FSourceText: string;
     FIntrinsicRole: TJSIntrinsicRole;
+    FHomeObject: IJSObject;
+    FKind: TJSFunctionKind;
+    FIsDefaultConstructor: Boolean;
+    FFrame: IJSFrame;
 
   protected
     function GetName: string;
@@ -561,6 +597,14 @@ type
     procedure SetLexicalThis(const Value: IJSObject);
     function GetSourceText: string;
     procedure SetSourceText(const Value: string);
+    function GetHomeObject: IJSObject;
+    procedure SetHomeObject(const Value: IJSObject);
+    function GetKind: TJSFunctionKind;
+    procedure SetKind(const Value: TJSFunctionKind);
+    function GetIsDefaultConstructor: Boolean;
+    procedure SetIsDefaultConstructor(const Value: Boolean);
+    function GetFrame: IJSFrame;
+    procedure SetFrame(const Value: IJSFrame);
 
   public
     constructor Create;
@@ -573,6 +617,7 @@ type
 
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     procedure SetExpectedArgumentCount(const Count: Integer);
+    procedure ReleaseCapturedContext;
 
     property Name: string read GetName write SetName;
     property Parameters: TArray<string> read GetParameters write SetParameters;
@@ -587,6 +632,10 @@ type
     property LexicalThis: IJSObject read GetLexicalThis write SetLexicalThis;
     property SourceText: string read GetSourceText write SetSourceText;
     property IntrinsicRole: TJSIntrinsicRole read FIntrinsicRole write FIntrinsicRole;
+    property HomeObject: IJSObject read GetHomeObject write SetHomeObject;
+    property Kind: TJSFunctionKind read GetKind write SetKind;
+    property IsDefaultConstructor: Boolean read GetIsDefaultConstructor write SetIsDefaultConstructor;
+    property Frame: IJSFrame read GetFrame write SetFrame;
   end;
 
   TJSArrayImpl = class(TJSObjectImpl, IJSArray)
@@ -2441,7 +2490,54 @@ begin
   FClosureScope := nil;
   FLexicalThis := nil;
   FNativeFunction := nil;
+  ReleaseCapturedContext;
   inherited;
+end;
+
+procedure TJSFunctionImpl.ReleaseCapturedContext;
+begin
+  FHomeObject := nil;
+  FFrame := nil;
+end;
+
+function TJSFunctionImpl.GetHomeObject: IJSObject;
+begin
+  Result := FHomeObject;
+end;
+
+procedure TJSFunctionImpl.SetHomeObject(const Value: IJSObject);
+begin
+  FHomeObject := Value;
+end;
+
+function TJSFunctionImpl.GetKind: TJSFunctionKind;
+begin
+  Result := FKind;
+end;
+
+procedure TJSFunctionImpl.SetKind(const Value: TJSFunctionKind);
+begin
+  FKind := Value;
+end;
+
+function TJSFunctionImpl.GetIsDefaultConstructor: Boolean;
+begin
+  Result := FIsDefaultConstructor;
+end;
+
+procedure TJSFunctionImpl.SetIsDefaultConstructor(const Value: Boolean);
+begin
+  FIsDefaultConstructor := Value;
+end;
+
+function TJSFunctionImpl.GetFrame: IJSFrame;
+begin
+  Result := FFrame;
+end;
+
+procedure TJSFunctionImpl.SetFrame(const Value: IJSFrame);
+begin
+  FFrame := Value;
 end;
 
 function TJSFunctionImpl.GetName: string;
