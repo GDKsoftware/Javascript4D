@@ -401,7 +401,7 @@ constructor TJSTypedArrayObject.Create(const Kind: TJSElementKind; const Buffer:
                                        const ByteOffset: Integer; const Length: Integer);
 begin
   inherited Create;
-  HasOrdinaryLookup := False;
+  LooksUpOwnPropertiesInMap := False;
 
   FKind := Kind;
   FBuffer := Buffer;
@@ -498,8 +498,7 @@ end;
 
 class function TJSTypedArrayObject.IsCanonicalNumber(const Name: string): Boolean;
 begin
-  const FirstChar = Name[1];
-  const CanStartNumber = CharInSet(FirstChar, ['0'..'9', '-', 'I', 'N']);
+  const CanStartNumber = TJSPropertyKey.CanStartNumber(Name);
   if not CanStartNumber then
     Exit(False);
 
@@ -579,7 +578,7 @@ begin
         Result := TJSOwnLookup.Found;
       end;
   else
-    Result := TJSOwnLookup.Absent;
+    Result := TJSOwnLookup.NotFoundInChain;
   end;
 end;
 

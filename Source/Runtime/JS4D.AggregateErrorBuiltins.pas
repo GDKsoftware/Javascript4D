@@ -14,7 +14,6 @@ uses
   JS4D.BinarySupport;
 
 type
-  // AggregateError, the error that Promise.any rejects with.
   TJSAggregateErrorBuiltins = class
   private
     const

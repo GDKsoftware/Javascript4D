@@ -79,6 +79,7 @@ type
 
     function ToText(const Value: TJSValue): string;
     function ToKeyText(const Value: TJSValue): TJSPropertyKey;
+    function KeyArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSPropertyKey;
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     function HasSameRegExpConstructor(const Pattern: TJSValue; const PrototypeObj: IJSObject): Boolean;
     procedure ReadRegExpSource(const Args: TArray<TJSValue>; const PatternIsRegExp: Boolean;
@@ -95,6 +96,9 @@ type
 
     function ParseProgram(const Source: string; const IsStrictContext: Boolean;
                           const Context: TJSSourceContext): TJSProgram;
+    function ParseScript(const Source: string): TJSProgram;
+    class function ArrayIntrinsicRole(const MethodName: string): TJSIntrinsicRole; static;
+    procedure RegisterBuiltInsInHeap;
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterStringRaw(const StringFunc: IJSFunction);
@@ -128,7 +132,8 @@ type
     procedure LinkIntrinsicPrototypes;
     procedure AssignMissingFunctionPrototypes;
     procedure AssignFunctionPrototype(const Target: IJSObject; const Pending: TStack<IJSObject>);
-    procedure QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey; const Pending: TStack<IJSObject>);
+    procedure QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey;
+                                 const Pending: TStack<IJSObject>);
     procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
@@ -151,8 +156,6 @@ type
     function Evaluate(const Expression: string): TJSValue;
     procedure Cancel;
     procedure CollectGarbage;
-    // Runs the promise jobs that are still waiting. Execute does that itself when a script ends, so a host only
-    // needs this after work that queued jobs outside a script.
     procedure RunPendingJobs;
 
     procedure RegisterFunction(const Name: string; const Func: TNativeFunction);
@@ -283,8 +286,6 @@ const
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_TO_LOCALE_STRING = 'toLocaleString';
-  ARRAY_JOIN = 'join';
-  ARRAY_TO_STRING = 'toString';
   ARRAY_FROM = 'from';
   ARRAY_OF = 'of';
   ARRAY_KEYS = 'keys';
@@ -309,6 +310,22 @@ const
 
 { TJSEngine }
 
+class function TJSEngine.ArrayIntrinsicRole(const MethodName: string): TJSIntrinsicRole;
+begin
+  if MethodName = JOIN_METHOD then
+  begin
+    Result := TJSIntrinsicRole.ArrayJoin;
+  end
+  else if MethodName = TO_STRING_METHOD then
+  begin
+    Result := TJSIntrinsicRole.ArrayToString;
+  end
+  else
+  begin
+    Result := TJSIntrinsicRole.None;
+  end;
+end;
+
 constructor TJSEngine.Create;
 begin
   inherited Create;
@@ -318,6 +335,11 @@ begin
   FOnConsoleOutput := nil;
   FInterpreter.RegisterEval(ParseProgram);
 
+  RegisterBuiltInsInHeap;
+end;
+
+procedure TJSEngine.RegisterBuiltInsInHeap;
+begin
   const PreviousHeap = FInterpreter.EnterHeap;
   try
     RegisterBuiltInFunctions;
@@ -372,9 +394,18 @@ begin
   end;
 end;
 
+function TJSEngine.ParseScript(const Source: string): TJSProgram;
+begin
+  const ScriptContext = Default(TJSSourceContext);
+
+  Result := ParseProgram(Source, False, ScriptContext);
+end;
+
 function TJSEngine.Execute(const Source: string): TJSValue;
 begin
-  Result := FInterpreter.Execute(ParseProgram(Source, False, Default(TJSSourceContext)));
+  const Script = ParseScript(Source);
+
+  Result := FInterpreter.Execute(Script);
 end;
 
 procedure TJSEngine.RunPendingJobs;
@@ -439,6 +470,19 @@ end;
 function TJSEngine.ToKeyText(const Value: TJSValue): TJSPropertyKey;
 begin
   Result := Value.ToPropertyKey(FInterpreter.Limits);
+end;
+
+function TJSEngine.KeyArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSPropertyKey;
+begin
+  const HasArgument = (Length(Args) > Index);
+  if HasArgument then
+  begin
+    Result := ToKeyText(Args[Index]);
+  end
+  else
+  begin
+    Result := UNDEFINED_NAME;
+  end;
 end;
 
 function TJSEngine.GetStepBudget: Int64;
@@ -821,7 +865,10 @@ end;
 class procedure TJSEngine.PutChecked(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue);
 begin
   if not TJSPropertyDescriptors.CanPut(Target, Name) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_READ_ONLY, [Name.Text]));
+  begin
+    const Message = Format(CANNOT_ASSIGN_READ_ONLY, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   Target.SetProperty(Name, Value);
 end;
@@ -1365,7 +1412,8 @@ begin
 
       for var SymbolKey in Obj.GetOwnSymbolKeys do
       begin
-        const Found: IJSSymbol = TJSSymbolImpl(TJSSymbolRegistry.Find(SymbolKey.SymbolId));
+        const Registered = TJSSymbolRegistry.Find(SymbolKey.SymbolId);
+        const Found: IJSSymbol = TJSSymbolImpl(Registered);
         const SymbolValue = TJSValue.CreateSymbol(Found);
         ResultArr.Push(SymbolValue);
       end;
@@ -1447,9 +1495,7 @@ begin
     begin
       const Obj = CoerceToObject(ArgumentAt(Args, 0));
 
-      var PropName: TJSPropertyKey := UNDEFINED_NAME;
-      if Length(Args) > 1 then
-        PropName := ToKeyText(Args[1]);
+      const PropName = KeyArgumentAt(Args, 1);
 
       var Descriptor: TJSPropertyDescriptor;
       if not TJSObjectOperations.TryGetOwnProperty(Obj, PropName, Descriptor) then
@@ -1475,7 +1521,9 @@ begin
           Continue;
 
         const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
-        Descriptors.DefineProperty(PropName, TJSPropertyDescriptor.Create(TJSValue.CreateObject(DescObj)));
+        const DescriptorValue = TJSValue.CreateObject(DescObj);
+        const Definition = TJSPropertyDescriptor.Create(DescriptorValue);
+        Descriptors.DefineProperty(PropName, Definition);
       end;
 
       Result := TJSValue.CreateObject(Descriptors);
@@ -1497,10 +1545,8 @@ begin
       if not HasTarget then
         raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
 
-      var PropName: TJSPropertyKey := UNDEFINED_NAME;
+      const PropName = KeyArgumentAt(Args, 1);
       var Description := TJSValue.CreateUndefined;
-      if Length(Args) > 1 then
-        PropName := ToKeyText(Args[1]);
       if Length(Args) > 2 then
         Description := Args[2];
 
@@ -1595,10 +1641,8 @@ begin
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
-    if MethodName = ARRAY_JOIN then
-      (Method as TJSFunctionImpl).IntrinsicRole := TJSIntrinsicRole.ArrayJoin
-    else if MethodName = ARRAY_TO_STRING then
-      (Method as TJSFunctionImpl).IntrinsicRole := TJSIntrinsicRole.ArrayToString;
+    const MethodImpl = Method as TJSFunctionImpl;
+    MethodImpl.IntrinsicRole := ArrayIntrinsicRole(MethodName);
 
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
     FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, Method);
@@ -2114,7 +2158,8 @@ begin
   end;
 end;
 
-procedure TJSEngine.QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey; const Pending: TStack<IJSObject>);
+procedure TJSEngine.QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey;
+                                        const Pending: TStack<IJSObject>);
 begin
   const Descriptor = Target.GetOwnPropertyDescriptor(Name);
 

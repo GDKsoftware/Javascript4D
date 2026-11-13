@@ -15,29 +15,23 @@ type
 
   TJSResumeMode = (Next, Throw, Return);
 
-  // What a generator is resumed with: the value of next, the reason of throw or the value of return.
   TJSResumption = record
     Mode: TJSResumeMode;
     Value: TJSValue;
   end;
 
-  // Where a statement of a generator body stands, or what a yield* is delegating to, while the generator is
-  // suspended. The interpreter derives its own frames from this class.
   TJSGeneratorFrame = class
   public
-    procedure EnumerateReferences(const Visit: TProc<IInterface>); virtual;
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor); virtual;
   end;
 
   IJSGenerator = interface(IJSObject)
     ['{3C7A91E4-5D28-4B6F-A0E3-8F14D2B7C569}']
-    // Hands every scope and object that the suspended generator keeps to the garbage collector.
-    procedure EnumerateReferences(const Visit: TProc<IInterface>);
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
   TJSGeneratorRegistry = class;
 
-  // What the interpreter needs from the code that owns promises to run an async function: a promise for its
-  // result, the loop that resumes the suspended body at each await, and a way to reject the promise.
   TJSAsyncHost = class abstract
   public
     function CreateResult: IJSObject; virtual; abstract;
@@ -62,8 +56,8 @@ type
     FRegistry: TJSGeneratorRegistry;
     FRegistryIndex: Integer;
 
-    procedure EnumerateValue(const Value: TJSValue; const Visit: TProc<IInterface>);
-    procedure EnumerateReferences(const Visit: TProc<IInterface>);
+    procedure EnumerateValue(const Value: TJSValue; const Visit: TJSReferenceVisitor);
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
 
   protected
     procedure ReleaseReferences; override;
@@ -72,7 +66,6 @@ type
     constructor Create(const Registry: TJSGeneratorRegistry);
     destructor Destroy; override;
 
-    // Forgets everything the generator needs to continue.
     procedure Finish;
     function FindFrame(const Node: TJSASTNode; out Frame: TJSGeneratorFrame): Boolean;
     procedure AddFrame(const Node: TJSASTNode; const Frame: TJSGeneratorFrame);
@@ -80,7 +73,6 @@ type
     function Recall(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
     procedure Remember(const Node: TJSASTNode; const Entry: TJSResumption);
     procedure ForgetAll;
-    // Forgets the results of the expression that was evaluated, once the statement it belongs to is done.
     procedure ForgetMemory;
 
     property State: TJSGeneratorState read FState write FState;
@@ -95,8 +87,6 @@ type
     property SuspendedAt: TJSASTNode read FSuspendedAt write FSuspendedAt;
   end;
 
-  // Remembers every live generator of one engine. The engine releases what they keep when it goes away, which
-  // breaks the cycles that scripts make through generators that are suspended.
   TJSGeneratorRegistry = class
   private
     FGenerators: TList<TJSGeneratorObject>;
@@ -115,7 +105,7 @@ implementation
 
 { TJSGeneratorFrame }
 
-procedure TJSGeneratorFrame.EnumerateReferences(const Visit: TProc<IInterface>);
+procedure TJSGeneratorFrame.EnumerateReferences(const Visit: TJSReferenceVisitor);
 begin
 end;
 
@@ -200,13 +190,13 @@ begin
   FMemory.AddOrSetValue(Node, Entry);
 end;
 
-procedure TJSGeneratorObject.EnumerateValue(const Value: TJSValue; const Visit: TProc<IInterface>);
+procedure TJSGeneratorObject.EnumerateValue(const Value: TJSValue; const Visit: TJSReferenceVisitor);
 begin
   if Value.IsObject then
     Visit(Value.ToObject);
 end;
 
-procedure TJSGeneratorObject.EnumerateReferences(const Visit: TProc<IInterface>);
+procedure TJSGeneratorObject.EnumerateReferences(const Visit: TJSReferenceVisitor);
 begin
   Visit(FScope);
   Visit(FVarScope);

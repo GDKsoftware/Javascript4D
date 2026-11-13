@@ -27,9 +27,6 @@ type
     Unscopables
   );
 
-  // A symbol used as a property key is identified by its id. The registry maps such an id back to the live
-  // symbol. It does not own the symbols: an object that stores a symbol key keeps the symbol itself alive,
-  // so every key found on an object resolves to a live symbol.
   TJSSymbolRegistry = class
   private
     const
@@ -38,14 +35,12 @@ type
     class var FLock: TCriticalSection;
     class var FLive: TDictionary<Integer, TObject>;
     class var FLastId: Integer;
+    class var FWellKnownKeys: array[TJSWellKnownSymbol] of TJSPropertyKey;
 
     class constructor Create;
     class destructor Destroy;
 
   public
-    // The keys of the well-known symbols. Read-only: hot paths pass an element on without copying it.
-    class var WellKnownKeys: array[TJSWellKnownSymbol] of TJSPropertyKey;
-
     class function WellKnownKey(const Which: TJSWellKnownSymbol): TJSPropertyKey; static; inline;
     class function WellKnownDescription(const Which: TJSWellKnownSymbol): string; static;
     class function NextId: Integer; static;
@@ -81,7 +76,7 @@ begin
 
   for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
-    WellKnownKeys[Which] := TJSPropertyKey.ForSymbol(Ord(Which) + 1);
+    FWellKnownKeys[Which] := TJSPropertyKey.ForSymbol(Ord(Which) + 1);
   end;
 end;
 
@@ -93,7 +88,7 @@ end;
 
 class function TJSSymbolRegistry.WellKnownKey(const Which: TJSWellKnownSymbol): TJSPropertyKey;
 begin
-  Result := WellKnownKeys[Which];
+  Result := FWellKnownKeys[Which];
 end;
 
 class function TJSSymbolRegistry.WellKnownDescription(const Which: TJSWellKnownSymbol): string;

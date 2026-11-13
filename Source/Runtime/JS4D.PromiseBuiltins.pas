@@ -16,7 +16,6 @@ uses
   JS4D.PromiseCombinators;
 
 type
-  // Promise, its prototype methods, its static methods and the job queue that runs the reactions.
   TJSPromiseBuiltins = class
   private
     const

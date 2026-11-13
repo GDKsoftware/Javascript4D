@@ -14,6 +14,11 @@ uses
   JS4D.SymbolRegistry,
   JS4D.ObjectHeap;
 
+const
+  VALUE_OF_METHOD = 'valueOf';
+  TO_STRING_METHOD = 'toString';
+  JOIN_METHOD = 'join';
+
 type
   TJSValueType = (
     Undefined,
@@ -33,7 +38,6 @@ type
     String_
   );
 
-  // The built-in methods that string conversion of an array can skip, as long as nothing has replaced them.
   TJSIntrinsicRole = (
     None,
     ArrayToString,
@@ -41,15 +45,16 @@ type
     ObjectValueOf
   );
 
-  // How an object answers the own part of a property lookup that walks a prototype chain.
+  TJSChainVerdict = (
+    Undecided,
+    Yes,
+    No
+  );
+
   TJSOwnLookup = (
-    // The object has no such property: the lookup goes on with its prototype.
-    Missing,
-    // The object has the property: the descriptor is set.
+    NotOwned,
     Found,
-    // The object decides that the property does not exist and the rest of the chain is not asked.
-    Absent,
-    // The object answers for itself and for the whole chain behind it (a proxy): it has to be asked directly.
+    NotFoundInChain,
     Delegated
   );
 
@@ -101,8 +106,8 @@ type
 
     class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
       const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
-    function ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string;
-    // The string of an array whose conversion runs script, with the nesting of such conversions limited.
+    class function ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string; static;
+    function ToComputedPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
     function ToHookedArrayString(const Limits: TJSLimits): string;
     function TryConvertThroughToPrimitive(const Hint: TJSPrimitiveHint; out Converted: TJSValue): Boolean;
 
@@ -143,18 +148,11 @@ type
     function ToObject: IJSObject;
     function ToPrimitive(const PreferString: Boolean): TJSValue;
     function ToPrimitiveWithHint(const Hint: TJSPrimitiveHint): TJSValue;
-    // True for an array whose conversion to a primitive runs no script: nothing hooks Symbol.toPrimitive and the
-    // methods the conversion uses for the hint are still the built-in ones. Such an array is converted directly.
     function HasUntouchedArrayConversion(const Hint: TJSPrimitiveHint): Boolean;
-    // The text of an array for which HasUntouchedArrayConversion holds, without checking that again.
     function ToUntouchedArrayText(const Limits: TJSLimits): string;
     // The valueOf and toString lookup of ToPrimitive, without Symbol.toPrimitive.
     function OrdinaryToPrimitive(const Hint: TJSPrimitiveHint): TJSValue;
-    // The key a value has when it is used as a property name: the key of a symbol, otherwise its string form.
     function ToPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
-    // Same as ToPropertyKey, but fills an existing key instead of returning a new one to copy.
-    procedure ReadPropertyKey(const Limits: TJSLimits; var Key: TJSPropertyKey);
-    // The property key of a symbol value.
     function AsSymbolKey: TJSPropertyKey;
     // Text of a symbol value as shown by String(symbol) and Symbol.prototype.toString.
     function SymbolDescriptiveString: string;
@@ -248,6 +246,9 @@ type
       const ThisObj: IJSObject): TJSValue; virtual; abstract;
   end;
 
+  TJSValueVisitor = reference to procedure(const Value: TJSValue);
+  TJSReferenceVisitor = reference to procedure(const Reference: IInterface);
+
   IJSObject = interface
     ['{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}']
     function HasProperty(const Name: TJSPropertyKey): Boolean;
@@ -287,7 +288,6 @@ type
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
-    // True when converting the array to a primitive runs no script: see TJSValue.HasUntouchedArrayConversion.
     function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
     property Length: Integer read GetLength;
     property LogicalLength: Int64 read GetLogicalLength;
@@ -457,10 +457,6 @@ type
     class function IsInvalidIndexKey(const Start: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
-  // What an array prototype chain looked like the last time the conversion of an array was checked: the layout
-  // of every object in the chain and the places of the members the conversion uses. While no object in the chain
-  // has added or removed a property, such an array is checked by reading those members again instead of
-  // searching the chain for them.
   TJSConversionCache = class
   public
     const
@@ -469,7 +465,6 @@ type
     type
       TLink = record
         Owner: TJSObjectImpl;
-        // Keeps the object alive while it is listed, so that its address cannot be reused by another object.
         Keeper: IJSObject;
         LayoutVersion: Cardinal;
         Count: Integer;
@@ -481,8 +476,6 @@ type
       Links: array[0..MAX_LINKS - 1] of TLink;
       LinkCount: Integer;
       HasHook: Boolean;
-      // The members the conversion uses, with the built-in function each of them held when the cache was made
-      // (nil when it held something else). A member is untouched while its slot still holds that function.
       ToStringSlot: PJSPropertyDescriptor;
       JoinSlot: PJSPropertyDescriptor;
       ValueOfSlot: PJSPropertyDescriptor;
@@ -499,11 +492,8 @@ type
     FHasEscapedKeys: Boolean;
     FHasImmutablePrototype: Boolean;
     FPrototype: IJSObject;
-    // The prototype as an object of this unit, for walking a chain without reference counting. Nil when the
-    // prototype is another kind of object.
     FPrototypeImpl: TJSObjectImpl;
-    // True while the properties of this object are exactly the ones in its property map.
-    FOrdinaryLookup: Boolean;
+    FLooksUpOwnPropertiesInMap: Boolean;
     FFrozen: Boolean;
     FSealed: Boolean;
     FExtensible: Boolean;
@@ -515,27 +505,22 @@ type
     class function TryParseArrayIndex(const Name: TJSPropertyKey; out Index: Int64): Boolean; static;
     class function CompareIndexNames(const Left, Right: string): Integer; static;
     function HasIndexKey(const Keys: TArray<string>): Boolean;
-    class function ExoticHasProperty(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                     out IsDecided: Boolean): Boolean; static;
+    class function VerdictOf(const IsYes: Boolean): TJSChainVerdict; static;
+    class function ExoticHasProperty(const Link: TJSObjectImpl; const Name: TJSPropertyKey): TJSChainVerdict; static;
     class function ExoticDescriptor(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                    out Descriptor: TJSPropertyDescriptor; out IsDecided: Boolean): Boolean; static;
-    class function ExoticConfigurable(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                      out IsDecided: Boolean): Boolean; static;
-    function ForeignHasProperty(const Name: TJSPropertyKey): Boolean;
-    function ForeignDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
-    function ForeignConfigurable(const Name: TJSPropertyKey): Boolean;
-    // The conversion cache of an object used as prototype of arrays, current for the chain behind it, or nil when
-    // the chain cannot be cached.
+                                    out Descriptor: TJSPropertyDescriptor): TJSChainVerdict; static;
+    class function ExoticConfigurable(const Link: TJSObjectImpl; const Name: TJSPropertyKey): TJSChainVerdict; static;
     function CurrentConversionCache: TJSConversionCache;
     function ConversionCacheIsCurrent: Boolean;
+    function TryCollectConversionLinks(const Cache: TJSConversionCache): Boolean;
     function TryBuildConversionCache: Boolean;
     procedure ReadConversionMembers(const Cache: TJSConversionCache);
     class function IntrinsicFunctionIn(const Slot: PJSPropertyDescriptor;
                                        const Role: TJSIntrinsicRole): IJSObject; static;
-    function IsIntrinsicMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
-    // True when the slot holds the function that it held when the conversion cache was made.
+    function TryCheckThroughCache(const NeedsValueOf: Boolean; out Verdict: Boolean): Boolean;
+    function CheckByWalkingChain(const NeedsValueOf: Boolean): Boolean;
+    function IsUntouchedMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
     class function SlotStillHolds(const Slot: PJSPropertyDescriptor; const Original: IJSObject): Boolean; static; inline;
-    // True when the slot holds a built-in function that has the role: nothing has replaced it.
     class function SlotHoldsIntrinsic(const Slot: PJSPropertyDescriptor; const Role: TJSIntrinsicRole): Boolean; static;
     procedure RememberSymbol(const Key: TJSPropertyKey);
     function OrderedStringKeys: TArray<string>;
@@ -548,14 +533,10 @@ type
 
     function GetPrototype: IJSObject; virtual;
     procedure SetPrototype(const Value: IJSObject); virtual;
-    // The own part of a property lookup. Lookups along a prototype chain ask every object in turn through this
-    // method instead of calling each other, so the depth of a chain never uses up the stack.
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; virtual;
     function GetPropertyLayoutVersion: Cardinal;
-    // False for an object that decides about its properties and those of its prototype chain by itself.
-    function KeepsPlainProperties: Boolean; virtual;
-    // Objects that keep properties outside their property map (elements, characters) turn this off.
-    property HasOrdinaryLookup: Boolean read FOrdinaryLookup write FOrdinaryLookup;
+    function StoresAllPropertiesInMap: Boolean; virtual;
+    property LooksUpOwnPropertiesInMap: Boolean read FLooksUpOwnPropertiesInMap write FLooksUpOwnPropertiesInMap;
     function GetPropertyThroughDescriptor(const Name: TJSPropertyKey): TJSValue;
     function HasStandardPropertyLookup: Boolean; virtual;
 
@@ -569,6 +550,7 @@ type
     function HoldsNested: Boolean; virtual;
     procedure DetachNested(const Pending: TList<IJSObject>); virtual;
     procedure ReleaseNested;
+    procedure ReleasePrototypeAndNested;
     function HoldsExclusivePrototype: Boolean;
     procedure ReleaseReferences; override;
     procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
@@ -597,10 +579,8 @@ type
     function HasOwnProperty(const Name: TJSPropertyKey): Boolean; virtual;
     function TryAssignOwnProperty(const Name: TJSPropertyKey; const Value: TJSValue): Boolean; virtual;
     function TryGetOwnSlot(const Name: TJSPropertyKey; out Slot: PJSPropertyDescriptor): Boolean;
-    // Finds the slot of a property that is stored in the property map of this object or of an object in its
-    // prototype chain, without copying it. False when an object in the chain (a proxy) may answer differently.
+    function HasOwnSlot(const Name: TJSPropertyKey): Boolean;
     function TryFindPlainSlot(const Name: TJSPropertyKey; out Slot: PJSPropertyDescriptor): Boolean;
-    // True when the conversion of this object, used as an array, to a primitive runs no script.
     function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
     procedure DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor); virtual;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; virtual;
@@ -608,7 +588,6 @@ type
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
     property PropertyLayoutVersion: Cardinal read GetPropertyLayoutVersion;
-    // An object with an immutable prototype (Object.prototype) accepts no other prototype than the one it has.
     property HasImmutablePrototype: Boolean read FHasImmutablePrototype write FHasImmutablePrototype;
   end;
 
@@ -632,6 +611,8 @@ type
     FKind: TJSFunctionKind;
     FIsDefaultConstructor: Boolean;
     FFrame: IJSFrame;
+
+    procedure ReleaseCodeReferences;
 
   protected
     procedure ReleaseReferences; override;
@@ -963,15 +944,14 @@ begin
 end;
 
 const
+  UNSUPPORTED_OWN_LOOKUP = 'Unsupported own property lookup result: %d';
+  FUNCTION_ENGINE_FREED = 'Function %s cannot be called after its engine is freed';
   UNDEFINED_STRING = 'undefined';
   EMPTY_PATTERN_GROUP = '(?:)';
   NULL_STRING = 'null';
   TRUE_STRING = 'true';
   FALSE_STRING = 'false';
   NAN_STRING = 'NaN';
-  VALUE_OF_METHOD = 'valueOf';
-  TO_STRING_METHOD = 'toString';
-  JOIN_METHOD = 'join';
   CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   SYMBOL_TO_NUMBER = 'Cannot convert a Symbol value to a number';
   SYMBOL_TO_STRING = 'Cannot convert a Symbol value to a string';
@@ -1000,6 +980,9 @@ const
   LAST_INDEX_READ_ONLY = 'Cannot assign to read only property ''lastIndex''';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
+
+threadvar
+  NestedConversions: Integer;
 
 type
   TJSAccessorPair = class(TInterfacedObject, IJSAccessorPair)
@@ -1117,9 +1100,6 @@ begin
   Result.FValueType := TJSValueType.String_;
   Result.FStringValue := Value;
 end;
-
-threadvar
-  NestedConversions: Integer;
 
 class function TJSValue.CreateObject(const Value: IJSObject): TJSValue;
 var
@@ -1413,7 +1393,7 @@ begin
   Result := ToPlainArrayText(Source, Limits);
 end;
 
-function TJSValue.ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string;
+class function TJSValue.ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string;
 begin
   const Builder = TStringBuilder.Create;
   const Visiting = TList<Pointer>.Create;
@@ -1500,51 +1480,82 @@ end;
 
 function TJSObjectImpl.HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
 begin
-  Result := False;
-
   const NeedsValueOf = (Hint <> TJSPrimitiveHint.String_);
 
-  const HasOwnProperties = (FProperties.Count > 0);
-  const Prototype = FPrototypeImpl;
-  if (not HasOwnProperties) and Assigned(Prototype) then
+  var Verdict: Boolean;
+  if TryCheckThroughCache(NeedsValueOf, Verdict) then
   begin
-    const Cache = Prototype.CurrentConversionCache;
-    if Assigned(Cache) then
-    begin
-      if Cache.HasHook then
-        Exit;
-
-      if NeedsValueOf and (not SlotStillHolds(Cache.ValueOfSlot, Cache.ValueOfFunction)) then
-        Exit;
-
-      Exit(SlotStillHolds(Cache.ToStringSlot, Cache.ToStringFunction) and
-           SlotStillHolds(Cache.JoinSlot, Cache.JoinFunction));
-    end;
+    Result := Verdict;
+  end
+  else
+  begin
+    Result := CheckByWalkingChain(NeedsValueOf);
   end;
+end;
 
+function TJSObjectImpl.TryCheckThroughCache(const NeedsValueOf: Boolean; out Verdict: Boolean): Boolean;
+begin
+  Verdict := False;
+  Result := False;
+
+  const HasOwnProperties = (FProperties.Count > 0);
+  const PrototypeImpl = FPrototypeImpl;
+  if HasOwnProperties or (not Assigned(PrototypeImpl)) then
+    Exit;
+
+  const Cache = PrototypeImpl.CurrentConversionCache;
+  if not Assigned(Cache) then
+    Exit;
+
+  Result := True;
+  if Cache.HasHook then
+    Exit;
+
+  const HasReplacedValueOf = (NeedsValueOf and (not SlotStillHolds(Cache.ValueOfSlot, Cache.ValueOfFunction)));
+  if HasReplacedValueOf then
+    Exit;
+
+  Verdict := (SlotStillHolds(Cache.ToStringSlot, Cache.ToStringFunction) and
+              SlotStillHolds(Cache.JoinSlot, Cache.JoinFunction));
+end;
+
+function TJSObjectImpl.CheckByWalkingChain(const NeedsValueOf: Boolean): Boolean;
+begin
+  Result := False;
+
+  const ToPrimitiveKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToPrimitive);
   var HookSlot: PJSPropertyDescriptor;
-  const IsHookable = (not TryFindPlainSlot(TJSSymbolRegistry.WellKnownKeys[TJSWellKnownSymbol.ToPrimitive],
-                                           HookSlot)) or Assigned(HookSlot);
+  const IsPlainChain = TryFindPlainSlot(ToPrimitiveKey, HookSlot);
+  const HasHook = (IsPlainChain and Assigned(HookSlot));
+  const IsHookable = ((not IsPlainChain) or HasHook);
   if IsHookable then
     Exit;
 
-  if NeedsValueOf and (not IsIntrinsicMember(VALUE_OF_METHOD, TJSIntrinsicRole.ObjectValueOf)) then
+  const IsValueOfUntouched = IsUntouchedMember(VALUE_OF_METHOD, TJSIntrinsicRole.ObjectValueOf);
+  const HasReplacedValueOf = (NeedsValueOf and (not IsValueOfUntouched));
+  if HasReplacedValueOf then
     Exit;
 
-  Result := IsIntrinsicMember(TO_STRING_METHOD, TJSIntrinsicRole.ArrayToString) and
-            IsIntrinsicMember(JOIN_METHOD, TJSIntrinsicRole.ArrayJoin);
+  Result := (IsUntouchedMember(TO_STRING_METHOD, TJSIntrinsicRole.ArrayToString) and
+             IsUntouchedMember(JOIN_METHOD, TJSIntrinsicRole.ArrayJoin));
 end;
 
-function TJSObjectImpl.IsIntrinsicMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
+function TJSObjectImpl.IsUntouchedMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
 begin
   var Slot: PJSPropertyDescriptor;
-  if not TryFindPlainSlot(Name, Slot) then
-    Exit(False);
-
-  if not Assigned(Slot) then
-    Exit(not Assigned(FPrototype));
-
-  Result := SlotHoldsIntrinsic(Slot, Role);
+  const IsPlainChain = TryFindPlainSlot(Name, Slot);
+  if not IsPlainChain then
+  begin
+    Result := False;
+  end
+  else if not Assigned(Slot) then
+  begin
+    Result := (not Assigned(FPrototype));
+  end
+  else
+  begin
+    Result := SlotHoldsIntrinsic(Slot, Role);
+  end;
 end;
 
 class function TJSObjectImpl.SlotStillHolds(const Slot: PJSPropertyDescriptor; const Original: IJSObject): Boolean;
@@ -1625,46 +1636,44 @@ end;
 
 function TJSValue.ToPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
 begin
-  ReadPropertyKey(Limits, Result);
-end;
-
-procedure TJSValue.ReadPropertyKey(const Limits: TJSLimits; var Key: TJSPropertyKey);
-begin
   if FValueType = TJSValueType.String_ then
   begin
-    Key.SetText(FStringValue);
-    Exit;
-  end;
-
-  if IsSymbol then
+    Result.SetText(FStringValue);
+  end
+  else if IsSymbol then
   begin
-    Key := AsSymbolKey;
-    Exit;
+    Result := AsSymbolKey;
+  end
+  else
+  begin
+    Result := ToComputedPropertyKey(Limits);
   end;
+end;
 
-  var Source: IJSArray;
-  const IsPlainArray = IsArray and Supports(FObjectRef, IJSArray, Source) and
-                       Source.HasUntouchedConversion(TJSPrimitiveHint.String_);
+function TJSValue.ToComputedPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
+begin
+  const IsPlainArray = (IsArray and HasUntouchedArrayConversion(TJSPrimitiveHint.String_));
   if IsPlainArray then
   begin
-    Key.SetText(ToPlainArrayText(Source, Limits));
+    Result.SetText(ToUntouchedArrayText(Limits));
     Exit;
   end;
 
   if not IsObject then
   begin
-    Key.SetText(ToLimitedString(Limits));
+    Result.SetText(ToLimitedString(Limits));
     Exit;
   end;
 
   const Primitive = ToPrimitiveWithHint(TJSPrimitiveHint.String_);
   if Primitive.IsSymbol then
   begin
-    Key := Primitive.AsSymbolKey;
-    Exit;
+    Result := Primitive.AsSymbolKey;
+  end
+  else
+  begin
+    Result.SetText(Primitive.ToLimitedString(Limits));
   end;
-
-  Key.SetText(Primitive.ToLimitedString(Limits));
 end;
 
 function TJSValue.AsSymbolKey: TJSPropertyKey;
@@ -1711,7 +1720,7 @@ begin
   inherited Create;
   FProperties := TJSPropertyMap.Create;
   FOrderedKeys := TList<string>.Create;
-  FOrdinaryLookup := True;
+  FLooksUpOwnPropertiesInMap := True;
   FFrozen := False;
   FSealed := False;
   FExtensible := True;
@@ -1789,13 +1798,18 @@ begin
   end;
 end;
 
-procedure TJSObjectImpl.ReleaseReferences;
+procedure TJSObjectImpl.ReleasePrototypeAndNested;
 begin
   FreeAndNil(FConversionCache);
   ReleaseNested;
 
   FPrototypeImpl := nil;
   FPrototype := nil;
+end;
+
+procedure TJSObjectImpl.ReleaseReferences;
+begin
+  ReleasePrototypeAndNested;
 
   FProperties.Clear;
   FOrderedKeys.Clear;
@@ -1827,11 +1841,7 @@ end;
 
 destructor TJSObjectImpl.Destroy;
 begin
-  FreeAndNil(FConversionCache);
-  ReleaseNested;
-
-  FPrototypeImpl := nil;
-  FPrototype := nil;
+  ReleasePrototypeAndNested;
 
   FProperties.Clear;
   FProperties.Free;
@@ -1882,10 +1892,15 @@ procedure TJSObjectImpl.SetPrototype(const Value: IJSObject);
 begin
   FPrototype := Value;
 
-  if Value is TJSObjectImpl then
-    FPrototypeImpl := TJSObjectImpl(Value)
+  const IsObjectImpl = (Value is TJSObjectImpl);
+  if IsObjectImpl then
+  begin
+    FPrototypeImpl := TJSObjectImpl(Value);
+  end
   else
+  begin
     FPrototypeImpl := nil;
+  end;
 end;
 
 function TJSObjectImpl.LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup;
@@ -1893,72 +1908,64 @@ begin
   if FProperties.TryGetValue(Name.Stored, Descriptor) then
     Result := TJSOwnLookup.Found
   else
-    Result := TJSOwnLookup.Missing;
+    Result := TJSOwnLookup.NotOwned;
 end;
 
-class function TJSObjectImpl.ExoticHasProperty(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                               out IsDecided: Boolean): Boolean;
+class function TJSObjectImpl.VerdictOf(const IsYes: Boolean): TJSChainVerdict;
+begin
+  if IsYes then
+  begin
+    Result := TJSChainVerdict.Yes;
+  end
+  else
+  begin
+    Result := TJSChainVerdict.No;
+  end;
+end;
+
+class function TJSObjectImpl.ExoticHasProperty(const Link: TJSObjectImpl; const Name: TJSPropertyKey): TJSChainVerdict;
 begin
   var Descriptor: TJSPropertyDescriptor;
+  const Lookup = Link.LookupOwn(Name, Descriptor);
 
-  case Link.LookupOwn(Name, Descriptor) of
-    TJSOwnLookup.Found     : Result := True;
-    TJSOwnLookup.Absent    : Result := False;
-    TJSOwnLookup.Delegated : Result := (Link as IJSObject).HasProperty(Name);
+  case Lookup of
+    TJSOwnLookup.Found           : Result := TJSChainVerdict.Yes;
+    TJSOwnLookup.NotFoundInChain : Result := TJSChainVerdict.No;
+    TJSOwnLookup.Delegated       : Result := VerdictOf((Link as IJSObject).HasProperty(Name));
+    TJSOwnLookup.NotOwned        : Result := TJSChainVerdict.Undecided;
   else
-    IsDecided := False;
-    Exit(False);
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_OWN_LOOKUP, [Ord(Lookup)]);
   end;
-
-  IsDecided := True;
 end;
 
 class function TJSObjectImpl.ExoticDescriptor(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                              out Descriptor: TJSPropertyDescriptor;
-                                              out IsDecided: Boolean): Boolean;
+                                              out Descriptor: TJSPropertyDescriptor): TJSChainVerdict;
 begin
-  case Link.LookupOwn(Name, Descriptor) of
-    TJSOwnLookup.Found     : Result := True;
-    TJSOwnLookup.Absent    : Result := False;
-    TJSOwnLookup.Delegated : Result := (Link as IJSObject).TryGetPropertyDescriptor(Name, Descriptor);
-  else
-    IsDecided := False;
-    Exit(False);
-  end;
+  const Lookup = Link.LookupOwn(Name, Descriptor);
 
-  IsDecided := True;
+  case Lookup of
+    TJSOwnLookup.Found           : Result := TJSChainVerdict.Yes;
+    TJSOwnLookup.NotFoundInChain : Result := TJSChainVerdict.No;
+    TJSOwnLookup.Delegated       : Result := VerdictOf((Link as IJSObject).TryGetPropertyDescriptor(Name, Descriptor));
+    TJSOwnLookup.NotOwned        : Result := TJSChainVerdict.Undecided;
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_OWN_LOOKUP, [Ord(Lookup)]);
+  end;
 end;
 
-class function TJSObjectImpl.ExoticConfigurable(const Link: TJSObjectImpl; const Name: TJSPropertyKey;
-                                                out IsDecided: Boolean): Boolean;
+class function TJSObjectImpl.ExoticConfigurable(const Link: TJSObjectImpl; const Name: TJSPropertyKey): TJSChainVerdict;
 begin
   var Descriptor: TJSPropertyDescriptor;
+  const Lookup = Link.LookupOwn(Name, Descriptor);
 
-  case Link.LookupOwn(Name, Descriptor) of
-    TJSOwnLookup.Found     : Result := Descriptor.Configurable;
-    TJSOwnLookup.Absent    : Result := True;
-    TJSOwnLookup.Delegated : Result := (Link as IJSObject).IsPropertyConfigurable(Name);
+  case Lookup of
+    TJSOwnLookup.Found           : Result := VerdictOf(Descriptor.Configurable);
+    TJSOwnLookup.NotFoundInChain : Result := TJSChainVerdict.Yes;
+    TJSOwnLookup.Delegated       : Result := VerdictOf((Link as IJSObject).IsPropertyConfigurable(Name));
+    TJSOwnLookup.NotOwned        : Result := TJSChainVerdict.Undecided;
   else
-    IsDecided := False;
-    Exit(False);
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_OWN_LOOKUP, [Ord(Lookup)]);
   end;
-
-  IsDecided := True;
-end;
-
-function TJSObjectImpl.ForeignHasProperty(const Name: TJSPropertyKey): Boolean;
-begin
-  Result := FPrototype.HasProperty(Name);
-end;
-
-function TJSObjectImpl.ForeignDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
-begin
-  Result := FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
-end;
-
-function TJSObjectImpl.ForeignConfigurable(const Name: TJSPropertyKey): Boolean;
-begin
-  Result := FPrototype.IsPropertyConfigurable(Name);
 end;
 
 function TJSObjectImpl.HasProperty(const Name: TJSPropertyKey): Boolean;
@@ -1967,17 +1974,20 @@ begin
 
   while True do
   begin
-    if Link.FOrdinaryLookup then
+    if Link.FLooksUpOwnPropertiesInMap then
     begin
       if Link.FProperties.ContainsKey(Name.Stored) then
         Exit(True);
     end
     else
     begin
-      var IsDecided: Boolean;
-      const Verdict = ExoticHasProperty(Link, Name, IsDecided);
+      const Verdict = ExoticHasProperty(Link, Name);
+      const IsDecided = (Verdict <> TJSChainVerdict.Undecided);
       if IsDecided then
-        Exit(Verdict);
+      begin
+        Result := (Verdict = TJSChainVerdict.Yes);
+        Exit;
+      end;
     end;
 
     const Next = Link.FPrototypeImpl;
@@ -1987,7 +1997,7 @@ begin
     Link := Next;
   end;
 
-  Result := Assigned(Link.FPrototype) and Link.ForeignHasProperty(Name);
+  Result := Assigned(Link.FPrototype) and Link.FPrototype.HasProperty(Name);
 end;
 
 function TJSObjectImpl.InvokeGetter(const Descriptor: TJSPropertyDescriptor): TJSValue;
@@ -2047,7 +2057,7 @@ begin
 
   while True do
   begin
-    if Link.FOrdinaryLookup then
+    if Link.FLooksUpOwnPropertiesInMap then
     begin
       var Slot: PJSPropertyDescriptor;
       if Link.FProperties.TryGetSlot(Name.Stored, Slot) then
@@ -2058,10 +2068,13 @@ begin
     end
     else
     begin
-      var IsDecided: Boolean;
-      const Verdict = ExoticDescriptor(Link, Name, Descriptor, IsDecided);
+      const Verdict = ExoticDescriptor(Link, Name, Descriptor);
+      const IsDecided = (Verdict <> TJSChainVerdict.Undecided);
       if IsDecided then
-        Exit(Verdict);
+      begin
+        Result := (Verdict = TJSChainVerdict.Yes);
+        Exit;
+      end;
     end;
 
     const Next = Link.FPrototypeImpl;
@@ -2071,7 +2084,7 @@ begin
     Link := Next;
   end;
 
-  Result := Assigned(Link.FPrototype) and Link.ForeignDescriptor(Name, Descriptor);
+  Result := Assigned(Link.FPrototype) and Link.FPrototype.TryGetPropertyDescriptor(Name, Descriptor);
 end;
 
 function TJSObjectImpl.GetPropertyLayoutVersion: Cardinal;
@@ -2084,7 +2097,12 @@ begin
   Result := FProperties.TryGetSlot(Name.Stored, Slot);
 end;
 
-function TJSObjectImpl.KeepsPlainProperties: Boolean;
+function TJSObjectImpl.HasOwnSlot(const Name: TJSPropertyKey): Boolean;
+begin
+  Result := FProperties.ContainsKey(Name.Stored);
+end;
+
+function TJSObjectImpl.StoresAllPropertiesInMap: Boolean;
 begin
   Result := True;
 end;
@@ -2096,7 +2114,7 @@ begin
   var Current: TJSObjectImpl := Self;
   while True do
   begin
-    if not Current.KeepsPlainProperties then
+    if not Current.StoresAllPropertiesInMap then
       Exit(False);
 
     if Current.FProperties.TryGetSlot(Name.Stored, Slot) then
@@ -2132,13 +2150,13 @@ begin
     Current := Current.FPrototypeImpl;
   end;
 
-  Result := not Assigned(Previous.FPrototype);
+  Result := (Assigned(Previous) and (not Assigned(Previous.FPrototype)));
 end;
 
 procedure TJSObjectImpl.ReadConversionMembers(const Cache: TJSConversionCache);
 begin
   var HookSlot: PJSPropertyDescriptor;
-  TryFindPlainSlot(TJSSymbolRegistry.WellKnownKeys[TJSWellKnownSymbol.ToPrimitive], HookSlot);
+  TryFindPlainSlot(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToPrimitive), HookSlot);
 
   Cache.HasHook := Assigned(HookSlot);
   TryFindPlainSlot(TO_STRING_METHOD, Cache.ToStringSlot);
@@ -2159,44 +2177,61 @@ begin
     Result := Slot.Value.ToObject;
 end;
 
-function TJSObjectImpl.TryBuildConversionCache: Boolean;
+function TJSObjectImpl.TryCollectConversionLinks(const Cache: TJSConversionCache): Boolean;
 begin
-  const Cache = TJSConversionCache.Create;
-
   var Current: TJSObjectImpl := Self;
   while Assigned(Current) do
   begin
-    const IsCacheable = Current.KeepsPlainProperties and (Cache.LinkCount < TJSConversionCache.MAX_LINKS);
+    const HasRoomForLink = (Cache.LinkCount < TJSConversionCache.MAX_LINKS);
+    const IsCacheable = (Current.StoresAllPropertiesInMap and HasRoomForLink);
     if not IsCacheable then
-    begin
-      Cache.Free;
       Exit(False);
-    end;
 
     const Link: TJSConversionCache.PLink = @Cache.Links[Cache.LinkCount];
     Link.Owner := Current;
     Link.LayoutVersion := Current.FProperties.LayoutVersion;
     Link.Count := Current.FProperties.Count;
-    if Cache.LinkCount > 0 then
+
+    const IsChainStart = (Cache.LinkCount = 0);
+    if not IsChainStart then
+    begin
       Link.Keeper := Current;
+    end;
+
     Inc(Cache.LinkCount);
 
     const Next = Current.FPrototypeImpl;
-    const EndsInForeignObject = (not Assigned(Next)) and Assigned(Current.FPrototype);
+    const EndsInForeignObject = ((not Assigned(Next)) and Assigned(Current.FPrototype));
     if EndsInForeignObject then
-    begin
-      Cache.Free;
       Exit(False);
-    end;
 
     Current := Next;
   end;
 
-  ReadConversionMembers(Cache);
-
-  FConversionCache.Free;
-  FConversionCache := Cache;
   Result := True;
+end;
+
+function TJSObjectImpl.TryBuildConversionCache: Boolean;
+begin
+  const Cache = TJSConversionCache.Create;
+  var IsAdopted := False;
+  try
+    const HasLinks = TryCollectConversionLinks(Cache);
+    if not HasLinks then
+      Exit(False);
+
+    ReadConversionMembers(Cache);
+
+    FConversionCache.Free;
+    FConversionCache := Cache;
+    IsAdopted := True;
+    Result := True;
+  finally
+    if not IsAdopted then
+    begin
+      Cache.Free;
+    end;
+  end;
 end;
 
 function TJSObjectImpl.CurrentConversionCache: TJSConversionCache;
@@ -2231,7 +2266,7 @@ class function TJSIntegerIndexedKeys.IsInvalidIndexKey(const Start: IJSObject; c
 begin
   Result := False;
 
-  const CanBeNumericKey = (Name.Stored <> '') and CharInSet(Name.Stored[1], ['0'..'9', '-', 'I', 'N']);
+  const CanBeNumericKey = TJSPropertyKey.CanStartNumber(Name.Stored);
   if not CanBeNumericKey then
     Exit;
 
@@ -2316,7 +2351,7 @@ begin
 
   while True do
   begin
-    if Link.FOrdinaryLookup then
+    if Link.FLooksUpOwnPropertiesInMap then
     begin
       var Slot: PJSPropertyDescriptor;
       if Link.FProperties.TryGetSlot(Name.Stored, Slot) then
@@ -2324,10 +2359,13 @@ begin
     end
     else
     begin
-      var IsDecided: Boolean;
-      const Verdict = ExoticConfigurable(Link, Name, IsDecided);
+      const Verdict = ExoticConfigurable(Link, Name);
+      const IsDecided = (Verdict <> TJSChainVerdict.Undecided);
       if IsDecided then
-        Exit(Verdict);
+      begin
+        Result := (Verdict = TJSChainVerdict.Yes);
+        Exit;
+      end;
     end;
 
     const Next = Link.FPrototypeImpl;
@@ -2337,7 +2375,7 @@ begin
     Link := Next;
   end;
 
-  Result := (not Assigned(Link.FPrototype)) or Link.ForeignConfigurable(Name);
+  Result := (not Assigned(Link.FPrototype)) or Link.FPrototype.IsPropertyConfigurable(Name);
 end;
 
 class function TJSObjectImpl.TryParseArrayIndex(const Name: TJSPropertyKey; out Index: Int64): Boolean;
@@ -2400,7 +2438,10 @@ begin
     begin
       const IsSymbolKey = HasSymbols and FSymbols.ContainsKey(Stored);
       if not IsSymbolKey then
-        Keys.Add(TJSPropertyKey.FromStored(Stored).Text);
+      begin
+        const Key = TJSPropertyKey.FromStored(Stored);
+        Keys.Add(Key.Text);
+      end;
     end;
 
     Result := Keys.ToArray;
@@ -2646,7 +2687,7 @@ begin
   if FIsNative then
   begin
     if not Assigned(FNativeFunction) then
-      raise TJSErrorFactory.TypeError(Format('Function %s cannot be called after its engine is freed', [FName]));
+      raise TJSErrorFactory.TypeError(Format(FUNCTION_ENGINE_FREED, [FName]));
 
     Exit(FNativeFunction(ThisObj, Args));
   end;
@@ -2739,11 +2780,16 @@ end;
 
 destructor TJSFunctionImpl.Destroy;
 begin
+  ReleaseCodeReferences;
+  inherited;
+end;
+
+procedure TJSFunctionImpl.ReleaseCodeReferences;
+begin
   FClosureScope := nil;
   FLexicalThis := nil;
   FNativeFunction := nil;
   ReleaseCapturedContext;
-  inherited;
 end;
 
 procedure TJSFunctionImpl.ReleaseCapturedContext;
@@ -2759,11 +2805,8 @@ end;
 
 procedure TJSFunctionImpl.ReleaseReferences;
 begin
-  FClosureScope := nil;
-  FLexicalThis := nil;
-  FNativeFunction := nil;
+  ReleaseCodeReferences;
   FCallHandler := nil;
-  ReleaseCapturedContext;
   inherited;
 end;
 
@@ -2905,7 +2948,7 @@ end;
 constructor TJSArrayImpl.Create;
 begin
   inherited Create;
-  HasOrdinaryLookup := False;
+  LooksUpOwnPropertiesInMap := False;
   FElements := TList<TJSValue>.Create;
   FLengthWritable := True;
 end;
@@ -3257,7 +3300,9 @@ function TJSArrayImpl.TryReadNamedDataProperty(const Name: TJSPropertyKey; out V
 begin
   Result := False;
 
-  const CanBeElementKey = (Name.Stored = '') or CharInSet(Name.Stored[1], ['0'..'9', '-', 'I', 'N']) or (Name = LENGTH_PROPERTY);
+  const IsEmptyKey = (Name.Stored = '');
+  const IsLengthKey = (Name = LENGTH_PROPERTY);
+  const CanBeElementKey = (IsEmptyKey or TJSPropertyKey.CanStartNumber(Name.Stored) or IsLengthKey);
   if CanBeElementKey then
     Exit;
 
@@ -3584,10 +3629,10 @@ begin
   MarkHoles(Index, Index);
 end;
 
-// Kept apart from Push so that the property key made from the index is not set up for every push.
 procedure TJSArrayImpl.PushPastSparsePart(const Value: TJSValue);
 begin
-  SetProperty(IntToStr(FSparseLength), Value);
+  const IndexKey: TJSPropertyKey = IntToStr(FSparseLength);
+  SetProperty(IndexKey, Value);
 end;
 
 procedure TJSArrayImpl.Push(const Value: TJSValue);
@@ -4002,7 +4047,7 @@ constructor TJSPrimitiveWrapperImpl.Create(const Primitive: TJSValue);
 begin
   inherited Create;
   FPrimitive := Primitive;
-  HasOrdinaryLookup := not Primitive.IsString;
+  LooksUpOwnPropertiesInMap := not Primitive.IsString;
 end;
 
 function TJSPrimitiveWrapperImpl.GetPrimitive: TJSValue;

@@ -13,7 +13,6 @@ uses
   JS4D.AsyncRunner;
 
 type
-  // %AsyncFunction% and %AsyncFunction.prototype%, and the runner that gives async functions their promises.
   TJSAsyncFunctionBuiltins = class
   private
     const

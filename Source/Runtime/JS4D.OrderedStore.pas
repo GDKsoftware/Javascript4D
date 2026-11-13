@@ -99,8 +99,6 @@ type
     function Remove(const Key: TJSValue): Boolean;
     procedure Clear;
 
-    // Nested objects are handed over so that releasing a long chain of collections does not recurse through one
-    // destructor per level. Functions are left out: they are released with their engine.
     function HoldsNestedObjects: Boolean;
     procedure DetachNestedObjects(const Pending: TList<IJSObject>);
 

@@ -13,8 +13,6 @@ uses
   JS4D.PromiseOperations;
 
 type
-  // Runs the body of an async function: it resumes the suspended body when the promise it awaits settles, and
-  // settles the promise that the call returned when the body ends.
   TJSAsyncRunner = class(TJSAsyncHost)
   private
     FInterpreter: TJSInterpreter;
@@ -29,7 +27,6 @@ type
     procedure Start(const Result: IJSObject; const Body: IJSGenerator); override;
     procedure Reject(const Result: IJSObject; const Reason: TJSValue); override;
 
-    // Runs the body until its next await or its end.
     procedure Step(const Result: IJSPromise; const Body: IJSGenerator; const Mode: TJSResumeMode;
                    const Value: TJSValue);
   end;
@@ -40,7 +37,6 @@ uses
   JS4D.Errors;
 
 type
-  // What an async function waits for at an await: the body to resume and the promise to settle at its end.
   TJSAwaitContinuation = class(TInterfacedObject, IJSPromiseContinuation)
   private
     FRunner: TJSAsyncRunner;
@@ -51,7 +47,7 @@ type
     constructor Create(const Runner: TJSAsyncRunner; const Result: IJSPromise; const Body: IJSGenerator);
 
     procedure Resume(const IsRejection: Boolean; const Value: TJSValue);
-    procedure EnumerateReferences(const Callback: TProc<TJSValue>);
+    procedure EnumerateReferences(const Callback: TJSValueVisitor);
   end;
 
 { TJSAwaitContinuation }
@@ -75,7 +71,7 @@ begin
   FRunner.Step(FResult, FBody, Mode, Value);
 end;
 
-procedure TJSAwaitContinuation.EnumerateReferences(const Callback: TProc<TJSValue>);
+procedure TJSAwaitContinuation.EnumerateReferences(const Callback: TJSValueVisitor);
 begin
   Callback(TJSValue.CreateObject(FBody));
   Callback(TJSValue.CreateObject(FResult));
@@ -116,10 +112,9 @@ begin
 
   while True do
   begin
-    var Outcome: TJSBodyOutcome;
-    var Produced: TJSValue;
+    var Advanced: TJSBodyResult;
     try
-      Produced := FInterpreter.AdvanceBody(Body, NextMode, NextValue, Outcome);
+      Advanced := FInterpreter.AdvanceBody(Body, NextMode, NextValue);
     except
       on EJSExecutionInterrupted do
         raise;
@@ -131,16 +126,16 @@ begin
       end;
     end;
 
-    const IsFinished = (Outcome = TJSBodyOutcome.Finished);
+    const IsFinished = (Advanced.Outcome = TJSBodyOutcome.Finished);
     if IsFinished then
     begin
-      FOperations.ResolvePromise(Result, Produced);
+      FOperations.ResolvePromise(Result, Advanced.Value);
       Exit;
     end;
 
     var Awaited: IJSPromise;
     var Reason: TJSValue;
-    if TryAwaitedPromise(Produced, Awaited, Reason) then
+    if TryAwaitedPromise(Advanced.Value, Awaited, Reason) then
     begin
       const Continuation: IJSPromiseContinuation = TJSAwaitContinuation.Create(Self, Result, Body);
       FOperations.PerformAwait(Awaited, Continuation);

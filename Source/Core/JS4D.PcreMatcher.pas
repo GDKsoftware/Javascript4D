@@ -23,6 +23,7 @@ type
     class function IsDigits(const Text: string): Boolean; static;
     class function NextClassState(const Current: Char; const InsideClass: Boolean): Boolean; static;
     class function RecursionLimit: Cardinal; static;
+    function ExecuteMatch(const Subject: string; const Start: Integer): Integer;
 
   public
     constructor Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
@@ -56,7 +57,7 @@ const
   RECURSION_FRAME_BYTES = 1024;
   RECURSION_STACK_RESERVE = 128 * 1024;
   MAX_RECURSION_DEPTH = 10000000;
-  STACK_EXHAUSTED = 'Maximum call stack size exceeded';
+  MIN_RECURSION_DEPTH = 1;
 
 constructor TJSPcreMatcher.Create(const Pattern: string; const IgnoreCase: Boolean; const Multiline: Boolean;
                                   const UtfMode: Boolean);
@@ -210,14 +211,33 @@ end;
 class function TJSPcreMatcher.RecursionLimit: Cardinal;
 begin
   const Remaining = TJSStackGuard.RemainingBytes;
-  if Remaining <= RECURSION_STACK_RESERVE then
-    Exit(1);
+  const HasNoSpareStack = (Remaining <= RECURSION_STACK_RESERVE);
+  if HasNoSpareStack then
+  begin
+    Result := MIN_RECURSION_DEPTH;
+    Exit;
+  end;
 
   const Depth = (Remaining - RECURSION_STACK_RESERVE) div RECURSION_FRAME_BYTES;
-  if Depth > MAX_RECURSION_DEPTH then
-    Exit(MAX_RECURSION_DEPTH);
+  const ExceedsMaximum = (Depth > MAX_RECURSION_DEPTH);
+  if ExceedsMaximum then
+  begin
+    Result := MAX_RECURSION_DEPTH;
+  end
+  else
+  begin
+    Result := Cardinal(Depth);
+  end;
+end;
 
-  Result := Cardinal(Depth);
+function TJSPcreMatcher.ExecuteMatch(const Subject: string; const Start: Integer): Integer;
+begin
+  var MatchLimits := Default(TPCREExtra);
+  MatchLimits.flags := PCRE_EXTRA_MATCH_LIMIT_RECURSION;
+  MatchLimits.match_limit_recursion := RecursionLimit;
+
+  Result := pcre_exec(FCode, @MatchLimits, PCRE_STR(Subject), Length(Subject), Start, PCRE_NO_UTF8_CHECK,
+                      @FOffsets[0], Length(FOffsets));
 end;
 
 function TJSPcreMatcher.TryMatch(const Subject: string; const Start: Integer): Boolean;
@@ -229,15 +249,11 @@ begin
     FOffsets[Slot] := UNSET_OFFSET;
   end;
 
-  var Limits := Default(TPCREExtra);
-  Limits.flags := PCRE_EXTRA_MATCH_LIMIT_RECURSION;
-  Limits.match_limit_recursion := RecursionLimit;
+  const Executed = ExecuteMatch(Subject, Start);
 
-  const Executed = pcre_exec(FCode, @Limits, PCRE_STR(Subject), Length(Subject), Start, PCRE_NO_UTF8_CHECK,
-                             @FOffsets[0], Length(FOffsets));
-
-  if Executed = PCRE_ERROR_RECURSIONLIMIT then
-    raise TJSErrorFactory.RangeError(STACK_EXHAUSTED);
+  const IsRecursionLimitHit = (Executed = PCRE_ERROR_RECURSIONLIMIT);
+  if IsRecursionLimitHit then
+    raise TJSErrorFactory.StackExhausted;
 
   Result := (Executed <> PCRE_ERROR_NOMATCH) and (Executed >= 0);
 end;

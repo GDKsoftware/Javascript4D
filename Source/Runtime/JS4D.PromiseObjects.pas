@@ -12,8 +12,6 @@ uses
 type
   TJSPromiseState = (Pending, Fulfilled, Rejected);
 
-  // The promise together with the functions that settle it. A capability that the engine creates itself for a
-  // derived promise has no functions: its promise is settled directly, so that chaining makes no function objects.
   TJSPromiseCapability = record
     Promise: TJSValue;
     Resolve: TJSValue;
@@ -21,13 +19,10 @@ type
     IsInternal: Boolean;
   end;
 
-  // Native code that waits for a promise to settle, such as an async function at an await. It takes the place of
-  // the handler functions of a reaction, so that an await makes no function objects.
   IJSPromiseContinuation = interface
     ['{B3D07E52-61A4-4C89-8F1D-5E2A9C74B016}']
     procedure Resume(const IsRejection: Boolean; const Value: TJSValue);
-    // Hands the values that the continuation keeps to the garbage collector.
-    procedure EnumerateReferences(const Callback: TProc<TJSValue>);
+    procedure EnumerateReferences(const Callback: TJSValueVisitor);
   end;
 
   TJSPromiseReaction = record
@@ -45,7 +40,6 @@ type
     function GetIsHandled: Boolean;
     procedure SetIsHandled(const Value: Boolean);
     procedure AddReaction(const Reaction: TJSPromiseReaction);
-    // Moves the promise out of the pending state and hands back the reactions that were waiting for that.
     function Settle(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
     property State: TJSPromiseState read GetState;
     property Result: TJSValue read GetResult;
@@ -70,7 +64,7 @@ type
     procedure AddReaction(const Reaction: TJSPromiseReaction);
     function Settle(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
     procedure Reset;
-    procedure EnumerateValues(const Callback: TProc<TJSValue>);
+    procedure EnumerateValues(const Callback: TJSValueVisitor);
     class procedure CollectNested(const Value: TJSValue; const Pending: TList<IJSObject>); static;
 
   protected
@@ -84,8 +78,6 @@ type
     destructor Destroy; override;
   end;
 
-  // Remembers every live promise of one engine. The engine releases what they hold when it goes away, which breaks
-  // the cycles that scripts make through promises, and the garbage collector finds the values they hold.
   TJSPromiseRegistry = class
   private
     FPromises: TList<TJSPromiseObject>;
@@ -98,7 +90,7 @@ type
     destructor Destroy; override;
 
     procedure ClearAll;
-    procedure EnumerateValues(const Callback: TProc<TJSValue>);
+    procedure EnumerateValues(const Callback: TJSValueVisitor);
   end;
 
 implementation
@@ -178,7 +170,7 @@ begin
   FResult := TJSValue.CreateUndefined;
 end;
 
-procedure TJSPromiseObject.EnumerateValues(const Callback: TProc<TJSValue>);
+procedure TJSPromiseObject.EnumerateValues(const Callback: TJSValueVisitor);
 begin
   Callback(TJSValue.CreateObject(Self));
   Callback(FResult);
@@ -269,7 +261,7 @@ begin
   end;
 end;
 
-procedure TJSPromiseRegistry.EnumerateValues(const Callback: TProc<TJSValue>);
+procedure TJSPromiseRegistry.EnumerateValues(const Callback: TJSValueVisitor);
 begin
   for var Promise in FPromises do
   begin

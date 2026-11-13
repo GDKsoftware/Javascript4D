@@ -91,6 +91,7 @@ type
     class function NotAConstructor(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function UndefinedVariable(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSReferenceError;
     class function InvalidArrayLength(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
+    class function StackExhausted(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
     class function InvalidRegExp(const Pattern: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
   end;
 
@@ -101,6 +102,7 @@ const
   ReferenceErrorPrefix = 'ReferenceError: ';
   TypeErrorPrefix = 'TypeError: ';
   RangeErrorPrefix = 'RangeError: ';
+  StackExhaustedMessage = 'Maximum call stack size exceeded';
   UnexpectedTokenMessage = 'Unexpected token ';
   UnexpectedEndMessage = 'Unexpected end of input';
   InvalidLhsMessage = 'Invalid left-hand side in assignment';
@@ -219,6 +221,11 @@ end;
 class function TJSErrorFactory.InvalidArrayLength(const Line: Integer; const Column: Integer): EJSRangeError;
 begin
   Result := RangeError(InvalidArrayLengthMessage, Line, Column);
+end;
+
+class function TJSErrorFactory.StackExhausted(const Line: Integer; const Column: Integer): EJSRangeError;
+begin
+  Result := RangeError(StackExhaustedMessage, Line, Column);
 end;
 
 class function TJSErrorFactory.InvalidRegExp(const Pattern: string; const Line: Integer; const Column: Integer): EJSSyntaxError;

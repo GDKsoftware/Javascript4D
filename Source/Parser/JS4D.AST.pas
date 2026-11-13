@@ -74,7 +74,6 @@ type
     ClassExpression,
     YieldExpression,
     AwaitExpression,
-    // Only a dispatch kind: the nodes that a generator replays carry it instead of their own type.
     Remembered
   );
 
@@ -91,8 +90,6 @@ type
     procedure SetIsRemembered(const Value: Boolean);
 
   protected
-    // Moves the child nodes out of the node into the list and clears the fields that held them. A tree is freed
-    // from the top in a loop over such lists, so that the depth of a tree does not use the stack.
     procedure DetachChildren(const Sink: TList<TJSASTNode>); virtual;
     class procedure Detach<T: TJSASTNode>(var Child: T; const Sink: TList<TJSASTNode>); static;
     class procedure DetachAll<T: TJSASTNode>(const Children: TObjectList<T>; const Sink: TList<TJSASTNode>); static;
@@ -104,13 +101,8 @@ type
     property NodeType: TJSASTNodeType read FNodeType;
     property Line: Integer read FLine write FLine;
     property Column: Integer read FColumn write FColumn;
-    // Set on the nodes of a generator body that are a yield or hold one, so that the body can be suspended there.
     property ContainsYield: Boolean read FContainsYield write FContainsYield;
-    // Set on the nodes of an expression that holds a yield: a generator that is resumed evaluates that expression
-    // again and takes the results of the nodes that are already evaluated from its memory.
     property IsRemembered: Boolean read FIsRemembered write SetIsRemembered;
-    // What the interpreter switches on: the type of the node, or Remembered while the node is remembered. This
-    // keeps the check for remembered nodes out of the path that every node takes.
     property DispatchType: TJSASTNodeType read FDispatchType;
   end;
 
@@ -119,7 +111,6 @@ type
     FIsParenthesized: Boolean;
 
   public
-    // The operand that continues a left-deep chain, nil for an expression that is not part of one.
     function ChainChild: TJSExpression; virtual;
 
     property IsParenthesized: Boolean read FIsParenthesized write FIsParenthesized;
@@ -181,9 +172,7 @@ type
     constructor Create(const Name: string);
 
     property Name: string read FName;
-    // The name as a property key, for member access like object.name.
     property Key: TJSPropertyKey read FKey;
-    // The same key without copying it. Valid as long as the node lives.
     function KeyPointer: PJSPropertyKey; inline;
   end;
 
@@ -484,7 +473,6 @@ type
     property Operator: TJSBinaryOperator read FOperator;
     property Left: TJSExpression read FLeft;
     property Right: TJSExpression read FRight;
-    // The number of binary expressions that the left operand continues, as in a + b + c.
     property ChainLength: Integer read FChainLength;
   end;
 
@@ -512,7 +500,6 @@ type
     property Operator: TJSLogicalOperator read FOperator;
     property Left: TJSExpression read FLeft;
     property Right: TJSExpression read FRight;
-    // The number of logical expressions that the left operand continues, as in a || b || c.
     property ChainLength: Integer read FChainLength;
   end;
 
@@ -612,7 +599,6 @@ type
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
     property HasSpread: Boolean read FHasSpread write FHasSpread;
-    // The number of member and call expressions that the callee continues, as in a.b().c().
     property ChainLength: Integer read FChainLength;
   end;
 
@@ -638,7 +624,6 @@ type
     property Property_: TJSExpression read FProperty_;
     property Computed: Boolean read FComputed;
     property IsSuper: Boolean read FIsSuper;
-    // The number of member and call expressions that the object continues, as in a.b().c.
     property ChainLength: Integer read FChainLength;
   end;
 

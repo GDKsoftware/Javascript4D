@@ -37,6 +37,7 @@ type
   TJSObjectOperations = class
   public
     class function AsProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean; static;
+    class function IsProxy(const Target: IJSObject): Boolean; static;
     class function KeyToValue(const Key: TJSPropertyKey): TJSValue; static;
     class function TryGetOwnProperty(const Target: IJSObject; const Name: TJSPropertyKey;
                                      out Descriptor: TJSPropertyDescriptor): Boolean; static;
@@ -58,6 +59,13 @@ implementation
 class function TJSObjectOperations.AsProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean;
 begin
   Result := Assigned(Target) and Supports(Target, IJSProxy, Proxy);
+end;
+
+class function TJSObjectOperations.IsProxy(const Target: IJSObject): Boolean;
+begin
+  var Proxy: IJSProxy;
+
+  Result := AsProxy(Target, Proxy);
 end;
 
 class function TJSObjectOperations.KeyToValue(const Key: TJSPropertyKey): TJSValue;

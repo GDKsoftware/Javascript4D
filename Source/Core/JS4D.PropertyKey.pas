@@ -4,27 +4,33 @@ unit JS4D.PropertyKey;
 
 interface
 
+uses
+  System.SysUtils;
+
 type
   PJSPropertyKey = ^TJSPropertyKey;
 
-  // The name of a property: either a string or a symbol. A key made from a string never equals the key of a
-  // symbol, whatever characters the string holds. Objects store a key under its stored form; that form is
-  // unique per key, so one map can hold the string keys and the symbol keys of an object side by side.
   TJSPropertyKey = record
   private
     const
       SYMBOL_MARKER = Char($FDD0);
       ESCAPE_CHAR = 'S';
-      SKIPPED_PREFIX_LENGTH = 2;
+      NUMBER_START_CHARS = ['0'..'9', '-', 'I', 'N'];
+      MARKER_LENGTH = 1;
+      ESCAPE_PREFIX_LENGTH = 2;
+      MIN_SYMBOL_STORED_LENGTH = 2;
 
     var
       FStored: string;
       FSymbolId: Integer;
 
+    class function StartsWithMarker(const Text: string): Boolean; static; inline;
+    class function IsSymbolStored(const Stored: string): Boolean; static; inline;
+
   public
     class function ForSymbol(const Id: Integer): TJSPropertyKey; static;
     class function FromStored(const Stored: string): TJSPropertyKey; static;
-    class function IsSymbolStored(const Stored: string): Boolean; static; inline;
+    class function CanStartNumber(const Text: string): Boolean; static; inline;
 
     class operator Implicit(const Text: string): TJSPropertyKey; inline;
     class operator Equal(const Left, Right: TJSPropertyKey): Boolean; inline;
@@ -32,12 +38,9 @@ type
     class operator NotEqual(const Left, Right: TJSPropertyKey): Boolean; inline;
     class operator NotEqual(const Key: TJSPropertyKey; const Text: string): Boolean; inline;
 
-    // Makes this key the string key of Text, without building a second key to copy from.
     procedure SetText(const Text: string); inline;
     function IsSymbol: Boolean; inline;
-    // True for a string key whose text starts with the character that marks symbol keys.
     function IsEscaped: Boolean; inline;
-    // The text of a string key. A symbol key has no text of its own: its stored form is returned.
     function Text: string; inline;
 
     property Stored: string read FStored;
@@ -46,18 +49,25 @@ type
 
 implementation
 
-uses
-  System.SysUtils;
-
 class function TJSPropertyKey.ForSymbol(const Id: Integer): TJSPropertyKey;
 begin
   Result.FStored := SYMBOL_MARKER + IntToStr(Id);
   Result.FSymbolId := Id;
 end;
 
+class function TJSPropertyKey.StartsWithMarker(const Text: string): Boolean;
+begin
+  Result := ((Text <> '') and (Text[1] = SYMBOL_MARKER));
+end;
+
+class function TJSPropertyKey.CanStartNumber(const Text: string): Boolean;
+begin
+  Result := ((Text <> '') and CharInSet(Text[1], NUMBER_START_CHARS));
+end;
+
 class function TJSPropertyKey.IsSymbolStored(const Stored: string): Boolean;
 begin
-  Result := (Length(Stored) >= SKIPPED_PREFIX_LENGTH) and
+  Result := (Length(Stored) >= MIN_SYMBOL_STORED_LENGTH) and
             (Stored[1] = SYMBOL_MARKER) and
             (Stored[2] <> ESCAPE_CHAR);
 end;
@@ -68,37 +78,38 @@ begin
   Result.FSymbolId := 0;
 
   if IsSymbolStored(Stored) then
-    Result.FSymbolId := StrToIntDef(Copy(Stored, 2, Length(Stored) - 1), 0);
+  begin
+    const Digits = Copy(Stored, MARKER_LENGTH + 1, Length(Stored));
+    Result.FSymbolId := StrToIntDef(Digits, 0);
+  end;
 end;
 
 class operator TJSPropertyKey.Implicit(const Text: string): TJSPropertyKey;
 begin
-  Result.FSymbolId := 0;
-
-  const NeedsEscape = (Text <> '') and (Text[1] = SYMBOL_MARKER);
-  if NeedsEscape then
-    Result.FStored := SYMBOL_MARKER + ESCAPE_CHAR + Text
-  else
-    Result.FStored := Text;
+  Result.SetText(Text);
 end;
 
 class operator TJSPropertyKey.Equal(const Left, Right: TJSPropertyKey): Boolean;
 begin
-  Result := Left.FStored = Right.FStored;
+  Result := (Left.FStored = Right.FStored);
 end;
 
 class operator TJSPropertyKey.Equal(const Key: TJSPropertyKey; const Text: string): Boolean;
 begin
-  const MayBeMarked = (Text <> '') and (Text[1] = SYMBOL_MARKER);
-  if MayBeMarked then
-    Exit((Key.FSymbolId = 0) and (Key.Text = Text));
-
-  Result := Key.FStored = Text;
+  if StartsWithMarker(Text) then
+  begin
+    const IsSameStringKey = ((Key.FSymbolId = 0) and (Key.Text = Text));
+    Result := IsSameStringKey;
+  end
+  else
+  begin
+    Result := (Key.FStored = Text);
+  end;
 end;
 
 class operator TJSPropertyKey.NotEqual(const Left, Right: TJSPropertyKey): Boolean;
 begin
-  Result := Left.FStored <> Right.FStored;
+  Result := (Left.FStored <> Right.FStored);
 end;
 
 class operator TJSPropertyKey.NotEqual(const Key: TJSPropertyKey; const Text: string): Boolean;
@@ -110,29 +121,36 @@ procedure TJSPropertyKey.SetText(const Text: string);
 begin
   FSymbolId := 0;
 
-  const NeedsEscape = (Text <> '') and (Text[1] = SYMBOL_MARKER);
-  if NeedsEscape then
-    FStored := SYMBOL_MARKER + ESCAPE_CHAR + Text
+  if StartsWithMarker(Text) then
+  begin
+    FStored := SYMBOL_MARKER + ESCAPE_CHAR + Text;
+  end
   else
+  begin
     FStored := Text;
+  end;
 end;
 
 function TJSPropertyKey.IsSymbol: Boolean;
 begin
-  Result := FSymbolId <> 0;
+  Result := (FSymbolId <> 0);
 end;
 
 function TJSPropertyKey.IsEscaped: Boolean;
 begin
-  Result := (FSymbolId = 0) and (FStored <> '') and (FStored[1] = SYMBOL_MARKER);
+  Result := ((FSymbolId = 0) and StartsWithMarker(FStored));
 end;
 
 function TJSPropertyKey.Text: string;
 begin
   if IsEscaped then
-    Result := Copy(FStored, SKIPPED_PREFIX_LENGTH + 1, Length(FStored))
+  begin
+    Result := Copy(FStored, ESCAPE_PREFIX_LENGTH + 1, Length(FStored));
+  end
   else
+  begin
     Result := FStored;
+  end;
 end;
 
 end.

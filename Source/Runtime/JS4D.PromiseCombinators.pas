@@ -19,7 +19,6 @@ uses
 type
   TJSCombinatorKind = (All, AllSettled, Any, Race);
 
-  // The bookkeeping that the element functions of one call to all, allSettled or any share.
   IJSCombination = interface
     ['{4D7A2E91-C5B8-4F30-A619-E03B8D5C7F24}']
     function GetValues: TList<TJSValue>;
@@ -43,7 +42,6 @@ type
     destructor Destroy; override;
   end;
 
-  // Promise.all, Promise.allSettled, Promise.any and Promise.race.
   TJSPromiseCombinators = class
   private
     const

@@ -26,7 +26,6 @@ type
     ThenFunction: TJSValue;
   end;
 
-  // The abstract operations of promises and the queue of jobs that their reactions wait in.
   TJSPromiseOperations = class
   private
     const
@@ -58,7 +57,7 @@ type
     procedure RunThenable(const Job: TJSPromiseJob);
     procedure FinishReaction(const Capability: TJSPromiseCapability; const IsNormal: Boolean;
                              const Outcome: TJSValue);
-    procedure MarkJob(const Job: TJSPromiseJob; const MarkValue: TProc<TJSValue>);
+    procedure MarkJob(const Job: TJSPromiseJob; const MarkValue: TJSValueVisitor);
 
   public
     constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
@@ -86,7 +85,7 @@ type
     procedure RunJobs;
     procedure DiscardJobs;
     procedure ReleasePromises;
-    procedure MarkRoots(const MarkValue: TProc<TJSValue>);
+    procedure MarkRoots(const MarkValue: TJSValueVisitor);
 
     property Prototype: IJSObject read FPrototype;
     property Constructor_: IJSFunction read FConstructor;
@@ -446,7 +445,7 @@ procedure TJSPromiseOperations.RunJobs;
 begin
   while FJobs.Count > 0 do
   begin
-    FInterpreter.ChargeStep;
+    FInterpreter.ConsumeStep;
     RunJob(FJobs.Dequeue);
   end;
 end;
@@ -529,7 +528,7 @@ begin
     FInterpreter.CallFunction(Reject, [Outcome], nil);
 end;
 
-procedure TJSPromiseOperations.MarkJob(const Job: TJSPromiseJob; const MarkValue: TProc<TJSValue>);
+procedure TJSPromiseOperations.MarkJob(const Job: TJSPromiseJob; const MarkValue: TJSValueVisitor);
 begin
   MarkValue(Job.Reaction.Capability.Promise);
   MarkValue(Job.Reaction.Capability.Resolve);
@@ -548,7 +547,7 @@ begin
     MarkValue(TJSValue.CreateObject(Job.Promise));
 end;
 
-procedure TJSPromiseOperations.MarkRoots(const MarkValue: TProc<TJSValue>);
+procedure TJSPromiseOperations.MarkRoots(const MarkValue: TJSValueVisitor);
 begin
   FRegistry.EnumerateValues(MarkValue);
 

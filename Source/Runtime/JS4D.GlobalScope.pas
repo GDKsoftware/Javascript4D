@@ -172,7 +172,6 @@ begin
   Result := CacheOwnSlot(Cache, Name);
 end;
 
-// Kept apart from FindOwnSlot so that the property key made from the name is only set up when the cache misses.
 function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then

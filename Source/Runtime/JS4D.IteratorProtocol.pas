@@ -10,6 +10,10 @@ uses
   JS4D.Types,
   JS4D.Errors;
 
+const
+  DONE_PROPERTY = 'done';
+  VALUE_PROPERTY = 'value';
+
 type
   // An iterator obtained through the iterator protocol. HasNext asks the iterator for its next value and
   // keeps it until Next hands it out. Close lets the iterator clean up after the consumer stops early. A
@@ -20,8 +24,7 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
-    // Hands the iterator and the values that the record keeps to the garbage collector.
-    procedure EnumerateReferences(const Visit: TProc<IInterface>);
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
   TJSIteratorRecord = class(TInterfacedObject, IJSIteratorRecord)
@@ -29,8 +32,6 @@ type
     const
       NEXT_PROPERTY = 'next';
       RETURN_PROPERTY = 'return';
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
       NEXT_NOT_CALLABLE = 'The iterator''s next method is not a function';
       RESULT_NOT_AN_OBJECT = 'The iterator result is not an object';
       RETURN_NOT_CALLABLE = 'The iterator''s return method is not a function';
@@ -54,15 +55,10 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
-    procedure EnumerateReferences(const Visit: TProc<IInterface>);
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
   TJSIteratorResults = class
-  private
-    const
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
-
   public
     class function CreateResult(const ObjectPrototype: IJSObject; const Value: TJSValue;
                           const IsDone: Boolean): TJSValue; static;
@@ -130,7 +126,7 @@ begin
   FHasPendingValue := False;
 end;
 
-procedure TJSIteratorRecord.EnumerateReferences(const Visit: TProc<IInterface>);
+procedure TJSIteratorRecord.EnumerateReferences(const Visit: TJSReferenceVisitor);
 begin
   Visit(FIterator);
 

@@ -162,7 +162,7 @@ begin
     end,
     procedure
     begin
-      FInterpreter.ChargeStep;
+      FInterpreter.ConsumeStep;
     end);
 
   const Constructor_ = CreateConstructor;

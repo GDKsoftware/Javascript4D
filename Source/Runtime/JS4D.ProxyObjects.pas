@@ -46,20 +46,14 @@ type
     function GetArrayPrototype: IJSObject;
     function Construct(const Target: IJSFunction; const Args: TArray<TJSValue>;
                        const NewTarget: IJSFunction): TJSValue;
-    // Every operation on a proxy is charged as one step, whatever trap or target it ends in.
     procedure ChargeStep;
-    // Marks the start of an operation on a proxy, for as long as the returned guard lives. Operations that
-    // nest too deeply (a proxy that ends up in its own prototype chain) raise a RangeError.
     function EnterOperation: IInterface;
     procedure LeaveOperation;
-    // Cuts the link to the engine, for proxies that the host keeps after the engine is freed: they keep working
-    // on their targets, and what needs the engine raises a TypeError.
     procedure Detach;
     property ObjectPrototype: IJSObject read GetObjectPrototype;
     property ArrayPrototype: IJSObject read GetArrayPrototype;
   end;
 
-  // Ends a nested operation on a proxy when the operation that started it goes out of scope.
   TJSOperationGuard = class(TInterfacedObject)
   private
     FRuntime: IJSProxyRuntime;
@@ -184,12 +178,9 @@ type
     destructor Destroy; override;
 
     procedure Revoke;
-    // Revokes the proxy and lets go of the runtime it shares with the other proxies of its engine.
     procedure Release;
     function IsRevoked: Boolean;
     procedure RequireLive(const Operation: string);
-    // Hands the target and the handler over to Pending when nothing else holds this core, so that releasing a
-    // long chain of proxies does not recurse through one destructor per proxy.
     function HoldsOnlyItsTargets: Boolean;
     procedure DetachTargets(const Pending: TList<IJSObject>);
 
@@ -227,7 +218,7 @@ type
     function GetPrototype: IJSObject; override;
     procedure SetPrototype(const Value: IJSObject); override;
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
-    function KeepsPlainProperties: Boolean; override;
+    function StoresAllPropertiesInMap: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     procedure ReleaseReferences; override;
@@ -271,7 +262,7 @@ type
     function GetPrototype: IJSObject; override;
     procedure SetPrototype(const Value: IJSObject); override;
     function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
-    function KeepsPlainProperties: Boolean; override;
+    function StoresAllPropertiesInMap: Boolean; override;
     function HoldsNested: Boolean; override;
     procedure DetachNested(const Pending: TList<IJSObject>); override;
     procedure ReleaseReferences; override;
@@ -1302,7 +1293,7 @@ end;
 constructor TJSProxyObject.Create(const Core: TJSProxyCore);
 begin
   inherited Create;
-  HasOrdinaryLookup := False;
+  LooksUpOwnPropertiesInMap := False;
 
   FProxyRef := Core;
   FCore := Core;
@@ -1350,7 +1341,7 @@ begin
   inherited DetachNested(Pending);
 end;
 
-function TJSProxyObject.KeepsPlainProperties: Boolean;
+function TJSProxyObject.StoresAllPropertiesInMap: Boolean;
 begin
   Result := False;
 end;
@@ -1480,7 +1471,7 @@ end;
 constructor TJSProxyFunction.Create(const Core: TJSProxyCore; const IsConstructorTarget: Boolean);
 begin
   inherited CreateNative('', nil);
-  HasOrdinaryLookup := False;
+  LooksUpOwnPropertiesInMap := False;
 
   NativeFunction :=
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1533,7 +1524,7 @@ begin
   inherited DetachNested(Pending);
 end;
 
-function TJSProxyFunction.KeepsPlainProperties: Boolean;
+function TJSProxyFunction.StoresAllPropertiesInMap: Boolean;
 begin
   Result := False;
 end;

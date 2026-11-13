@@ -8,8 +8,6 @@ uses
   JS4D.Types;
 
 type
-  // Carries a this value that is not an object (a primitive or null) to a function that must see it unboxed:
-  // a strict function, or a native function that asks for the raw this value.
   TJSStrictThis = class(TJSObjectImpl)
   private
     FValue: TJSValue;

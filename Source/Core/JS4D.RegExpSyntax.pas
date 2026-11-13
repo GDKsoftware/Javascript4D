@@ -71,7 +71,7 @@ uses
   JS4D.Errors;
 
 const
-  MaxGroupDepth = 250;
+  MAX_GROUP_DEPTH = 250;
   ValidFlagCharacters = 'gimuy';
   EmptyPatternSource = '(?:)';
   ClassSetEscapes = 'dDsSwW';
@@ -349,12 +349,17 @@ begin
     Inc(FPosition);
   end;
 
-  if FGroupDepth >= MaxGroupDepth then
+  const IsTooDeep = (FGroupDepth >= MAX_GROUP_DEPTH);
+  if IsTooDeep then
     Fail;
 
   Inc(FGroupDepth);
-  ParseDisjunction;
-  Dec(FGroupDepth);
+  try
+    ParseDisjunction;
+  finally
+    Dec(FGroupDepth);
+  end;
+
   Expect(')');
 end;
 

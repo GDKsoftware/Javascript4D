@@ -5,20 +5,30 @@ unit JS4D.StackGuard;
 interface
 
 type
-  // Tells how far the calling thread may still use its stack. The parser and the evaluator compare the address of
-  // a local variable with the floor, so that source of any shape ends in a RangeError instead of a stack overflow.
   TJSStackGuard = class sealed
   private
+    type
+      TGetCurrentThreadStackLimits = procedure(out LowLimit: NativeUInt; out HighLimit: NativeUInt); stdcall;
+
     const
       MAX_RESERVE = 256 * 1024;
       FALLBACK_BUDGET = 512 * 1024;
+      RESERVE_FRACTION_DIVISOR = 4;
+      KERNEL_MODULE_NAME = 'kernel32.dll';
+      STACK_LIMITS_API_NAME = 'GetCurrentThreadStackLimits';
+
+    class var
+      FGetCurrentThreadStackLimits: TGetCurrentThreadStackLimits;
+
+    class constructor Create;
+
+    class function TryReadStackLimits(out LowLimit: NativeUInt; out HighLimit: NativeUInt): Boolean; static;
+    class function FloorFromLimits(const LowLimit: NativeUInt; const HighLimit: NativeUInt): NativeUInt; static;
+    class function FloorFromPosition(const Position: NativeUInt): NativeUInt; static;
+    class function RemainingFromLimits(const Position: NativeUInt; const LowLimit: NativeUInt): NativeUInt; static;
 
   public
-    // The lowest stack address that script code may use on the calling thread. The part of the stack below it is
-    // kept for raising the error and for native built-ins that run at the floor.
     class function CurrentFloor: NativeUInt; static;
-    // The number of bytes between the caller and the end of the stack of the calling thread, for native code
-    // that cannot check the stack while it runs and has to size its work beforehand.
     class function RemainingBytes: NativeUInt; static;
   end;
 
@@ -27,58 +37,94 @@ implementation
 {$IFDEF MSWINDOWS}
 uses
   Winapi.Windows;
-
-type
-  TGetCurrentThreadStackLimits = procedure(out LowLimit: NativeUInt; out HighLimit: NativeUInt); stdcall;
-
-var
-  GetCurrentThreadStackLimits: TGetCurrentThreadStackLimits;
-  IsLimitsLookupDone: Boolean;
-
-procedure LookUpStackLimitsApi;
-begin
-  const KernelModule = GetModuleHandle('kernel32.dll');
-  if KernelModule <> 0 then
-    GetCurrentThreadStackLimits := GetProcAddress(KernelModule, 'GetCurrentThreadStackLimits');
-
-  IsLimitsLookupDone := True;
-end;
-
-function TryReadStackLimits(out LowLimit: NativeUInt; out HighLimit: NativeUInt): Boolean;
-begin
-  if not IsLimitsLookupDone then
-    LookUpStackLimitsApi;
-
-  Result := Assigned(GetCurrentThreadStackLimits);
-  if Result then
-    GetCurrentThreadStackLimits(LowLimit, HighLimit);
-end;
 {$ENDIF}
 
 { TJSStackGuard }
+
+class constructor TJSStackGuard.Create;
+begin
+  {$IFDEF MSWINDOWS}
+  const KernelModule = GetModuleHandle(KERNEL_MODULE_NAME);
+  const IsKernelLoaded = (KernelModule <> 0);
+  if IsKernelLoaded then
+  begin
+    FGetCurrentThreadStackLimits := GetProcAddress(KernelModule, STACK_LIMITS_API_NAME);
+  end;
+  {$ENDIF}
+end;
+
+class function TJSStackGuard.TryReadStackLimits(out LowLimit: NativeUInt; out HighLimit: NativeUInt): Boolean;
+begin
+  LowLimit := 0;
+  HighLimit := 0;
+
+  Result := Assigned(FGetCurrentThreadStackLimits);
+  if Result then
+  begin
+    FGetCurrentThreadStackLimits(LowLimit, HighLimit);
+  end;
+end;
+
+class function TJSStackGuard.FloorFromLimits(const LowLimit: NativeUInt; const HighLimit: NativeUInt): NativeUInt;
+begin
+  const Reserve = (HighLimit - LowLimit) div RESERVE_FRACTION_DIVISOR;
+  const ExceedsMaxReserve = (Reserve > MAX_RESERVE);
+
+  if ExceedsMaxReserve then
+  begin
+    Result := LowLimit + MAX_RESERVE;
+  end
+  else
+  begin
+    Result := LowLimit + Reserve;
+  end;
+end;
+
+class function TJSStackGuard.FloorFromPosition(const Position: NativeUInt): NativeUInt;
+begin
+  const HasRoomForBudget = (Position > FALLBACK_BUDGET);
+
+  if HasRoomForBudget then
+  begin
+    Result := Position - FALLBACK_BUDGET;
+  end
+  else
+  begin
+    Result := 0;
+  end;
+end;
+
+class function TJSStackGuard.RemainingFromLimits(const Position: NativeUInt; const LowLimit: NativeUInt): NativeUInt;
+begin
+  const IsAboveLowLimit = (Position > LowLimit);
+
+  if IsAboveLowLimit then
+  begin
+    Result := Position - LowLimit;
+  end
+  else
+  begin
+    Result := 0;
+  end;
+end;
 
 class function TJSStackGuard.CurrentFloor: NativeUInt;
 begin
   var Marker: Byte;
   const Position = NativeUInt(@Marker);
 
-  {$IFDEF MSWINDOWS}
   var LowLimit: NativeUInt;
   var HighLimit: NativeUInt;
-  if TryReadStackLimits(LowLimit, HighLimit) then
+  const HasLimits = TryReadStackLimits(LowLimit, HighLimit);
+
+  if HasLimits then
   begin
-    const Reserve = (HighLimit - LowLimit) div 4;
-    if Reserve > MAX_RESERVE then
-      Exit(LowLimit + MAX_RESERVE);
-
-    Exit(LowLimit + Reserve);
-  end;
-  {$ENDIF}
-
-  if Position > FALLBACK_BUDGET then
-    Result := Position - FALLBACK_BUDGET
+    Result := FloorFromLimits(LowLimit, HighLimit);
+  end
   else
-    Result := 0;
+  begin
+    Result := FloorFromPosition(Position);
+  end;
 end;
 
 class function TJSStackGuard.RemainingBytes: NativeUInt;
@@ -86,19 +132,18 @@ begin
   var Marker: Byte;
   const Position = NativeUInt(@Marker);
 
-  {$IFDEF MSWINDOWS}
   var LowLimit: NativeUInt;
   var HighLimit: NativeUInt;
-  if TryReadStackLimits(LowLimit, HighLimit) then
+  const HasLimits = TryReadStackLimits(LowLimit, HighLimit);
+
+  if HasLimits then
   begin
-    if Position > LowLimit then
-      Exit(Position - LowLimit);
-
-    Exit(0);
+    Result := RemainingFromLimits(Position, LowLimit);
+  end
+  else
+  begin
+    Result := FALLBACK_BUDGET;
   end;
-  {$ENDIF}
-
-  Result := FALLBACK_BUDGET;
 end;
 
 end.

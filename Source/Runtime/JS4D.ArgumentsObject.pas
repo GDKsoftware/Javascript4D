@@ -57,7 +57,7 @@ constructor TJSArgumentsObject.Create(const Scope: IJSScope; const ParameterName
                                       const ArgumentCount: Integer);
 begin
   inherited Create;
-  HasOrdinaryLookup := False;
+  LooksUpOwnPropertiesInMap := False;
 
   FScope := Scope;
   MapParameters(ParameterNames, ArgumentCount);

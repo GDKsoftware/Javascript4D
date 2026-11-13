@@ -9,10 +9,6 @@ uses
   JS4D.AST;
 
 type
-  // Finds the statements and expressions of a generator body that hold a yield. The interpreter suspends the
-  // body at a yield by leaving the nodes that hold it, and enters them again when the generator resumes: it
-  // uses ContainsYield to see which statements it has to run step by step, and IsRemembered to see which
-  // nodes of an expression it must not evaluate twice.
   TJSYieldAnalysis = class
   private
     class function MarkStatement(const Node: TJSASTNode): Boolean; static;
@@ -324,8 +320,6 @@ begin
                               TJSASTNodeType.CallExpression, TJSASTNodeType.MemberExpression];
 end;
 
-// A left-deep chain is marked from its first operand upwards in a loop, so that a chain of any length does not
-// use the stack.
 class function TJSYieldAnalysis.MarkChain(const Node: TJSExpression): Boolean;
 begin
   const Links = TList<TJSExpression>.Create;

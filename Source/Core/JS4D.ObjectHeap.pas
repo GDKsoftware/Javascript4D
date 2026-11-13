@@ -5,7 +5,6 @@ unit JS4D.ObjectHeap;
 interface
 
 uses
-  System.SysUtils,
   System.Generics.Collections;
 
 type
@@ -14,22 +13,14 @@ type
 
   TJSHeapVisitor = reference to procedure(const Item: TJSHeapObject);
 
-  // The base of every object an engine creates. An object joins the heap that is current on its thread when it is
-  // made and leaves it when it is freed, so the heap always lists the objects that are alive.
-  TJSHeapObject = class(TInterfacedObject)
+  TJSHeapObject = class abstract(TInterfacedObject)
   private
     FHeap: TJSHeap;
     FHeapSlot: Integer;
 
   protected
-    // Drops every reference this object holds to other objects, so that a cycle it belongs to is broken. The object
-    // itself stays valid and empty.
-    procedure ReleaseReferences; virtual;
-    // Reports every object of the heap that this object holds a reference to, once for each reference. An object
-    // that holds a reference without reporting it makes the object it refers to look as if the host holds it.
-    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); virtual;
-    // True for an object that is emptied when its engine goes away, whoever still holds it: a function, which
-    // keeps the scope it was made in.
+    procedure ReleaseReferences; virtual; abstract;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); virtual; abstract;
     function IsReleasedWithEngine: Boolean; virtual;
 
     class procedure ReportReference(const Visit: TJSHeapVisitor; const Reference: IInterface); static;
@@ -39,9 +30,6 @@ type
     destructor Destroy; override;
   end;
 
-  // Lists the objects of one engine without keeping them alive. A script can build cycles of objects that reference
-  // counting never frees; when the engine goes away the heap empties every object that is still alive, which breaks
-  // those cycles.
   TJSHeap = class
   private
     FObjects: TArray<TJSHeapObject>;
@@ -49,23 +37,30 @@ type
 
     procedure Add(const Item: TJSHeapObject);
     procedure Remove(const Item: TJSHeapObject);
-    procedure ListObjects(const Objects: TList<TJSHeapObject>; const Holders: TList<IInterface>);
+    procedure ListObjects(const Objects: TList<TJSHeapObject>; const KeepAlive: TList<IInterface>);
     procedure ReleaseFunctions(const Objects: TList<TJSHeapObject>);
-    function CountReferences(const Objects: TList<TJSHeapObject>): TDictionary<TJSHeapObject, Integer>;
-    function FindRetained(const Objects: TList<TJSHeapObject>): TDictionary<TJSHeapObject, Byte>;
+    procedure CountReferences(const Objects: TList<TJSHeapObject>;
+                              const Counts: TDictionary<TJSHeapObject, Integer>);
+    class function CountedReferences(const Counts: TDictionary<TJSHeapObject, Integer>;
+                                     const Item: TJSHeapObject): Integer; static;
+    function IsHeldFromOutside(const Item: TJSHeapObject;
+                               const Counts: TDictionary<TJSHeapObject, Integer>): Boolean;
+    procedure RetainHeldFromOutside(const Objects: TList<TJSHeapObject>;
+                                    const Counts: TDictionary<TJSHeapObject, Integer>;
+                                    const Retain: TJSHeapVisitor);
+    procedure RetainReachable(const Pending: TStack<TJSHeapObject>; const Retain: TJSHeapVisitor);
+    procedure FindRetained(const Objects: TList<TJSHeapObject>;
+                           const Counts: TDictionary<TJSHeapObject, Integer>;
+                           const Retained: THashSet<TJSHeapObject>);
     procedure ReleaseUnretained(const Objects: TList<TJSHeapObject>;
-                                const Retained: TDictionary<TJSHeapObject, Byte>);
+                                const Retained: THashSet<TJSHeapObject>);
     procedure Detach;
 
   public
     destructor Destroy; override;
 
-    // Makes Heap the heap that new objects join and returns the one it replaces. A nil heap makes objects that
-    // belong to no engine.
     class function Switch(const Heap: TJSHeap): TJSHeap; static;
 
-    // Empties every object of the heap that nothing outside the engine holds, and every function. An object that the
-    // host still holds, and what it refers to, keeps its contents; it is no longer listed.
     procedure ReleaseAll;
   end;
 
@@ -73,6 +68,7 @@ implementation
 
 const
   INITIAL_CAPACITY = 64;
+  KEEP_ALIVE_REFERENCES = 1;
 
 threadvar
   CurrentHeap: TJSHeap;
@@ -85,23 +81,19 @@ begin
 
   const Heap = CurrentHeap;
   if Assigned(Heap) then
+  begin
     Heap.Add(Self);
+  end;
 end;
 
 destructor TJSHeapObject.Destroy;
 begin
   if Assigned(FHeap) then
+  begin
     FHeap.Remove(Self);
+  end;
 
   inherited;
-end;
-
-procedure TJSHeapObject.ReleaseReferences;
-begin
-end;
-
-procedure TJSHeapObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
-begin
 end;
 
 function TJSHeapObject.IsReleasedWithEngine: Boolean;
@@ -115,8 +107,11 @@ begin
     Exit;
 
   const Target = Reference as TObject;
-  if Target is TJSHeapObject then
+  const IsHeapObject = (Target is TJSHeapObject);
+  if IsHeapObject then
+  begin
     Visit(TJSHeapObject(Target));
+  end;
 end;
 
 { TJSHeap }
@@ -135,8 +130,11 @@ end;
 
 procedure TJSHeap.Add(const Item: TJSHeapObject);
 begin
-  if FCount = Length(FObjects) then
+  const IsFull = (FCount = Length(FObjects));
+  if IsFull then
+  begin
     SetLength(FObjects, (FCount * 2) + INITIAL_CAPACITY);
+  end;
 
   Item.FHeap := Self;
   Item.FHeapSlot := FCount;
@@ -158,22 +156,27 @@ end;
 
 procedure TJSHeap.Detach;
 begin
-  for var Index := 0 to FCount - 1 do
+  for var Item in FObjects do
   begin
-    FObjects[Index].FHeap := nil;
+    if Assigned(Item) then
+    begin
+      Item.FHeap := nil;
+    end;
   end;
 
   FObjects := nil;
   FCount := 0;
 end;
 
-procedure TJSHeap.ListObjects(const Objects: TList<TJSHeapObject>; const Holders: TList<IInterface>);
+procedure TJSHeap.ListObjects(const Objects: TList<TJSHeapObject>; const KeepAlive: TList<IInterface>);
 begin
-  for var Index := 0 to FCount - 1 do
+  for var Item in FObjects do
   begin
-    const Item = FObjects[Index];
-    Objects.Add(Item);
-    Holders.Add(Item);
+    if Assigned(Item) then
+    begin
+      Objects.Add(Item);
+      KeepAlive.Add(Item);
+    end;
   end;
 end;
 
@@ -182,101 +185,126 @@ begin
   for var Item in Objects do
   begin
     if Item.IsReleasedWithEngine then
+    begin
       Item.ReleaseReferences;
+    end;
   end;
 end;
 
-function TJSHeap.CountReferences(const Objects: TList<TJSHeapObject>): TDictionary<TJSHeapObject, Integer>;
+procedure TJSHeap.CountReferences(const Objects: TList<TJSHeapObject>;
+                                  const Counts: TDictionary<TJSHeapObject, Integer>);
 begin
-  const Counts = TDictionary<TJSHeapObject, Integer>.Create;
-  Result := Counts;
-
-  const Count: TJSHeapVisitor =
+  const CountReference: TJSHeapVisitor =
     procedure(const Target: TJSHeapObject)
     begin
-      var Current: Integer;
-      Counts.TryGetValue(Target, Current);
-      Counts.AddOrSetValue(Target, Current + 1);
+      const ExistingCount = CountedReferences(Counts, Target);
+      Counts.AddOrSetValue(Target, ExistingCount + 1);
     end;
 
   for var Item in Objects do
   begin
     if not Item.IsReleasedWithEngine then
-      Item.EnumerateHeapReferences(Count);
+    begin
+      Item.EnumerateHeapReferences(CountReference);
+    end;
   end;
 end;
 
-function TJSHeap.FindRetained(const Objects: TList<TJSHeapObject>): TDictionary<TJSHeapObject, Byte>;
+class function TJSHeap.CountedReferences(const Counts: TDictionary<TJSHeapObject, Integer>;
+                                         const Item: TJSHeapObject): Integer;
 begin
-  const Retained = TDictionary<TJSHeapObject, Byte>.Create;
-  Result := Retained;
+  if not Counts.TryGetValue(Item, Result) then
+  begin
+    Result := 0;
+  end;
+end;
 
-  const Counts = CountReferences(Objects);
-  try
-    const Pending = TStack<TJSHeapObject>.Create;
-    try
-      const Retain: TJSHeapVisitor =
-        procedure(const Target: TJSHeapObject)
-        begin
-          const IsNew = (not Target.IsReleasedWithEngine) and (not Retained.ContainsKey(Target));
-          if IsNew then
-          begin
-            Retained.Add(Target, 0);
-            Pending.Push(Target);
-          end;
-        end;
+function TJSHeap.IsHeldFromOutside(const Item: TJSHeapObject;
+                                   const Counts: TDictionary<TJSHeapObject, Integer>): Boolean;
+begin
+  const CountedByHeap = CountedReferences(Counts, Item);
+  Result := ((Item.RefCount - KEEP_ALIVE_REFERENCES) > CountedByHeap);
+end;
 
-      const OwnReferences = 1;
-      for var Item in Objects do
-      begin
-        var Counted: Integer;
-        Counts.TryGetValue(Item, Counted);
-
-        const IsHeldFromOutside = (Item.RefCount - OwnReferences) > Counted;
-        if IsHeldFromOutside then
-          Retain(Item);
-      end;
-
-      while Pending.Count > 0 do
-      begin
-        const Next = Pending.Pop;
-        Next.EnumerateHeapReferences(Retain);
-      end;
-    finally
-      Pending.Free;
+procedure TJSHeap.RetainHeldFromOutside(const Objects: TList<TJSHeapObject>;
+                                        const Counts: TDictionary<TJSHeapObject, Integer>;
+                                        const Retain: TJSHeapVisitor);
+begin
+  for var Item in Objects do
+  begin
+    if IsHeldFromOutside(Item, Counts) then
+    begin
+      Retain(Item);
     end;
+  end;
+end;
+
+procedure TJSHeap.RetainReachable(const Pending: TStack<TJSHeapObject>; const Retain: TJSHeapVisitor);
+begin
+  while True do
+  begin
+    const IsDrained = (Pending.Count = 0);
+    if IsDrained then
+      Break;
+
+    const Next = Pending.Pop;
+    Next.EnumerateHeapReferences(Retain);
+  end;
+end;
+
+procedure TJSHeap.FindRetained(const Objects: TList<TJSHeapObject>;
+                               const Counts: TDictionary<TJSHeapObject, Integer>;
+                               const Retained: THashSet<TJSHeapObject>);
+begin
+  const Pending = TStack<TJSHeapObject>.Create;
+  try
+    const Retain: TJSHeapVisitor =
+      procedure(const Target: TJSHeapObject)
+      begin
+        const IsNew = ((not Target.IsReleasedWithEngine) and (not Retained.Contains(Target)));
+        if IsNew then
+        begin
+          Retained.Add(Target);
+          Pending.Push(Target);
+        end;
+      end;
+
+    RetainHeldFromOutside(Objects, Counts, Retain);
+    RetainReachable(Pending, Retain);
   finally
-    Counts.Free;
+    Pending.Free;
   end;
 end;
 
 procedure TJSHeap.ReleaseUnretained(const Objects: TList<TJSHeapObject>;
-                                    const Retained: TDictionary<TJSHeapObject, Byte>);
+                                    const Retained: THashSet<TJSHeapObject>);
 begin
   for var Item in Objects do
   begin
-    const IsKept = Item.IsReleasedWithEngine or Retained.ContainsKey(Item);
+    const IsKept = (Item.IsReleasedWithEngine or Retained.Contains(Item));
     if not IsKept then
+    begin
       Item.ReleaseReferences;
+    end;
   end;
 end;
 
 procedure TJSHeap.ReleaseAll;
 begin
   const Objects = TList<TJSHeapObject>.Create;
-  const Holders = TList<IInterface>.Create;
+  const KeepAlive = TList<IInterface>.Create;
+  const Counts = TDictionary<TJSHeapObject, Integer>.Create;
+  const Retained = THashSet<TJSHeapObject>.Create;
   try
-    ListObjects(Objects, Holders);
+    ListObjects(Objects, KeepAlive);
     ReleaseFunctions(Objects);
-
-    const Retained = FindRetained(Objects);
-    try
-      ReleaseUnretained(Objects, Retained);
-    finally
-      Retained.Free;
-    end;
+    CountReferences(Objects, Counts);
+    FindRetained(Objects, Counts, Retained);
+    ReleaseUnretained(Objects, Retained);
   finally
-    Holders.Free;
+    Retained.Free;
+    Counts.Free;
+    KeepAlive.Free;
     Objects.Free;
   end;
 

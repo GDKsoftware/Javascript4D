@@ -12,7 +12,6 @@ uses
   JS4D.GeneratorObjects;
 
 type
-  // %GeneratorFunction%, %GeneratorFunction.prototype% and %GeneratorPrototype% with next, return and throw.
   TJSGeneratorBuiltins = class
   private
     const
