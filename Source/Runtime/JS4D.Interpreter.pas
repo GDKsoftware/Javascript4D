@@ -1,4 +1,4 @@
-unit JS4D.Interpreter;
+﻿unit JS4D.Interpreter;
 
 {$SCOPEDENUMS ON}
 
@@ -166,6 +166,7 @@ type
     ComputedKey: TJSPropertyKey;
     HasKeyText: Boolean;
     IsSuper: Boolean;
+    SuperBaseObject: IJSObject;
 
     function KeyPointer: PJSPropertyKey; inline;
     procedure ResolveKey(const Limits: TJSLimits); inline;
@@ -6693,6 +6694,7 @@ begin
   if Node.Operator = TJSAssignmentOperator.Assign then
   begin
     NewValue := Visit(Node.Right);
+    Reference.Prepare(Self);
   end
   else
   begin
@@ -6703,7 +6705,6 @@ begin
     NewValue := TJSOperators.Apply(BinaryOperator, Current, Right, FLimits);
   end;
 
-  Reference.Prepare(Self);
   PutReferenceValue(Reference, NewValue);
   Result := NewValue;
 end;
@@ -6779,7 +6780,6 @@ begin
     NewNumber := OldNumber + 1;
 
   const NewValue = TJSValue.CreateNumber(NewNumber);
-  Reference.Prepare(Self);
   PutReferenceValue(Reference, NewValue);
 
   if Node.Prefix then
@@ -7089,7 +7089,7 @@ procedure TJSMemberReference.Prepare(const Interpreter: TJSInterpreter);
 begin
   if IsSuper then
   begin
-    Interpreter.RequireSuperHome;
+    SuperBaseObject := Interpreter.SuperBase;
   end
   else
   begin
@@ -7271,7 +7271,7 @@ end;
 
 function TJSInterpreter.ReadSuperMember(const Reference: TJSMemberReference): TJSValue;
 begin
-  const Base = SuperBase;
+  const Base = Reference.SuperBaseObject;
 
   if not Assigned(Base) then
     raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
@@ -7281,7 +7281,7 @@ end;
 
 procedure TJSInterpreter.WriteSuperMember(const Reference: TJSMemberReference; const Value: TJSValue);
 begin
-  const Base = SuperBase;
+  const Base = Reference.SuperBaseObject;
 
   if not Assigned(Base) then
     raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
