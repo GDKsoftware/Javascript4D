@@ -14,16 +14,30 @@ type
   [TestFixture]
   TLongChainTests = class
   private
+    type
+      THugeRun = record
+        Completed: Boolean;
+        Text: string;
+      end;
+
     const
       MODERATE_LENGTH = 1000;
       HUGE_LENGTH = 100000;
       MODERATE_NESTING = 100;
+      LENGTH_DIMENSION = 'length';
+      DEPTH_DIMENSION = 'depth';
+      MODERATE_FORMAT = 'moderate %s';
+      HUGE_FORMAT = 'huge %s';
+      TRUE_RESULT = 'true';
 
-  private
-    FEngine: TJSEngine;
+    var
+      FEngine: TJSEngine;
 
-    function RunWithLength(const Script: string; const Length: Integer): string;
-    function RunHuge(const Script: string; out Completed: Boolean): string;
+    function RunWithLength(const Script: string; const ChainLength: Integer): string;
+    function ExecuteHuge(const Script: string): THugeRun;
+    procedure AssertModerateWorks(const Script, Expected: string; const Size: Integer; const Dimension: string);
+    procedure AssertHugeIsCorrectOrRefused(const Script, Expected: string; const Dimension: string);
+    procedure AssertHugeIsRefused(const Script: string; const Dimension: string);
     procedure AssertEngineStillWorks;
 
   public
@@ -121,31 +135,51 @@ begin
   FEngine.Free;
 end;
 
-function TLongChainTests.RunWithLength(const Script: string; const Length: Integer): string;
+function TLongChainTests.RunWithLength(const Script: string; const ChainLength: Integer): string;
 begin
-  const Program_ = Format('var n = %d; %s', [Length, Script]);
+  const Source = Format('var n = %d; %s', [ChainLength, Script]);
 
-  Result := FEngine.Execute(Program_).ToString;
+  Result := FEngine.Execute(Source).ToString;
 end;
 
-function TLongChainTests.RunHuge(const Script: string; out Completed: Boolean): string;
+function TLongChainTests.ExecuteHuge(const Script: string): THugeRun;
 begin
-  Completed := False;
-  Result := '';
+  Result := Default(THugeRun);
 
   try
-    Result := RunWithLength(Script, HUGE_LENGTH);
-    Completed := True;
+    Result.Text := RunWithLength(Script, HUGE_LENGTH);
+    Result.Completed := True;
   except
-    on EJSRangeError do
+    on E: Exception do
     begin
-      Completed := False;
-    end;
-    on EJSSyntaxError do
-    begin
-      Completed := False;
+      const IsRefusal = ((E is EJSRangeError) or (E is EJSSyntaxError));
+      if not IsRefusal then
+        raise;
     end;
   end;
+end;
+
+procedure TLongChainTests.AssertModerateWorks(const Script, Expected: string; const Size: Integer;
+                                              const Dimension: string);
+begin
+  const ModerateResult = RunWithLength(Script, Size);
+
+  Assert.AreEqual(Expected, ModerateResult, Format(MODERATE_FORMAT, [Dimension]));
+end;
+
+procedure TLongChainTests.AssertHugeIsCorrectOrRefused(const Script, Expected: string; const Dimension: string);
+begin
+  const HugeRun = ExecuteHuge(Script);
+
+  const IsCorrectOrRefused = ((not HugeRun.Completed) or (HugeRun.Text = Expected));
+  Assert.IsTrue(IsCorrectOrRefused, Format(HUGE_FORMAT, [Dimension]));
+end;
+
+procedure TLongChainTests.AssertHugeIsRefused(const Script: string; const Dimension: string);
+begin
+  const HugeRun = ExecuteHuge(Script);
+
+  Assert.IsFalse(HugeRun.Completed, Format(HUGE_FORMAT, [Dimension]));
 end;
 
 procedure TLongChainTests.AssertEngineStillWorks;
@@ -157,39 +191,22 @@ end;
 
 procedure TLongChainTests.Execute_LongChain_ModerateLengthWorksHugeLengthIsSafe(const Script, Expected: string);
 begin
-  const ModerateResult = RunWithLength(Script, MODERATE_LENGTH);
-  Assert.AreEqual(Expected, ModerateResult, 'moderate length');
-
-  var Completed: Boolean;
-  const HugeResult = RunHuge(Script, Completed);
-  if Completed then
-    Assert.AreEqual(Expected, HugeResult, 'huge length');
-
+  AssertModerateWorks(Script, Expected, MODERATE_LENGTH, LENGTH_DIMENSION);
+  AssertHugeIsCorrectOrRefused(Script, Expected, LENGTH_DIMENSION);
   AssertEngineStillWorks;
 end;
 
 procedure TLongChainTests.Execute_NestedSource_ModerateDepthWorksHugeDepthIsSafe(const Script, Expected: string);
 begin
-  const ModerateResult = RunWithLength(Script, MODERATE_NESTING);
-  Assert.AreEqual(Expected, ModerateResult, 'moderate depth');
-
-  var Completed: Boolean;
-  const HugeResult = RunHuge(Script, Completed);
-  if Completed then
-    Assert.AreEqual(Expected, HugeResult, 'huge depth');
-
+  AssertModerateWorks(Script, Expected, MODERATE_NESTING, DEPTH_DIMENSION);
+  AssertHugeIsCorrectOrRefused(Script, Expected, DEPTH_DIMENSION);
   AssertEngineStillWorks;
 end;
 
 procedure TLongChainTests.Execute_NestedRegularExpression_ModerateDepthWorksHugeDepthIsSafe(const Script, Expected: string);
 begin
-  const ModerateResult = RunWithLength(Script, MODERATE_NESTING);
-  Assert.AreEqual(Expected, ModerateResult, 'moderate depth');
-
-  var Completed: Boolean;
-  RunHuge(Script, Completed);
-
-  Assert.IsFalse(Completed, 'huge depth');
+  AssertModerateWorks(Script, Expected, MODERATE_NESTING, DEPTH_DIMENSION);
+  AssertHugeIsRefused(Script, DEPTH_DIMENSION);
   AssertEngineStillWorks;
 end;
 
@@ -209,15 +226,14 @@ procedure TLongChainTests.Execute_RegularExpressionOnModerateSubject_Matches;
 begin
   const Actual = FEngine.Execute('/^(?:a|b)*$/.test("ab".repeat(100)) && /(a|aa)+$/.test("a".repeat(300))').ToString;
 
-  Assert.AreEqual('true', Actual);
+  Assert.AreEqual(TRUE_RESULT, Actual);
 end;
 
 procedure TLongChainTests.Execute_UnterminatedNestedTemplates_RaisesSyntaxErrorOrRangeError;
 begin
-  var Completed: Boolean;
-  RunHuge('eval("`" + "${`".repeat(n))', Completed);
+  const HugeRun = ExecuteHuge('eval("`" + "${`".repeat(n))');
 
-  Assert.IsFalse(Completed);
+  Assert.IsFalse(HugeRun.Completed);
 end;
 
 procedure TLongChainTests.Execute_HugeStringLiteralAndComment_Completes;
@@ -227,16 +243,15 @@ begin
 
   const Actual = FEngine.Execute(Script).ToString;
 
-  Assert.AreEqual('true', Actual);
+  Assert.AreEqual(TRUE_RESULT, Actual);
 end;
 
 procedure TLongChainTests.Execute_LongChainSeveralTimes_EngineStaysUsable;
 begin
-  for var Run := 1 to 3 do
+  for var Repetition := 1 to 3 do
   begin
-    var Completed: Boolean;
-    RunHuge('eval("1" + "+1".repeat(n - 1)) === n', Completed);
-    RunHuge('var a = {}; a.a = a; var ok; try { ok = eval("a" + ".a".repeat(n)) === a; } finally { a.a = null; } ok', Completed);
+    ExecuteHuge('eval("1" + "+1".repeat(n - 1)) === n');
+    ExecuteHuge('var a = {}; a.a = a; var ok; try { ok = eval("a" + ".a".repeat(n)) === a; } finally { a.a = null; } ok');
   end;
 
   const Actual = FEngine.Execute('2 + 2').ToString;

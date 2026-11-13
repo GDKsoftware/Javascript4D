@@ -6,17 +6,23 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
+
+const
+  STRICT_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ';
+  SLOPPY_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { return typeof this; }; ';
+  TRUE_TO_LOCALE_STRING_IS_BOOLEAN = 'true.toLocaleString() === "boolean"';
 
 type
   [TestFixture]
   TStrictThisTests = class
   private
-    FEngine: TJSEngine;
+    const
+      THROWS_TYPE_ERROR = 'try { %s; false; } catch (e) { e instanceof TypeError; }';
+      OBJECT_TO_STRING_CALL = 'Object.prototype.toString.call(%s)';
 
-    function EvaluateBoolean(const Script: string): Boolean;
+    var
+      FEngine: TJSEngine;
 
   public
     [Setup]
@@ -26,60 +32,37 @@ type
     procedure TearDown;
 
     [Test]
-    procedure StrictFunction_CalledWithNumber_SeesNumber;
+    [TestCase('Strict function called with a number', 'function f() { "use strict"; return typeof this; } f.call(1) === "number"', '#')]
+    [TestCase('Strict function called with null', 'function f() { "use strict"; return this === null; } f.call(null)', '#')]
+    [TestCase('Strict function called with undefined', 'function f() { "use strict"; return this === undefined; } f.call(undefined) && f()', '#')]
+    [TestCase('Strict function applied with a string', 'function f() { "use strict"; return this; } f.apply("abc") === "abc"', '#')]
+    [TestCase('Strict function bound to a boolean', 'function f() { "use strict"; return this; } f.bind(false)() === false', '#')]
+    [TestCase('Strict function called as a method on a primitive', 'Number.prototype.me = function () { "use strict"; return this; }; (5).me() === 5', '#')]
+    [TestCase('Strict function called with an object', 'var o = {}; function f() { "use strict"; return this; } f.call(o) === o', '#')]
+    [TestCase('Strict arrow function inherits a primitive this', 'function f() { "use strict"; return (() => this)(); } f.call(7) === 7', '#')]
+    [TestCase('Strict callback with a primitive this argument', 'var seen; [1].forEach(function () { "use strict"; seen = this; }, 3); seen === 3', '#')]
+    [TestCase('Strict callback with a null this argument', 'var seen = 1; [1].every(function () { "use strict"; seen = this; return true; }, null); seen === null', '#')]
+    [TestCase('Sloppy function called with a number', 'function f() { return typeof this; } f.call(1) === "object"', '#')]
+    [TestCase('Sloppy function called with null', 'var g = this; function f() { return this === g; } f.call(null)', '#')]
+    [TestCase('Strict getter read on a primitive', 'Object.defineProperty(Object.prototype, "me", { get: function () { "use strict"; return this; }, configurable: true }); (5).me === 5', '#')]
+    [TestCase('Sloppy getter read on a primitive', 'Object.defineProperty(Object.prototype, "me", { get: function () { return this; }, configurable: true }); typeof (5).me === "object"', '#')]
+    [TestCase('Object toLocaleString with a strict toString', STRICT_BOOLEAN_TO_STRING + TRUE_TO_LOCALE_STRING_IS_BOOLEAN, '#')]
+    [TestCase('Object toLocaleString with a sloppy toString', SLOPPY_BOOLEAN_TO_STRING + 'true.toLocaleString() === "object"', '#')]
+    [TestCase('Object toLocaleString with a strict toString getter', 'Object.defineProperty(Boolean.prototype, "toString", { get: function () { "use strict"; const seen = typeof this; return function () { return seen; }; } }); ' + TRUE_TO_LOCALE_STRING_IS_BOOLEAN, '#')]
+    [TestCase('Array toLocaleString with a strict element toString', STRICT_BOOLEAN_TO_STRING + '[true, false].toLocaleString() === "boolean,boolean"', '#')]
+    procedure Script_EvaluatesToTrue(const Script: string);
 
     [Test]
-    procedure StrictFunction_CalledWithNull_SeesNull;
-
-    [Test]
-    procedure StrictFunction_CalledWithUndefined_SeesUndefined;
-
-    [Test]
-    procedure StrictFunction_AppliedWithString_SeesString;
-
-    [Test]
-    procedure StrictFunction_BoundToBoolean_SeesBoolean;
-
-    [Test]
-    procedure StrictFunction_CalledAsMethodOnPrimitive_SeesPrimitive;
-
-    [Test]
-    procedure StrictFunction_CalledWithObject_SeesSameObject;
-
-    [Test]
-    procedure StrictArrowFunction_InheritsPrimitiveThis;
-
-    [Test]
-    procedure StrictCallback_ThisArgPrimitive_SeesPrimitive;
-
-    [Test]
-    procedure StrictCallback_ThisArgNull_SeesNull;
-
-    [Test]
-    procedure SloppyFunction_CalledWithNumber_SeesNumberObject;
-
-    [Test]
-    procedure SloppyFunction_CalledWithNull_SeesGlobalObject;
-
-    [Test]
-    procedure StrictGetter_ReadOnPrimitive_SeesPrimitive;
-
-    [Test]
-    procedure SloppyGetter_ReadOnPrimitive_SeesWrapper;
-
-    [Test]
-    [TestCase('Number', '1')]
-    [TestCase('String', '"text"')]
-    [TestCase('Boolean', 'true')]
-    [TestCase('Null', 'null')]
-    [TestCase('Undefined', 'undefined')]
-    procedure ErrorToString_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
-
-    [Test]
-    [TestCase('Number', '86')]
-    [TestCase('String', '""')]
-    [TestCase('Boolean', 'true')]
-    procedure DateToPrimitive_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
+    [TestCase('Error toString on a number', 'Error.prototype.toString.call(1)', '#')]
+    [TestCase('Error toString on a string', 'Error.prototype.toString.call("text")', '#')]
+    [TestCase('Error toString on a boolean', 'Error.prototype.toString.call(true)', '#')]
+    [TestCase('Error toString on null', 'Error.prototype.toString.call(null)', '#')]
+    [TestCase('Error toString on undefined', 'Error.prototype.toString.call(undefined)', '#')]
+    [TestCase('Date toPrimitive on a number', 'Date.prototype[Symbol.toPrimitive].call(86, "string")', '#')]
+    [TestCase('Date toPrimitive on a string', 'Date.prototype[Symbol.toPrimitive].call("", "string")', '#')]
+    [TestCase('Date toPrimitive on a boolean', 'Date.prototype[Symbol.toPrimitive].call(true, "string")', '#')]
+    [TestCase('Object toLocaleString on null', 'Object.prototype.toLocaleString.call(null)', '#')]
+    procedure Call_OnPrimitiveReceiver_ThrowsTypeError(const Call: string);
 
     [Test]
     [TestCase('Null', 'null#[object Null]', '#')]
@@ -88,24 +71,12 @@ type
     [TestCase('String', '"x"#[object String]', '#')]
     [TestCase('Boolean', 'false#[object Boolean]', '#')]
     procedure ObjectToString_PrimitiveReceiver_ReturnsClassTag(const Receiver: string; const Expected: string);
-
-    [Test]
-    procedure ObjectToLocaleString_StrictToString_SeesPrimitive;
-
-    [Test]
-    procedure ObjectToLocaleString_SloppyToString_SeesWrapper;
-
-    [Test]
-    procedure ObjectToLocaleString_StrictToStringGetter_SeesPrimitive;
-
-    [Test]
-    procedure ArrayToLocaleString_StrictElementToString_SeesPrimitive;
-
-    [Test]
-    procedure ObjectToLocaleString_NullReceiver_ThrowsTypeError;
   end;
 
 implementation
+
+uses
+  System.SysUtils;
 
 { TStrictThisTests }
 
@@ -119,174 +90,30 @@ begin
   FEngine.Free;
 end;
 
-function TStrictThisTests.EvaluateBoolean(const Script: string): Boolean;
+procedure TStrictThisTests.Script_EvaluatesToTrue(const Script: string);
 begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
+  const Actual = FEngine.Evaluate(Script);
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
-procedure TStrictThisTests.StrictFunction_CalledWithNumber_SeesNumber;
+procedure TStrictThisTests.Call_OnPrimitiveReceiver_ThrowsTypeError(const Call: string);
 begin
-  const Script = 'function f() { "use strict"; return typeof this; } f.call(1) === "number"';
+  const Script = Format(THROWS_TYPE_ERROR, [Call]);
 
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
+  const Actual = FEngine.Evaluate(Script);
 
-procedure TStrictThisTests.StrictFunction_CalledWithNull_SeesNull;
-begin
-  const Script = 'function f() { "use strict"; return this === null; } f.call(null)';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictFunction_CalledWithUndefined_SeesUndefined;
-begin
-  const Script = 'function f() { "use strict"; return this === undefined; } f.call(undefined) && f()';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictFunction_AppliedWithString_SeesString;
-begin
-  const Script = 'function f() { "use strict"; return this; } f.apply("abc") === "abc"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictFunction_BoundToBoolean_SeesBoolean;
-begin
-  const Script = 'function f() { "use strict"; return this; } f.bind(false)() === false';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictFunction_CalledAsMethodOnPrimitive_SeesPrimitive;
-begin
-  const Script = 'Number.prototype.me = function () { "use strict"; return this; }; (5).me() === 5';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictFunction_CalledWithObject_SeesSameObject;
-begin
-  const Script = 'var o = {}; function f() { "use strict"; return this; } f.call(o) === o';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictArrowFunction_InheritsPrimitiveThis;
-begin
-  const Script = 'function f() { "use strict"; return (() => this)(); } f.call(7) === 7';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictCallback_ThisArgPrimitive_SeesPrimitive;
-begin
-  const Script = 'var seen; [1].forEach(function () { "use strict"; seen = this; }, 3); seen === 3';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictCallback_ThisArgNull_SeesNull;
-begin
-  const Script = 'var seen = 1; [1].every(function () { "use strict"; seen = this; return true; }, null); seen === null';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.SloppyFunction_CalledWithNumber_SeesNumberObject;
-begin
-  const Script = 'function f() { return typeof this; } f.call(1) === "object"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.SloppyFunction_CalledWithNull_SeesGlobalObject;
-begin
-  const Script = 'var g = this; function f() { return this === g; } f.call(null)';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.StrictGetter_ReadOnPrimitive_SeesPrimitive;
-begin
-  const Script = 'Object.defineProperty(Object.prototype, "me", ' +
-                 '{ get: function () { "use strict"; return this; }, configurable: true }); (5).me === 5';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.SloppyGetter_ReadOnPrimitive_SeesWrapper;
-begin
-  const Script = 'Object.defineProperty(Object.prototype, "me", ' +
-                 '{ get: function () { return this; }, configurable: true }); typeof (5).me === "object"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.ErrorToString_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
-begin
-  const Script = 'try { Error.prototype.toString.call(' + Receiver + '); false; } catch (e) { e instanceof TypeError; }';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.DateToPrimitive_PrimitiveReceiver_ThrowsTypeError(const Receiver: string);
-begin
-  const Script = 'try { Date.prototype[Symbol.toPrimitive].call(' + Receiver + ', "string"); false; } ' +
-                 'catch (e) { e instanceof TypeError; }';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TStrictThisTests.ObjectToString_PrimitiveReceiver_ReturnsClassTag(const Receiver: string;
                                                                             const Expected: string);
 begin
-  const Script = 'Object.prototype.toString.call(' + Receiver + ')';
+  const Script = Format(OBJECT_TO_STRING_CALL, [Receiver]);
 
-  const Actual = FEngine.Evaluate(Script).AsString;
+  const Actual = FEngine.Evaluate(Script);
 
-  Assert.AreEqual(Expected, Actual);
-end;
-
-procedure TStrictThisTests.ObjectToLocaleString_StrictToString_SeesPrimitive;
-begin
-  const Script = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ' +
-                 'true.toLocaleString() === "boolean"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.ObjectToLocaleString_SloppyToString_SeesWrapper;
-begin
-  const Script = 'Boolean.prototype.toString = function () { return typeof this; }; ' +
-                 'true.toLocaleString() === "object"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.ObjectToLocaleString_StrictToStringGetter_SeesPrimitive;
-begin
-  const Script = 'Object.defineProperty(Boolean.prototype, "toString", { get: function () { "use strict"; ' +
-                 'const seen = typeof this; return function () { return seen; }; } }); ' +
-                 'true.toLocaleString() === "boolean"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.ArrayToLocaleString_StrictElementToString_SeesPrimitive;
-begin
-  const Script = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ' +
-                 '[true, false].toLocaleString() === "boolean,boolean"';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
-end;
-
-procedure TStrictThisTests.ObjectToLocaleString_NullReceiver_ThrowsTypeError;
-begin
-  const Script = 'try { Object.prototype.toLocaleString.call(null); false; } catch (e) { e instanceof TypeError; }';
-
-  Assert.IsTrue(EvaluateBoolean(Script));
+  Assert.AreEqual(Expected, Actual.AsString);
 end;
 
 end.

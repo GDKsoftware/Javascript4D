@@ -71,11 +71,11 @@ type
       ENGINE_FREED = 'A proxy cannot construct after its engine is freed';
 
     var
-    FObjectPrototype: IJSObject;
-    FArrayPrototype: IJSObject;
-    FConstruct: TJSTargetConstructor;
-    FChargeStep: TProc;
-    FOperationDepth: Integer;
+      FObjectPrototype: IJSObject;
+      FArrayPrototype: IJSObject;
+      FConstruct: TJSTargetConstructor;
+      FChargeStep: TProc;
+      FOperationDepth: Integer;
 
     function GetObjectPrototype: IJSObject;
     function GetArrayPrototype: IJSObject;
@@ -95,6 +95,13 @@ type
     function EnterOperation: IInterface;
     procedure LeaveOperation;
     procedure Detach;
+  end;
+
+  TJSProxyTrap = record
+    Operation: IInterface;
+    Handler: IJSFunction;
+
+    function IsAbsent: Boolean;
   end;
 
   // The internal methods of a proxy: every one looks up its trap on the handler, falls back to the target
@@ -159,8 +166,8 @@ type
       FSymbols: TDictionary<Integer, IJSSymbol>;
 
     procedure RequireSupportedNesting(const Target: IJSObject);
-    function GetTrap(const TrapName: string): IJSFunction;
-    function InvokeTrap(const Trap: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+    function OpenTrap(const TrapName: string): TJSProxyTrap;
+    function InvokeTrap(const Trap: TJSProxyTrap; const Args: TArray<TJSValue>): TJSValue;
     function ArrayFromList(const Items: TArray<TJSValue>): TJSValue;
     function DefinitionToObject(const Definition: TJSPropertyDefinition): TJSValue;
     class function CompleteDefinition(const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
@@ -178,7 +185,6 @@ type
     destructor Destroy; override;
 
     procedure Revoke;
-    procedure Release;
     function IsRevoked: Boolean;
     procedure RequireLive(const Operation: string);
     function HoldsOnlyItsTargets: Boolean;
@@ -329,6 +335,9 @@ type
     class procedure DefineOrRaise(const Core: TJSProxyCore; const Name: TJSPropertyKey;
                                   const Definition: TJSPropertyDefinition); static;
     class function ToDefinition(const Descriptor: TJSPropertyDescriptor): TJSPropertyDefinition; static;
+    class function HoldsOnlyItsTargets(const Core: TJSProxyCore): Boolean; static;
+    class procedure DetachTargets(const Core: TJSProxyCore; const Pending: TList<IJSObject>); static;
+    class procedure Revoke(const Core: TJSProxyCore); static;
   end;
 
 const
@@ -384,10 +393,8 @@ end;
 
 destructor TJSProxyRuntime.Destroy;
 begin
-  FChargeStep := nil;
-  FConstruct := nil;
-  FObjectPrototype := nil;
-  FArrayPrototype := nil;
+  Detach;
+  ReleaseReferences;
   inherited;
 end;
 
@@ -446,6 +453,13 @@ end;
 procedure TJSProxyRuntime.LeaveOperation;
 begin
   Dec(FOperationDepth);
+end;
+
+{ TJSProxyTrap }
+
+function TJSProxyTrap.IsAbsent: Boolean;
+begin
+  Result := not Assigned(Handler);
 end;
 
 { TJSOperationGuard }
@@ -522,11 +536,6 @@ begin
   FHandler := nil;
 end;
 
-procedure TJSProxyCore.Release;
-begin
-  Revoke;
-end;
-
 function TJSProxyCore.IsRevoked: Boolean;
 begin
   Result := not Assigned(FHandler);
@@ -538,23 +547,25 @@ begin
     raise TJSErrorFactory.TypeError(Format(REVOKED, [Operation]));
 end;
 
-function TJSProxyCore.GetTrap(const TrapName: string): IJSFunction;
+function TJSProxyCore.OpenTrap(const TrapName: string): TJSProxyTrap;
 begin
+  Result.Operation := FRuntime.EnterOperation;
+  Result.Handler := nil;
+
   RequireLive(TrapName);
   FRuntime.ChargeStep;
 
-  Result := nil;
   const TrapValue = FHandler.GetProperty(TrapName);
   if TrapValue.IsNullOrUndefined then
     Exit;
 
-  if not TJSProxyShared.IsCallable(TrapValue, Result) then
+  if not TJSProxyShared.IsCallable(TrapValue, Result.Handler) then
     raise TJSErrorFactory.TypeError(Format(TRAP_NOT_CALLABLE, [TrapName]));
 end;
 
-function TJSProxyCore.InvokeTrap(const Trap: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+function TJSProxyCore.InvokeTrap(const Trap: TJSProxyTrap; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := Trap.Call(FHandler, Args);
+  Result := Trap.Handler.Call(FHandler, Args);
 end;
 
 function TJSProxyCore.ArrayFromList(const Items: TArray<TJSValue>): TJSValue;
@@ -663,9 +674,8 @@ function TJSProxyCore.HasProperty(const Name: TJSPropertyKey): Boolean;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_HAS);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_HAS);
+  if Trap.IsAbsent then
     Exit(Subject.HasProperty(Name));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
@@ -688,9 +698,8 @@ function TJSProxyCore.GetPrototypeOf: IJSObject;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_GET_PROTOTYPE_OF);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_GET_PROTOTYPE_OF);
+  if Trap.IsAbsent then
     Exit(Subject.Prototype);
 
   const Proposed = InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]);
@@ -710,9 +719,8 @@ function TJSProxyCore.SetPrototypeOf(const Prototype: IJSObject): Boolean;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_SET_PROTOTYPE_OF);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_SET_PROTOTYPE_OF);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.SetPrototypeOf(Subject, Prototype));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrNull(Prototype)]);
@@ -728,9 +736,8 @@ function TJSProxyCore.IsExtensible: Boolean;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_IS_EXTENSIBLE);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_IS_EXTENSIBLE);
+  if Trap.IsAbsent then
     Exit(Subject.IsExtensible);
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]).ToBoolean;
@@ -742,9 +749,8 @@ function TJSProxyCore.TryPreventExtensions: Boolean;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_PREVENT_EXTENSIONS);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_PREVENT_EXTENSIONS);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.PreventExtensions(Subject));
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]).ToBoolean;
@@ -785,9 +791,8 @@ function TJSProxyCore.TryGetOwnProperty(const Name: TJSPropertyKey; out Descript
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_GET_OWN_PROPERTY_DESCRIPTOR);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_GET_OWN_PROPERTY_DESCRIPTOR);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.TryGetOwnProperty(Subject, Name, Descriptor));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
@@ -822,9 +827,8 @@ function TJSProxyCore.DefineOwnProperty(const Name: TJSPropertyKey; const Defini
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_DEFINE_PROPERTY);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_DEFINE_PROPERTY);
+  if Trap.IsAbsent then
     Exit(Subject.DefineOwnProperty(Name, Definition));
 
   const Described = DefinitionToObject(Definition);
@@ -866,9 +870,8 @@ function TJSProxyCore.GetWithReceiver(const Name: TJSPropertyKey; const Receiver
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_GET);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_GET);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.GetWithReceiver(Subject, Name, Receiver));
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name), Receiver]);
@@ -894,9 +897,8 @@ function TJSProxyCore.SetWithReceiver(const Name: TJSPropertyKey; const Value: T
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_SET);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_SET);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.SetWithReceiver(Subject, Name, Value, Receiver));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name),
@@ -925,9 +927,8 @@ function TJSProxyCore.DeleteOwnProperty(const Name: TJSPropertyKey): Boolean;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_DELETE_PROPERTY);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_DELETE_PROPERTY);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.DeleteOwnProperty(Subject, Name));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
@@ -1056,9 +1057,8 @@ function TJSProxyCore.OwnKeys: TArray<TJSPropertyKey>;
 begin
   const Subject = FTarget;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_OWN_KEYS);
-  if not Assigned(Trap) then
+  const Trap = OpenTrap(TRAP_OWN_KEYS);
+  if Trap.IsAbsent then
     Exit(TJSObjectOperations.OwnKeys(Subject));
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]);
@@ -1091,12 +1091,11 @@ begin
   const Subject = FTarget;
   const SubjectFunction = FTargetFunction;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_APPLY);
+  const Trap = OpenTrap(TRAP_APPLY);
   if not Assigned(SubjectFunction) then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 
-  if not Assigned(Trap) then
+  if Trap.IsAbsent then
     Exit(SubjectFunction.Call(ThisObj, Args));
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrUndefined(ThisObj), ArrayFromList(Args)]);
@@ -1107,12 +1106,11 @@ begin
   const Subject = FTarget;
   const SubjectFunction = FTargetFunction;
 
-  const Guard = FRuntime.EnterOperation;
-  const Trap = GetTrap(TRAP_CONSTRUCT);
+  const Trap = OpenTrap(TRAP_CONSTRUCT);
   if not Assigned(SubjectFunction) then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 
-  if not Assigned(Trap) then
+  if Trap.IsAbsent then
     Exit(FRuntime.Construct(SubjectFunction, Args, NewTarget));
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), ArrayFromList(Args),
@@ -1178,6 +1176,23 @@ begin
   Result.Value := Descriptor.Value;
   Result.HasWritable := True;
   Result.Writable := Descriptor.Writable;
+end;
+
+class function TJSProxyShared.HoldsOnlyItsTargets(const Core: TJSProxyCore): Boolean;
+begin
+  Result := (Assigned(Core) and Core.HoldsOnlyItsTargets);
+end;
+
+class procedure TJSProxyShared.DetachTargets(const Core: TJSProxyCore; const Pending: TList<IJSObject>);
+begin
+  if HoldsOnlyItsTargets(Core) then
+    Core.DetachTargets(Pending);
+end;
+
+class procedure TJSProxyShared.Revoke(const Core: TJSProxyCore);
+begin
+  if Assigned(Core) then
+    Core.Revoke;
 end;
 
 class function TJSProxyShared.StringKeys(const Keys: TArray<TJSPropertyKey>): TArray<string>;
@@ -1324,20 +1339,18 @@ end;
 
 procedure TJSProxyObject.ReleaseReferences;
 begin
-  FCore.Release;
+  TJSProxyShared.Revoke(FCore);
   inherited;
 end;
 
 function TJSProxyObject.HoldsNested: Boolean;
 begin
-  Result := (Assigned(FCore) and FCore.HoldsOnlyItsTargets) or inherited HoldsNested;
+  Result := TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested;
 end;
 
 procedure TJSProxyObject.DetachNested(const Pending: TList<IJSObject>);
 begin
-  if Assigned(FCore) and FCore.HoldsOnlyItsTargets then
-    FCore.DetachTargets(Pending);
-
+  TJSProxyShared.DetachTargets(FCore, Pending);
   inherited DetachNested(Pending);
 end;
 
@@ -1507,20 +1520,18 @@ end;
 
 procedure TJSProxyFunction.ReleaseReferences;
 begin
-  FCore.Release;
+  TJSProxyShared.Revoke(FCore);
   inherited;
 end;
 
 function TJSProxyFunction.HoldsNested: Boolean;
 begin
-  Result := (Assigned(FCore) and FCore.HoldsOnlyItsTargets) or inherited HoldsNested;
+  Result := TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested;
 end;
 
 procedure TJSProxyFunction.DetachNested(const Pending: TList<IJSObject>);
 begin
-  if Assigned(FCore) and FCore.HoldsOnlyItsTargets then
-    FCore.DetachTargets(Pending);
-
+  TJSProxyShared.DetachTargets(FCore, Pending);
   inherited DetachNested(Pending);
 end;
 
@@ -1530,7 +1541,7 @@ begin
 end;
 
 function TJSProxyFunction.LookupOwn(const Name: TJSPropertyKey;
-                                  out Descriptor: TJSPropertyDescriptor): TJSOwnLookup;
+                                    out Descriptor: TJSPropertyDescriptor): TJSOwnLookup;
 begin
   Result := TJSOwnLookup.Delegated;
 end;

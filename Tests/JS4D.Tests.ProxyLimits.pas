@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
   JS4D.Engine;
 
@@ -15,7 +13,17 @@ type
   [TestFixture]
   TProxyLimitTests = class
   private
-    FEngine: TJSEngine;
+    const
+      LARGE_STEP_BUDGET = 1000000;
+      SMALL_STEP_BUDGET = 100000;
+      NATIVE_TRAP_CYCLE_SCRIPT = 'var t = {}; var p = new Proxy(t, { getPrototypeOf: Reflect.getPrototypeOf }); Object.setPrototypeOf(t, p); p instanceof Function;';
+      BREAK_CYCLE_SCRIPT = 'Object.setPrototypeOf(t, null);';
+
+    var
+      FEngine: TJSEngine;
+
+    procedure AssertStepBudgetEnds(const Script: string);
+    procedure AssertNativeTrapCycleEnds;
 
   public
     [Setup]
@@ -25,22 +33,24 @@ type
     procedure TearDown;
 
     [Test]
-    procedure Proxy_GetPrototypeOfReturningTheProxy_ForInstanceofEndsWithTheStepBudget;
-
-    [Test]
-    procedure Proxy_GetPrototypeOfReturningTheProxy_ForIsPrototypeOfEndsWithTheStepBudget;
+    [TestCase('Instanceof', 'var p = new Proxy({}, { getPrototypeOf: function () { return p; } }); p instanceof Function;', '#')]
+    [TestCase('IsPrototypeOf', 'var p = new Proxy({}, { getPrototypeOf: function () { return p; } }); Object.prototype.isPrototypeOf.call(Object.prototype, p);', '#')]
+    procedure Proxy_GetPrototypeOfReturningTheProxy_EndsWithTheStepBudget(const Script: string);
 
     [Test]
     procedure Proxy_NativeGetPrototypeOfTrapCycle_EndsWithTheStepBudget;
 
     [Test]
-    procedure Proxy_TrapCalls_CountAsSteps;
+    procedure Execute_ProxyTrapCalls_CountAsSteps;
 
     [Test]
-    procedure Proxy_HostStaysUsableAfterTheLimit;
+    procedure Execute_AfterTheStepBudgetEnded_HostStaysUsable;
   end;
 
 implementation
+
+uses
+  System.SysUtils;
 
 procedure TProxyLimitTests.Setup;
 begin
@@ -52,69 +62,57 @@ begin
   FEngine.Free;
 end;
 
-procedure TProxyLimitTests.Proxy_GetPrototypeOfReturningTheProxy_ForInstanceofEndsWithTheStepBudget;
+procedure TProxyLimitTests.AssertStepBudgetEnds(const Script: string);
 begin
-  FEngine.StepBudget := 1000000;
-
   Assert.WillRaise(
     procedure
     begin
-      FEngine.Execute('var p = new Proxy({}, { getPrototypeOf: function () { return p; } }); p instanceof Function;');
+      FEngine.Execute(Script);
     end,
     EJSStepBudgetExceeded);
 end;
 
-procedure TProxyLimitTests.Proxy_GetPrototypeOfReturningTheProxy_ForIsPrototypeOfEndsWithTheStepBudget;
+procedure TProxyLimitTests.AssertNativeTrapCycleEnds;
 begin
-  FEngine.StepBudget := 1000000;
+  AssertStepBudgetEnds(NATIVE_TRAP_CYCLE_SCRIPT);
+  FEngine.Execute(BREAK_CYCLE_SCRIPT);
+end;
 
-  Assert.WillRaise(
-    procedure
-    begin
-      FEngine.Execute('var p = new Proxy({}, { getPrototypeOf: function () { return p; } }); Object.prototype.isPrototypeOf.call(Object.prototype, p);');
-    end,
-    EJSStepBudgetExceeded);
+procedure TProxyLimitTests.Proxy_GetPrototypeOfReturningTheProxy_EndsWithTheStepBudget(const Script: string);
+begin
+  FEngine.StepBudget := LARGE_STEP_BUDGET;
+
+  AssertStepBudgetEnds(Script);
 end;
 
 procedure TProxyLimitTests.Proxy_NativeGetPrototypeOfTrapCycle_EndsWithTheStepBudget;
 begin
-  FEngine.StepBudget := 1000000;
+  FEngine.StepBudget := LARGE_STEP_BUDGET;
 
-  Assert.WillRaise(
-    procedure
-    begin
-      FEngine.Execute('var t = {}; var p = new Proxy(t, { getPrototypeOf: Reflect.getPrototypeOf }); Object.setPrototypeOf(t, p); p instanceof Function;');
-    end,
-    EJSStepBudgetExceeded);
-
-  FEngine.Execute('Object.setPrototypeOf(t, null);');
+  AssertNativeTrapCycleEnds;
 end;
 
-procedure TProxyLimitTests.Proxy_TrapCalls_CountAsSteps;
+procedure TProxyLimitTests.Execute_ProxyTrapCalls_CountAsSteps;
 begin
-  FEngine.StepBudget := 100000;
+  FEngine.StepBudget := SMALL_STEP_BUDGET;
   FEngine.Execute('var p = new Proxy({}, { get: Reflect.get }); for (var i = 0; i < 100; i++) { p.x; }');
   const ProxySteps = FEngine.StepCount;
 
   FEngine.Execute('var q = {}; for (var j = 0; j < 100; j++) { q.x; }');
   const PlainSteps = FEngine.StepCount;
 
-  Assert.IsTrue(ProxySteps > PlainSteps, 'Native trap calls must add steps to the count');
+  const ProxyCostsMoreSteps = (ProxySteps > PlainSteps);
+  Assert.IsTrue(ProxyCostsMoreSteps, 'Native trap calls must add steps to the count');
 end;
 
-procedure TProxyLimitTests.Proxy_HostStaysUsableAfterTheLimit;
+procedure TProxyLimitTests.Execute_AfterTheStepBudgetEnded_HostStaysUsable;
 begin
-  FEngine.StepBudget := 100000;
+  FEngine.StepBudget := SMALL_STEP_BUDGET;
 
-  try
-    FEngine.Execute('var t = {}; var p = new Proxy(t, { getPrototypeOf: Reflect.getPrototypeOf }); Object.setPrototypeOf(t, p); p instanceof Function;');
-  except
-    on EJSStepBudgetExceeded do;
-  end;
+  AssertNativeTrapCycleEnds;
 
-  FEngine.Execute('Object.setPrototypeOf(t, null);');
-
-  Assert.AreEqual('3', FEngine.Evaluate('String(1 + 2)').ToString);
+  const Actual = FEngine.Evaluate('String(1 + 2)').ToString;
+  Assert.AreEqual('3', Actual);
 end;
 
 end.

@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
   JS4D.Engine;
 
@@ -16,8 +14,6 @@ type
   TGeneratorTests = class
   private
     FEngine: TJSEngine;
-
-    function RunAndRead(const Script: string): string;
 
   public
     [Setup]
@@ -48,9 +44,6 @@ type
     [TestCase('Generator methods are not constructors', 'var o = { *m() { } }; var r; try { new o.m(); } catch (e) { r = e.name; }~TypeError', '~')]
     [TestCase('GeneratorFunction constructor builds generators', 'var GF = Object.getPrototypeOf(function* () { }).constructor; var g = new GF("a", "yield a; yield a * 2;"); var r = [...g(4)].join() + "," + GF.name;~4,8,GeneratorFunction', '~')]
     [TestCase('Generators have the name of the declaration', 'function* gen() { } var r = gen.name + "," + gen.length;~gen,0', '~')]
-    procedure Generator_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('A generator that runs its own body while evaluating a remembered expression', 'function* g(n) { return (n > 0 ? g(n - 1).next().value : 0) + (yield n); } var it = g(2); var a = it.next().value; var b = it.next(10).value; var r = a + "," + b;~2,11', '~')]
     [TestCase('Yield inside a binary expression', 'function* g() { var x = 1 + (yield 1) * 2; return x; } var it = g(); it.next(); var r = it.next(5).value;~11', '~')]
     [TestCase('Operands before the yield are not evaluated again', 'var log = []; function f(n) { log.push(n); return n; } function* g() { return f(1) + (yield f(2)) + f(3); } var it = g(); it.next(); var v = it.next(10).value; var r = log.join() + ":" + v;~1,2,3:14', '~')]
@@ -77,9 +70,6 @@ type
     [TestCase('Yield in a destructuring source', 'function* g() { var [a, b] = yield; let { c } = yield; return a + b + c; } var it = g(); it.next(); it.next([1, 2]); var r = it.next({ c: 3 }).value;~6', '~')]
     [TestCase('Yield in a destructuring default', 'function* g() { var [a = yield "need a"] = []; return a; } var it = g(); var first = it.next().value; var r = first + "," + it.next("got").value;~need a,got', '~')]
     [TestCase('Arrow function inside a generator body', 'function* g() { var f = () => 1; yield f(); } var r = g().next().value;~1', '~')]
-    procedure Yield_InExpressions(const Script, Expected: string);
-
-    [Test]
     [TestCase('Yield in a while loop', 'function* g() { var i = 0; while (i < 3) { yield i++; } } var r = [...g()].join();~0,1,2', '~')]
     [TestCase('Yield in a do while loop', 'function* g() { var i = 0; do { yield i; } while (++i < 3); } var r = [...g()].join();~0,1,2', '~')]
     [TestCase('Yield in the head of a while loop', 'function* g() { var n = 0; while (yield n++) { } return n; } var it = g(); it.next(); it.next(true); it.next(true); var x = it.next(false); var r = x.value + "," + x.done;~3,true', '~')]
@@ -102,9 +92,6 @@ type
     [TestCase('Function declarations in a generator body are hoisted', 'function* g() { yield f(); function f() { return "hoisted"; } } var r = g().next().value;~hoisted', '~')]
     [TestCase('Recursion through yield star', 'function* walk(t) { if (t) { yield* walk(t.l); yield t.v; yield* walk(t.r); } } var tree = { v: 2, l: { v: 1 }, r: { v: 3 } }; var r = [...walk(tree)].join();~1,2,3', '~')]
     [TestCase('A loop of many yields completes', 'function* g() { for (var i = 0; i < 20000; i++) { yield i; } } var n = 0; for (var x of g()) { n += x; } var r = n;~199990000', '~')]
-    procedure Yield_InStatements(const Script, Expected: string);
-
-    [Test]
     [TestCase('Try catch around a yield', 'function* g() { try { yield 1; } catch (e) { yield "caught " + e; } } var it = g(); it.next(); var r = it.throw("boom").value;~caught boom', '~')]
     [TestCase('A thrown error inside the body is caught inside', 'function* g() { try { null.x; } catch (e) { yield e.name; } } var r = g().next().value;~TypeError', '~')]
     [TestCase('Throw that nobody catches reaches the caller', 'function* g() { yield 1; } var it = g(); it.next(); var r; try { it.throw(new RangeError("t")); } catch (e) { r = e.name; } r += "," + it.next().done;~RangeError,true', '~')]
@@ -128,26 +115,17 @@ type
     [TestCase('For of closes the generator on break', 'var log = []; function* g() { try { yield 1; yield 2; } finally { log.push("closed"); } } for (var x of g()) { break; } var r = log.join();~closed', '~')]
     [TestCase('For of closes the generator when the body throws', 'var log = []; function* g() { try { yield 1; } finally { log.push("closed"); } } try { for (var x of g()) { throw "e"; } } catch (e) { } var r = log.join();~closed', '~')]
     [TestCase('A generator closes an iterator it iterates when it is returned', 'var log = []; function* inner() { try { yield 1; yield 2; } finally { log.push("inner done"); } } function* outer() { for (var x of inner()) { yield x; } } var it = outer(); it.next(); it.return(); var r = log.join();~inner done', '~')]
-    procedure Generator_HandlesAbruptCompletion(const Script, Expected: string);
-
-    [Test]
     [TestCase('Assignment pattern reads the iterator once across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b; [a, b = yield] = src; yield a + "," + b; } var gen = g(); gen.next(); var x = gen.next(7).value; var r = x + "|" + log.join("-");~5,7|next-next-return', '~')]
     [TestCase('Declaration pattern reads the iterator once across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var [a, b = yield] = src; yield a + "," + b; } var gen = g(); gen.next(); var x = gen.next(7).value; var r = x + "|" + log.join("-");~5,7|next-next-return', '~')]
     [TestCase('Lexical pattern reads the iterator once across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { const [a, b = yield] = src; yield a + "," + b; } var gen = g(); gen.next(); var x = gen.next(7).value; var r = x + "|" + log.join("-");~5,7|next-next-return', '~')]
     [TestCase('For of head pattern reads the iterator once across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; var out = []; function* g() { var a, b; for ([a, b = yield] of [src]) { out.push(a + "," + b); } } var gen = g(); gen.next(); gen.next(7); var r = out.join() + "|" + log.join("-");~5,7|next-next-return', '~')]
     [TestCase('Rest element keeps the values it collected across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b, c; [a, ...[b = yield, c]] = [1, undefined, 3]; yield [a, b, c].join(); } var gen = g(); gen.next(); var r = gen.next(7).value;~1,7,3', '~')]
     [TestCase('Nested pattern keeps its own position across a yield', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b, c; [[a, b = yield], c] = [src, 4]; yield [a, b, c].join(); } var gen = g(); gen.next(); var r = gen.next(7).value + "|" + log.join("-");~5,7,4|next-next-return', '~')]
-    procedure Yield_InDestructuringPatterns(const Script, Expected: string);
-
-    [Test]
     [TestCase('Return while suspended in a pattern closes the iterator', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b; [a, b = yield] = src; } var gen = g(); gen.next(); var x = gen.return(3); var r = x.value + "," + x.done + "|" + log.join("-");~3,true|next-next-return', '~')]
     [TestCase('Return while suspended in a for of head pattern closes the iterator', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b; for ([a, b = yield] of [src]) { } } var gen = g(); gen.next(); gen.return(3); var r = log.join("-");~next-next-return', '~')]
     [TestCase('Return while suspended in a pattern passes on an error of the return method', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; src.return = function () { throw "boom"; }; function* g() { var a, b; [a, b = yield] = src; } var gen = g(); gen.next(); var r; try { gen.return(3); } catch (e) { r = e; }~boom', '~')]
     [TestCase('Return while suspended in a pattern rejects a return result that is no object', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; src.return = function () { return null; }; function* g() { var a, b; [a, b = yield] = src; } var gen = g(); gen.next(); var r; try { gen.return(3); } catch (e) { r = e.name; }~TypeError', '~')]
     [TestCase('Throw while suspended in a pattern closes the iterator and keeps the thrown error', 'var log = []; var src = { [Symbol.iterator]() { return this; }, i: 0, next() { log.push("next"); return { value: [5, undefined, 8][this.i++], done: false }; }, return() { log.push("return"); return {}; } }; function* g() { var a, b; [a, b = yield] = src; } var gen = g(); gen.next(); var r; try { gen.throw("bad"); } catch (e) { r = e + "|" + log.join("-"); }~bad|next-next-return', '~')]
-    procedure Return_WhileSuspendedInDestructuringPattern(const Script, Expected: string);
-
-    [Test]
     [TestCase('Delegating yields every value of the inner iterable', 'function* g() { yield 0; yield* [1, 2]; yield 3; } var r = [...g()].join();~0,1,2,3', '~')]
     [TestCase('The value of yield star is the return value of the inner generator', 'function* inner() { yield 1; return "ret"; } function* g() { var v = yield* inner(); yield v; } var r = [...g()].join();~1,ret', '~')]
     [TestCase('Sent values reach the inner generator', 'function* inner() { var a = yield "i1"; var b = yield "i2"; return a + b; } function* g() { return yield* inner(); } var it = g(); it.next(); it.next("A"); var x = it.next("B"); var r = x.value + "," + x.done;~AB,true', '~')]
@@ -161,9 +139,6 @@ type
     [TestCase('Yield star over something that is not iterable throws', 'function* g() { yield* 5; } var r; try { g().next(); } catch (e) { r = e.name; }~TypeError', '~')]
     [TestCase('Yield star requires an object from next', 'var inner = { [Symbol.iterator]() { return this; }, next() { return 1; } }; function* g() { yield* inner; } var r; try { g().next(); } catch (e) { r = e.name; }~TypeError', '~')]
     [TestCase('Nested delegation passes values through every level', 'function* a() { return (yield "a") + "!"; } function* b() { return yield* a(); } function* c() { return yield* b(); } var it = c(); it.next(); var x = it.next("v"); var r = x.value + "," + x.done;~v!,true', '~')]
-    procedure YieldStar_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('Spread of a generator', 'function* g() { yield 1; yield 2; } var r = Math.max(...g(), 0) + "," + [...g(), ...g()].length;~2,4', '~')]
     [TestCase('Array destructuring takes only what it needs and closes the generator', 'var log = []; function* g() { try { yield 1; yield 2; yield 3; } finally { log.push("closed"); } } var [a, b] = g(); var r = a + "," + b + "," + log.join();~1,2,closed', '~')]
     [TestCase('Rest in array destructuring drains the generator', 'function* g() { yield 1; yield 2; yield 3; } var [a, ...rest] = g(); var r = a + ":" + rest.join();~1:2,3', '~')]
@@ -177,7 +152,7 @@ type
     [TestCase('Yield is an identifier outside generators in sloppy code', 'var yield = 5; function f() { return yield; } var r = f();~5', '~')]
     [TestCase('Generators can be defined inside generators', 'function* outer() { function* inner() { yield "i"; } yield* inner(); yield "o"; } var r = [...outer()].join();~i,o', '~')]
     [TestCase('Fibonacci', 'function* fib() { var a = 0, b = 1; for (;;) { yield a; var t = a + b; a = b; b = t; } } var out = []; for (var x of fib()) { if (x > 50) break; out.push(x); } var r = out.join();~0,1,1,2,3,5,8,13,21,34', '~')]
-    procedure Generator_WorksWithTheRestOfTheLanguage(const Script, Expected: string);
+    procedure Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 
     [Test]
     [TestCase('Yield in a parameter default', 'function* g(a = yield) { }')]
@@ -208,10 +183,13 @@ type
     procedure CollectGarbage_WithSuspendedGenerators_KeepsTheirScopes;
 
     [Test]
-    procedure Free_WithGeneratorsSuspendedInsideTheirOwnObjects_ReleasesEverything;
+    procedure Free_WithGeneratorsSuspendedInsideTheirOwnObjects_DoesNotCrash;
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TGeneratorTests.Setup;
 begin
@@ -223,51 +201,11 @@ begin
   FEngine.Free;
 end;
 
-function TGeneratorTests.RunAndRead(const Script: string): string;
+procedure TGeneratorTests.Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 begin
-  FEngine.Execute(Script);
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
 
-  Result := FEngine.Evaluate('String(r)').ToString;
-end;
-
-procedure TGeneratorTests.Generator_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Yield_InExpressions(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Yield_InStatements(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Generator_HandlesAbruptCompletion(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Yield_InDestructuringPatterns(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Return_WhileSuspendedInDestructuringPattern(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.YieldStar_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TGeneratorTests.Generator_WorksWithTheRestOfTheLanguage(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TGeneratorTests.Parse_RejectsMisplacedYield(const Script: string);
@@ -287,7 +225,9 @@ begin
                  'var ok = true; for (var round = 0; round < 3; round++) { for (var i = 0; i < 200; i++) { ' +
                  'if (gens[i].next().value !== i * 1000 + round) { ok = false; } } } var r = ok;';
 
-  Assert.AreEqual('true', RunAndRead(Script));
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
+
+  Assert.AreEqual('true', Actual);
 end;
 
 procedure TGeneratorTests.Next_WithDeepRecursionThroughYieldStar_EndsWithTheCallDepthLimit;
@@ -301,7 +241,9 @@ begin
     end,
     EJSCallDepthExceeded);
 
-  Assert.AreEqual('3', FEngine.Evaluate('1 + 2').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, '1 + 2');
+
+  Assert.AreEqual('3', Actual);
 end;
 
 procedure TGeneratorTests.Next_WithEndlessGeneratorLoop_EndsWithTheStepBudget;
@@ -323,15 +265,19 @@ begin
 
   FEngine.CollectGarbage;
 
-  Assert.AreEqual('alive', FEngine.Evaluate('it.next().value').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, 'it.next().value');
+
+  Assert.AreEqual('alive', Actual);
 end;
 
-procedure TGeneratorTests.Free_WithGeneratorsSuspendedInsideTheirOwnObjects_ReleasesEverything;
+procedure TGeneratorTests.Free_WithGeneratorsSuspendedInsideTheirOwnObjects_DoesNotCrash;
 begin
   FEngine.Execute('var it; function* g() { var self = { it: it }; yield self; yield [self]; } it = g(); it.next(); ' +
                   'var h = (function* () { yield { h: h }; })(); h.next();');
 
-  Assert.AreEqual('object', FEngine.Evaluate('typeof it').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, 'typeof it');
+
+  Assert.AreEqual('object', Actual);
 end;
 
 end.

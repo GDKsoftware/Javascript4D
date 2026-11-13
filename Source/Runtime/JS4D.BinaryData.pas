@@ -137,11 +137,6 @@ type
       FByteOffset: Integer;
       FLength: Integer;
 
-  protected
-    function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
-    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
-
-  private
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
     class function IsCanonicalNumber(const Name: string): Boolean; static;
     function ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
@@ -153,6 +148,10 @@ type
     function GetViewOffset: Integer;
     function GetLength: Integer;
     function GetIsDetached: Boolean;
+
+  protected
+    function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
 
   public
     constructor Create(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer; const ByteOffset: Integer;
@@ -570,9 +569,14 @@ function TJSTypedArrayObject.LookupOwn(const Name: TJSPropertyKey;
 begin
   var Index: Integer;
 
-  case ClassifyKey(Name, Index) of
-    TKeyClass.NotNumeric  : Result := inherited LookupOwn(Name, Descriptor);
-    TKeyClass.ValidIndex  :
+  const KeyClass = ClassifyKey(Name, Index);
+
+  case KeyClass of
+    TKeyClass.NotNumeric:
+      begin
+        Result := inherited LookupOwn(Name, Descriptor);
+      end;
+    TKeyClass.ValidIndex:
       begin
         Descriptor := CreateElementDescriptor(Index);
         Result := TJSOwnLookup.Found;
@@ -603,14 +607,16 @@ begin
   end;
 
   const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-  if ClassifyKey(Name, Index) = TKeyClass.ValidIndex then
+  const KeyClassAfterConversion = ClassifyKey(Name, Index);
+  if KeyClassAfterConversion = TKeyClass.ValidIndex then
     TJSElementCodec.Write(FBuffer.Bytes, FByteOffset + (Index * FKind.ElementSize), FKind, Number);
 end;
 
 procedure TJSTypedArrayObject.DeleteProperty(const Name: TJSPropertyKey);
 begin
   var Index: Integer;
-  if ClassifyKey(Name, Index) = TKeyClass.NotNumeric then
+  const KeyClass = ClassifyKey(Name, Index);
+  if KeyClass = TKeyClass.NotNumeric then
     inherited DeleteProperty(Name);
 end;
 

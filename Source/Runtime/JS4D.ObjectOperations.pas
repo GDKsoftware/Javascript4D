@@ -240,8 +240,9 @@ begin
   if IsUnchanged then
     Exit(True);
 
-  const HasImmutablePrototype = (Target is TJSObjectImpl) and TJSObjectImpl(Target).HasImmutablePrototype;
-  if HasImmutablePrototype or (not Target.IsExtensible) then
+  const HasImmutablePrototype = ((Target is TJSObjectImpl) and TJSObjectImpl(Target).HasImmutablePrototype);
+  const IsNonExtensible = (not Target.IsExtensible);
+  if HasImmutablePrototype or IsNonExtensible then
     Exit(False);
 
   var Ancestor := Prototype;
@@ -270,14 +271,17 @@ begin
   const SymbolKeys = Target.GetOwnSymbolKeys;
 
   SetLength(Result, Length(Names) + Length(SymbolKeys));
-  for var Position := 0 to Length(Names) - 1 do
+  var Next := 0;
+  for var Name in Names do
   begin
-    Result[Position] := Names[Position];
+    Result[Next] := Name;
+    Inc(Next);
   end;
 
-  for var Position := 0 to Length(SymbolKeys) - 1 do
+  for var SymbolKey in SymbolKeys do
   begin
-    Result[Length(Names) + Position] := SymbolKeys[Position];
+    Result[Next] := SymbolKey;
+    Inc(Next);
   end;
 end;
 

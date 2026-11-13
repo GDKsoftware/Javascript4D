@@ -67,7 +67,7 @@ type
     function GetSourceKind: TJSCollectionKind;
     function CreateEntry(const Key: TJSValue; const Value: TJSValue): TJSValue;
     function Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
-    procedure Finish;
+    procedure ReleaseCollection;
 
   protected
     procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
@@ -169,7 +169,7 @@ end;
 
 procedure TJSCollectionIterator.ReleaseReferences;
 begin
-  Finish;
+  ReleaseCollection;
   FArrayPrototype := nil;
   FObjectPrototype := nil;
   inherited;
@@ -185,7 +185,7 @@ begin
   if Assigned(FCollection) then
     Pending.Add(FCollection);
 
-  Finish;
+  ReleaseCollection;
   inherited DetachNested(Pending);
 end;
 
@@ -215,7 +215,7 @@ begin
   end;
 end;
 
-procedure TJSCollectionIterator.Finish;
+procedure TJSCollectionIterator.ReleaseCollection;
 begin
   FreeAndNil(FCursor);
   FCollection := nil;
@@ -232,7 +232,7 @@ begin
     Exit(TJSIteratorResults.CreateResult(FObjectPrototype, Picked, False));
   end;
 
-  Finish;
+  ReleaseCollection;
   Result := TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True);
 end;
 

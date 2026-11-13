@@ -30,12 +30,8 @@ begin
   if not Assigned(ThisObj) then
     Exit(TJSValue.CreateUndefined);
 
-  var Holder: TJSStrictThis := nil;
   if ThisObj is TJSStrictThis then
-    Holder := ThisObj as TJSStrictThis;
-
-  if Assigned(Holder) then
-    Exit(Holder.Value);
+    Exit(TJSStrictThis(ThisObj).Value);
 
   Result := TJSValue.CreateObject(ThisObj);
 end;

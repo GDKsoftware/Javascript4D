@@ -6,18 +6,24 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
+  JS4D.Interpreter,
   JS4D.Engine;
 
 type
   [TestFixture]
   TPromiseTests = class
   private
-    FEngine: TJSEngine;
+    const
+      STEP_BUDGET = 100000;
+      SMALL_STEP_BUDGET = 2000;
+      RESULT_VARIABLE = 'r';
+      SETTLED_TEXT = 'yes';
 
-    function RunAndRead(const Script: string): string;
+    var
+      FEngine: TJSEngine;
+
+    function ReadResult: string;
 
   public
     [Setup]
@@ -50,18 +56,12 @@ type
     [TestCase('Returning the derived promise rejects', 'var r; var p = Promise.resolve().then(function () { return p; }); p.catch(function (e) { r = e instanceof TypeError; });~true', '~')]
     [TestCase('Callbacks get undefined as this', 'var r; Promise.resolve().then(function () { "use strict"; r = String(this); });~undefined', '~')]
     [TestCase('Resolving later runs the callbacks', 'var r = "waiting"; var res; new Promise(function (a) { res = a; }).then(function (v) { r = v; }); res("done");~done', '~')]
-    procedure Then_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('Finally keeps the value', 'var r = []; Promise.resolve("v").finally(function () { r.push("f"); return "ignored"; }).then(function (v) { r.push(v); });~f,v', '~')]
     [TestCase('Finally keeps the reason', 'var r = []; Promise.reject("e").finally(function () { r.push("f"); }).catch(function (e) { r.push(e); });~f,e', '~')]
     [TestCase('Finally that throws replaces the result', 'var r; Promise.resolve(1).finally(function () { throw "fin"; }).catch(function (e) { r = e; });~fin', '~')]
     [TestCase('Finally waits for a returned promise', 'var r = []; Promise.resolve(1).finally(function () { return Promise.resolve().then(function () { r.push("inner"); }); }).then(function () { r.push("after"); });~inner,after', '~')]
     [TestCase('Finally without a function passes both', 'var r; Promise.resolve(2).finally(5).then(function (v) { r = v; });~2', '~')]
     [TestCase('Finally gets no arguments', 'var r; Promise.resolve(2).finally(function () { r = arguments.length; });~0', '~')]
-    procedure Finally_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('All collects the values in order', 'var r; Promise.all([1, Promise.resolve(2), { then: function (res) { res(3); } }]).then(function (v) { r = v.join(); });~1,2,3', '~')]
     [TestCase('All of nothing is an empty array', 'var r; Promise.all([]).then(function (v) { r = v.length; });~0', '~')]
     [TestCase('All rejects with the first rejection', 'var r; Promise.all([Promise.resolve(1), Promise.reject("bad")]).catch(function (e) { r = e; });~bad', '~')]
@@ -77,9 +77,6 @@ type
     [TestCase('Any takes the first fulfilment', 'var r; Promise.any([Promise.reject(1), Promise.resolve(2), Promise.resolve(3)]).then(function (v) { r = v; });~2', '~')]
     [TestCase('Any rejects with an AggregateError', 'var r; Promise.any([Promise.reject("a"), Promise.reject("b")]).catch(function (e) { r = (e.constructor === AggregateError) + e.errors.join() + e.name; });~truea,bAggregateError', '~')]
     [TestCase('Any of nothing rejects', 'var r; Promise.any([]).catch(function (e) { r = e.errors.length + e.name; });~0AggregateError', '~')]
-    procedure Combinators_FollowSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('WithResolvers exposes the resolving functions', 'var r; var w = Promise.withResolvers(); w.promise.then(function (v) { r = v; }); w.resolve("wr");~wr', '~')]
     [TestCase('Try catches synchronous errors', 'var r = []; Promise.try(function (a, b) { return a + b; }, 1, 2).then(function (v) { r.push(v); }); Promise.try(function () { throw "t"; }).catch(function (e) { r.push(e); });~3,t', '~')]
     [TestCase('Resolve returns the same promise', 'var p = Promise.resolve(1); var r = (Promise.resolve(p) === p);~true', '~')]
@@ -99,7 +96,7 @@ type
     [TestCase('A species that is no constructor throws', 'var p = Promise.resolve(1); p.constructor = { [Symbol.species]: 5 }; var r; try { p.then(function () {}); } catch (e) { r = e instanceof TypeError; }~true', '~')]
     [TestCase('Unhandled rejections do not escape', 'var r = "ran"; Promise.reject(new Error("unhandled")); new Promise(function () { throw 1; }); Promise.all([Promise.reject(2)]);~ran', '~')]
     [TestCase('AggregateError holds the errors', 'var e = new AggregateError([1, 2], "m"); var r = [e.errors.join(), e.message, e instanceof Error, e.name, Object.keys(e).length, AggregateError.length].join();~1,2,m,true,AggregateError,0,2', '~')]
-    procedure Promise_FollowsSpecification(const Script, Expected: string);
+    procedure Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 
     [Test]
     procedure Execute_WhenTheScriptThrows_StillRunsTheJobs;
@@ -128,6 +125,9 @@ type
 
 implementation
 
+uses
+  JS4D.Tests.Support;
+
 procedure TPromiseTests.Setup;
 begin
   FEngine := TJSEngine.Create;
@@ -138,31 +138,16 @@ begin
   FEngine.Free;
 end;
 
-function TPromiseTests.RunAndRead(const Script: string): string;
+function TPromiseTests.ReadResult: string;
 begin
-  FEngine.Execute(Script);
-
-  Result := FEngine.Evaluate('String(r)').ToString;
+  Result := TJSTestSupport.TextOf(FEngine, RESULT_VARIABLE);
 end;
 
-procedure TPromiseTests.Then_FollowsSpecification(const Script, Expected: string);
+procedure TPromiseTests.Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
 
-procedure TPromiseTests.Finally_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TPromiseTests.Combinators_FollowSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TPromiseTests.Promise_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TPromiseTests.Execute_WhenTheScriptThrows_StillRunsTheJobs;
@@ -171,16 +156,17 @@ begin
     procedure
     begin
       FEngine.Execute('var r = "no"; Promise.resolve().then(function () { r = "yes"; }); throw new Error("script");');
-    end);
+    end,
+    TJSThrowSignal);
 
-  Assert.AreEqual('yes', FEngine.Evaluate('r').ToString);
+  Assert.AreEqual(SETTLED_TEXT, ReadResult);
 end;
 
 procedure TPromiseTests.Execute_WhenTheStepBudgetRunsOut_StopsTheJobs;
 begin
-  FEngine.StepBudget := 2000;
+  FEngine.StepBudget := SMALL_STEP_BUDGET;
   FEngine.Execute('var r = "no"; Promise.resolve().then(function () { r = "yes"; });');
-  Assert.AreEqual('yes', FEngine.Evaluate('r').ToString);
+  Assert.AreEqual(SETTLED_TEXT, ReadResult);
 
   Assert.WillRaise(
     procedure
@@ -190,12 +176,12 @@ begin
     EJSStepBudgetExceeded);
 
   FEngine.RunPendingJobs;
-  Assert.AreEqual('yes', FEngine.Evaluate('r').ToString);
+  Assert.AreEqual(SETTLED_TEXT, ReadResult);
 end;
 
 procedure TPromiseTests.Execute_WithJobsThatLoopForever_EndsWithTheStepBudget;
 begin
-  FEngine.StepBudget := 100000;
+  FEngine.StepBudget := STEP_BUDGET;
 
   Assert.WillRaise(
     procedure
@@ -204,8 +190,9 @@ begin
     end,
     EJSStepBudgetExceeded);
 
-  FEngine.StepBudget := 100000;
-  Assert.AreEqual('3', FEngine.Evaluate('1 + 2').ToString);
+  FEngine.StepBudget := STEP_BUDGET;
+  const Sum = TJSTestSupport.TextOf(FEngine, '1 + 2');
+  Assert.AreEqual('3', Sum);
 end;
 
 procedure TPromiseTests.RunPendingJobs_WithoutJobs_DoesNothing;
@@ -214,7 +201,7 @@ begin
   FEngine.Execute('var r = 1;');
   FEngine.RunPendingJobs;
 
-  Assert.AreEqual('1', FEngine.Evaluate('r').ToString);
+  Assert.AreEqual('1', ReadResult);
 end;
 
 procedure TPromiseTests.Execute_WithALongPromiseChain_Completes;
@@ -222,14 +209,18 @@ begin
   const Script = 'var r = 0; var p = Promise.resolve(0); for (var i = 0; i < 100000; i++) { p = p.then(function (v) { return v + 1; }); } ' +
                  'p.then(function (v) { r = v; });';
 
-  Assert.AreEqual('100000', RunAndRead(Script));
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
+
+  Assert.AreEqual('100000', Actual);
 end;
 
 procedure TPromiseTests.Execute_WithAThenableThatNeverResolves_LeavesThePromisePending;
 begin
   const Script = 'var r = "pending"; Promise.resolve({ then: function () { } }).then(function () { r = "settled"; });';
 
-  Assert.AreEqual('pending', RunAndRead(Script));
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
+
+  Assert.AreEqual('pending', Actual);
 end;
 
 procedure TPromiseTests.CollectGarbage_WithPendingReactions_KeepsTheCallbacks;
@@ -239,7 +230,7 @@ begin
   FEngine.CollectGarbage;
   FEngine.Execute('res(1);');
 
-  Assert.AreEqual('ok1', FEngine.Evaluate('r').ToString);
+  Assert.AreEqual('ok1', ReadResult);
 end;
 
 procedure TPromiseTests.Execute_WithManyCombinedPromises_Completes;
@@ -247,7 +238,9 @@ begin
   const Script = 'var r = 0; var items = []; for (var i = 0; i < 20000; i++) { items.push(Promise.resolve(i)); } ' +
                  'Promise.all(items).then(function (v) { r = v.length; });';
 
-  Assert.AreEqual('20000', RunAndRead(Script));
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
+
+  Assert.AreEqual('20000', Actual);
 end;
 
 end.

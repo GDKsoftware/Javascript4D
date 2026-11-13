@@ -76,9 +76,10 @@ type
       FIndex: TDictionary<TJSStoreKey, Integer>;
       FCursors: TList<TJSStoreCursor>;
 
+    class function IsNestedObject(const Value: TJSValue): Boolean; static;
+
     function GetCount: Integer;
     procedure Append(const Identity: TJSStoreKey; const Key: TJSValue; const Value: TJSValue);
-    class function IsNestedObject(const Value: TJSValue): Boolean; static;
     procedure CompactIfSparse;
     procedure Compact;
     procedure MoveCursors(const LiveBefore: TArray<Integer>);
@@ -226,6 +227,11 @@ begin
   inherited;
 end;
 
+class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
+begin
+  Result := Value.IsObject and (not Value.IsFunction);
+end;
+
 function TJSOrderedStore.GetCount: Integer;
 begin
   Result := FUsed - FGaps;
@@ -324,8 +330,8 @@ function TJSOrderedStore.HoldsNestedObjects: Boolean;
 begin
   for var Position := 0 to FUsed - 1 do
   begin
-    const IsHeld = FEntries[Position].IsLive and
-                   (IsNestedObject(FEntries[Position].Key) or IsNestedObject(FEntries[Position].Value));
+    const Entry = FEntries[Position];
+    const IsHeld = (Entry.IsLive and (IsNestedObject(Entry.Key) or IsNestedObject(Entry.Value)));
     if IsHeld then
       Exit(True);
   end;
@@ -350,11 +356,6 @@ begin
   end;
 
   Clear;
-end;
-
-class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
-begin
-  Result := Value.IsObject and (not Value.IsFunction);
 end;
 
 procedure TJSOrderedStore.CompactIfSparse;

@@ -6,7 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
   JS4D.Engine;
 
 type
@@ -14,8 +13,6 @@ type
   TClassTests = class
   private
     FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
 
   public
     [Setup]
@@ -91,7 +88,7 @@ type
     [TestCase('NewTargetFromReflect', 'function F() { this.t = new.target; } function G() {} Reflect.construct(F, [], G).t === G#true', '#')]
     [TestCase('NewTargetInEval', 'function F() { return eval("new.target"); } typeof F()#undefined', '#')]
     [TestCase('ReflectConstructPrototype', 'class A {} function G() {} G.prototype = { tag: 1 }; Reflect.construct(A, [], G).tag#1', '#')]
-    procedure Script_ReturnsExpectedResult(const Source: string; const Expected: string);
+    procedure Evaluate_ClassScript_ReturnsExpectedResult(const Source: string; const Expected: string);
 
     [Test]
     [TestCase('CallWithoutNew', 'class A {} A()#TypeError', '#')]
@@ -111,63 +108,60 @@ type
     [TestCase('DeleteSuperProperty', 'class A { m() { delete super.x; } } new A().m()#ReferenceError', '#')]
     [TestCase('SuperPropertyOfNullPrototype', 'class A extends null { m() { return super.x; } } A.prototype.m.call({})#TypeError', '#')]
     [TestCase('ReturnWithoutValueInDerivedConstructor', 'class A {} class B extends A { constructor() { super(); return; } } new B()#', '#')]
-    procedure Class_RaisesError(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('DuplicateConstructor', 'class A { constructor() {} constructor() {} }', '#')]
-    [TestCase('GetterConstructor', 'class A { get constructor() {} }', '#')]
-    [TestCase('SetterConstructor', 'class A { set constructor(v) {} }', '#')]
-    [TestCase('StaticPrototype', 'class A { static prototype() {} }', '#')]
-    [TestCase('StaticStringPrototype', 'class A { static "prototype"() {} }', '#')]
-    [TestCase('SuperCallInBaseConstructor', 'class A { constructor() { super(); } }', '#')]
-    [TestCase('SuperCallInMethod', 'class A extends Object { m() { super(); } }', '#')]
-    [TestCase('SuperPropertyInFunction', 'function f() { super.x; }', '#')]
-    [TestCase('SuperCallInFunction', 'function f() { super(); }', '#')]
-    [TestCase('SuperAtTopLevel', 'super.x;', '#')]
-    [TestCase('NewSuper', 'class A extends Object { constructor() { new super(); } }', '#')]
-    [TestCase('BareSuper', 'class A extends Object { m() { super; } }', '#')]
-    [TestCase('NewTargetAtTopLevel', 'new.target;', '#')]
-    [TestCase('NewTargetInArrowAtTopLevel', '(() => new.target)();', '#')]
-    [TestCase('MisspelledNewTarget', 'function f() { new.targ; }', '#')]
-    [TestCase('DeclarationWithoutName', 'class { }', '#')]
-    [TestCase('DeclarationInStatementPosition', 'if (true) class A {}', '#')]
-    [TestCase('DeclarationAsLoopBody', 'while (false) class A {}', '#')]
-    [TestCase('LabelledDeclaration', 'a: class A {}', '#')]
-    [TestCase('Redeclaration', 'class A {} class A {}', '#')]
-    [TestCase('RedeclarationOfLet', 'let A; class A {}', '#')]
-    [TestCase('StrictBodyRejectsWith', 'class A { m() { with (a) {} } }', '#')]
-    [TestCase('StrictNameLet', 'class let {}', '#')]
-    [TestCase('StrictNameYield', 'class yield {}', '#')]
-    [TestCase('StrictNameEval', 'class eval {}', '#')]
-    [TestCase('StrictOctalInBody', 'class A { m() { return 010; } }', '#')]
-    [TestCase('StrictOctalInHeritage', 'class A extends (010, Object) {}', '#')]
-    [TestCase('DuplicateMethodParameters', 'class A { m(a, a) {} }', '#')]
-    [TestCase('ClassAsIdentifier', 'var class;', '#')]
-    [TestCase('ExtendsAsIdentifier', 'var extends;', '#')]
-    [TestCase('MissingBody', 'class A', '#')]
-    [TestCase('GetterWithParameter', 'class A { get x(a) {} }', '#')]
-    [TestCase('CommaBetweenMembers', 'class A { m() {}, n() {} }', '#')]
-    procedure Source_IsSyntaxError(const Source: string);
-
-    [Test]
-    [TestCase('KeywordNamedMethods', 'class A { static() {} get() {} set() {} static static() {} static get get() {} }', '#')]
-    [TestCase('KeywordAsPropertyName', 'class A { class() {} extends() {} super() {} }', '#')]
-    [TestCase('StringConstructor', 'class A { "constructor"() {} }', '#')]
-    [TestCase('EmptyElements', 'class A { ;; m() {} ; }', '#')]
-    [TestCase('NumericAndStringNames', 'class A { 1() {} "two"() {} 3.5() {} }', '#')]
-    [TestCase('ComputedConstructor', 'class A { ["constructor"]() {} }', '#')]
-    [TestCase('StaticConstructor', 'class A { static constructor() {} }', '#')]
-    [TestCase('NewTargetInFunction', 'function f() { new.target; }', '#')]
-    [TestCase('NewTargetInArrowInFunction', 'function f() { return () => new.target; }', '#')]
-    [TestCase('SuperPropertyInObjectMethod', 'var o = { m() { return super.x; } };', '#')]
-    [TestCase('SuperPropertyInObjectGetter', 'var o = { get m() { return super.x; } };', '#')]
-    [TestCase('SuperCallInDerivedConstructor', 'class A extends Object { constructor() { super(); } }', '#')]
-    [TestCase('ClassExpressionInExpression', 'var x = [class {}, class B extends Object {}];', '#')]
-    [TestCase('NamedClassExpressionLet', 'var C = class yieldy {};', '#')]
-    procedure Source_IsAccepted(const Source: string);
+    [TestCase('DuplicateConstructor', 'class A { constructor() {} constructor() {} }#SyntaxError', '#')]
+    [TestCase('GetterConstructor', 'class A { get constructor() {} }#SyntaxError', '#')]
+    [TestCase('SetterConstructor', 'class A { set constructor(v) {} }#SyntaxError', '#')]
+    [TestCase('StaticPrototype', 'class A { static prototype() {} }#SyntaxError', '#')]
+    [TestCase('StaticStringPrototype', 'class A { static "prototype"() {} }#SyntaxError', '#')]
+    [TestCase('SuperCallInBaseConstructor', 'class A { constructor() { super(); } }#SyntaxError', '#')]
+    [TestCase('SuperCallInMethod', 'class A extends Object { m() { super(); } }#SyntaxError', '#')]
+    [TestCase('SuperPropertyInFunction', 'function f() { super.x; }#SyntaxError', '#')]
+    [TestCase('SuperCallInFunction', 'function f() { super(); }#SyntaxError', '#')]
+    [TestCase('SuperAtTopLevel', 'super.x;#SyntaxError', '#')]
+    [TestCase('NewSuper', 'class A extends Object { constructor() { new super(); } }#SyntaxError', '#')]
+    [TestCase('BareSuper', 'class A extends Object { m() { super; } }#SyntaxError', '#')]
+    [TestCase('NewTargetAtTopLevel', 'new.target;#SyntaxError', '#')]
+    [TestCase('NewTargetInArrowAtTopLevel', '(() => new.target)();#SyntaxError', '#')]
+    [TestCase('MisspelledNewTarget', 'function f() { new.targ; }#SyntaxError', '#')]
+    [TestCase('DeclarationWithoutName', 'class { }#SyntaxError', '#')]
+    [TestCase('DeclarationInStatementPosition', 'if (true) class A {}#SyntaxError', '#')]
+    [TestCase('DeclarationAsLoopBody', 'while (false) class A {}#SyntaxError', '#')]
+    [TestCase('LabelledDeclaration', 'a: class A {}#SyntaxError', '#')]
+    [TestCase('Redeclaration', 'class A {} class A {}#SyntaxError', '#')]
+    [TestCase('RedeclarationOfLet', 'let A; class A {}#SyntaxError', '#')]
+    [TestCase('StrictBodyRejectsWith', 'class A { m() { with (a) {} } }#SyntaxError', '#')]
+    [TestCase('StrictNameLet', 'class let {}#SyntaxError', '#')]
+    [TestCase('StrictNameYield', 'class yield {}#SyntaxError', '#')]
+    [TestCase('StrictNameEval', 'class eval {}#SyntaxError', '#')]
+    [TestCase('StrictOctalInBody', 'class A { m() { return 010; } }#SyntaxError', '#')]
+    [TestCase('StrictOctalInHeritage', 'class A extends (010, Object) {}#SyntaxError', '#')]
+    [TestCase('DuplicateMethodParameters', 'class A { m(a, a) {} }#SyntaxError', '#')]
+    [TestCase('ClassAsIdentifier', 'var class;#SyntaxError', '#')]
+    [TestCase('ExtendsAsIdentifier', 'var extends;#SyntaxError', '#')]
+    [TestCase('MissingBody', 'class A#SyntaxError', '#')]
+    [TestCase('GetterWithParameter', 'class A { get x(a) {} }#SyntaxError', '#')]
+    [TestCase('CommaBetweenMembers', 'class A { m() {}, n() {} }#SyntaxError', '#')]
+    [TestCase('KeywordNamedMethods', 'class A { static() {} get() {} set() {} static static() {} static get get() {} }#', '#')]
+    [TestCase('KeywordAsPropertyName', 'class A { class() {} extends() {} super() {} }#', '#')]
+    [TestCase('StringConstructor', 'class A { "constructor"() {} }#', '#')]
+    [TestCase('EmptyElements', 'class A { ;; m() {} ; }#', '#')]
+    [TestCase('NumericAndStringNames', 'class A { 1() {} "two"() {} 3.5() {} }#', '#')]
+    [TestCase('ComputedConstructor', 'class A { ["constructor"]() {} }#', '#')]
+    [TestCase('StaticConstructor', 'class A { static constructor() {} }#', '#')]
+    [TestCase('NewTargetInFunctionBody', 'function f() { new.target; }#', '#')]
+    [TestCase('NewTargetInArrowInFunction', 'function f() { return () => new.target; }#', '#')]
+    [TestCase('SuperPropertyInObjectMethod', 'var o = { m() { return super.x; } };#', '#')]
+    [TestCase('SuperPropertyInObjectGetter', 'var o = { get m() { return super.x; } };#', '#')]
+    [TestCase('SuperCallInDerivedConstructor', 'class A extends Object { constructor() { super(); } }#', '#')]
+    [TestCase('ClassExpressionInExpression', 'var x = [class {}, class B extends Object {}];#', '#')]
+    [TestCase('NamedClassExpressionLet', 'var C = class yieldy {};#', '#')]
+    procedure Source_ErrorName_IsExpected(const Source: string; const Expected: string);
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TClassTests.Setup;
 begin
@@ -179,43 +173,18 @@ begin
   FEngine.Free;
 end;
 
-function TClassTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
-procedure TClassTests.Script_ReturnsExpectedResult(const Source: string; const Expected: string);
+procedure TClassTests.Evaluate_ClassScript_ReturnsExpectedResult(const Source: string; const Expected: string);
 begin
   const Actual = FEngine.Evaluate(Source);
 
   Assert.AreEqual(Expected, Actual.ToString);
 end;
 
-procedure TClassTests.Class_RaisesError(const Source: string; const Expected: string);
+procedure TClassTests.Source_ErrorName_IsExpected(const Source: string; const Expected: string);
 begin
-  const ErrorName = ErrorNameOf(Source);
+  const ErrorName = TJSTestSupport.ErrorNameOf(FEngine, Source);
 
   Assert.AreEqual(Expected, ErrorName);
-end;
-
-procedure TClassTests.Source_IsSyntaxError(const Source: string);
-begin
-  const ErrorName = ErrorNameOf(Source);
-
-  Assert.AreEqual('SyntaxError', ErrorName);
-end;
-
-procedure TClassTests.Source_IsAccepted(const Source: string);
-begin
-  const ErrorName = ErrorNameOf(Source);
-
-  Assert.AreEqual('', ErrorName);
 end;
 
 end.

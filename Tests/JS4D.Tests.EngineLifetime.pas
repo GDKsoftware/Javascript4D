@@ -21,6 +21,9 @@ type
     function AllocatedBytes: Int64;
     procedure RunScript(const Script: string; const ErrorExpected: Boolean);
     function BytesLeakedByEngines(const Script: string; const ErrorExpected: Boolean): Int64;
+    procedure AssertNothingLeaked(const LeakedBytes: Int64);
+    function EvaluateThenFreeEngine(const Script: string): TJSValue;
+    function TryObserveProperty(const Subject: IJSObject; const Name: string; out Observation: string): Boolean;
 
   public
     [Test]
@@ -152,6 +155,8 @@ type
     [TestCase('Delegating generators', 'function* a() { yield function () { return a; }; } function* b() { yield* a(); } var it = b(); it.next();', '#')]
     [TestCase('Generator suspended inside an expression', 'var o = {}; function* g() { return [o, yield o, function () { return o; }, { k: yield }]; } o.it = g(); o.it.next(); o.it.next(o);', '#')]
     [TestCase('Generator suspended in a finally block', 'function* g() { try { yield 1; } finally { yield function () { return g; }; } } var it = g(); it.next(); it.return(5);', '#')]
+    [TestCase('Async functions awaiting inside their own objects', 'var gate = new Promise(function () { }); var self = {}; async function f() { self.p = f; await gate; } self.result = f(); var h = (async () => { await h; })();', '#')]
+    [TestCase('Generators suspended inside their own objects', 'var it; function* g() { var self = { it: it }; yield self; yield [self]; } it = g(); it.next(); var h = (function* () { yield { h: h }; })(); h.next();', '#')]
     [TestCase('Generator methods', 'class C { *m() { yield this; } static *s() { yield C; } } var c = new C(); c.it = c.m(); c.it.next(); C.it = C.s(); C.it.next(); var o = { *m() { yield o; } }; o.it = o.m(); o.it.next();', '#')]
     [TestCase('Generator suspended inside an array pattern', 'var src = { [Symbol.iterator]() { return this; }, next() { return { value: undefined, done: false }; }, return() { return {}; } }; function* g() { var a, b; [a, b = yield () => src] = src; } var it = g(); it.next();', '#')]
     [TestCase('Generator suspended inside an array pattern in a for of head', 'var src = { [Symbol.iterator]() { return this; }, next() { return { value: undefined, done: false }; }, return() { return {}; } }; function* g() { var a, b; for ([a, b = yield () => g] of [src]) { } } var it = g(); it.next();', '#')]
@@ -365,6 +370,14 @@ const
   WARM_UP_RUNS = 2;
   MEASURED_RUNS = 5;
   DEEP_CHAIN_LENGTH = 200000;
+  HOST_FUNCTION_NAME = 'hostFunction';
+  LENGTH_PROPERTY = 'length';
+  NAME_PROPERTY = 'name';
+  NEXT_PROPERTY = 'next';
+  ID_PROPERTY = 'id';
+  SELF_PROPERTY = 'a';
+  CYCLE_PROPERTY = 'b';
+  LEAKED_FORMAT = 'Leaked %d bytes';
 
 function TEngineLifetimeTests.AllocatedBytes: Int64;
 begin
@@ -413,18 +426,33 @@ begin
   Result := AllocatedBytes - Before;
 end;
 
+procedure TEngineLifetimeTests.AssertNothingLeaked(const LeakedBytes: Int64);
+begin
+  Assert.AreEqual<Int64>(0, LeakedBytes, Format(LEAKED_FORMAT, [LeakedBytes]));
+end;
+
+function TEngineLifetimeTests.EvaluateThenFreeEngine(const Script: string): TJSValue;
+begin
+  const Engine = TJSEngine.Create;
+  try
+    Result := Engine.Evaluate(Script);
+  finally
+    Engine.Free;
+  end;
+end;
+
 procedure TEngineLifetimeTests.Engine_AfterDestruction_ReleasesAllMemory(const Script: string);
 begin
   const LeakedBytes = BytesLeakedByEngines(Script, False);
 
-  Assert.IsTrue(LeakedBytes = 0, Format('Leaked %d bytes', [LeakedBytes]));
+  AssertNothingLeaked(LeakedBytes);
 end;
 
 procedure TEngineLifetimeTests.Engine_AfterScriptError_ReleasesAllMemory(const Script: string);
 begin
   const LeakedBytes = BytesLeakedByEngines(Script, True);
 
-  Assert.IsTrue(LeakedBytes = 0, Format('Leaked %d bytes', [LeakedBytes]));
+  AssertNothingLeaked(LeakedBytes);
 end;
 
 procedure TEngineLifetimeTests.Engine_DeepChainOfObjects_IsReleasedWithoutStackOverflow(const Script: string);
@@ -449,25 +477,16 @@ end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction(const Script: string);
 begin
-  var Held: TJSValue;
-  const Engine = TJSEngine.Create;
-  try
-    Held := Engine.Evaluate(Script);
-  finally
-    Engine.Free;
-  end;
-
+  const Held = EvaluateThenFreeEngine(Script);
   const Subject = Held.ToObject as IJSFunction;
+  const Argument = TJSValue.CreateNumber(1);
 
-  try
-    Subject.Call(nil, [TJSValue.CreateNumber(1)]);
-  except
-    on EJSTypeError do
+  Assert.WillRaise(
+    procedure
     begin
-    end;
-  end;
-
-  Assert.Pass;
+      Subject.Call(nil, [Argument]);
+    end,
+    EJSTypeError);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldHostFunction_RaisesErrorInsteadOfCrashingWhenCalledAfterDestruction;
@@ -475,116 +494,121 @@ begin
   var Held: TJSValue;
   const Engine = TJSEngine.Create;
   try
-    Engine.RegisterFunction('hostFunction',
+    Engine.RegisterFunction(HOST_FUNCTION_NAME,
       function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
       begin
         Result := TJSValue.CreateNumber(1);
       end);
-    Held := Engine.Evaluate('hostFunction');
+    Held := Engine.Evaluate(HOST_FUNCTION_NAME);
   finally
     Engine.Free;
   end;
 
   const Subject = Held.ToObject as IJSFunction;
 
-  try
-    Subject.Call(nil, []);
-  except
-    on EJSTypeError do
+  Assert.WillRaise(
+    procedure
     begin
-    end;
-  end;
-
-  Assert.Pass;
+      Subject.Call(nil, []);
+    end,
+    EJSTypeError);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldObject_ReadingPropertiesAfterDestruction_DoesNotCrash(const Script: string);
 begin
-  const Names: TArray<string> = ['size', 'length', 'a', 'k', 'n', 'b', 'v', 'byteLength', 'byteOffset', 'buffer',
-                                 'lastIndex', 'source', 'flags', 'global', 'message', 'name', 'stack',
-                                 'constructor', 'prototype', 'next', 'then', 'toString', 'valueOf', '0', '1'];
+  const Names: TArray<string> = ['size', LENGTH_PROPERTY, 'a', 'k', 'n', 'b', 'v', 'byteLength', 'byteOffset',
+                                 'buffer', 'lastIndex', 'source', 'flags', 'global', 'message', NAME_PROPERTY,
+                                 'stack', 'constructor', 'prototype', NEXT_PROPERTY, 'then', 'toString', 'valueOf',
+                                 '0', '1'];
 
-  var Held: TJSValue;
-  const Engine = TJSEngine.Create;
-  try
-    Held := Engine.Evaluate(Script);
-  finally
-    Engine.Free;
-  end;
-
+  const Held = EvaluateThenFreeEngine(Script);
   const Subject = Held.ToObject;
+
   for var Name in Names do
   begin
-    try
-      Subject.GetProperty(Name).ToString;
-      Subject.HasProperty(Name);
-    except
-      on EJSException do
-      begin
-      end;
+    var FirstObservation: string;
+    var SecondObservation: string;
+    const FirstReadSucceeded = TryObserveProperty(Subject, Name, FirstObservation);
+    const SecondReadSucceeded = TryObserveProperty(Subject, Name, SecondObservation);
+
+    Assert.AreEqual(FirstReadSucceeded, SecondReadSucceeded, Name);
+    Assert.AreEqual(FirstObservation, SecondObservation, Name);
+  end;
+end;
+
+function TEngineLifetimeTests.TryObserveProperty(const Subject: IJSObject; const Name: string;
+                                                 out Observation: string): Boolean;
+begin
+  Observation := '';
+
+  try
+    const PropertyValue = Subject.GetProperty(Name);
+    const IsPresent = Subject.HasProperty(Name);
+    Observation := Format('%s %s', [PropertyValue.ToString, BoolToStr(IsPresent)]);
+    Result := True;
+  except
+    on EJSTypeError do
+    begin
+      Result := False;
     end;
   end;
-
-  Assert.Pass;
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldObject_KeepsItsContentsAfterDestruction;
 begin
-  var Held: TJSValue;
-  const Engine = TJSEngine.Create;
-  try
-    Held := Engine.Evaluate('({ name: "held", list: [1, 2, { deep: true }], next: { n: 5 } })');
-  finally
-    Engine.Free;
-  end;
+  const Held = EvaluateThenFreeEngine('({ name: "held", list: [1, 2, { deep: true }], next: { n: 5 } })');
 
   const Subject = Held.ToObject;
-  const List = Subject.GetProperty('list').ToObject;
-  const Deep = List.GetProperty('2').ToObject;
-  const Next = Subject.GetProperty('next').ToObject;
+  const ListValue = Subject.GetProperty('list');
+  const List = ListValue.ToObject;
+  const DeepValue = List.GetProperty('2');
+  const Deep = DeepValue.ToObject;
+  const NextValue = Subject.GetProperty(NEXT_PROPERTY);
+  const Next = NextValue.ToObject;
 
-  Assert.AreEqual('held', Subject.GetProperty('name').ToString);
-  Assert.AreEqual('3', List.GetProperty('length').ToString);
-  Assert.AreEqual('true', Deep.GetProperty('deep').ToString);
-  Assert.AreEqual('5', Next.GetProperty('n').ToString);
+  const Name = Subject.GetProperty(NAME_PROPERTY);
+  const ListLength = List.GetProperty(LENGTH_PROPERTY);
+  const IsDeep = Deep.GetProperty('deep');
+  const Count = Next.GetProperty('n');
+
+  Assert.AreEqual('held', Name.ToString);
+  Assert.AreEqual('3', ListLength.ToString);
+  Assert.AreEqual('true', IsDeep.ToString);
+  Assert.AreEqual('5', Count.ToString);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldCycle_KeepsItsContentsAfterDestruction;
 begin
-  var Held: TJSValue;
-  const Engine = TJSEngine.Create;
-  try
-    Held := Engine.Evaluate('var a = { id: 1 }; var b = { id: 2, a: a }; a.b = b; a');
-  finally
-    Engine.Free;
-  end;
+  const Held = EvaluateThenFreeEngine('var a = { id: 1 }; var b = { id: 2, a: a }; a.b = b; a');
 
   const First = Held.ToObject;
-  const Second = First.GetProperty('b').ToObject;
-  const Back = Second.GetProperty('a').ToObject;
+  const SecondValue = First.GetProperty(CYCLE_PROPERTY);
+  const Second = SecondValue.ToObject;
+  const BackValue = Second.GetProperty(SELF_PROPERTY);
+  const Back = BackValue.ToObject;
 
-  Assert.AreEqual('2', Second.GetProperty('id').ToString);
-  Assert.AreEqual('1', Back.GetProperty('id').ToString);
+  const SecondId = Second.GetProperty(ID_PROPERTY);
+  const BackId = Back.GetProperty(ID_PROPERTY);
+  Assert.AreEqual('2', SecondId.ToString);
+  Assert.AreEqual('1', BackId.ToString);
 
-  First.SetProperty('b', TJSValue.CreateUndefined);
+  const Cleared = TJSValue.CreateUndefined;
+  First.SetProperty(CYCLE_PROPERTY, Cleared);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldSelfReference_KeepsItsContentsAfterDestruction;
 begin
-  var Held: TJSValue;
-  const Engine = TJSEngine.Create;
-  try
-    Held := Engine.Evaluate('var a = { n: 1 }; a.a = a; a');
-  finally
-    Engine.Free;
-  end;
+  const Held = EvaluateThenFreeEngine('var a = { n: 1 }; a.a = a; a');
 
   const Subject = Held.ToObject;
-  const Itself = Subject.GetProperty('a').ToObject;
+  const ItselfValue = Subject.GetProperty(SELF_PROPERTY);
+  const Itself = ItselfValue.ToObject;
 
-  Assert.AreEqual('1', Itself.GetProperty('n').ToString);
+  const Count = Itself.GetProperty('n');
+  Assert.AreEqual('1', Count.ToString);
 
-  Subject.SetProperty('a', TJSValue.CreateUndefined);
+  const Cleared = TJSValue.CreateUndefined;
+  Subject.SetProperty(SELF_PROPERTY, Cleared);
 end;
 
 procedure TEngineLifetimeTests.Engine_HostHeldArrayAndProxy_KeepTheirContentsAfterDestruction;
@@ -600,14 +624,20 @@ begin
   end;
 
   const Items = HeldArray.ToObject;
-  const Inner = Items.GetProperty('1').ToObject;
-  const Record_ = Items.GetProperty('2').ToObject;
+  const InnerValue = Items.GetProperty('1');
+  const Inner = InnerValue.ToObject;
+  const KeyedValue = Items.GetProperty('2');
+  const KeyedItem = KeyedValue.ToObject;
   const Proxied = HeldProxy.ToObject;
 
-  Assert.AreEqual('3', Items.GetProperty('length').ToString);
-  Assert.AreEqual('3', Inner.GetProperty('1').ToString);
-  Assert.AreEqual('v', Record_.GetProperty('k').ToString);
-  Assert.AreEqual('7', Proxied.GetProperty('x').ToString);
+  const ItemCount = Items.GetProperty(LENGTH_PROPERTY);
+  const InnerLast = Inner.GetProperty('1');
+  const KeyedText = KeyedItem.GetProperty('k');
+  const ProxiedNumber = Proxied.GetProperty('x');
+  Assert.AreEqual('3', ItemCount.ToString);
+  Assert.AreEqual('3', InnerLast.ToString);
+  Assert.AreEqual('v', KeyedText.ToString);
+  Assert.AreEqual('7', ProxiedNumber.ToString);
 end;
 
 end.

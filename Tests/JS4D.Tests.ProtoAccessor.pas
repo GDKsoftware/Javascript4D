@@ -6,9 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -16,8 +13,6 @@ type
   TProtoAccessorTests = class
   private
     FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
 
   public
     [Setup]
@@ -66,10 +61,13 @@ type
     [TestCase('A class-less constructor prototype through __proto__ keeps instanceof', '(function () { function A() {} var o = { __proto__: A.prototype }; return o instanceof A; })()#true', '#')]
     [TestCase('__proto__ through Object.defineProperty on the object itself', '(function () { var o = {}; Object.defineProperty(o, ''__proto__'', { value: 1 }); return o.__proto__ + '','' + (Object.getPrototypeOf(o) === Object.prototype); })()#1,true', '#')]
     [TestCase('Deleting __proto__ from Object.prototype removes the accessor', '(function () { var d = Object.getOwnPropertyDescriptor(Object.prototype, ''__proto__''); delete Object.prototype.__proto__; var gone = ({}).__proto__ === undefined; Object.defineProperty(Object.prototype, ''__proto__'', d); return gone + '','' + (({}).__proto__ === Object.prototype); })()#true,true', '#')]
-    procedure ProtoAccessor_FollowsAnnexB(const Expression, Expected: string);
+    procedure Evaluate_ProtoAccessor_BehavesAsAnnexBDefines(const Expression, Expected: string);
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TProtoAccessorTests.Setup;
 begin
@@ -81,14 +79,11 @@ begin
   FEngine.Free;
 end;
 
-function TProtoAccessorTests.Evaluate(const Expression: string): string;
+procedure TProtoAccessorTests.Evaluate_ProtoAccessor_BehavesAsAnnexBDefines(const Expression, Expected: string);
 begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
+  const Actual = TJSTestSupport.TextOf(FEngine, Expression);
 
-procedure TProtoAccessorTests.ProtoAccessor_FollowsAnnexB(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

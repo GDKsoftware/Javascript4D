@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -15,8 +13,6 @@ type
   THotPathSemanticsTests = class
   private
     FEngine: TJSEngine;
-
-    function Run(const Script: string): string;
 
   public
     [Setup]
@@ -33,7 +29,7 @@ type
     [TestCase('Reading a named member of undefined names the member', 'try { undefined.foo; } catch (e) { String(/foo/.test(e.message)); }#true', '#')]
     [TestCase('Reading a computed member of undefined names the key', 'var k = ''bar''; try { undefined[k]; } catch (e) { String(/bar/.test(e.message)); }#true', '#')]
     [TestCase('Computed and named access reach the same property', 'var o = { a: 1 }; var k = ''a''; o.a += 1; o[k] += 1; String(o.a)#3', '#')]
-    procedure HotPath_KeepsSemantics(const Script, Expected: string);
+    procedure Evaluate_HotPathScript_KeepsSemantics(const Script, Expected: string);
   end;
 
 implementation
@@ -48,14 +44,11 @@ begin
   FEngine.Free;
 end;
 
-function THotPathSemanticsTests.Run(const Script: string): string;
+procedure THotPathSemanticsTests.Evaluate_HotPathScript_KeepsSemantics(const Script, Expected: string);
 begin
-  Result := FEngine.Evaluate(Script).ToString;
-end;
+  const Actual = FEngine.Evaluate(Script);
 
-procedure THotPathSemanticsTests.HotPath_KeepsSemantics(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, Run(Script));
+  Assert.AreEqual(Expected, Actual.ToString);
 end;
 
 end.

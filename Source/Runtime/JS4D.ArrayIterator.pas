@@ -41,6 +41,7 @@ type
     function ReadElement(const Index: Int64): TJSValue;
     function CreateEntry(const Index: Int64): TJSValue;
     function CreateResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
+    procedure ClearTarget;
 
   protected
     procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
@@ -84,9 +85,7 @@ end;
 procedure TJSArrayIterator.ReleaseReferences;
 begin
   ReleaseNested;
-  FIsExhausted := True;
-  FTarget := nil;
-  FTypedArray := nil;
+  ClearTarget;
   FArrayPrototype := nil;
   FObjectPrototype := nil;
   inherited;
@@ -102,10 +101,15 @@ begin
   if Assigned(FTarget) then
     Pending.Add(FTarget);
 
+  ClearTarget;
+  inherited DetachNested(Pending);
+end;
+
+procedure TJSArrayIterator.ClearTarget;
+begin
   FIsExhausted := True;
   FTarget := nil;
   FTypedArray := nil;
-  inherited DetachNested(Pending);
 end;
 
 procedure TJSArrayIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);

@@ -10,12 +10,12 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over any iterable
-- **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported yet
+- **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported
 - **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
 - **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
-- **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. Reactions run as microtasks: `Execute` runs every pending job when the script ends (also when it throws), so callbacks have run before it returns. `Engine.RunPendingJobs` runs jobs that are still waiting. The step budget covers the jobs, so a promise loop that never ends raises `EJSStepBudgetExceeded`. Unhandled rejections are ignored
-- **Generators**: `function*` declarations and expressions, generator methods in object literals and classes, `yield` and `yield*` (which forwards `next`, `throw` and `return` and closes the inner iterator), `next`, `return` and `throw` with `try`/`finally` semantics, `GeneratorFunction`, and generators as iterables in `for-of`, spread and destructuring. A suspended generator keeps no thread: its body is left at the `yield` and entered again at the same place when the generator is resumed. Async generators are not supported yet
-- **Async functions**: `async function` declarations and expressions, async arrow functions and async methods in object literals and classes, and `await` on promises, thenables and plain values. An async function runs on the generator machinery: it is suspended at an `await` without a thread and resumed from the promise job queue, so `Execute` returns after the pending jobs have run. A rejected promise is thrown at the `await`, and an uncaught error rejects the promise that the call returned. Async iteration (`for await`, async generators) is not supported yet
+- **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. See Promises and the Job Queue for when the reactions run
+- **Generators**: `function*` declarations and expressions, generator methods in object literals and classes, `yield` and `yield*` (which forwards `next`, `throw` and `return` and closes the inner iterator), `next`, `return` and `throw` with `try`/`finally` semantics, `GeneratorFunction`, and generators as iterables in `for-of`, spread and destructuring. Async generators are not supported
+- **Async functions**: `async function` declarations and expressions, async arrow functions and async methods in object literals and classes, and `await` on promises, thenables and plain values. `Execute` returns after the pending jobs have run. A rejected promise is thrown at the `await`, and an uncaught error rejects the promise that the call returned. Async iteration (`for await`, async generators) is not supported
 - **`__proto__`**: the `__proto__` accessor on `Object.prototype` and `__proto__: value` in object literals (Annex B)
 - **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
 - **Proxy and Reflect**: all proxy traps with their invariants, and every `Reflect` function
@@ -195,6 +195,9 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 - Object literals and property access (shorthand properties, methods, computed keys, getters and setters)
 - Arrow functions with lexical `this` and `arguments`
 - Classes (`class`, `extends`, `super`, `new.target`, static members, accessors, computed names)
+- Generators (`function*`, `yield`, `yield*`), async functions with `await`, and Promises
+- Nullish coalescing (`??`) and numeric separators (`1_000`); optional chaining and logical assignment are not supported
+- The `__proto__` accessor and `__proto__: value` in object literals
 - Template literals and tagged templates, `String.raw`
 - Default parameters, rest parameters and spread in calls, arrays and objects
 - Destructuring in declarations, parameters, assignments and `for-of` heads, with defaults and rest
@@ -302,12 +305,12 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet are skipped):
+Pass rates for a selection of areas, counting only the tests that run (tests for features JS4D does not support are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2753 | 2751 | 99.9% |
 | built-ins/AggregateError | 23 | 23 | 100.0% |
+| built-ins/Array | 2753 | 2751 | 99.9% |
 | built-ins/ArrayBuffer | 80 | 80 | 100.0% |
 | built-ins/DataView | 376 | 374 | 99.5% |
 | built-ins/Date | 599 | 599 | 100.0% |
@@ -319,9 +322,8 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 | built-ins/Math | 312 | 312 | 100.0% |
 | built-ins/Number | 334 | 331 | 99.1% |
 | built-ins/Object | 3319 | 3310 | 99.7% |
-| built-ins/Proxy | 273 | 273 | 100.0% |
-
 | built-ins/Promise | 642 | 638 | 99.4% |
+| built-ins/Proxy | 273 | 273 | 100.0% |
 | built-ins/Reflect | 153 | 153 | 100.0% |
 | built-ins/RegExp | 804 | 780 | 97.0% |
 | built-ins/Set | 194 | 194 | 100.0% |
@@ -337,7 +339,7 @@ Pass rates for the areas with the most tests, counting only the tests that run (
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 
-Tests that need features JS4D does not implement are skipped: BigInt, Temporal, async iteration (`for await`, async generators), class fields, private members and static blocks, modules and dynamic import, tail calls, and the ES2018 and later library and syntax features. Tests with the `async` flag run: the runner drains the job queue and waits for the `$DONE` callback. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
+Tests that need features JS4D does not implement are skipped: BigInt, Temporal, async iteration (`for await`, async generators), class fields, private members and static blocks, modules and dynamic import, tail calls, and the ES2018 and later library and syntax features. Tests with the `async` flag run: the engine drains the job queue when the script ends and the runner reads the result that `$DONE` printed. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
 
 Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
 

@@ -23,7 +23,6 @@ type
 
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
     procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
-    function CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -164,16 +163,11 @@ end;
 
 function TJSGlobalScope.FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 begin
-  const IsCacheCurrent = (Cache.Owner = FGlobalStorage) and
-                         (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion);
+  const IsCacheCurrent = ((Cache.Owner = FGlobalStorage) and
+                          (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion));
   if IsCacheCurrent then
     Exit(Cache.Slot);
 
-  Result := CacheOwnSlot(Cache, Name);
-end;
-
-function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
-begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
     Exit(nil);
 
@@ -185,7 +179,8 @@ end;
 procedure TJSGlobalScope.SetGlobalProperty(const Name: string; const Value: TJSValue);
 begin
   var Slot: PJSPropertyDescriptor;
-  const IsWritableData = FGlobalStorage.TryGetOwnSlot(Name, Slot) and (not Slot.IsAccessor) and Slot.Writable;
+  const HasSlot = FGlobalStorage.TryGetOwnSlot(Name, Slot);
+  const IsWritableData = (HasSlot and (not Slot.IsAccessor) and Slot.Writable);
 
   if IsWritableData then
     Slot.Value := Value
@@ -246,7 +241,8 @@ begin
   if FGlobalObject.TryAssignOwnProperty(Name, Value) then
     Exit;
 
-  FGlobalObject.DefineProperty(Name, TJSPropertyDescriptor.Create(Value));
+  const Descriptor = TJSPropertyDescriptor.Create(Value);
+  FGlobalObject.DefineProperty(Name, Descriptor);
 end;
 
 function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;

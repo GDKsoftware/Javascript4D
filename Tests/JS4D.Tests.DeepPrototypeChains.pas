@@ -6,9 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -16,8 +13,6 @@ type
   TDeepPrototypeChainTests = class
   private
     FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
 
   public
     [Setup]
@@ -47,6 +42,9 @@ type
 
 implementation
 
+uses
+  JS4D.Tests.Support;
+
 procedure TDeepPrototypeChainTests.Setup;
 begin
   FEngine := TJSEngine.Create;
@@ -57,14 +55,11 @@ begin
   FEngine.Free;
 end;
 
-function TDeepPrototypeChainTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
 procedure TDeepPrototypeChainTests.DeepChain_Lookup_DoesNotOverflowTheStack(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TJSTestSupport.TextOf(FEngine, Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
   JS4D.Engine;
 
@@ -16,8 +14,6 @@ type
   TArrayConversionTests = class
   private
     FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
 
   public
     [Setup]
@@ -57,13 +53,16 @@ type
     [TestCase('A conversion of an array with another prototype', '(function () { var a = [1]; String(a); Object.setPrototypeOf(a, { toString: function () { return ''S''; } }); return String(a); })()#S', '#')]
     [TestCase('A conversion of an array whose own property was added after a conversion', '(function () { var a = [1]; var r = String(a); a.x = 1; r += String(a); a.join = function () { return ''J''; }; return r + String(a); })()#11J', '#')]
     [TestCase('Repeated conversions of an array as a property key', '(function () { var o = { 1: ''a'' }; var a = [1]; var r = ''''; for (var i = 0; i < 3; i++) { r += o[a]; } var s = Array.prototype.toString; Array.prototype.toString = function () { return ''x''; }; o.x = ''b''; r += o[a]; Array.prototype.toString = s; return r + o[a]; })()#aaaba', '#')]
-    procedure ArrayConversion_HonoursConversionHooks(const Expression, Expected: string);
+    procedure Expression_ArrayWithConversionHook_ConvertsThroughTheHook(const Expression, Expected: string);
 
     [Test]
-    procedure ArrayConversion_CycleThroughNativeHooks_EndsInALimitError;
+    procedure String_CycleThroughNativeHooks_RaisesCallDepthExceeded;
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TArrayConversionTests.Setup;
 begin
@@ -75,26 +74,25 @@ begin
   FEngine.Free;
 end;
 
-function TArrayConversionTests.Evaluate(const Expression: string): string;
+procedure TArrayConversionTests.Expression_ArrayWithConversionHook_ConvertsThroughTheHook(const Expression, Expected: string);
 begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
+  const Actual = TJSTestSupport.TextOf(FEngine, Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TArrayConversionTests.ArrayConversion_HonoursConversionHooks(const Expression, Expected: string);
+procedure TArrayConversionTests.String_CycleThroughNativeHooks_RaisesCallDepthExceeded;
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TArrayConversionTests.ArrayConversion_CycleThroughNativeHooks_EndsInALimitError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FEngine.Execute('var a = [1]; a[1] = a; a.toString = Function.prototype.call.bind(Array.prototype.join, a); String(a);');
-    end,
-    EJSCallDepthExceeded);
-
-  FEngine.Execute('a.length = 0; a.toString = null;');
+  try
+    Assert.WillRaise(
+      procedure
+      begin
+        FEngine.Execute('var a = [1]; a[1] = a; a.toString = Function.prototype.call.bind(Array.prototype.join, a); String(a);');
+      end,
+      EJSCallDepthExceeded);
+  finally
+    FEngine.Execute('a.length = 0; a.toString = null;');
+  end;
 end;
 
 end.

@@ -6,9 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -16,8 +13,6 @@ type
   TPropertyKeyTests = class
   private
     FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
 
   public
     [Setup]
@@ -49,10 +44,13 @@ type
     [TestCase('A symbol wrapper keeps marker strings apart', '(function () { var s = Symbol(); var w = Object(s); w[s] = 1; return w[''\uFDD0100''] === undefined; })()#true', '#')]
     [TestCase('A computed method name keeps a marker string', '(function () { var o = { [''\uFDD0100'']() { return 1; } }; return o[''\uFDD0100''].name === ''\uFDD0100''; })()#true', '#')]
     [TestCase('Object.entries returns marker strings unchanged', '(function () { var o = { ''\uFDD0100'': 1 }; return Object.entries(o)[0][0] === ''\uFDD0100''; })()#true', '#')]
-    procedure PropertyKey_SeparatesStringsFromSymbols(const Expression, Expected: string);
+    procedure Evaluate_StringAndSymbolKeys_StaySeparate(const Expression, Expected: string);
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TPropertyKeyTests.Setup;
 begin
@@ -64,14 +62,11 @@ begin
   FEngine.Free;
 end;
 
-function TPropertyKeyTests.Evaluate(const Expression: string): string;
+procedure TPropertyKeyTests.Evaluate_StringAndSymbolKeys_StaySeparate(const Expression, Expected: string);
 begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
+  const Actual = TJSTestSupport.TextOf(FEngine, Expression);
 
-procedure TPropertyKeyTests.PropertyKey_SeparatesStringsFromSymbols(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

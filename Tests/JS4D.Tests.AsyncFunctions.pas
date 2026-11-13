@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
   JS4D.Engine;
 
@@ -16,8 +14,6 @@ type
   TAsyncFunctionTests = class
   private
     FEngine: TJSEngine;
-
-    function RunAndRead(const Script: string): string;
 
   public
     [Setup]
@@ -76,9 +72,6 @@ type
     [TestCase('AsyncFunction can be called without new', 'var AF = Object.getPrototypeOf(async function () { }).constructor; var f = AF("return await 1;"); var r; f().then(function (v) { r = v; });~1', '~')]
     [TestCase('Source text of async functions', 'async function f(a) { await a; } var g = async (x) => x; var o = { async m() { } }; var r = [f.toString(), g.toString(), o.m.toString()].join("|");~async function f(a) { await a; }|async (x) => x|async m() { }', '~')]
     [TestCase('Object prototype tag', 'async function f() { } var r = Object.prototype.toString.call(f) + Object.prototype.toString.call(f());~[object AsyncFunction][object Promise]', '~')]
-    procedure Async_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('Arrow with parentheses', 'var f = async (a, b) => a + await b; var r; f(1, 2).then(function (v) { r = v; });~3', '~')]
     [TestCase('Arrow with a single parameter', 'var f = async a => await a * 2; var r; f(4).then(function (v) { r = v; });~8', '~')]
     [TestCase('Arrow with a block body', 'var f = async () => { await 0; return "block"; }; var r; f().then(function (v) { r = v; });~block', '~')]
@@ -93,9 +86,6 @@ type
     [TestCase('Async arrow in a conditional', 'var f = true ? async () => "a" : null; var r; f().then(function (v) { r = v; });~a', '~')]
     [TestCase('Nested async arrows', 'var f = async () => { var g = async () => await 1; return await g() + 1; }; var r; f().then(function (v) { r = v; });~2', '~')]
     [TestCase('A non async arrow in an async function can use await as a name', 'async function f() { var g = () => { var await = 1; return await; }; return g(); } var r; f().then(function (v) { r = v; });~1', '~')]
-    procedure AsyncArrow_FollowsSpecification(const Script, Expected: string);
-
-    [Test]
     [TestCase('Object literal method', 'var o = { async m(a) { return await a; } }; var r; o.m(3).then(function (v) { r = v; });~3', '~')]
     [TestCase('Object literal method sees this', 'var o = { v: "o", async m() { await 0; return this.v; } }; var r; o.m().then(function (v) { r = v; });~o', '~')]
     [TestCase('Computed and string keys', 'var o = { async ["c" + 1]() { return 1; }, async "s"() { return 2; }, async 3() { return 3; } }; var r = [typeof o.c1, typeof o.s, typeof o[3]].join();~function,function,function', '~')]
@@ -110,7 +100,7 @@ type
     [TestCase('Super property in an async method of an object', 'var base = { v: "base" }; var o = { __proto__: base, async m() { await 0; return super.v; } }; var r; o.m().then(function (v) { r = v; });~base', '~')]
     [TestCase('Async method with new target', 'class C { async m() { return new.target; } } var r; new C().m().then(function (v) { r = typeof v; });~undefined', '~')]
     [TestCase('Async method toString', 'class C { async m() { } static async s() { } } var r = [C.prototype.m.toString(), C.s.toString()].join("|");~async m() { }|async s() { }', '~')]
-    procedure AsyncMethod_FollowsSpecification(const Script, Expected: string);
+    procedure Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 
     [Test]
     [TestCase('Await in a parameter default', 'async function f(a = await 1) { }')]
@@ -142,19 +132,21 @@ type
     procedure Call_WithDeepRecursionThroughAwait_EndsWithTheCallDepthLimit;
 
     [Test]
-    procedure Call_WithEndlessLoopInTheBody_EndsWithTheStepBudget;
-
-    [Test]
-    procedure Call_WithEndlessLoopAfterAnAwait_EndsWithTheStepBudget;
+    [TestCase('In the body', 'async function f() { while (true) { } } f();')]
+    [TestCase('After an await', 'async function f() { await 0; while (true) { } } f();')]
+    procedure Call_WithEndlessLoop_EndsWithTheStepBudget(const Script: string);
 
     [Test]
     procedure CollectGarbage_WithAsyncFunctionsAwaitingAPendingPromise_KeepsTheirScopes;
 
     [Test]
-    procedure Free_WithAsyncFunctionsStillAwaiting_ReleasesEverything;
+    procedure Free_WithAsyncFunctionsStillAwaiting_DoesNotCrash;
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TAsyncFunctionTests.Setup;
 begin
@@ -166,26 +158,11 @@ begin
   FEngine.Free;
 end;
 
-function TAsyncFunctionTests.RunAndRead(const Script: string): string;
+procedure TAsyncFunctionTests.Execute_Script_LeavesExpectedResult(const Script, Expected: string);
 begin
-  FEngine.Execute(Script);
+  const Actual = TJSTestSupport.RunAndRead(FEngine, Script);
 
-  Result := FEngine.Evaluate('String(r)').ToString;
-end;
-
-procedure TAsyncFunctionTests.Async_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TAsyncFunctionTests.AsyncArrow_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
-end;
-
-procedure TAsyncFunctionTests.AsyncMethod_FollowsSpecification(const Script, Expected: string);
-begin
-  Assert.AreEqual(Expected, RunAndRead(Script));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TAsyncFunctionTests.Parse_RejectsMisplacedAsync(const Script: string);
@@ -209,29 +186,19 @@ begin
     end,
     EJSCallDepthExceeded);
 
-  Assert.AreEqual('3', FEngine.Evaluate('1 + 2').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, '1 + 2');
+
+  Assert.AreEqual('3', Actual);
 end;
 
-procedure TAsyncFunctionTests.Call_WithEndlessLoopInTheBody_EndsWithTheStepBudget;
+procedure TAsyncFunctionTests.Call_WithEndlessLoop_EndsWithTheStepBudget(const Script: string);
 begin
   FEngine.StepBudget := 100000;
 
   Assert.WillRaise(
     procedure
     begin
-      FEngine.Execute('async function f() { while (true) { } } f();');
-    end,
-    EJSStepBudgetExceeded);
-end;
-
-procedure TAsyncFunctionTests.Call_WithEndlessLoopAfterAnAwait_EndsWithTheStepBudget;
-begin
-  FEngine.StepBudget := 100000;
-
-  Assert.WillRaise(
-    procedure
-    begin
-      FEngine.Execute('async function f() { await 0; while (true) { } } f();');
+      FEngine.Execute(Script);
     end,
     EJSStepBudgetExceeded);
 end;
@@ -245,16 +212,20 @@ begin
   FEngine.CollectGarbage;
   FEngine.Execute('release();');
 
-  Assert.AreEqual('alive', FEngine.Evaluate('out').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, 'out');
+
+  Assert.AreEqual('alive', Actual);
 end;
 
-procedure TAsyncFunctionTests.Free_WithAsyncFunctionsStillAwaiting_ReleasesEverything;
+procedure TAsyncFunctionTests.Free_WithAsyncFunctionsStillAwaiting_DoesNotCrash;
 begin
   FEngine.Execute('var gate = new Promise(function () { }); var self = {}; ' +
                   'async function f() { self.p = f; await gate; } self.result = f(); ' +
                   'var h = (async () => { await h; })();');
 
-  Assert.AreEqual('object', FEngine.Evaluate('typeof self.result').ToString);
+  const Actual = TJSTestSupport.TextOf(FEngine, 'typeof self.result');
+
+  Assert.AreEqual('object', Actual);
 end;
 
 end.

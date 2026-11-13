@@ -6,7 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
   JS4D.Engine;
 
 type
@@ -14,8 +13,6 @@ type
   TNullishAndSeparatorsTests = class
   private
     FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
 
   public
     [Setup]
@@ -39,16 +36,6 @@ type
     [TestCase('BindsTighterThanConditional', 'null ?? 0 ? "a" : "b"#b', '#')]
     [TestCase('BindsLooserThanBitwiseOr', 'null ?? 1 | 2#3', '#')]
     [TestCase('Computed key', 'var x; var o = { 2: "two" }; o[x ?? 2]#two', '#')]
-    procedure Nullish_ReturnsExpectedResult(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('OrBefore', 'a || b ?? c')]
-    [TestCase('OrAfter', 'a ?? b || c')]
-    [TestCase('AndBefore', 'a && b ?? c')]
-    [TestCase('AndAfter', 'a ?? b && c')]
-    procedure Nullish_MixedWithLogicalOperators_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('Decimal', '1_000#1000', '#')]
     [TestCase('Fraction', '1.0_1#1.01', '#')]
     [TestCase('Exponent', '1e1_0#10000000000', '#')]
@@ -59,9 +46,13 @@ type
     [TestCase('MemberOfLiteral', '1_0..toString()#10', '#')]
     [TestCase('ComputedKey', 'var o = { 10: "ten" }; o[1_0]#ten', '#')]
     [TestCase('StringToNumberIgnoresSeparators', 'Number("1_0")#NaN', '#')]
-    procedure NumericSeparator_ReturnsExpectedResult(const Source: string; const Expected: string);
+    procedure Evaluate_ValidSource_ReturnsExpectedResult(const Source, Expected: string);
 
     [Test]
+    [TestCase('OrBefore', 'a || b ?? c')]
+    [TestCase('OrAfter', 'a ?? b || c')]
+    [TestCase('AndBefore', 'a && b ?? c')]
+    [TestCase('AndAfter', 'a ?? b && c')]
     [TestCase('Trailing', '1_')]
     [TestCase('Doubled', '1__0')]
     [TestCase('AfterLeadingZero', '0_1')]
@@ -74,10 +65,13 @@ type
     [TestCase('AfterExponentSign', '1e+_5')]
     [TestCase('AfterRadixPrefix', '0x_1')]
     [TestCase('TrailingInHex', '0x1_')]
-    procedure NumericSeparator_InWrongPlace_IsSyntaxError(const Source: string);
+    procedure Evaluate_InvalidSource_RaisesSyntaxError(const Source: string);
   end;
 
 implementation
+
+uses
+  JS4D.Tests.Support;
 
 procedure TNullishAndSeparatorsTests.Setup;
 begin
@@ -89,40 +83,16 @@ begin
   FEngine.Free;
 end;
 
-function TNullishAndSeparatorsTests.ErrorNameOf(const Source: string): string;
+procedure TNullishAndSeparatorsTests.Evaluate_ValidSource_ReturnsExpectedResult(const Source, Expected: string);
 begin
-  const QuotesEscaped = Source.Replace('"', '\"');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [QuotesEscaped]);
-  FEngine.Execute(Wrapper);
+  const Value = FEngine.Evaluate(Source);
 
-  Result := FEngine.Evaluate('caught').AsString;
+  Assert.AreEqual(Expected, Value.ToString);
 end;
 
-procedure TNullishAndSeparatorsTests.Nullish_ReturnsExpectedResult(const Source: string; const Expected: string);
+procedure TNullishAndSeparatorsTests.Evaluate_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  const Actual = FEngine.Evaluate(Source).ToString;
-
-  Assert.AreEqual(Expected, Actual);
-end;
-
-procedure TNullishAndSeparatorsTests.Nullish_MixedWithLogicalOperators_IsSyntaxError(const Source: string);
-begin
-  const ErrorName = ErrorNameOf(Source);
-
-  Assert.AreEqual('SyntaxError', ErrorName);
-end;
-
-procedure TNullishAndSeparatorsTests.NumericSeparator_ReturnsExpectedResult(const Source: string;
-                                                                            const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source).ToString;
-
-  Assert.AreEqual(Expected, Actual);
-end;
-
-procedure TNullishAndSeparatorsTests.NumericSeparator_InWrongPlace_IsSyntaxError(const Source: string);
-begin
-  const ErrorName = ErrorNameOf(Source);
+  const ErrorName = TJSTestSupport.ErrorNameOf(FEngine, Source);
 
   Assert.AreEqual('SyntaxError', ErrorName);
 end;
