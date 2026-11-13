@@ -8,6 +8,9 @@ uses
   System.SysUtils,
   System.Generics.Collections;
 
+const
+  YIELD_NAME = 'yield';
+
 type
   TJSTokenType = (
     EndOfFile,
@@ -137,6 +140,7 @@ type
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer; const SourcePosition: Integer); overload;
+    function IsIdentifierNamed(const Name: string): Boolean;
 
     property TokenType: TJSTokenType read FTokenType;
     property Value: string read FValue write FValue;
@@ -236,6 +240,11 @@ begin
   FColumn := Column;
   FNumberValue := 0;
   FSourcePosition := SourcePosition;
+end;
+
+function TJSToken.IsIdentifierNamed(const Name: string): Boolean;
+begin
+  Result := ((FTokenType = TJSTokenType.Identifier) and (FValue = Name));
 end;
 
 { TJSKeywords }

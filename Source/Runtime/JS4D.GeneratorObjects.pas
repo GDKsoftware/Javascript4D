@@ -8,7 +8,8 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   JS4D.Types,
-  JS4D.AST;
+  JS4D.AST,
+  JS4D.ObjectRegistry;
 
 type
   TJSGeneratorState = (SuspendedStart, SuspendedYield, Executing, Completed);
@@ -20,9 +21,9 @@ type
     Value: TJSValue;
   end;
 
-  TJSGeneratorFrame = class
+  TJSGeneratorFrame = class abstract
   public
-    procedure EnumerateReferences(const Visit: TJSReferenceVisitor); virtual;
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor); virtual; abstract;
   end;
 
   IJSGenerator = interface(IJSObject)
@@ -30,19 +31,10 @@ type
     procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
-  TJSGeneratorRegistry = class;
-
-  TJSAsyncHost = class abstract
-  public
-    function CreateResult: IJSObject; virtual; abstract;
-    procedure Start(const Result: IJSObject; const Body: IJSGenerator); virtual; abstract;
-    procedure Reject(const Result: IJSObject; const Reason: TJSValue); virtual; abstract;
-  end;
-
-  TJSGeneratorObject = class(TJSObjectImpl, IJSGenerator)
+  TJSGeneratorObject = class(TJSRegisteredObject, IJSGenerator)
   private
     FState: TJSGeneratorState;
-    FFunction: IJSFunction;
+    FFunctionObject: IJSFunction;
     FScope: IJSScope;
     FVarScope: IJSScope;
     FThisObject: IJSObject;
@@ -51,11 +43,10 @@ type
     FNewTarget: IJSFunction;
     FBinding: IJSThisBinding;
     FFrames: TObjectDictionary<TJSASTNode, TJSGeneratorFrame>;
-    FMemory: TDictionary<TJSASTNode, TJSResumption>;
+    FResumptionsByNode: TDictionary<TJSASTNode, TJSResumption>;
     FSuspendedAt: TJSASTNode;
-    FRegistry: TJSGeneratorRegistry;
-    FRegistryIndex: Integer;
 
+    procedure DropAll;
     procedure EnumerateValue(const Value: TJSValue; const Visit: TJSReferenceVisitor);
     procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
 
@@ -63,20 +54,20 @@ type
     procedure ReleaseReferences; override;
 
   public
-    constructor Create(const Registry: TJSGeneratorRegistry);
+    constructor Create(const Registry: TJSObjectRegistry);
     destructor Destroy; override;
 
     procedure Finish;
-    function FindFrame(const Node: TJSASTNode; out Frame: TJSGeneratorFrame): Boolean;
+    procedure ReleaseHeldValues; override;
+    function FindFrame(const Node: TJSASTNode): TJSGeneratorFrame;
     procedure AddFrame(const Node: TJSASTNode; const Frame: TJSGeneratorFrame);
     procedure DropFrame(const Node: TJSASTNode);
-    function Recall(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
-    procedure Remember(const Node: TJSASTNode; const Entry: TJSResumption);
-    procedure ForgetAll;
-    procedure ForgetMemory;
+    function TryFindResumption(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
+    procedure AddResumption(const Node: TJSASTNode; const Entry: TJSResumption);
+    procedure DropResumptions;
 
     property State: TJSGeneratorState read FState write FState;
-    property Func: IJSFunction read FFunction write FFunction;
+    property FunctionObject: IJSFunction read FFunctionObject write FFunctionObject;
     property Scope: IJSScope read FScope write FScope;
     property VarScope: IJSScope read FVarScope write FVarScope;
     property ThisObject: IJSObject read FThisObject write FThisObject;
@@ -87,49 +78,23 @@ type
     property SuspendedAt: TJSASTNode read FSuspendedAt write FSuspendedAt;
   end;
 
-  TJSGeneratorRegistry = class
-  private
-    FGenerators: TList<TJSGeneratorObject>;
-
-    procedure Add(const Generator: TJSGeneratorObject);
-    procedure Remove(const Generator: TJSGeneratorObject);
-
-  public
-    constructor Create;
-    destructor Destroy; override;
-
-    procedure ReleaseAll;
-  end;
-
 implementation
-
-{ TJSGeneratorFrame }
-
-procedure TJSGeneratorFrame.EnumerateReferences(const Visit: TJSReferenceVisitor);
-begin
-end;
 
 { TJSGeneratorObject }
 
-constructor TJSGeneratorObject.Create(const Registry: TJSGeneratorRegistry);
+constructor TJSGeneratorObject.Create(const Registry: TJSObjectRegistry);
 begin
-  inherited Create;
+  inherited Create(Registry);
 
   FState := TJSGeneratorState.SuspendedStart;
   FFrames := TObjectDictionary<TJSASTNode, TJSGeneratorFrame>.Create([doOwnsValues]);
-  FMemory := TDictionary<TJSASTNode, TJSResumption>.Create;
-  FRegistry := Registry;
-  FRegistry.Add(Self);
+  FResumptionsByNode := TDictionary<TJSASTNode, TJSResumption>.Create;
 end;
 
 destructor TJSGeneratorObject.Destroy;
 begin
-  if Assigned(FRegistry) then
-    FRegistry.Remove(Self);
-
-  ForgetAll;
   FFrames.Free;
-  FMemory.Free;
+  FResumptionsByNode.Free;
   inherited;
 end;
 
@@ -137,7 +102,7 @@ procedure TJSGeneratorObject.Finish;
 begin
   FState := TJSGeneratorState.Completed;
   FSuspendedAt := nil;
-  ForgetAll;
+  DropAll;
 
   FScope := nil;
   FVarScope := nil;
@@ -145,7 +110,12 @@ begin
   FCallee := nil;
   FNewTarget := nil;
   FBinding := nil;
-  FFunction := nil;
+  FFunctionObject := nil;
+end;
+
+procedure TJSGeneratorObject.ReleaseHeldValues;
+begin
+  Finish;
 end;
 
 procedure TJSGeneratorObject.ReleaseReferences;
@@ -154,20 +124,21 @@ begin
   inherited;
 end;
 
-procedure TJSGeneratorObject.ForgetAll;
+procedure TJSGeneratorObject.DropAll;
 begin
   FFrames.Clear;
-  FMemory.Clear;
+  FResumptionsByNode.Clear;
 end;
 
-procedure TJSGeneratorObject.ForgetMemory;
+procedure TJSGeneratorObject.DropResumptions;
 begin
-  FMemory.Clear;
+  FResumptionsByNode.Clear;
 end;
 
-function TJSGeneratorObject.FindFrame(const Node: TJSASTNode; out Frame: TJSGeneratorFrame): Boolean;
+function TJSGeneratorObject.FindFrame(const Node: TJSASTNode): TJSGeneratorFrame;
 begin
-  Result := FFrames.TryGetValue(Node, Frame);
+  if not FFrames.TryGetValue(Node, Result) then
+    Result := nil;
 end;
 
 procedure TJSGeneratorObject.AddFrame(const Node: TJSASTNode; const Frame: TJSGeneratorFrame);
@@ -180,14 +151,14 @@ begin
   FFrames.Remove(Node);
 end;
 
-function TJSGeneratorObject.Recall(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
+function TJSGeneratorObject.TryFindResumption(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
 begin
-  Result := FMemory.TryGetValue(Node, Entry);
+  Result := FResumptionsByNode.TryGetValue(Node, Entry);
 end;
 
-procedure TJSGeneratorObject.Remember(const Node: TJSASTNode; const Entry: TJSResumption);
+procedure TJSGeneratorObject.AddResumption(const Node: TJSASTNode; const Entry: TJSResumption);
 begin
-  FMemory.AddOrSetValue(Node, Entry);
+  FResumptionsByNode.AddOrSetValue(Node, Entry);
 end;
 
 procedure TJSGeneratorObject.EnumerateValue(const Value: TJSValue; const Visit: TJSReferenceVisitor);
@@ -203,12 +174,12 @@ begin
   Visit(FThisObject);
   Visit(FCallee);
   Visit(FNewTarget);
-  Visit(FFunction);
+  Visit(FFunctionObject);
 
   if Assigned(FBinding) then
     Visit(FBinding.Value);
 
-  for var Entry in FMemory.Values do
+  for var Entry in FResumptionsByNode.Values do
   begin
     EnumerateValue(Entry.Value, Visit);
   end;
@@ -216,54 +187,6 @@ begin
   for var Frame in FFrames.Values do
   begin
     Frame.EnumerateReferences(Visit);
-  end;
-end;
-
-{ TJSGeneratorRegistry }
-
-constructor TJSGeneratorRegistry.Create;
-begin
-  inherited Create;
-
-  FGenerators := TList<TJSGeneratorObject>.Create;
-end;
-
-destructor TJSGeneratorRegistry.Destroy;
-begin
-  for var Generator in FGenerators do
-  begin
-    Generator.FRegistry := nil;
-  end;
-
-  FGenerators.Free;
-  inherited;
-end;
-
-procedure TJSGeneratorRegistry.Add(const Generator: TJSGeneratorObject);
-begin
-  Generator.FRegistryIndex := FGenerators.Count;
-  FGenerators.Add(Generator);
-end;
-
-procedure TJSGeneratorRegistry.Remove(const Generator: TJSGeneratorObject);
-begin
-  const LastIndex = FGenerators.Count - 1;
-  const Moved = FGenerators[LastIndex];
-  FGenerators[Generator.FRegistryIndex] := Moved;
-  Moved.FRegistryIndex := Generator.FRegistryIndex;
-  FGenerators.Delete(LastIndex);
-end;
-
-procedure TJSGeneratorRegistry.ReleaseAll;
-begin
-  while FGenerators.Count > 0 do
-  begin
-    const Generator = FGenerators.Last;
-    Generator.FRegistry := nil;
-    FGenerators.Delete(FGenerators.Count - 1);
-
-    const Held: IJSObject = Generator;
-    Generator.Finish;
   end;
 end;
 

@@ -6,11 +6,8 @@ interface
 
 uses
   System.SysUtils,
-  System.Generics.Collections,
-  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.ArrayStatics,
   JS4D.BinarySupport;
 
 type
@@ -19,9 +16,8 @@ type
     const
       AGGREGATE_ERROR_NAME = 'AggregateError';
       ERROR_NAME = 'Error';
-      NAME_PROPERTY = 'name';
-      MESSAGE_PROPERTY = 'message';
-      ERRORS_PROPERTY = 'errors';
+      CONSTRUCTOR_LENGTH = 2;
+      IS_WRITABLE = True;
       NOT_ITERABLE = 'The errors of an AggregateError are not iterable';
 
     var
@@ -31,10 +27,10 @@ type
       FConstructor: IJSFunction;
 
     function Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
-    function ReadErrors(const Source: TJSValue): TArray<TJSValue>;
-    function CreateError(const Prototype: IJSObject; const MessageText: string; const HasMessage: Boolean;
-                         const Errors: TArray<TJSValue>): TJSValue;
-    function CreateErrorsArray(const Errors: TArray<TJSValue>): TJSValue;
+    function CreateBaseError(const Prototype: IJSObject; const MessageText: string): IJSError;
+    procedure DefineErrors(const Error: IJSError; const Errors: TArray<TJSValue>);
+    procedure CreatePrototype(const ErrorConstructor: IJSObject);
+    procedure CreateConstructor(const ErrorConstructor: IJSObject);
 
   public
     constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
@@ -47,9 +43,10 @@ type
 implementation
 
 uses
-  JS4D.Errors,
+  JS4D.PropertyKey,
   JS4D.ProxyObjects,
-  JS4D.Conversions;
+  JS4D.Conversions,
+  JS4D.PropertyNames;
 
 constructor TJSAggregateErrorBuiltins.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
 begin
@@ -61,57 +58,24 @@ end;
 
 destructor TJSAggregateErrorBuiltins.Destroy;
 begin
+  FSupport.UnlinkConstructor(FPrototype);
+
   FConstructor := nil;
   FPrototype := nil;
   inherited;
 end;
 
-function TJSAggregateErrorBuiltins.ReadErrors(const Source: TJSValue): TArray<TJSValue>;
+function TJSAggregateErrorBuiltins.CreateBaseError(const Prototype: IJSObject; const MessageText: string): IJSError;
 begin
-  var Reader: TJSSequenceReader;
-  var Closer: TJSSequenceCloser;
-  if not FInterpreter.OpenSequenceReader(Source, Reader, Closer) then
-    raise TJSErrorFactory.TypeError(NOT_ITERABLE);
-
-  const Items = TList<TJSValue>.Create;
-  try
-    var Item: TJSValue;
-    while Reader(Item) do
-    begin
-      Items.Add(Item);
-    end;
-
-    Result := Items.ToArray;
-  finally
-    Items.Free;
-  end;
+  Result := TJSError.Create(TJSErrorType.Error, MessageText);
+  Result.Prototype := Prototype;
 end;
 
-function TJSAggregateErrorBuiltins.CreateErrorsArray(const Errors: TArray<TJSValue>): TJSValue;
+procedure TJSAggregateErrorBuiltins.DefineErrors(const Error: IJSError; const Errors: TArray<TJSValue>);
 begin
-  const List = TJSArray.Create;
-  List.Prototype := FInterpreter.ArrayPrototype;
-  for var Item in Errors do
-  begin
-    List.Push(Item);
-  end;
+  const ErrorsValue = FSupport.CreateArray(Errors);
 
-  Result := TJSValue.CreateObject(List);
-end;
-
-function TJSAggregateErrorBuiltins.CreateError(const Prototype: IJSObject; const MessageText: string;
-                                               const HasMessage: Boolean;
-                                               const Errors: TArray<TJSValue>): TJSValue;
-begin
-  const Error: IJSError = TJSError.Create(TJSErrorType.Error, MessageText);
-  Error.Prototype := Prototype;
-
-  if HasMessage then
-    FSupport.DefineMember(Error, MESSAGE_PROPERTY, TJSValue.CreateString(MessageText), True);
-
-  FSupport.DefineMember(Error, ERRORS_PROPERTY, CreateErrorsArray(Errors), True);
-
-  Result := TJSValue.CreateObject(Error);
+  FSupport.DefineMember(Error, ERRORS_PROPERTY, ErrorsValue, IS_WRITABLE);
 end;
 
 function TJSAggregateErrorBuiltins.Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
@@ -119,30 +83,49 @@ begin
   const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototype);
 
   const MessageValue = TJSBinarySupport.Argument(Args, 1);
-  const HasMessage = not MessageValue.IsUndefined;
+  const HasMessage = (not MessageValue.IsUndefined);
   var MessageText := '';
   if HasMessage then
     MessageText := TJSConversions.ToText(MessageValue, FInterpreter.Limits);
 
-  const Errors = ReadErrors(TJSBinarySupport.Argument(Args, 0));
-  Result := CreateError(Prototype, MessageText, HasMessage, Errors);
+  const ErrorSource = TJSBinarySupport.Argument(Args, 0);
+  const Errors = FSupport.ReadSequence(ErrorSource, NOT_ITERABLE);
+
+  const Error = CreateBaseError(Prototype, MessageText);
+  if HasMessage then
+  begin
+    const MessageProperty = TJSValue.CreateString(MessageText);
+    FSupport.DefineMember(Error, MESSAGE_PROPERTY, MessageProperty, IS_WRITABLE);
+  end;
+
+  DefineErrors(Error, Errors);
+
+  Result := TJSValue.CreateObject(Error);
 end;
 
 function TJSAggregateErrorBuiltins.CreateFromList(const Errors: TArray<TJSValue>): TJSValue;
 begin
-  Result := CreateError(FPrototype, '', False, Errors);
+  const Error = CreateBaseError(FPrototype, '');
+  DefineErrors(Error, Errors);
+
+  Result := TJSValue.CreateObject(Error);
 end;
 
-procedure TJSAggregateErrorBuiltins.Register;
+procedure TJSAggregateErrorBuiltins.CreatePrototype(const ErrorConstructor: IJSObject);
 begin
-  const ErrorConstructor = FInterpreter.GetGlobalVariable(ERROR_NAME).ToObject;
-  const ErrorPrototype = ErrorConstructor.GetProperty('prototype').ToObject;
+  const ErrorPrototype = ErrorConstructor.GetProperty(PROTOTYPE_PROPERTY).ToObject;
 
   FPrototype := TJSObject.Create;
   FPrototype.Prototype := ErrorPrototype;
-  FSupport.DefineMember(FPrototype, NAME_PROPERTY, TJSValue.CreateString(AGGREGATE_ERROR_NAME), True);
-  FSupport.DefineMember(FPrototype, MESSAGE_PROPERTY, TJSValue.CreateString(''), True);
 
+  const NameValue = TJSValue.CreateString(AGGREGATE_ERROR_NAME);
+  const EmptyMessage = TJSValue.CreateString('');
+  FSupport.DefineMember(FPrototype, NAME_PROPERTY, NameValue, IS_WRITABLE);
+  FSupport.DefineMember(FPrototype, MESSAGE_PROPERTY, EmptyMessage, IS_WRITABLE);
+end;
+
+procedure TJSAggregateErrorBuiltins.CreateConstructor(const ErrorConstructor: IJSObject);
+begin
   FConstructor := TJSConstructorFunction.CreateConstructor(AGGREGATE_ERROR_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -151,12 +134,22 @@ begin
     Construct);
   FConstructor.Prototype := ErrorConstructor;
   FConstructor.DeleteProperty(NAME_PROPERTY);
-  TJSFunction.DefineLength(FConstructor, 2);
+  TJSFunction.DefineLength(FConstructor, CONSTRUCTOR_LENGTH);
   TJSFunction.DefineName(FConstructor, AGGREGATE_ERROR_NAME);
   FInterpreter.RegisterFunction(FConstructor);
+end;
+
+procedure TJSAggregateErrorBuiltins.Register;
+begin
+  const ErrorConstructor = FInterpreter.GetGlobalVariable(ERROR_NAME).ToObject;
+
+  CreatePrototype(ErrorConstructor);
+  CreateConstructor(ErrorConstructor);
 
   FSupport.LinkConstructor(FConstructor, FPrototype);
-  FInterpreter.SetGlobalVariable(AGGREGATE_ERROR_NAME, TJSValue.CreateObject(FConstructor));
+
+  const AggregateErrorValue = TJSValue.CreateObject(FConstructor);
+  FInterpreter.SetGlobalVariable(AGGREGATE_ERROR_NAME, AggregateErrorValue);
 end;
 
 end.

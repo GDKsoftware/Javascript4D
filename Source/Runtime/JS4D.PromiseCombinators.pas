@@ -6,47 +6,28 @@ interface
 
 uses
   System.SysUtils,
-  System.Generics.Collections,
-  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.ArrayStatics,
   JS4D.BinarySupport,
   JS4D.AggregateErrorBuiltins,
+  JS4D.Combination,
   JS4D.PromiseObjects,
   JS4D.PromiseOperations;
 
 type
   TJSCombinatorKind = (All, AllSettled, Any, Race);
 
-  IJSCombination = interface
-    ['{4D7A2E91-C5B8-4F30-A619-E03B8D5C7F24}']
-    function GetValues: TList<TJSValue>;
-    function GetRemaining: Integer;
-    procedure SetRemaining(const Value: Integer);
-    property Values: TList<TJSValue> read GetValues;
-    property Remaining: Integer read GetRemaining write SetRemaining;
+  TJSElementHandlers = record
+    OnFulfilled: TJSValue;
+    OnRejected: TJSValue;
   end;
 
-  TJSCombination = class(TInterfacedObject, IJSCombination)
-  private
-    FValues: TList<TJSValue>;
-    FRemaining: Integer;
-
-    function GetValues: TList<TJSValue>;
-    function GetRemaining: Integer;
-    procedure SetRemaining(const Value: Integer);
-
-  public
-    constructor Create;
-    destructor Destroy; override;
-  end;
+  TJSEntryBuilder = reference to function(const Value: TJSValue): TJSValue;
 
   TJSPromiseCombinators = class
   private
     const
-      RESOLVE_PROPERTY = 'resolve';
-      THEN_PROPERTY = 'then';
       STATUS_PROPERTY = 'status';
       VALUE_PROPERTY = 'value';
       REASON_PROPERTY = 'reason';
@@ -58,30 +39,37 @@ type
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBinarySupport;
       FOperations: TJSPromiseOperations;
       FAggregateErrors: TJSAggregateErrorBuiltins;
 
-    function CreateArray(const Items: TList<TJSValue>): TJSValue;
-    function CreateSettledEntry(const IsFulfilled: Boolean; const Value: TJSValue): TJSValue;
-    function FindPromiseResolve(const Constructor_: TJSValue): IJSFunction;
-    procedure Perform(const Kind: TJSCombinatorKind; const Constructor_: TJSValue;
+    class function KeepValue(const Value: TJSValue): TJSValue; static;
+
+    function CreateSettledEntry(const Status: string; const ValueProperty: string; const Value: TJSValue): TJSValue;
+    function CreateFulfilledEntry(const Value: TJSValue): TJSValue;
+    function CreateRejectedEntry(const Value: TJSValue): TJSValue;
+    function GetPromiseResolve(const ConstructorValue: TJSValue): IJSFunction;
+    procedure Perform(const Kind: TJSCombinatorKind; const ConstructorValue: TJSValue;
                       const Capability: TJSPromiseCapability; const PromiseResolve: IJSFunction;
                       const Iterable: TJSValue);
+    procedure SubscribeEach(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
+                            const Reader: TJSSequenceReader; const ConstructorValue: TJSValue;
+                            const PromiseResolve: IJSFunction; const Capability: TJSPromiseCapability);
     procedure Subscribe(const Kind: TJSCombinatorKind; const Combination: IJSCombination; const Index: Integer;
                         const NextPromise: TJSValue; const Capability: TJSPromiseCapability);
+    function CreateHandlers(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
+                            const Index: Integer; const Capability: TJSPromiseCapability): TJSElementHandlers;
+    function CreateElement(const Kind: TJSCombinatorKind; const Combination: IJSCombination; const Index: Integer;
+                           const Capability: TJSPromiseCapability;
+                           const BuildEntry: TJSEntryBuilder): IJSFunction;
     procedure Finish(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
                      const Capability: TJSPromiseCapability);
-    function CreateAllElement(const Combination: IJSCombination; const Index: Integer;
-                              const Capability: TJSPromiseCapability): IJSFunction;
-    function CreateAnyElement(const Combination: IJSCombination; const Index: Integer;
-                              const Capability: TJSPromiseCapability): IJSFunction;
-    procedure CreateSettledElements(const Combination: IJSCombination; const Index: Integer;
-                                    const Capability: TJSPromiseCapability; out OnFulfilled: IJSFunction;
-                                    out OnRejected: IJSFunction);
+    procedure RejectWithAggregate(const Combination: IJSCombination; const Capability: TJSPromiseCapability);
+    procedure ResolveWithSlots(const Combination: IJSCombination; const Capability: TJSPromiseCapability);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations;
-                       const AggregateErrors: TJSAggregateErrorBuiltins);
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+                       const Operations: TJSPromiseOperations; const AggregateErrors: TJSAggregateErrorBuiltins);
 
     function Combine(const Kind: TJSCombinatorKind; const This: IJSObject;
                      const Args: TArray<TJSValue>): TJSValue;
@@ -90,86 +78,57 @@ type
 implementation
 
 uses
-  JS4D.Errors;
+  JS4D.PropertyKey,
+  JS4D.Errors,
+  JS4D.PropertyNames;
 
-{ TJSCombination }
-
-constructor TJSCombination.Create;
-begin
-  inherited Create;
-
-  FValues := TList<TJSValue>.Create;
-  FRemaining := 1;
-end;
-
-destructor TJSCombination.Destroy;
-begin
-  FValues.Free;
-  inherited;
-end;
-
-function TJSCombination.GetValues: TList<TJSValue>;
-begin
-  Result := FValues;
-end;
-
-function TJSCombination.GetRemaining: Integer;
-begin
-  Result := FRemaining;
-end;
-
-procedure TJSCombination.SetRemaining(const Value: Integer);
-begin
-  FRemaining := Value;
-end;
-
-{ TJSPromiseCombinators }
-
-constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations;
+constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+                                         const Operations: TJSPromiseOperations;
                                          const AggregateErrors: TJSAggregateErrorBuiltins);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := Support;
   FOperations := Operations;
   FAggregateErrors := AggregateErrors;
 end;
 
-function TJSPromiseCombinators.CreateArray(const Items: TList<TJSValue>): TJSValue;
+class function TJSPromiseCombinators.KeepValue(const Value: TJSValue): TJSValue;
 begin
-  const List = TJSArray.Create;
-  List.Prototype := FInterpreter.ArrayPrototype;
-  for var Item in Items do
-  begin
-    List.Push(Item);
-  end;
-
-  Result := TJSValue.CreateObject(List);
+  Result := Value;
 end;
 
-function TJSPromiseCombinators.CreateSettledEntry(const IsFulfilled: Boolean; const Value: TJSValue): TJSValue;
+function TJSPromiseCombinators.CreateSettledEntry(const Status: string; const ValueProperty: string;
+                                                  const Value: TJSValue): TJSValue;
 begin
   const Entry = TJSObject.Create;
   Entry.Prototype := FInterpreter.ObjectPrototype;
 
-  if IsFulfilled then
-  begin
-    Entry.SetProperty(STATUS_PROPERTY, TJSValue.CreateString(FULFILLED_STATUS));
-    Entry.SetProperty(VALUE_PROPERTY, Value);
-  end
-  else
-  begin
-    Entry.SetProperty(STATUS_PROPERTY, TJSValue.CreateString(REJECTED_STATUS));
-    Entry.SetProperty(REASON_PROPERTY, Value);
-  end;
+  const StatusValue = TJSValue.CreateString(Status);
+  Entry.SetProperty(STATUS_PROPERTY, StatusValue);
+  Entry.SetProperty(ValueProperty, Value);
 
   Result := TJSValue.CreateObject(Entry);
 end;
 
-function TJSPromiseCombinators.FindPromiseResolve(const Constructor_: TJSValue): IJSFunction;
+function TJSPromiseCombinators.CreateFulfilledEntry(const Value: TJSValue): TJSValue;
 begin
-  const Candidate = Constructor_.ToObject.GetProperty(RESOLVE_PROPERTY);
-  if not TJSBinarySupport.AsFunction(Candidate, Result) then
+  Result := CreateSettledEntry(FULFILLED_STATUS, VALUE_PROPERTY, Value);
+end;
+
+function TJSPromiseCombinators.CreateRejectedEntry(const Value: TJSValue): TJSValue;
+begin
+  Result := CreateSettledEntry(REJECTED_STATUS, REASON_PROPERTY, Value);
+end;
+
+function TJSPromiseCombinators.GetPromiseResolve(const ConstructorValue: TJSValue): IJSFunction;
+begin
+  const ConstructorObject = ConstructorValue.ToObject;
+  const Candidate = ConstructorObject.GetProperty(RESOLVE_PROPERTY);
+
+  const IsCallable = TJSBinarySupport.AsFunction(Candidate, Result);
+  if not IsCallable then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 end;
 
@@ -179,46 +138,37 @@ begin
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(NOT_AN_OBJECT);
 
-  const Constructor_ = TJSValue.CreateObject(This);
-  const Capability = FOperations.NewCapability(Constructor_, True);
+  const ConstructorValue = TJSValue.CreateObject(This);
+  const Capability = FOperations.NewCapabilityWithFunctions(ConstructorValue);
+  const Iterable = TJSBinarySupport.Argument(Args, 0);
 
-  try
-    const PromiseResolve = FindPromiseResolve(Constructor_);
-    Perform(Kind, Constructor_, Capability, PromiseResolve, TJSBinarySupport.Argument(Args, 0));
-  except
-    on EJSExecutionInterrupted do
-      raise;
-    on Error: Exception do
+  const Outcome = FSupport.Capture(
+    function: TJSValue
     begin
-      const Reason = FInterpreter.ExceptionToValue(Error);
-      FOperations.RejectCapability(Capability, Reason);
-    end;
-  end;
+      const PromiseResolve = GetPromiseResolve(ConstructorValue);
+      Perform(Kind, ConstructorValue, Capability, PromiseResolve, Iterable);
+      Result := TJSValue.CreateUndefined;
+    end);
+
+  if not Outcome.IsNormal then
+    FOperations.RejectCapability(Capability, Outcome.Value);
 
   Result := Capability.Promise;
 end;
 
-procedure TJSPromiseCombinators.Perform(const Kind: TJSCombinatorKind; const Constructor_: TJSValue;
+procedure TJSPromiseCombinators.Perform(const Kind: TJSCombinatorKind; const ConstructorValue: TJSValue;
                                         const Capability: TJSPromiseCapability;
                                         const PromiseResolve: IJSFunction; const Iterable: TJSValue);
 begin
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  if not FInterpreter.OpenSequenceReader(Iterable, Reader, Closer) then
+  const IsIterable = FInterpreter.OpenSequenceReader(Iterable, Reader, Closer);
+  if not IsIterable then
     raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 
   const Combination: IJSCombination = TJSCombination.Create;
-  var Index := 0;
-  var Item: TJSValue;
   try
-    while Reader(Item) do
-    begin
-      Combination.Values.Add(TJSValue.CreateUndefined);
-
-      const NextPromise = FInterpreter.CallFunction(PromiseResolve, [Item], Constructor_.ToObject);
-      Subscribe(Kind, Combination, Index, NextPromise, Capability);
-      Inc(Index);
-    end;
+    SubscribeEach(Kind, Combination, Reader, ConstructorValue, PromiseResolve, Capability);
   except
     on EJSExecutionInterrupted do
       raise;
@@ -232,137 +182,126 @@ begin
   Finish(Kind, Combination, Capability);
 end;
 
+procedure TJSPromiseCombinators.SubscribeEach(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
+                                              const Reader: TJSSequenceReader; const ConstructorValue: TJSValue;
+                                              const PromiseResolve: IJSFunction;
+                                              const Capability: TJSPromiseCapability);
+begin
+  const Receiver = ConstructorValue.ToObject;
+  var Index := 0;
+  var Item: TJSValue;
+
+  while Reader(Item) do
+  begin
+    Combination.AddSlot;
+
+    const ResolveArgs: TArray<TJSValue> = [Item];
+    const NextPromise = FInterpreter.CallFunction(PromiseResolve, ResolveArgs, Receiver);
+    Subscribe(Kind, Combination, Index, NextPromise, Capability);
+    Inc(Index);
+  end;
+end;
+
 procedure TJSPromiseCombinators.Subscribe(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
                                           const Index: Integer; const NextPromise: TJSValue;
                                           const Capability: TJSPromiseCapability);
 begin
-  var OnFulfilled: IJSFunction := nil;
-  var OnRejected: IJSFunction := nil;
-  var OnFulfilledValue := Capability.Resolve;
-  var OnRejectedValue := Capability.Reject;
+  const Handlers = CreateHandlers(Kind, Combination, Index, Capability);
+
+  const IsCounting = (Kind <> TJSCombinatorKind.Race);
+  if IsCounting then
+    Combination.AddPending;
+
+  const ThenArgs: TArray<TJSValue> = [Handlers.OnFulfilled, Handlers.OnRejected];
+  FSupport.Invoke(NextPromise, THEN_PROPERTY, ThenArgs);
+end;
+
+function TJSPromiseCombinators.CreateHandlers(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
+                                              const Index: Integer;
+                                              const Capability: TJSPromiseCapability): TJSElementHandlers;
+begin
+  Result.OnFulfilled := Capability.Resolve;
+  Result.OnRejected := Capability.Reject;
 
   case Kind of
     TJSCombinatorKind.All:
       begin
-        OnFulfilled := CreateAllElement(Combination, Index, Capability);
-        OnFulfilledValue := TJSValue.CreateObject(OnFulfilled);
+        const OnFulfilled = CreateElement(Kind, Combination, Index, Capability, KeepValue);
+        Result.OnFulfilled := TJSValue.CreateObject(OnFulfilled);
       end;
-
     TJSCombinatorKind.AllSettled:
       begin
-        CreateSettledElements(Combination, Index, Capability, OnFulfilled, OnRejected);
-        OnFulfilledValue := TJSValue.CreateObject(OnFulfilled);
-        OnRejectedValue := TJSValue.CreateObject(OnRejected);
+        const OnFulfilled = CreateElement(Kind, Combination, Index, Capability, CreateFulfilledEntry);
+        const OnRejected = CreateElement(Kind, Combination, Index, Capability, CreateRejectedEntry);
+        Result.OnFulfilled := TJSValue.CreateObject(OnFulfilled);
+        Result.OnRejected := TJSValue.CreateObject(OnRejected);
       end;
-
     TJSCombinatorKind.Any:
       begin
-        OnRejected := CreateAnyElement(Combination, Index, Capability);
-        OnRejectedValue := TJSValue.CreateObject(OnRejected);
+        const OnRejected = CreateElement(Kind, Combination, Index, Capability, KeepValue);
+        Result.OnRejected := TJSValue.CreateObject(OnRejected);
       end;
-
     TJSCombinatorKind.Race:
-      ;
+      Exit;
   else
     raise ENotSupportedException.CreateFmt('Unsupported promise combinator: %d', [Ord(Kind)]);
   end;
+end;
 
-  const IsCounting = Kind <> TJSCombinatorKind.Race;
-  if IsCounting then
-    Combination.Remaining := Combination.Remaining + 1;
+function TJSPromiseCombinators.CreateElement(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
+                                             const Index: Integer; const Capability: TJSPromiseCapability;
+                                             const BuildEntry: TJSEntryBuilder): IJSFunction;
+begin
+  Result := FSupport.CreateMethod('', 1,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := TJSValue.CreateUndefined;
 
-  FOperations.Invoke(NextPromise, THEN_PROPERTY, [OnFulfilledValue, OnRejectedValue]);
+      const IsFirstCall = Combination.TryClaimSlot(Index);
+      if not IsFirstCall then
+        Exit;
+
+      const Argument = TJSBinarySupport.Argument(Args, 0);
+      const Entry = BuildEntry(Argument);
+      Combination.FillSlot(Index, Entry);
+      Finish(Kind, Combination, Capability);
+    end);
 end;
 
 procedure TJSPromiseCombinators.Finish(const Kind: TJSCombinatorKind; const Combination: IJSCombination;
                                        const Capability: TJSPromiseCapability);
 begin
-  if Kind = TJSCombinatorKind.Race then
+  const IsRace = (Kind = TJSCombinatorKind.Race);
+  if IsRace then
     Exit;
 
-  Combination.Remaining := Combination.Remaining - 1;
-  const IsComplete = (Combination.Remaining = 0);
-  if not IsComplete then
+  Combination.RemovePending;
+  if not Combination.IsComplete then
     Exit;
 
-  if Kind = TJSCombinatorKind.Any then
-  begin
-    const Errors = Combination.Values.ToArray;
-    const AggregateError = FAggregateErrors.CreateFromList(Errors);
-    FOperations.RejectCapability(Capability, AggregateError);
-  end
+  const IsAny = (Kind = TJSCombinatorKind.Any);
+  if IsAny then
+    RejectWithAggregate(Combination, Capability)
   else
-  begin
-    const Values = CreateArray(Combination.Values);
-    FOperations.ResolveCapability(Capability, Values);
-  end;
+    ResolveWithSlots(Combination, Capability);
 end;
 
-function TJSPromiseCombinators.CreateAllElement(const Combination: IJSCombination; const Index: Integer;
-                                                const Capability: TJSPromiseCapability): IJSFunction;
+procedure TJSPromiseCombinators.RejectWithAggregate(const Combination: IJSCombination;
+                                                    const Capability: TJSPromiseCapability);
 begin
-  var IsCalled := False;
+  const Errors = Combination.GetSlots;
+  const AggregateError = FAggregateErrors.CreateFromList(Errors);
 
-  Result := FOperations.CreateFunction(1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := TJSValue.CreateUndefined;
-      if IsCalled then
-        Exit;
-
-      IsCalled := True;
-      Combination.Values[Index] := TJSBinarySupport.Argument(Args, 0);
-      Finish(TJSCombinatorKind.All, Combination, Capability);
-    end);
+  FOperations.RejectCapability(Capability, AggregateError);
 end;
 
-function TJSPromiseCombinators.CreateAnyElement(const Combination: IJSCombination; const Index: Integer;
-                                                const Capability: TJSPromiseCapability): IJSFunction;
+procedure TJSPromiseCombinators.ResolveWithSlots(const Combination: IJSCombination;
+                                                 const Capability: TJSPromiseCapability);
 begin
-  var IsCalled := False;
+  const Slots = Combination.GetSlots;
+  const Values = FSupport.CreateArray(Slots);
 
-  Result := FOperations.CreateFunction(1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := TJSValue.CreateUndefined;
-      if IsCalled then
-        Exit;
-
-      IsCalled := True;
-      Combination.Values[Index] := TJSBinarySupport.Argument(Args, 0);
-      Finish(TJSCombinatorKind.Any, Combination, Capability);
-    end);
-end;
-
-procedure TJSPromiseCombinators.CreateSettledElements(const Combination: IJSCombination; const Index: Integer;
-                                                      const Capability: TJSPromiseCapability;
-                                                      out OnFulfilled: IJSFunction; out OnRejected: IJSFunction);
-begin
-  var IsCalled := False;
-
-  OnFulfilled := FOperations.CreateFunction(1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := TJSValue.CreateUndefined;
-      if IsCalled then
-        Exit;
-
-      IsCalled := True;
-      Combination.Values[Index] := CreateSettledEntry(True, TJSBinarySupport.Argument(Args, 0));
-      Finish(TJSCombinatorKind.AllSettled, Combination, Capability);
-    end);
-
-  OnRejected := FOperations.CreateFunction(1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := TJSValue.CreateUndefined;
-      if IsCalled then
-        Exit;
-
-      IsCalled := True;
-      Combination.Values[Index] := CreateSettledEntry(False, TJSBinarySupport.Argument(Args, 0));
-      Finish(TJSCombinatorKind.AllSettled, Combination, Capability);
-    end);
+  FOperations.ResolveCapability(Capability, Values);
 end;
 
 end.

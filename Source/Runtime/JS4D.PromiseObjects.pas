@@ -7,7 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.ObjectRegistry;
 
 type
   TJSPromiseState = (Pending, Fulfilled, Rejected);
@@ -31,40 +32,31 @@ type
     OnFulfilled: TJSValue;
     OnRejected: TJSValue;
     Continuation: IJSPromiseContinuation;
+
+    procedure EnumerateValues(const Callback: TJSValueVisitor);
   end;
 
   IJSPromise = interface(IJSObject)
     ['{6B1E4C97-3A52-4D08-9F7B-C2E85A0D1B36}']
     function GetState: TJSPromiseState;
     function GetResult: TJSValue;
-    function GetIsHandled: Boolean;
-    procedure SetIsHandled(const Value: Boolean);
     procedure AddReaction(const Reaction: TJSPromiseReaction);
-    function Settle(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
+    function SettleAndTakeReactions(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
     property State: TJSPromiseState read GetState;
     property Result: TJSValue read GetResult;
-    property IsHandled: Boolean read GetIsHandled write SetIsHandled;
   end;
 
-  TJSPromiseRegistry = class;
-
-  TJSPromiseObject = class(TJSObjectImpl, IJSPromise)
+  TJSPromiseObject = class(TJSRegisteredObject, IJSPromise)
   private
     FState: TJSPromiseState;
     FResult: TJSValue;
     FReactions: TList<TJSPromiseReaction>;
-    FIsHandled: Boolean;
-    FRegistry: TJSPromiseRegistry;
-    FRegistryIndex: Integer;
 
     function GetState: TJSPromiseState;
     function GetResult: TJSValue;
-    function GetIsHandled: Boolean;
-    procedure SetIsHandled(const Value: Boolean);
     procedure AddReaction(const Reaction: TJSPromiseReaction);
-    function Settle(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
+    function SettleAndTakeReactions(const State: TJSPromiseState; const Value: TJSValue): TArray<TJSPromiseReaction>;
     procedure Reset;
-    procedure EnumerateValues(const Callback: TJSValueVisitor);
     class procedure CollectNested(const Value: TJSValue; const Pending: TList<IJSObject>); static;
 
   protected
@@ -73,46 +65,42 @@ type
     procedure ReleaseReferences; override;
 
   public
-    constructor Create(const Registry: TJSPromiseRegistry);
-    procedure ReleaseHeldValues;
-    destructor Destroy; override;
-  end;
-
-  TJSPromiseRegistry = class
-  private
-    FPromises: TList<TJSPromiseObject>;
-
-    procedure Add(const Promise: TJSPromiseObject);
-    procedure Remove(const Promise: TJSPromiseObject);
-
-  public
-    constructor Create;
+    constructor Create(const Registry: TJSObjectRegistry);
     destructor Destroy; override;
 
-    procedure ClearAll;
+    procedure ReleaseHeldValues; override;
     procedure EnumerateValues(const Callback: TJSValueVisitor);
   end;
 
 implementation
 
+{ TJSPromiseReaction }
+
+procedure TJSPromiseReaction.EnumerateValues(const Callback: TJSValueVisitor);
+begin
+  Callback(Capability.Promise);
+  Callback(Capability.Resolve);
+  Callback(Capability.Reject);
+  Callback(OnFulfilled);
+  Callback(OnRejected);
+
+  if Assigned(Continuation) then
+    Continuation.EnumerateReferences(Callback);
+end;
+
 { TJSPromiseObject }
 
-constructor TJSPromiseObject.Create(const Registry: TJSPromiseRegistry);
+constructor TJSPromiseObject.Create(const Registry: TJSObjectRegistry);
 begin
-  inherited Create;
+  inherited Create(Registry);
 
   FState := TJSPromiseState.Pending;
   FResult := TJSValue.CreateUndefined;
   FReactions := TList<TJSPromiseReaction>.Create;
-  FRegistry := Registry;
-  FRegistry.Add(Self);
 end;
 
 destructor TJSPromiseObject.Destroy;
 begin
-  if Assigned(FRegistry) then
-    FRegistry.Remove(Self);
-
   inherited;
   FReactions.Free;
 end;
@@ -127,23 +115,13 @@ begin
   Result := FResult;
 end;
 
-function TJSPromiseObject.GetIsHandled: Boolean;
-begin
-  Result := FIsHandled;
-end;
-
-procedure TJSPromiseObject.SetIsHandled(const Value: Boolean);
-begin
-  FIsHandled := Value;
-end;
-
 procedure TJSPromiseObject.AddReaction(const Reaction: TJSPromiseReaction);
 begin
   FReactions.Add(Reaction);
 end;
 
-function TJSPromiseObject.Settle(const State: TJSPromiseState;
-                                 const Value: TJSValue): TArray<TJSPromiseReaction>;
+function TJSPromiseObject.SettleAndTakeReactions(const State: TJSPromiseState;
+                                                 const Value: TJSValue): TArray<TJSPromiseReaction>;
 begin
   Result := FReactions.ToArray;
   FReactions.Clear;
@@ -172,32 +150,26 @@ end;
 
 procedure TJSPromiseObject.EnumerateValues(const Callback: TJSValueVisitor);
 begin
-  Callback(TJSValue.CreateObject(Self));
+  const SelfValue = TJSValue.CreateObject(Self);
+  Callback(SelfValue);
   Callback(FResult);
 
   for var Reaction in FReactions do
   begin
-    Callback(Reaction.Capability.Promise);
-    Callback(Reaction.Capability.Resolve);
-    Callback(Reaction.Capability.Reject);
-    Callback(Reaction.OnFulfilled);
-    Callback(Reaction.OnRejected);
-
-    if Assigned(Reaction.Continuation) then
-      Reaction.Continuation.EnumerateReferences(Callback);
+    Reaction.EnumerateValues(Callback);
   end;
 end;
 
 class procedure TJSPromiseObject.CollectNested(const Value: TJSValue; const Pending: TList<IJSObject>);
 begin
-  const IsNestedObject = Value.IsObject and (not Value.IsFunction);
+  const IsNestedObject = (Value.IsObject and (not Value.IsFunction));
   if IsNestedObject then
     Pending.Add(Value.ToObject);
 end;
 
 function TJSPromiseObject.HoldsNested: Boolean;
 begin
-  Result := (FReactions.Count > 0) or FResult.IsObject or inherited HoldsNested;
+  Result := ((FReactions.Count > 0) or FResult.IsObject or inherited HoldsNested);
 end;
 
 procedure TJSPromiseObject.DetachNested(const Pending: TList<IJSObject>);
@@ -211,62 +183,6 @@ begin
 
   Reset;
   inherited DetachNested(Pending);
-end;
-
-{ TJSPromiseRegistry }
-
-constructor TJSPromiseRegistry.Create;
-begin
-  inherited Create;
-
-  FPromises := TList<TJSPromiseObject>.Create;
-end;
-
-destructor TJSPromiseRegistry.Destroy;
-begin
-  for var Promise in FPromises do
-  begin
-    Promise.FRegistry := nil;
-  end;
-
-  FPromises.Free;
-  inherited;
-end;
-
-procedure TJSPromiseRegistry.Add(const Promise: TJSPromiseObject);
-begin
-  Promise.FRegistryIndex := FPromises.Count;
-  FPromises.Add(Promise);
-end;
-
-procedure TJSPromiseRegistry.Remove(const Promise: TJSPromiseObject);
-begin
-  const LastIndex = FPromises.Count - 1;
-  const Moved = FPromises[LastIndex];
-  FPromises[Promise.FRegistryIndex] := Moved;
-  Moved.FRegistryIndex := Promise.FRegistryIndex;
-  FPromises.Delete(LastIndex);
-end;
-
-procedure TJSPromiseRegistry.ClearAll;
-begin
-  while FPromises.Count > 0 do
-  begin
-    const Promise = FPromises.Last;
-    Promise.FRegistry := nil;
-    FPromises.Delete(FPromises.Count - 1);
-
-    const Held: IJSObject = Promise;
-    Promise.ReleaseHeldValues;
-  end;
-end;
-
-procedure TJSPromiseRegistry.EnumerateValues(const Callback: TJSValueVisitor);
-begin
-  for var Promise in FPromises do
-  begin
-    Promise.EnumerateValues(Callback);
-  end;
 end;
 
 end.

@@ -14,6 +14,7 @@ uses
   JS4D.Lexer,
   JS4D.Parser,
   JS4D.AST,
+  JS4D.SourceContext,
   JS4D.Interpreter,
   JS4D.Operators,
   JS4D.Builtins,

@@ -10,6 +10,7 @@ uses
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter,
+  JS4D.ObjectRegistry,
   JS4D.OrderedStore,
   JS4D.CollectionObjects;
 
@@ -23,7 +24,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FRegistry: TJSCollectionRegistry;
+      FRegistry: TJSObjectRegistry;
       FPrototypes: array[TJSCollectionKind] of IJSObject;
       FMapIteratorPrototype: IJSObject;
       FSetIteratorPrototype: IJSObject;
@@ -123,7 +124,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FRegistry := TJSCollectionRegistry.Create;
+  FRegistry := TJSObjectRegistry.Create;
 end;
 
 destructor TJSCollectionBuiltins.Destroy;
@@ -135,7 +136,7 @@ end;
 
 procedure TJSCollectionBuiltins.ReleaseCollections;
 begin
-  FRegistry.ClearAll;
+  FRegistry.ReleaseAll;
 end;
 
 class function TJSCollectionBuiltins.IsWeak(const Kind: TJSCollectionKind): Boolean;

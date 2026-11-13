@@ -6,9 +6,10 @@ interface
 
 uses
   System.SysUtils,
-  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
+  JS4D.BinarySupport,
+  JS4D.DynamicFunctions,
   JS4D.GeneratorObjects;
 
 type
@@ -16,37 +17,32 @@ type
   private
     const
       GENERATOR_FUNCTION_NAME = 'GeneratorFunction';
+      GENERATOR_FUNCTION_KEYWORD = 'function*';
       GENERATOR_TAG = 'Generator';
       NEXT_NAME = 'next';
       RETURN_NAME = 'return';
       THROW_NAME = 'throw';
-      CONSTRUCTOR_NAME = 'constructor';
-      PROTOTYPE_NAME = 'prototype';
-      FUNCTION_NAME = 'Function';
-      ANONYMOUS_NAME = 'anonymous';
-      SOURCE_FORMAT = '(function* (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
-      TEXT_FORMAT = 'function* anonymous(%s'#10') {'#10'%s'#10'}';
+      CONSTRUCTOR_LENGTH = 1;
+      RESUME_METHOD_LENGTH = 1;
+      IS_WRITABLE = True;
+      IS_READ_ONLY = False;
       NOT_A_GENERATOR = '%s method called on an object that is not a generator';
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBinarySupport;
+      FFactory: TJSDynamicFunctionFactory;
       FIteratorPrototype: IJSObject;
       FPrototype: IJSObject;
       FFunctionPrototype: IJSObject;
       FConstructor: IJSFunction;
 
-    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
-                                 const IsWritable: Boolean); static;
-    class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
-    function CreateMethod(const Name: string; const Method: TNativeFunction): IJSFunction;
-    function ToText(const Value: TJSValue): string;
     function Resume(const This: IJSObject; const MethodName: string; const Mode: TJSResumeMode;
                     const Args: TArray<TJSValue>): TJSValue;
     function CreateResumeMethod(const Name: string; const Mode: TJSResumeMode): IJSFunction;
-    function CreateGeneratorFromSource(const Args: TArray<TJSValue>): TJSValue;
-    procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
+    procedure DefineResumeMember(const Name: string; const Mode: TJSResumeMode);
     procedure CreateGeneratorPrototype;
-    procedure CreateGeneratorFunctionPrototype;
+    procedure CreateGeneratorFunctionPrototype(const Prototype: IJSObject);
     procedure CreateConstructor;
 
   public
@@ -59,28 +55,32 @@ type
 implementation
 
 uses
+  JS4D.PropertyKey,
   JS4D.Errors,
-  JS4D.SymbolRegistry;
+  JS4D.PropertyNames;
 
 constructor TJSGeneratorBuiltins.Create(const Interpreter: TJSInterpreter; const IteratorPrototype: IJSObject);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBinarySupport.Create(Interpreter);
+  FFactory := TJSDynamicFunctionFactory.Create(Interpreter, GENERATOR_FUNCTION_KEYWORD);
   FIteratorPrototype := IteratorPrototype;
 end;
 
 destructor TJSGeneratorBuiltins.Destroy;
 begin
-  if Assigned(FPrototype) then
-    FPrototype.DeleteProperty(CONSTRUCTOR_NAME);
+  FSupport.UnlinkConstructor(FPrototype);
 
   if Assigned(FFunctionPrototype) then
   begin
-    FFunctionPrototype.DeleteProperty(PROTOTYPE_NAME);
-    FFunctionPrototype.DeleteProperty(CONSTRUCTOR_NAME);
+    FFunctionPrototype.DeleteProperty(PROTOTYPE_PROPERTY);
+    FSupport.UnlinkConstructor(FFunctionPrototype);
   end;
 
+  FFactory.Free;
+  FSupport.Free;
   FConstructor := nil;
   FFunctionPrototype := nil;
   FPrototype := nil;
@@ -88,65 +88,37 @@ begin
   inherited;
 end;
 
-class procedure TJSGeneratorBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey;
-                                                  const Value: TJSValue; const IsWritable: Boolean);
-begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Writable := IsWritable;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-  Target.DefineProperty(Key, Descriptor);
-end;
-
-class function TJSGeneratorBuiltins.ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
-begin
-  if Index < Length(Args) then
-    Exit(Args[Index]);
-
-  Result := TJSValue.CreateUndefined;
-end;
-
-function TJSGeneratorBuiltins.ToText(const Value: TJSValue): string;
-begin
-  const Primitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.String_);
-
-  Result := Primitive.ToLimitedString(FInterpreter.Limits);
-end;
-
-function TJSGeneratorBuiltins.CreateMethod(const Name: string; const Method: TNativeFunction): IJSFunction;
-begin
-  Result := TJSFunction.CreateNative(Name, Method);
-  Result.IsConstructor := False;
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Result, 1);
-  FInterpreter.RegisterFunction(Result);
-end;
-
-procedure TJSGeneratorBuiltins.DefineToStringTag(const Target: IJSObject; const Tag: string);
-begin
-  const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
-
-  DefineMember(Target, Key, TJSValue.CreateString(Tag), False);
-end;
-
 function TJSGeneratorBuiltins.Resume(const This: IJSObject; const MethodName: string; const Mode: TJSResumeMode;
                                      const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Generator: IJSGenerator;
-  const IsGenerator = Assigned(This) and Supports(This, IJSGenerator, Generator);
+  const IsGenerator = (Assigned(This) and (This is TJSGeneratorObject));
   if not IsGenerator then
-    raise TJSErrorFactory.TypeError(Format(NOT_A_GENERATOR, [MethodName]));
+  begin
+    const Message = Format(NOT_A_GENERATOR, [MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
-  Result := FInterpreter.ResumeGenerator((This as TObject) as TJSGeneratorObject, Mode, ArgumentAt(Args, 0));
+  const Generator = (This as TJSGeneratorObject);
+  const Argument = TJSBinarySupport.Argument(Args, 0);
+
+  Result := FInterpreter.ResumeGenerator(Generator, Mode, Argument);
 end;
 
 function TJSGeneratorBuiltins.CreateResumeMethod(const Name: string; const Mode: TJSResumeMode): IJSFunction;
 begin
-  Result := CreateMethod(Name,
+  Result := FSupport.CreateMethod(Name, RESUME_METHOD_LENGTH,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := Resume(This, Name, Mode, Args);
     end);
+end;
+
+procedure TJSGeneratorBuiltins.DefineResumeMember(const Name: string; const Mode: TJSResumeMode);
+begin
+  const Method = CreateResumeMethod(Name, Mode);
+  const MethodValue = TJSValue.CreateObject(Method);
+
+  FSupport.DefineMember(FPrototype, Name, MethodValue, IS_WRITABLE);
 end;
 
 procedure TJSGeneratorBuiltins.CreateGeneratorPrototype;
@@ -154,50 +126,22 @@ begin
   FPrototype := TJSObject.Create;
   FPrototype.Prototype := FIteratorPrototype;
 
-  DefineMember(FPrototype, NEXT_NAME, TJSValue.CreateObject(CreateResumeMethod(NEXT_NAME, TJSResumeMode.Next)), True);
-  DefineMember(FPrototype, RETURN_NAME, TJSValue.CreateObject(CreateResumeMethod(RETURN_NAME, TJSResumeMode.Return)), True);
-  DefineMember(FPrototype, THROW_NAME, TJSValue.CreateObject(CreateResumeMethod(THROW_NAME, TJSResumeMode.Throw)), True);
-  DefineToStringTag(FPrototype, GENERATOR_TAG);
+  DefineResumeMember(NEXT_NAME, TJSResumeMode.Next);
+  DefineResumeMember(RETURN_NAME, TJSResumeMode.Return);
+  DefineResumeMember(THROW_NAME, TJSResumeMode.Throw);
+  FSupport.DefineToStringTag(FPrototype, GENERATOR_TAG);
 end;
 
-procedure TJSGeneratorBuiltins.CreateGeneratorFunctionPrototype;
+procedure TJSGeneratorBuiltins.CreateGeneratorFunctionPrototype(const Prototype: IJSObject);
 begin
   FFunctionPrototype := TJSObject.Create;
   FFunctionPrototype.Prototype := FInterpreter.FunctionPrototype;
 
-  DefineMember(FFunctionPrototype, PROTOTYPE_NAME, TJSValue.CreateObject(FPrototype), False);
-  DefineMember(FPrototype, CONSTRUCTOR_NAME, TJSValue.CreateObject(FFunctionPrototype), False);
-  DefineToStringTag(FFunctionPrototype, GENERATOR_FUNCTION_NAME);
-end;
-
-function TJSGeneratorBuiltins.CreateGeneratorFromSource(const Args: TArray<TJSValue>): TJSValue;
-begin
-  var Body := '';
-  var Parameters := '';
-
-  const HasArguments = (Length(Args) > 0);
-  if HasArguments then
-  begin
-    for var Index := 0 to High(Args) - 1 do
-    begin
-      if Index > 0 then
-        Parameters := Parameters + ',';
-
-      Parameters := Parameters + ToText(Args[Index]);
-    end;
-
-    Body := ToText(Args[High(Args)]);
-  end;
-
-  Result := FInterpreter.CreateFunctionFromSource(Format(SOURCE_FORMAT, [Parameters, Body]));
-
-  var Func: IJSFunction;
-  const IsFunction = Supports(Result.ToObject, IJSFunction, Func);
-  if IsFunction then
-  begin
-    Func.Name := ANONYMOUS_NAME;
-    Func.SourceText := Format(TEXT_FORMAT, [Parameters, Body]);
-  end;
+  const PrototypeValue = TJSValue.CreateObject(Prototype);
+  const FunctionPrototypeValue = TJSValue.CreateObject(FFunctionPrototype);
+  FSupport.DefineMember(FFunctionPrototype, PROTOTYPE_PROPERTY, PrototypeValue, IS_READ_ONLY);
+  FSupport.DefineMember(Prototype, CONSTRUCTOR_PROPERTY, FunctionPrototypeValue, IS_READ_ONLY);
+  FSupport.DefineToStringTag(FFunctionPrototype, GENERATOR_FUNCTION_NAME);
 end;
 
 procedure TJSGeneratorBuiltins.CreateConstructor;
@@ -205,20 +149,25 @@ begin
   FConstructor := TJSFunction.CreateNative(GENERATOR_FUNCTION_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := CreateGeneratorFromSource(Args);
+      Result := FFactory.CreateFunction(Args);
     end);
-  FConstructor.Prototype := FInterpreter.GetGlobalVariable(FUNCTION_NAME).ToObject;
-  TJSFunction.DefineLength(FConstructor, 1);
-  FConstructor.SetNonConfigurableProperty(PROTOTYPE_NAME, TJSValue.CreateObject(FFunctionPrototype));
+
+  const FunctionConstructor = FInterpreter.GetGlobalVariable(FUNCTION_NAME);
+  FConstructor.Prototype := FunctionConstructor.ToObject;
+  TJSFunction.DefineLength(FConstructor, CONSTRUCTOR_LENGTH);
+
+  const PrototypeValue = TJSValue.CreateObject(FFunctionPrototype);
+  FConstructor.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, PrototypeValue);
   FInterpreter.RegisterFunction(FConstructor);
 
-  DefineMember(FFunctionPrototype, CONSTRUCTOR_NAME, TJSValue.CreateObject(FConstructor), False);
+  const ConstructorValue = TJSValue.CreateObject(FConstructor);
+  FSupport.DefineMember(FFunctionPrototype, CONSTRUCTOR_PROPERTY, ConstructorValue, IS_READ_ONLY);
 end;
 
 procedure TJSGeneratorBuiltins.Register;
 begin
   CreateGeneratorPrototype;
-  CreateGeneratorFunctionPrototype;
+  CreateGeneratorFunctionPrototype(FPrototype);
   CreateConstructor;
 
   FInterpreter.GeneratorPrototype := FPrototype;

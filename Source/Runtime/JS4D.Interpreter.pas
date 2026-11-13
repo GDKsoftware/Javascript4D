@@ -14,6 +14,7 @@ uses
   JS4D.Types,
   JS4D.ObjectHeap,
   JS4D.AST,
+  JS4D.SourceContext,
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ObjectScope,
@@ -34,6 +35,8 @@ uses
   JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
   JS4D.GeneratorObjects,
+  JS4D.AsyncHost,
+  JS4D.ObjectRegistry,
   JS4D.Operators,
   JS4D.StrictThis,
   JS4D.StackGuard;
@@ -394,7 +397,7 @@ type
     FContext: TJSCallContext;
     FGenerator: TJSGeneratorObject;
     FBypassNode: TJSASTNode;
-    FGenerators: TJSGeneratorRegistry;
+    FGenerators: TJSObjectRegistry;
     FGeneratorFunctionPrototype: IJSObject;
     FGeneratorPrototype: IJSObject;
     FAsyncFunctionPrototype: IJSObject;
@@ -1411,7 +1414,7 @@ begin
   FHeap := TJSHeap.Create;
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
-  FGenerators := TJSGeneratorRegistry.Create;
+  FGenerators := TJSObjectRegistry.Create;
   FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
   FBoundFunctions := TDictionary<Pointer, TJSBoundFunction>.Create;
   FCurrentProgram := nil;
@@ -3641,7 +3644,7 @@ begin
   const Generator = TJSGeneratorObject.Create(FGenerators);
   Result := Generator;
 
-  Generator.Func := Func;
+  Generator.FunctionObject := Func;
   Generator.Scope := FCurrentScope;
   Generator.VarScope := FVarScope;
   Generator.ThisObject := FThisValue;
@@ -3832,7 +3835,7 @@ begin
     if IsResuming then
       DepositResumption(Generator, Mode, Value);
 
-    ResumableExec(TJSBlockStatement(Generator.Func.BodyNode));
+    ResumableExec(TJSBlockStatement(Generator.FunctionObject.BodyNode));
 
     Generator.Finish;
     Result.Outcome := TJSBodyOutcome.Finished;
@@ -3897,19 +3900,19 @@ begin
   const IsDelegate = (Node is TJSYieldExpression) and TJSYieldExpression(Node).IsDelegate;
   if not IsDelegate then
   begin
-    Generator.Remember(Node, Resumption);
+    Generator.AddResumption(Node, Resumption);
     Exit;
   end;
 
-  var Frame: TJSGeneratorFrame;
-  if Generator.FindFrame(Node, Frame) then
+  const Frame = Generator.FindFrame(Node);
+  if Assigned(Frame) then
     TJSStatementFrame(Frame).Received := Resumption;
 end;
 
 function TJSInterpreter.VisitRemembered(const Node: TJSASTNode): TJSValue;
 begin
   var Entry: TJSResumption;
-  if FGenerator.Recall(Node, Entry) then
+  if FGenerator.TryFindResumption(Node, Entry) then
   begin
     Result := ConsumeResumption(Entry);
     Exit;
@@ -3920,7 +3923,7 @@ begin
 
   Entry.Mode := TJSResumeMode.Next;
   Entry.Value := Result;
-  FGenerator.Remember(Node, Entry);
+  FGenerator.AddResumption(Node, Entry);
 end;
 
 function TJSInterpreter.ConsumeResumption(const Entry: TJSResumption): TJSValue;
@@ -4102,8 +4105,8 @@ end;
 
 function TJSInterpreter.FrameFor(const Node: TJSASTNode): TJSStatementFrame;
 begin
-  var Existing: TJSGeneratorFrame;
-  if FGenerator.FindFrame(Node, Existing) then
+  const Existing = FGenerator.FindFrame(Node);
+  if Assigned(Existing) then
   begin
     Result := TJSStatementFrame(Existing);
     Exit;
@@ -4128,13 +4131,13 @@ begin
     end;
   finally
     if not IsSuspended then
-      FGenerator.ForgetMemory;
+      FGenerator.DropResumptions;
   end;
 end;
 
 function TJSInterpreter.EvaluateRemembering(const Node: TJSExpression): TJSValue;
 begin
-  const NeedsResumption = (Assigned(Node) and Node.ContainsYield);
+  const NeedsResumption = (Assigned(Node) and Node.ContainsSuspension);
   if not NeedsResumption then
   begin
     Result := Visit(Node);
@@ -4153,7 +4156,7 @@ end;
 
 function TJSInterpreter.ResumableExec(const Node: TJSStatement): TJSValue;
 begin
-  const NeedsResumption = (Assigned(Node) and Node.ContainsYield);
+  const NeedsResumption = (Assigned(Node) and Node.ContainsSuspension);
   if not NeedsResumption then
   begin
     Result := ExecuteStatement(Node);
@@ -4277,7 +4280,7 @@ begin
   begin
     const Declarator = Node.Declarations[Frame.Index];
 
-    if Declarator.ContainsYield then
+    if Declarator.ContainsSuspension then
     begin
       RunRemembering(
         procedure
@@ -4546,7 +4549,7 @@ end;
 
 procedure TJSInterpreter.BindLoopVariable(const Node: TJSForInStatement; const Frame: TJSStatementFrame);
 begin
-  if Node.Left.ContainsYield then
+  if Node.Left.ContainsSuspension then
   begin
     RunRemembering(
       procedure
@@ -6127,7 +6130,7 @@ end;
 procedure TJSInterpreter.BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
                                           const Mode: TJSBindingMode);
 begin
-  const IsResumable = Assigned(FGenerator) and Pattern.ContainsYield;
+  const IsResumable = Assigned(FGenerator) and Pattern.ContainsSuspension;
   if IsResumable then
   begin
     BindResumableArrayPattern(Pattern, Value, Mode);

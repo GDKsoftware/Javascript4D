@@ -8,82 +8,59 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Interpreter,
+  JS4D.BinarySupport,
   JS4D.GeneratorObjects,
+  JS4D.AsyncHost,
   JS4D.PromiseObjects,
   JS4D.PromiseOperations;
 
 type
+  TJSAwaitedPromise = record
+    Promise: IJSPromise;
+    Reason: TJSValue;
+    IsAwaitable: Boolean;
+  end;
+
+  TJSBodyAdvance = record
+    IsDone: Boolean;
+    Resumption: TJSResumption;
+  end;
+
   TJSAsyncRunner = class(TJSAsyncHost)
   private
     FInterpreter: TJSInterpreter;
+    FSupport: TJSBinarySupport;
     FOperations: TJSPromiseOperations;
 
-    function TryAwaitedPromise(const Operand: TJSValue; out Awaited: IJSPromise; out Reason: TJSValue): Boolean;
+    function AwaitedPromiseOf(const Operand: TJSValue): TJSAwaitedPromise;
+    function AdvanceOnce(const ResultPromise: IJSPromise; const Body: IJSGenerator;
+                         const Resumption: TJSResumption): TJSBodyAdvance;
+    procedure SubscribeAwait(const ResultPromise: IJSPromise; const Body: IJSGenerator;
+                             const Awaited: IJSPromise);
+    procedure Step(const ResultPromise: IJSPromise; const Body: IJSGenerator; const Mode: TJSResumeMode;
+                   const Value: TJSValue);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations);
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+                       const Operations: TJSPromiseOperations);
 
     function CreateResult: IJSObject; override;
-    procedure Start(const Result: IJSObject; const Body: IJSGenerator); override;
-    procedure Reject(const Result: IJSObject; const Reason: TJSValue); override;
-
-    procedure Step(const Result: IJSPromise; const Body: IJSGenerator; const Mode: TJSResumeMode;
-                   const Value: TJSValue);
+    procedure Start(const ResultPromise: IJSObject; const Body: IJSGenerator); override;
+    procedure Reject(const ResultPromise: IJSObject; const Reason: TJSValue); override;
   end;
 
 implementation
 
 uses
-  JS4D.Errors;
+  JS4D.AwaitContinuation;
 
-type
-  TJSAwaitContinuation = class(TInterfacedObject, IJSPromiseContinuation)
-  private
-    FRunner: TJSAsyncRunner;
-    FResult: IJSPromise;
-    FBody: IJSGenerator;
-
-  public
-    constructor Create(const Runner: TJSAsyncRunner; const Result: IJSPromise; const Body: IJSGenerator);
-
-    procedure Resume(const IsRejection: Boolean; const Value: TJSValue);
-    procedure EnumerateReferences(const Callback: TJSValueVisitor);
-  end;
-
-{ TJSAwaitContinuation }
-
-constructor TJSAwaitContinuation.Create(const Runner: TJSAsyncRunner; const Result: IJSPromise;
-                                        const Body: IJSGenerator);
-begin
-  inherited Create;
-
-  FRunner := Runner;
-  FResult := Result;
-  FBody := Body;
-end;
-
-procedure TJSAwaitContinuation.Resume(const IsRejection: Boolean; const Value: TJSValue);
-begin
-  var Mode := TJSResumeMode.Next;
-  if IsRejection then
-    Mode := TJSResumeMode.Throw;
-
-  FRunner.Step(FResult, FBody, Mode, Value);
-end;
-
-procedure TJSAwaitContinuation.EnumerateReferences(const Callback: TJSValueVisitor);
-begin
-  Callback(TJSValue.CreateObject(FBody));
-  Callback(TJSValue.CreateObject(FResult));
-end;
-
-{ TJSAsyncRunner }
-
-constructor TJSAsyncRunner.Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations);
+constructor TJSAsyncRunner.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+                                  const Operations: TJSPromiseOperations);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := Support;
   FOperations := Operations;
 end;
 
@@ -92,79 +69,107 @@ begin
   Result := FOperations.CreatePromise(FOperations.Prototype);
 end;
 
-procedure TJSAsyncRunner.Start(const Result: IJSObject; const Body: IJSGenerator);
+procedure TJSAsyncRunner.Start(const ResultPromise: IJSObject; const Body: IJSGenerator);
 begin
-  const ResultPromise = Result as IJSPromise;
-  Step(ResultPromise, Body, TJSResumeMode.Next, TJSValue.CreateUndefined);
+  const Promise = (ResultPromise as IJSPromise);
+  const Undefined = TJSValue.CreateUndefined;
+
+  Step(Promise, Body, TJSResumeMode.Next, Undefined);
 end;
 
-procedure TJSAsyncRunner.Reject(const Result: IJSObject; const Reason: TJSValue);
+procedure TJSAsyncRunner.Reject(const ResultPromise: IJSObject; const Reason: TJSValue);
 begin
-  const ResultPromise = Result as IJSPromise;
-  FOperations.RejectPromise(ResultPromise, Reason);
+  const Promise = (ResultPromise as IJSPromise);
+
+  FOperations.RejectPromise(Promise, Reason);
 end;
 
-procedure TJSAsyncRunner.Step(const Result: IJSPromise; const Body: IJSGenerator; const Mode: TJSResumeMode;
-                              const Value: TJSValue);
+procedure TJSAsyncRunner.Step(const ResultPromise: IJSPromise; const Body: IJSGenerator;
+                              const Mode: TJSResumeMode; const Value: TJSValue);
 begin
-  var NextMode := Mode;
-  var NextValue := Value;
+  var Resumption := Default(TJSResumption);
+  Resumption.Mode := Mode;
+  Resumption.Value := Value;
 
-  while True do
+  var Advance: TJSBodyAdvance;
+  repeat
+    Advance := AdvanceOnce(ResultPromise, Body, Resumption);
+    Resumption := Advance.Resumption;
+  until Advance.IsDone;
+end;
+
+function TJSAsyncRunner.AdvanceOnce(const ResultPromise: IJSPromise; const Body: IJSGenerator;
+                                    const Resumption: TJSResumption): TJSBodyAdvance;
+begin
+  Result := Default(TJSBodyAdvance);
+  Result.IsDone := True;
+
+  var Advanced: TJSBodyResult;
+  const Outcome = FSupport.Capture(
+    function: TJSValue
+    begin
+      Advanced := FInterpreter.AdvanceBody(Body, Resumption.Mode, Resumption.Value);
+      Result := TJSValue.CreateUndefined;
+    end);
+
+  if not Outcome.IsNormal then
   begin
-    var Advanced: TJSBodyResult;
-    try
-      Advanced := FInterpreter.AdvanceBody(Body, NextMode, NextValue);
-    except
-      on EJSExecutionInterrupted do
-        raise;
-      on Error: Exception do
-      begin
-        const Reason = FInterpreter.ExceptionToValue(Error);
-        FOperations.RejectPromise(Result, Reason);
-        Exit;
-      end;
-    end;
-
-    const IsFinished = (Advanced.Outcome = TJSBodyOutcome.Finished);
-    if IsFinished then
-    begin
-      FOperations.ResolvePromise(Result, Advanced.Value);
-      Exit;
-    end;
-
-    var Awaited: IJSPromise;
-    var Reason: TJSValue;
-    if TryAwaitedPromise(Advanced.Value, Awaited, Reason) then
-    begin
-      const Continuation: IJSPromiseContinuation = TJSAwaitContinuation.Create(Self, Result, Body);
-      FOperations.PerformAwait(Awaited, Continuation);
-      Exit;
-    end;
-
-    NextMode := TJSResumeMode.Throw;
-    NextValue := Reason;
+    FOperations.RejectPromise(ResultPromise, Outcome.Value);
+    Exit;
   end;
+
+  const IsFinished = (Advanced.Outcome = TJSBodyOutcome.Finished);
+  if IsFinished then
+  begin
+    FOperations.ResolvePromise(ResultPromise, Advanced.Value);
+    Exit;
+  end;
+
+  const Awaited = AwaitedPromiseOf(Advanced.Value);
+  if Awaited.IsAwaitable then
+  begin
+    SubscribeAwait(ResultPromise, Body, Awaited.Promise);
+    Exit;
+  end;
+
+  Result.IsDone := False;
+  Result.Resumption.Mode := TJSResumeMode.Throw;
+  Result.Resumption.Value := Awaited.Reason;
 end;
 
-function TJSAsyncRunner.TryAwaitedPromise(const Operand: TJSValue; out Awaited: IJSPromise;
-                                          out Reason: TJSValue): Boolean;
+procedure TJSAsyncRunner.SubscribeAwait(const ResultPromise: IJSPromise; const Body: IJSGenerator;
+                                        const Awaited: IJSPromise);
 begin
-  Awaited := nil;
-  Reason := TJSValue.CreateUndefined;
+  const Continuation: IJSPromiseContinuation = TJSAwaitContinuation.Create(Step, ResultPromise, Body);
 
-  try
-    const PromiseConstructor = TJSValue.CreateObject(FOperations.Constructor_);
-    const Resolved = FOperations.PromiseResolve(PromiseConstructor, Operand);
-    Result := Supports(Resolved.ToObject, IJSPromise, Awaited);
-  except
-    on EJSExecutionInterrupted do
-      raise;
-    on Error: Exception do
+  FOperations.PerformAwait(Awaited, Continuation);
+end;
+
+function TJSAsyncRunner.AwaitedPromiseOf(const Operand: TJSValue): TJSAwaitedPromise;
+begin
+  Result := Default(TJSAwaitedPromise);
+  Result.Reason := TJSValue.CreateUndefined;
+
+  var Awaited: IJSPromise;
+  var IsAwaitable := False;
+  const Outcome = FSupport.Capture(
+    function: TJSValue
     begin
-      Reason := FInterpreter.ExceptionToValue(Error);
-      Result := False;
-    end;
+      const PromiseConstructor = TJSValue.CreateObject(FOperations.PromiseConstructor);
+      const Resolved = FOperations.PromiseResolve(PromiseConstructor, Operand);
+      const ResolvedObject = Resolved.ToObject;
+      IsAwaitable := Supports(ResolvedObject, IJSPromise, Awaited);
+      Result := TJSValue.CreateUndefined;
+    end);
+
+  if Outcome.IsNormal then
+  begin
+    Result.Promise := Awaited;
+    Result.IsAwaitable := IsAwaitable;
+  end
+  else
+  begin
+    Result.Reason := Outcome.Value;
   end;
 end;
 
