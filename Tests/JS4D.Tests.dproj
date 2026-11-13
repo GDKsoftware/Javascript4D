@@ -97,6 +97,8 @@
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.SlotMap.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.ObjectHeap.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.PropertyKey.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.BigNatural.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
@@ -144,6 +146,10 @@
         <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalStates.pas"/>
         <DCCReference Include="JS4D.Tests.ArrowFunctions.pas"/>
+        <DCCReference Include="JS4D.Tests.Classes.pas"/>
+        <DCCReference Include="JS4D.Tests.Promises.pas"/>
+        <DCCReference Include="JS4D.Tests.Generators.pas"/>
+        <DCCReference Include="JS4D.Tests.AsyncFunctions.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionExpressionNames.pas"/>
         <DCCReference Include="JS4D.Tests.FunctionParameters.pas"/>
         <DCCReference Include="JS4D.Tests.TemplateLiterals.pas"/>
@@ -160,6 +166,7 @@
         <DCCReference Include="JS4D.Tests.ObjectAccessors.pas"/>
         <DCCReference Include="JS4D.Tests.ObjectLiteralExtensions.pas"/>
         <DCCReference Include="JS4D.Tests.Operators.pas"/>
+        <DCCReference Include="JS4D.Tests.NullishAndSeparators.pas"/>
         <DCCReference Include="JS4D.Tests.PropertyOrder.pas"/>
         <DCCReference Include="JS4D.Tests.UriCoding.pas"/>
         <DCCReference Include="JS4D.Tests.GenericArrayMutators.pas"/>
@@ -192,6 +199,14 @@
         <DCCReference Include="JS4D.Tests.TypedArrays.pas"/>
         <DCCReference Include="JS4D.Tests.SparseArrays.pas"/>
         <DCCReference Include="JS4D.Tests.Proxy.pas"/>
+        <DCCReference Include="JS4D.Tests.PropertyKeys.pas"/>
+        <DCCReference Include="JS4D.Tests.ArrayConversion.pas"/>
+        <DCCReference Include="JS4D.Tests.DeepPrototypeChains.pas"/>
+        <DCCReference Include="JS4D.Tests.SourceNesting.pas"/>
+        <DCCReference Include="JS4D.Tests.LongChains.pas"/>
+        <DCCReference Include="JS4D.Tests.ProtoAccessor.pas"/>
+        <DCCReference Include="JS4D.Tests.ProxyLimits.pas"/>
+        <DCCReference Include="JS4D.Tests.HotPathSemantics.pas"/>
         <DCCReference Include="JS4D.Tests.EngineLifetime.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>

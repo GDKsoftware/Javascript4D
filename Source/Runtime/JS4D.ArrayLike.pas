@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors,
   JS4D.SymbolRegistry,
@@ -30,7 +31,7 @@ type
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
     class procedure PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
-    class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
+    class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: TJSPropertyKey;
                              const IntrinsicSpeciesGetter: IJSFunction): TJSValue; static;
 
   public
@@ -193,7 +194,7 @@ begin
     raise TJSErrorFactory.TypeError(COMPARER_NOT_A_FUNCTION);
 end;
 
-class function TJSArrayLike.SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: string;
+class function TJSArrayLike.SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: TJSPropertyKey;
                                       const IntrinsicSpeciesGetter: IJSFunction): TJSValue;
 begin
   const ConstructorObject = ConstructorValue.ToObject;

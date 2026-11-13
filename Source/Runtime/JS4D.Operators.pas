@@ -176,9 +176,9 @@ end;
 
 class function TJSOperators.ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue;
 begin
-  if Value.IsArray then
+  if Value.IsArray and Value.HasUntouchedArrayConversion(TJSPrimitiveHint.Default) then
   begin
-    const Text = Value.ToLimitedString(Limits);
+    const Text = Value.ToUntouchedArrayText(Limits);
     Result := TJSValue.CreateString(Text);
     Exit;
   end;

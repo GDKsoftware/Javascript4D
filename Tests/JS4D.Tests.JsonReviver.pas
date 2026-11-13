@@ -65,6 +65,18 @@ type
     procedure Parse_Reviver_RespectsObjectChanges(const Script, Expected: string);
 
     [Test]
+    [TestCase('ProxyForArrayIsWalkedAsArray', 'var seen = false; var p = new Proxy([], {}); p.other = 0; JSON.parse("[null,null]", function (k, v) { if (k === "other") { seen = true; } this[1] = p; return v; }); seen@false', '@')]
+    [TestCase('ProxyForObjectIsWalkedAsObject', 'var seen = false; var p = new Proxy({length: 0, other: 0}, {}); JSON.parse("[null,null]", function (k, v) { if (k === "other") { seen = true; } if (this !== p) { this[1] = p; } return v; }); seen@true', '@')]
+    [TestCase('LengthGetThrows', '(function () { var bad = new Proxy([], { get: function (t, n) { if (n === "length") { throw "boom"; } } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); return "none"; } catch (e) { return e; } })()@boom', '@')]
+    [TestCase('LengthCoercionThrows', '(function () { var bad = new Proxy([], { get: function (t, n) { return n === "length" ? { valueOf: function () { throw "boom"; } } : undefined; } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); return "none"; } catch (e) { return e; } })()@boom', '@')]
+    procedure Parse_Reviver_WalksProxies(const Script, Expected: string);
+
+    [Test]
+    [TestCase('Parse', 'Object.defineProperty(Object.prototype, "", { set: function () { throw "setter called"; }, configurable: true }); var r = JSON.parse("2", function (k, v) { return v; }); delete Object.prototype[""]; r@2', '@')]
+    [TestCase('Stringify', 'Object.defineProperty(Object.prototype, "", { set: function () { throw "setter called"; }, configurable: true }); var r = JSON.stringify(2, function (k, v) { return v; }); delete Object.prototype[""]; r@2', '@')]
+    procedure Json_RootHolder_IgnoresInheritedSetter(const Script, Expected: string);
+
+    [Test]
     procedure Parse_ReviverThrows_PropagatesError;
   end;
 
@@ -106,6 +118,16 @@ begin
 end;
 
 procedure TJsonReviverTests.Parse_Reviver_RespectsObjectChanges(const Script, Expected: string);
+begin
+  Assert.AreEqual(Expected, Evaluate(Script));
+end;
+
+procedure TJsonReviverTests.Parse_Reviver_WalksProxies(const Script, Expected: string);
+begin
+  Assert.AreEqual(Expected, Evaluate(Script));
+end;
+
+procedure TJsonReviverTests.Json_RootHolder_IgnoresInheritedSetter(const Script, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Script));
 end;

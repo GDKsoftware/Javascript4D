@@ -19,6 +19,7 @@ type
     FClosedParen: TJSParenKind;
     FPendingFunction: TJSParenKind;
     FRegExpAllowedAfterClose: Boolean;
+    FClassDeclarationDepth: Integer;
 
     function ParenKindFor(const Previous: TJSToken): TJSParenKind;
     function BraceEndsStatement: Boolean;
@@ -26,6 +27,7 @@ type
     function IsStatementBoundary(const Previous: TJSToken): Boolean;
     procedure OpenParen;
     procedure CloseParen;
+    procedure StartClass;
     procedure OpenBrace;
     procedure CloseBrace;
 
@@ -40,9 +42,14 @@ type
 
 implementation
 
+const
+  NO_CLASS_DECLARATION = -1;
+  YIELD_NAME = 'yield';
+
 constructor TJSSlashContext.Create;
 begin
   inherited Create;
+  FClassDeclarationDepth := NO_CLASS_DECLARATION;
   FParens := TList<TJSParenKind>.Create;
   FBraceEndsStatement := TList<Boolean>.Create;
 end;
@@ -62,6 +69,7 @@ begin
   FClosedParen := TJSParenKind.Plain;
   FPendingFunction := TJSParenKind.Plain;
   FRegExpAllowedAfterClose := False;
+  FClassDeclarationDepth := NO_CLASS_DECLARATION;
 end;
 
 procedure TJSSlashContext.Observe(const Token: TJSToken);
@@ -71,6 +79,10 @@ begin
   if TokenType = TJSTokenType.KeywordFunction then
   begin
     FPendingFunction := FunctionKindFor(FPreviousToken);
+  end
+  else if TokenType = TJSTokenType.KeywordClass then
+  begin
+    StartClass;
   end
   else if TokenType = TJSTokenType.LeftParen then
   begin
@@ -107,6 +119,11 @@ begin
   const EndsTemplate = (PreviousType = TJSTokenType.TemplateChunk) and FPreviousToken.IsTemplateTail;
   if EndsTemplate then
     Exit(True);
+
+  const IsYieldKeyword = (PreviousType = TJSTokenType.Identifier) and (FPreviousToken.Value = YIELD_NAME) and
+                         (not FPreviousToken.HasEscape);
+  if IsYieldKeyword then
+    Exit(False);
 
   Result := PreviousType in [
     TJSTokenType.Identifier,
@@ -198,9 +215,19 @@ begin
   Result := IsStatementBoundary(FPreviousToken);
 end;
 
+procedure TJSSlashContext.StartClass;
+begin
+  if IsStatementBoundary(FPreviousToken) then
+    FClassDeclarationDepth := FParens.Count;
+end;
+
 procedure TJSSlashContext.OpenBrace;
 begin
-  const EndsStatement = BraceEndsStatement;
+  const IsClassBody = (FClassDeclarationDepth = FParens.Count);
+  if IsClassBody then
+    FClassDeclarationDepth := NO_CLASS_DECLARATION;
+
+  const EndsStatement = IsClassBody or BraceEndsStatement;
   FBraceEndsStatement.Add(EndsStatement);
 end;
 

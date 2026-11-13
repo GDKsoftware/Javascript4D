@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type
@@ -430,7 +431,7 @@ begin
 
   const Holder: IJSObject = TJSObject.Create;
   Holder.Prototype := FObjectPrototype;
-  Holder.SetProperty('', Value);
+  TJSObjectOperations.CreateDataProperty(Holder, '', Value);
 
   var Prepared: TJSValue;
   Result := TryPrepare('', Holder, Prepared);

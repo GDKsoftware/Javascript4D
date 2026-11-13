@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
@@ -32,10 +33,10 @@ type
     function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
     function ToText(const Value: TJSValue): string;
     function HasSearchValue(const Value: TJSValue): Boolean;
-    function DelegateTo(const SearchValue: TJSValue; const Key: string; const Subject: TJSValue;
+    function DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
                         const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
     procedure RequireGlobalFlags(const SearchValue: TJSValue);
-    function InvokeOnNewRegExp(const Key: string; const Pattern: TJSValue; const Text: string): TJSValue;
+    function InvokeOnNewRegExp(const Key: TJSPropertyKey; const Pattern: TJSValue; const Text: string): TJSValue;
     function MatchOrSearch(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
                            const Which: TJSWellKnownSymbol): TJSValue;
     function Replace(const This: IJSObject; const Args: TArray<TJSValue>; const ReplaceAll: Boolean): TJSValue;
@@ -95,7 +96,7 @@ begin
   Result := Value.IsObject;
 end;
 
-function TJSStringPatternMethods.DelegateTo(const SearchValue: TJSValue; const Key: string; const Subject: TJSValue;
+function TJSStringPatternMethods.DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
                                             const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
 begin
   Handled := False;
@@ -126,7 +127,7 @@ begin
     raise TJSErrorFactory.TypeError(REPLACE_ALL_NEEDS_GLOBAL);
 end;
 
-function TJSStringPatternMethods.InvokeOnNewRegExp(const Key: string; const Pattern: TJSValue;
+function TJSStringPatternMethods.InvokeOnNewRegExp(const Key: TJSPropertyKey; const Pattern: TJSValue;
                                                    const Text: string): TJSValue;
 begin
   var PatternText := '';
@@ -138,7 +139,7 @@ begin
 
   const Method = TJSConversions.FindMethod(TJSValue.CreateObject(NewRegExp), Key);
   if not Assigned(Method) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [Key]));
+    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [Key.Text]));
 
   Result := Method.Call(NewRegExp, [TJSValue.CreateString(Text)]);
 end;

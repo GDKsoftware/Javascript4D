@@ -4,10 +4,8 @@
 
 # Language syntax and semantics
 arbitrary-module-namespace-names
-async-functions
 async-iteration
 caller
-class
 class-fields-private
 class-fields-private-in
 class-fields-public
@@ -16,14 +14,12 @@ class-static-block
 class-static-fields-private
 class-static-fields-public
 class-static-methods-private
-coalesce-expression
 decorators
 dynamic-import
 explicit-resource-management
 export-defer
 export-star-as-namespace-from-module
 for-in-order
-generators
 hashbang
 import-attributes
 import-bytes
@@ -33,11 +29,8 @@ import.meta
 json-modules
 json-superset
 logical-assignment-operators
-new.target
-numeric-separator-literal
 optional-catch-binding
 optional-chaining
-super
 tail-call-optimization
 top-level-await
 u180e
@@ -62,7 +55,6 @@ symbols-as-weakmap-keys
 
 # Collections and objects
 __getter__
-__proto__
 __setter__
 array-grouping
 cross-realm
@@ -94,7 +86,6 @@ SharedArrayBuffer
 uint8array-base64
 
 # Promises, errors and iterators
-AggregateError
 await-dictionary
 error-cause
 error-stack-accessor
@@ -105,12 +96,6 @@ iterator-includes
 iterator-sequencing
 Iterator.prototype.join
 joint-iteration
-Promise
-promise-try
-promise-with-resolvers
-Promise.allSettled
-Promise.any
-Promise.prototype.finally
 
 # Internationalization, Temporal and proposals
 canonical-tz

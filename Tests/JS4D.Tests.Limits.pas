@@ -69,6 +69,12 @@ type
     procedure Execute_RecursionThroughBind_RaisesCallDepthExceeded;
 
     [Test]
+    procedure Execute_CallOfLongBoundChain_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure Execute_ConstructOfLongBoundChain_RaisesCallDepthExceeded;
+
+    [Test]
     procedure Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;
   end;
 
@@ -370,6 +376,8 @@ const
   RecursionThroughCallScript = 'function f(n) { return f.call(null, n + 1); } f(0);';
   RecursionThroughApplyScript = 'function f(n) { return f.apply(null, [n + 1]); } f(0);';
   RecursionThroughBindScript = 'function f(n) { var g = f.bind(null, n + 1); return g(); } f(0);';
+  LongBoundChainCallScript = 'var f = function () { return 1; }; for (var i = 0; i < 1000; i++) { f = f.bind(null); } f();';
+  LongBoundChainConstructScript = 'var f = function () { }; for (var i = 0; i < 1000; i++) { f = f.bind(null); } new f();';
   NestedArrayScript = 'var a = []; for (var i = 0; i < 150; i++) { a = [a]; } a + '''';';
   BigPiecesPrefix = 'var s = ''x''.repeat(1000000); var a = []; for (var i = 0; i < 20; i++) { a.push(s); } ';
   StringOfBigArrayScript = BigPiecesPrefix + 'String(a);';
@@ -577,6 +585,16 @@ end;
 procedure TCallDepthLimitTests.Execute_RecursionThroughBind_RaisesCallDepthExceeded;
 begin
   AssertRecursionStopped(RecursionThroughBindScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_CallOfLongBoundChain_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(LongBoundChainCallScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_ConstructOfLongBoundChain_RaisesCallDepthExceeded;
+begin
+  AssertRecursionStopped(LongBoundChainConstructScript);
 end;
 
 procedure TCallDepthLimitTests.Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;

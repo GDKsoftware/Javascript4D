@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Math,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BinaryData,

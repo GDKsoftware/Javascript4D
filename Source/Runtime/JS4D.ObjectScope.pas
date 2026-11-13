@@ -5,6 +5,7 @@ unit JS4D.ObjectScope;
 interface
 
 uses
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors,
   JS4D.SymbolRegistry;

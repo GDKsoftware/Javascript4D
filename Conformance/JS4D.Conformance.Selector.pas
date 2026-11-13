@@ -42,7 +42,7 @@ const
   UnsupportedHostMembers: array[0..2] of string = ('$262.createRealm',
                                                    '$262.agent',
                                                    '$262.IsHTMLDDA');
-  SkippedFlags: array[0..3] of string = ('module', 'async', 'CanBlockIsFalse', 'CanBlockIsTrue');
+  SkippedFlags: array[0..2] of string = ('module', 'CanBlockIsFalse', 'CanBlockIsTrue');
   ResolutionPhase = 'resolution';
 
 constructor TTestSelector.Create(const Exclusions: TExclusionList; const PathExclusions: TPathExclusionList);

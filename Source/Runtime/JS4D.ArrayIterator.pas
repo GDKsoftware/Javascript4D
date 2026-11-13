@@ -6,6 +6,9 @@ interface
 
 uses
   System.SysUtils,
+  System.Generics.Collections,
+  JS4D.PropertyKey,
+  JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.Errors,
   JS4D.ArrayLike,
@@ -39,9 +42,16 @@ type
     function CreateEntry(const Index: Int64): TJSValue;
     function CreateResult(const Value: TJSValue; const IsDone: Boolean): TJSValue;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+    procedure ReleaseReferences; override;
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
+
   public
     constructor Create(const Target: IJSObject; const Kind: TJSArrayIteratorKind;
                        const ArrayPrototype: IJSObject; const ObjectPrototype: IJSObject);
+    destructor Destroy; override;
 
     function HasNext: Boolean;
     function Next: TJSValue;
@@ -63,6 +73,48 @@ begin
   FKind := Kind;
   FArrayPrototype := ArrayPrototype;
   FObjectPrototype := ObjectPrototype;
+end;
+
+destructor TJSArrayIterator.Destroy;
+begin
+  ReleaseNested;
+  inherited;
+end;
+
+procedure TJSArrayIterator.ReleaseReferences;
+begin
+  ReleaseNested;
+  FIsExhausted := True;
+  FTarget := nil;
+  FTypedArray := nil;
+  FArrayPrototype := nil;
+  FObjectPrototype := nil;
+  inherited;
+end;
+
+function TJSArrayIterator.HoldsNested: Boolean;
+begin
+  Result := Assigned(FTarget) or inherited HoldsNested;
+end;
+
+procedure TJSArrayIterator.DetachNested(const Pending: TList<IJSObject>);
+begin
+  if Assigned(FTarget) then
+    Pending.Add(FTarget);
+
+  FIsExhausted := True;
+  FTarget := nil;
+  FTypedArray := nil;
+  inherited DetachNested(Pending);
+end;
+
+procedure TJSArrayIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FTarget);
+  ReportReference(Visit, FTypedArray);
+  ReportReference(Visit, FArrayPrototype);
+  ReportReference(Visit, FObjectPrototype);
 end;
 
 function TJSArrayIterator.HasNext: Boolean;

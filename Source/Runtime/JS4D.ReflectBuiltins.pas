@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
@@ -30,9 +31,9 @@ type
     function RequireObject(const Value: TJSValue; const MethodName: string): IJSObject;
     function RequireFunction(const Value: TJSValue; const MethodName: string): IJSFunction;
     function RequireConstructor(const Value: TJSValue): IJSFunction;
-    function KeyOf(const Args: TArray<TJSValue>; const Position: Integer): string;
+    function KeyOf(const Args: TArray<TJSValue>; const Position: Integer): TJSPropertyKey;
     function ListFromArrayLike(const Value: TJSValue): TArray<TJSValue>;
-    function ArrayFromKeys(const Keys: TArray<string>): TJSValue;
+    function ArrayFromKeys(const Keys: TArray<TJSPropertyKey>): TJSValue;
     function ReceiverOf(const Args: TArray<TJSValue>; const Position: Integer; const Target: IJSObject): TJSValue;
 
     function Apply(const Args: TArray<TJSValue>): TJSValue;
@@ -104,7 +105,7 @@ begin
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
 
-function TJSReflectBuiltins.KeyOf(const Args: TArray<TJSValue>; const Position: Integer): string;
+function TJSReflectBuiltins.KeyOf(const Args: TArray<TJSValue>; const Position: Integer): TJSPropertyKey;
 begin
   Result := Argument(Args, Position).ToPropertyKey(FInterpreter.Limits);
 end;
@@ -125,7 +126,7 @@ begin
   end;
 end;
 
-function TJSReflectBuiltins.ArrayFromKeys(const Keys: TArray<string>): TJSValue;
+function TJSReflectBuiltins.ArrayFromKeys(const Keys: TArray<TJSPropertyKey>): TJSValue;
 begin
   const List: IJSArray = TJSArray.Create;
   List.Prototype := FInterpreter.ArrayPrototype;

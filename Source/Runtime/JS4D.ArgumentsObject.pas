@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type
@@ -25,26 +26,27 @@ type
     FMappedNames: TArray<string>;
 
     function IsParameterMapped(const ParameterName: string): Boolean;
-    function TryGetMappedIndex(const PropertyName: string; out Index: Integer): Boolean;
-    function TryGetMappedName(const PropertyName: string; out ParameterName: string): Boolean;
+    function TryGetMappedIndex(const PropertyName: TJSPropertyKey; out Index: Integer): Boolean;
+    function TryGetMappedName(const PropertyName: TJSPropertyKey; out ParameterName: string): Boolean;
     procedure MapParameters(const ParameterNames: TArray<string>; const ArgumentCount: Integer);
     procedure Unmap(const Index: Integer);
-    procedure SyncStoredValue(const PropertyName: string);
-    procedure ApplyDefinitionToParameter(const PropertyName: string; const Definition: TJSPropertyDefinition);
+    procedure SyncStoredValue(const PropertyName: TJSPropertyKey);
+    procedure ApplyDefinitionToParameter(const PropertyName: TJSPropertyKey; const Definition: TJSPropertyDefinition);
 
   protected
     function HasStandardPropertyLookup: Boolean; override;
+    function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
     function GetMappedScope: IJSScope;
+    procedure ReleaseReferences; override;
 
   public
     constructor Create(const Scope: IJSScope; const ParameterNames: TArray<string>; const ArgumentCount: Integer);
 
-    procedure SetProperty(const Name: string; const Value: TJSValue); override;
-    procedure DeleteProperty(const Name: string); override;
+    procedure SetProperty(const Name: TJSPropertyKey; const Value: TJSValue); override;
+    procedure DeleteProperty(const Name: TJSPropertyKey); override;
     procedure Freeze; override;
-    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
-    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
-    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function GetOwnPropertyDescriptor(const Name: TJSPropertyKey): TJSPropertyDescriptor; override;
+    function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; override;
 
     property MappedScope: IJSScope read GetMappedScope;
   end;
@@ -55,9 +57,17 @@ constructor TJSArgumentsObject.Create(const Scope: IJSScope; const ParameterName
                                       const ArgumentCount: Integer);
 begin
   inherited Create;
+  HasOrdinaryLookup := False;
 
   FScope := Scope;
   MapParameters(ParameterNames, ArgumentCount);
+end;
+
+procedure TJSArgumentsObject.ReleaseReferences;
+begin
+  FMappedNames := nil;
+  FScope := nil;
+  inherited;
 end;
 
 function TJSArgumentsObject.GetMappedScope: IJSScope;
@@ -89,14 +99,15 @@ begin
   end;
 end;
 
-function TJSArgumentsObject.TryGetMappedIndex(const PropertyName: string; out Index: Integer): Boolean;
+function TJSArgumentsObject.TryGetMappedIndex(const PropertyName: TJSPropertyKey; out Index: Integer): Boolean;
 begin
-  Result := TryStrToInt(PropertyName, Index) and (IntToStr(Index) = PropertyName);
+  const IndexText = PropertyName.Text;
+  Result := TryStrToInt(IndexText, Index) and (IntToStr(Index) = IndexText);
   Result := Result and (Index >= 0) and (Index < Length(FMappedNames));
   Result := Result and (FMappedNames[Index] <> '');
 end;
 
-function TJSArgumentsObject.TryGetMappedName(const PropertyName: string; out ParameterName: string): Boolean;
+function TJSArgumentsObject.TryGetMappedName(const PropertyName: TJSPropertyKey; out ParameterName: string): Boolean;
 begin
   var Index: Integer;
   Result := TryGetMappedIndex(PropertyName, Index);
@@ -109,14 +120,14 @@ begin
   FMappedNames[Index] := '';
 end;
 
-procedure TJSArgumentsObject.SyncStoredValue(const PropertyName: string);
+procedure TJSArgumentsObject.SyncStoredValue(const PropertyName: TJSPropertyKey);
 begin
   var ParameterName: string;
   if TryGetMappedName(PropertyName, ParameterName) then
     StoreOwnValue(PropertyName, FScope.GetVariable(ParameterName));
 end;
 
-procedure TJSArgumentsObject.SetProperty(const Name: string; const Value: TJSValue);
+procedure TJSArgumentsObject.SetProperty(const Name: TJSPropertyKey; const Value: TJSValue);
 begin
   inherited SetProperty(Name, Value);
 
@@ -125,7 +136,7 @@ begin
     FScope.SetVariable(ParameterName, Value);
 end;
 
-procedure TJSArgumentsObject.DeleteProperty(const Name: string);
+procedure TJSArgumentsObject.DeleteProperty(const Name: TJSPropertyKey);
 begin
   inherited DeleteProperty(Name);
 
@@ -146,7 +157,7 @@ begin
   inherited Freeze;
 end;
 
-function TJSArgumentsObject.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+function TJSArgumentsObject.GetOwnPropertyDescriptor(const Name: TJSPropertyKey): TJSPropertyDescriptor;
 begin
   Result := inherited GetOwnPropertyDescriptor(Name);
 
@@ -160,16 +171,17 @@ begin
   Result := False;
 end;
 
-function TJSArgumentsObject.TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean;
+function TJSArgumentsObject.LookupOwn(const Name: TJSPropertyKey;
+                                      out Descriptor: TJSPropertyDescriptor): TJSOwnLookup;
 begin
-  Result := inherited TryGetPropertyDescriptor(Name, Descriptor);
+  Result := inherited LookupOwn(Name, Descriptor);
 
   var ParameterName: string;
-  if Result and TryGetMappedName(Name, ParameterName) then
+  if (Result = TJSOwnLookup.Found) and TryGetMappedName(Name, ParameterName) then
     Descriptor.Value := FScope.GetVariable(ParameterName);
 end;
 
-function TJSArgumentsObject.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+function TJSArgumentsObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
 begin
   SyncStoredValue(Name);
 
@@ -178,7 +190,7 @@ begin
     ApplyDefinitionToParameter(Name, Definition);
 end;
 
-procedure TJSArgumentsObject.ApplyDefinitionToParameter(const PropertyName: string;
+procedure TJSArgumentsObject.ApplyDefinitionToParameter(const PropertyName: TJSPropertyKey;
                                                         const Definition: TJSPropertyDefinition);
 begin
   var Index: Integer;

@@ -62,6 +62,7 @@ type
     LogicalAnd,
     LogicalOr,
     LogicalNot,
+    NullishCoalesce,
 
     BitwiseAnd,
     BitwiseOr,
@@ -109,7 +110,10 @@ type
     KeywordThrow,
     KeywordWith,
     KeywordDebugger,
-    KeywordConst
+    KeywordConst,
+    KeywordClass,
+    KeywordExtends,
+    KeywordSuper
   );
 
   TJSToken = class
@@ -175,7 +179,7 @@ uses
   System.StrUtils;
 
 const
-  UnusedReservedWords: array[0..3] of string = ('enum', 'export', 'extends', 'import');
+  UnusedReservedWords: array[0..2] of string = ('enum', 'export', 'import');
   KeywordVar = 'var';
   KeywordFunction = 'function';
   KeywordReturn = 'return';
@@ -203,6 +207,9 @@ const
   KeywordWith = 'with';
   KeywordDebugger = 'debugger';
   KeywordConst = 'const';
+  KeywordClass = 'class';
+  KeywordExtends = 'extends';
+  KeywordSuper = 'super';
   KeywordTrue = 'true';
   KeywordFalse = 'false';
   KeywordNull = 'null';
@@ -249,7 +256,7 @@ end;
 
 class procedure TJSKeywords.InitializeFutureReservedWords;
 begin
-  FFutureReservedWords.AddRange(['class', 'enum', 'export', 'extends', 'import', 'super']);
+  FFutureReservedWords.AddRange(['enum', 'export', 'import']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -281,6 +288,9 @@ begin
   FKeywords.Add(KeywordWith, TJSTokenType.KeywordWith);
   FKeywords.Add(KeywordDebugger, TJSTokenType.KeywordDebugger);
   FKeywords.Add(KeywordConst, TJSTokenType.KeywordConst);
+  FKeywords.Add(KeywordClass, TJSTokenType.KeywordClass);
+  FKeywords.Add(KeywordExtends, TJSTokenType.KeywordExtends);
+  FKeywords.Add(KeywordSuper, TJSTokenType.KeywordSuper);
   FKeywords.Add(KeywordTrue, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordFalse, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordNull, TJSTokenType.NullLiteral);

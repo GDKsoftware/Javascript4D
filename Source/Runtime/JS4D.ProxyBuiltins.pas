@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.ObjectOperations,
@@ -58,6 +59,9 @@ end;
 
 destructor TJSProxyBuiltins.Destroy;
 begin
+  if Assigned(FRuntime) then
+    FRuntime.Detach;
+
   FRuntime := nil;
   inherited;
 end;
@@ -155,6 +159,10 @@ begin
     function(const Target: IJSFunction; const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
       Result := FInterpreter.Construct(Target, Args, NewTarget);
+    end,
+    procedure
+    begin
+      FInterpreter.ChargeStep;
     end);
 
   const Constructor_ = CreateConstructor;

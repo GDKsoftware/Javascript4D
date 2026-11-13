@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors,
   JS4D.Interpreter,

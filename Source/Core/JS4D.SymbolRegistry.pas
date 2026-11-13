@@ -7,7 +7,8 @@ interface
 uses
   System.SysUtils,
   System.SyncObjs,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  JS4D.PropertyKey;
 
 type
   TJSWellKnownSymbol = (
@@ -26,32 +27,31 @@ type
     Unscopables
   );
 
-  // A symbol used as a property key is stored under a text key made of a marker character and the symbol id.
-  // The registry maps such a key back to the live symbol. It does not own the symbols: an object that stores
-  // a symbol key keeps the symbol itself alive, so every key found on an object resolves to a live symbol.
+  // A symbol used as a property key is identified by its id. The registry maps such an id back to the live
+  // symbol. It does not own the symbols: an object that stores a symbol key keeps the symbol itself alive,
+  // so every key found on an object resolves to a live symbol.
   TJSSymbolRegistry = class
   private
     const
-      KEY_MARKER = Char($FDD0);
       FIRST_DYNAMIC_ID = 100;
 
     class var FLock: TCriticalSection;
     class var FLive: TDictionary<Integer, TObject>;
     class var FLastId: Integer;
-    class var FWellKnownKeys: array[TJSWellKnownSymbol] of string;
 
     class constructor Create;
     class destructor Destroy;
 
   public
-    class function IsKey(const Name: string): Boolean; static; inline;
-    class function KeyFor(const Id: Integer): string; static;
-    class function WellKnownKey(const Which: TJSWellKnownSymbol): string; static; inline;
+    // The keys of the well-known symbols. Read-only: hot paths pass an element on without copying it.
+    class var WellKnownKeys: array[TJSWellKnownSymbol] of TJSPropertyKey;
+
+    class function WellKnownKey(const Which: TJSWellKnownSymbol): TJSPropertyKey; static; inline;
     class function WellKnownDescription(const Which: TJSWellKnownSymbol): string; static;
     class function NextId: Integer; static;
     class procedure Add(const Id: Integer; const Symbol: TObject); static;
     class procedure Remove(const Id: Integer); static;
-    class function Find(const Key: string): TObject; static;
+    class function Find(const Id: Integer): TObject; static;
   end;
 
 implementation
@@ -81,7 +81,7 @@ begin
 
   for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
-    FWellKnownKeys[Which] := KeyFor(Ord(Which) + 1);
+    WellKnownKeys[Which] := TJSPropertyKey.ForSymbol(Ord(Which) + 1);
   end;
 end;
 
@@ -91,19 +91,9 @@ begin
   FLock.Free;
 end;
 
-class function TJSSymbolRegistry.IsKey(const Name: string): Boolean;
+class function TJSSymbolRegistry.WellKnownKey(const Which: TJSWellKnownSymbol): TJSPropertyKey;
 begin
-  Result := (Length(Name) > 0) and (Name[1] = KEY_MARKER);
-end;
-
-class function TJSSymbolRegistry.KeyFor(const Id: Integer): string;
-begin
-  Result := KEY_MARKER + IntToStr(Id);
-end;
-
-class function TJSSymbolRegistry.WellKnownKey(const Which: TJSWellKnownSymbol): string;
-begin
-  Result := FWellKnownKeys[Which];
+  Result := WellKnownKeys[Which];
 end;
 
 class function TJSSymbolRegistry.WellKnownDescription(const Which: TJSWellKnownSymbol): string;
@@ -136,18 +126,8 @@ begin
   end;
 end;
 
-class function TJSSymbolRegistry.Find(const Key: string): TObject;
+class function TJSSymbolRegistry.Find(const Id: Integer): TObject;
 begin
-  Result := nil;
-
-  if not IsKey(Key) then
-    Exit;
-
-  var Id: Integer;
-  const IsId = TryStrToInt(Copy(Key, 2, Length(Key) - 1), Id);
-  if not IsId then
-    Exit;
-
   FLock.Enter;
   try
     if not FLive.TryGetValue(Id, Result) then

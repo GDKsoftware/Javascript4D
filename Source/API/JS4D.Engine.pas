@@ -9,6 +9,7 @@ uses
   System.Math,
   System.DateUtils,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Lexer,
   JS4D.Parser,
@@ -38,6 +39,9 @@ uses
   JS4D.CollectionBuiltins,
   JS4D.BinaryBuiltins,
   JS4D.ProxyBuiltins,
+  JS4D.PromiseBuiltins,
+  JS4D.GeneratorBuiltins,
+  JS4D.AsyncFunctionBuiltins,
   JS4D.ReflectBuiltins,
   JS4D.RegExpProtocol,
   JS4D.ObjectBuiltins,
@@ -62,6 +66,9 @@ type
     FCollectionBuiltins: TJSCollectionBuiltins;
     FBinaryBuiltins: TJSBinaryBuiltins;
     FProxyBuiltins: TJSProxyBuiltins;
+    FPromiseBuiltins: TJSPromiseBuiltins;
+    FGeneratorBuiltins: TJSGeneratorBuiltins;
+    FAsyncFunctionBuiltins: TJSAsyncFunctionBuiltins;
     FReflectBuiltins: TJSReflectBuiltins;
     FRegExpProtocol: TJSRegExpProtocol;
     FObjectBuiltins: TJSObjectBuiltins;
@@ -71,7 +78,7 @@ type
     FOnConsoleOutput: TConsoleOutputHandler;
 
     function ToText(const Value: TJSValue): string;
-    function ToKeyText(const Value: TJSValue): string;
+    function ToKeyText(const Value: TJSValue): TJSPropertyKey;
     class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     function HasSameRegExpConstructor(const Pattern: TJSValue; const PrototypeObj: IJSObject): Boolean;
     procedure ReadRegExpSource(const Args: TArray<TJSValue>; const PatternIsRegExp: Boolean;
@@ -86,7 +93,8 @@ type
     function GetMaxArrayLength: Integer;
     procedure SetMaxArrayLength(const Value: Integer);
 
-    function ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+    function ParseProgram(const Source: string; const IsStrictContext: Boolean;
+                          const Context: TJSSourceContext): TJSProgram;
     procedure RegisterBuiltInFunctions;
     procedure RegisterUriFunction(const Name: string; const Transform: TUriTransform);
     procedure RegisterStringRaw(const StringFunc: IJSFunction);
@@ -94,8 +102,8 @@ type
     function CodePointsToString(const Args: TArray<TJSValue>): string;
     function ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
     function CoerceToObject(const Value: TJSValue): IJSObject;
-    class function IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean; static;
-    class procedure PutChecked(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
+    class function IsEnumerableOwn(const Source: IJSObject; const Name: TJSPropertyKey): Boolean; static;
+    class procedure PutChecked(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue); static;
     procedure CopyEnumerableOwn(const Source: IJSObject; const Target: IJSObject);
     procedure RegisterConsole;
     procedure RegisterMath;
@@ -120,7 +128,7 @@ type
     procedure LinkIntrinsicPrototypes;
     procedure AssignMissingFunctionPrototypes;
     procedure AssignFunctionPrototype(const Target: IJSObject; const Pending: TStack<IJSObject>);
-    procedure QueueMemberObjects(const Target: IJSObject; const Name: string; const Pending: TStack<IJSObject>);
+    procedure QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey; const Pending: TStack<IJSObject>);
     procedure ApplyBuiltinAttributes;
     procedure DefineRestrictedFunctionProperties(const PrototypeObj: IJSObject);
 
@@ -143,6 +151,9 @@ type
     function Evaluate(const Expression: string): TJSValue;
     procedure Cancel;
     procedure CollectGarbage;
+    // Runs the promise jobs that are still waiting. Execute does that itself when a script ends, so a host only
+    // needs this after work that queued jobs outside a script.
+    procedure RunPendingJobs;
 
     procedure RegisterFunction(const Name: string; const Func: TNativeFunction);
     procedure SetVariable(const Name: string; const Value: TJSValue);
@@ -272,6 +283,8 @@ const
   JSON_STRINGIFY = 'stringify';
   ARRAY_IS_ARRAY = 'isArray';
   ARRAY_TO_LOCALE_STRING = 'toLocaleString';
+  ARRAY_JOIN = 'join';
+  ARRAY_TO_STRING = 'toString';
   ARRAY_FROM = 'from';
   ARRAY_OF = 'of';
   ARRAY_KEYS = 'keys';
@@ -304,7 +317,13 @@ begin
   FPrograms := TList<TJSProgram>.Create;
   FOnConsoleOutput := nil;
   FInterpreter.RegisterEval(ParseProgram);
-  RegisterBuiltInFunctions;
+
+  const PreviousHeap = FInterpreter.EnterHeap;
+  try
+    RegisterBuiltInFunctions;
+  finally
+    FInterpreter.LeaveHeap(PreviousHeap);
+  end;
 end;
 
 destructor TJSEngine.Destroy;
@@ -319,11 +338,16 @@ begin
   if Assigned(FCollectionBuiltins) then
     FCollectionBuiltins.ReleaseCollections;
 
-  FInterpreter.Free;
+  if Assigned(FPromiseBuiltins) then
+    FPromiseBuiltins.ReleasePromises;
+
   FPrototypeMethods.Free;
   FDateBuiltins.Free;
   FIteratorBuiltins.Free;
   FReflectBuiltins.Free;
+  FPromiseBuiltins.Free;
+  FAsyncFunctionBuiltins.Free;
+  FGeneratorBuiltins.Free;
   FProxyBuiltins.Free;
   FBinaryBuiltins.Free;
   FCollectionBuiltins.Free;
@@ -332,14 +356,16 @@ begin
   FStringPatternMethods.Free;
   FSymbolBuiltins.Free;
   FArrayIteratorPrototype := nil;
+  FInterpreter.Free;
   inherited;
 end;
 
-function TJSEngine.ParseProgram(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+function TJSEngine.ParseProgram(const Source: string; const IsStrictContext: Boolean;
+                                const Context: TJSSourceContext): TJSProgram;
 begin
   const Parser = TJSParser.Create(Source);
   try
-    Result := Parser.Parse(IsStrictContext);
+    Result := Parser.Parse(IsStrictContext, Context);
     FPrograms.Add(Result);
   finally
     Parser.Free;
@@ -348,7 +374,12 @@ end;
 
 function TJSEngine.Execute(const Source: string): TJSValue;
 begin
-  Result := FInterpreter.Execute(ParseProgram(Source, False));
+  Result := FInterpreter.Execute(ParseProgram(Source, False, Default(TJSSourceContext)));
+end;
+
+procedure TJSEngine.RunPendingJobs;
+begin
+  FInterpreter.RunPendingJobs;
 end;
 
 procedure TJSEngine.CollectGarbage;
@@ -405,7 +436,7 @@ begin
   Result := Primitive.ToLimitedString(FInterpreter.Limits);
 end;
 
-function TJSEngine.ToKeyText(const Value: TJSValue): string;
+function TJSEngine.ToKeyText(const Value: TJSValue): TJSPropertyKey;
 begin
   Result := Value.ToPropertyKey(FInterpreter.Limits);
 end;
@@ -671,6 +702,9 @@ begin
   FIteratorBuiltins := TJSIteratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype);
   FIteratorBuiltins.Register;
 
+  FGeneratorBuiltins := TJSGeneratorBuiltins.Create(FInterpreter, FArrayIteratorPrototype.Prototype);
+  FGeneratorBuiltins.Register;
+
   FCollectionBuiltins := TJSCollectionBuiltins.Create(FInterpreter);
   FCollectionBuiltins.Register;
 
@@ -682,6 +716,12 @@ begin
 
   FBinaryBuiltins := TJSBinaryBuiltins.Create(FInterpreter);
   FBinaryBuiltins.Register;
+
+  FPromiseBuiltins := TJSPromiseBuiltins.Create(FInterpreter);
+  FPromiseBuiltins.Register;
+
+  FAsyncFunctionBuiltins := TJSAsyncFunctionBuiltins.Create(FInterpreter, FPromiseBuiltins.Operations);
+  FAsyncFunctionBuiltins.Register;
 
   AssignMissingFunctionPrototypes;
 end;
@@ -772,16 +812,16 @@ begin
   Result := FInterpreter.WrapPrimitive(Value);
 end;
 
-class function TJSEngine.IsEnumerableOwn(const Source: IJSObject; const Name: string): Boolean;
+class function TJSEngine.IsEnumerableOwn(const Source: IJSObject; const Name: TJSPropertyKey): Boolean;
 begin
   var Descriptor: TJSPropertyDescriptor;
   Result := TJSObjectOperations.TryGetOwnProperty(Source, Name, Descriptor) and Descriptor.Enumerable;
 end;
 
-class procedure TJSEngine.PutChecked(const Target: IJSObject; const Name: string; const Value: TJSValue);
+class procedure TJSEngine.PutChecked(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue);
 begin
   if not TJSPropertyDescriptors.CanPut(Target, Name) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_READ_ONLY, [Name]));
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_READ_ONLY, [Name.Text]));
 
   Target.SetProperty(Name, Value);
 end;
@@ -1185,6 +1225,7 @@ end;
 procedure TJSEngine.RegisterObject;
 begin
   const PrototypeObj = TJSObject.Create;
+  PrototypeObj.HasImmutablePrototype := True;
 
   const ObjectObj = TJSFunction.CreateNative(OBJECT_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1324,7 +1365,7 @@ begin
 
       for var SymbolKey in Obj.GetOwnSymbolKeys do
       begin
-        const Found: IJSSymbol = TJSSymbolImpl(TJSSymbolRegistry.Find(SymbolKey));
+        const Found: IJSSymbol = TJSSymbolImpl(TJSSymbolRegistry.Find(SymbolKey.SymbolId));
         const SymbolValue = TJSValue.CreateSymbol(Found);
         ResultArr.Push(SymbolValue);
       end;
@@ -1406,7 +1447,7 @@ begin
     begin
       const Obj = CoerceToObject(ArgumentAt(Args, 0));
 
-      var PropName := UNDEFINED_NAME;
+      var PropName: TJSPropertyKey := UNDEFINED_NAME;
       if Length(Args) > 1 then
         PropName := ToKeyText(Args[1]);
 
@@ -1424,7 +1465,7 @@ begin
       const Target = ArgumentAt(Args, 0);
       const Source = CoerceToObject(Target);
 
-      const Descriptors = TJSObject.Create;
+      const Descriptors: IJSObject = TJSObject.Create;
       Descriptors.Prototype := PrototypeObj;
 
       for var PropName in TJSObjectKeys.All(Source) do
@@ -1434,7 +1475,7 @@ begin
           Continue;
 
         const DescObj = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
-        Descriptors.SetProperty(PropName, TJSValue.CreateObject(DescObj));
+        Descriptors.DefineProperty(PropName, TJSPropertyDescriptor.Create(TJSValue.CreateObject(DescObj)));
       end;
 
       Result := TJSValue.CreateObject(Descriptors);
@@ -1456,7 +1497,7 @@ begin
       if not HasTarget then
         raise TJSErrorFactory.TypeError(OBJECT_METHOD_CALLED_ON_NON_OBJECT);
 
-      var PropName := UNDEFINED_NAME;
+      var PropName: TJSPropertyKey := UNDEFINED_NAME;
       var Description := TJSValue.CreateUndefined;
       if Length(Args) > 1 then
         PropName := ToKeyText(Args[1]);
@@ -1554,6 +1595,11 @@ begin
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
+    if MethodName = ARRAY_JOIN then
+      (Method as TJSFunctionImpl).IntrinsicRole := TJSIntrinsicRole.ArrayJoin
+    else if MethodName = ARRAY_TO_STRING then
+      (Method as TJSFunctionImpl).IntrinsicRole := TJSIntrinsicRole.ArrayToString;
+
     PrototypeObj.SetProperty(MethodName, TJSValue.CreateObject(Method));
     FInterpreter.RegisterIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, Method);
   end;
@@ -2068,7 +2114,7 @@ begin
   end;
 end;
 
-procedure TJSEngine.QueueMemberObjects(const Target: IJSObject; const Name: string; const Pending: TStack<IJSObject>);
+procedure TJSEngine.QueueMemberObjects(const Target: IJSObject; const Name: TJSPropertyKey; const Pending: TStack<IJSObject>);
 begin
   const Descriptor = Target.GetOwnPropertyDescriptor(Name);
 

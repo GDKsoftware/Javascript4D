@@ -10,8 +10,13 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 
 - **ECMAScript 5.1 core**: Most ES5.1 language features and built-ins, measured against test262 (see Conformance)
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over any iterable
+- **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported yet
 - **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
 - **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
+- **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. Reactions run as microtasks: `Execute` runs every pending job when the script ends (also when it throws), so callbacks have run before it returns. `Engine.RunPendingJobs` runs jobs that are still waiting. The step budget covers the jobs, so a promise loop that never ends raises `EJSStepBudgetExceeded`. Unhandled rejections are ignored
+- **Generators**: `function*` declarations and expressions, generator methods in object literals and classes, `yield` and `yield*` (which forwards `next`, `throw` and `return` and closes the inner iterator), `next`, `return` and `throw` with `try`/`finally` semantics, `GeneratorFunction`, and generators as iterables in `for-of`, spread and destructuring. A suspended generator keeps no thread: its body is left at the `yield` and entered again at the same place when the generator is resumed. Async generators are not supported yet
+- **Async functions**: `async function` declarations and expressions, async arrow functions and async methods in object literals and classes, and `await` on promises, thenables and plain values. An async function runs on the generator machinery: it is suspended at an `await` without a thread and resumed from the promise job queue, so `Execute` returns after the pending jobs have run. A rejected promise is thrown at the `await`, and an uncaught error rejects the promise that the call returned. Async iteration (`for await`, async generators) is not supported yet
+- **`__proto__`**: the `__proto__` accessor on `Object.prototype` and `__proto__: value` in object literals (Annex B)
 - **Iterator protocol**: `Symbol.iterator` on arrays, strings, `arguments`, maps and sets, array and string iterators, and `for-of`, spread, array destructuring and `Array.from` over any iterable, with iterator closing
 - **Proxy and Reflect**: all proxy traps with their invariants, and every `Reflect` function
 - **ArrayBuffer, DataView and typed arrays**: `ArrayBuffer`, `DataView` with endianness, and all typed array constructors with the `%TypedArray%` methods, `from` and `of`; the host can detach buffers
@@ -75,6 +80,21 @@ end;
 ```
 
 Anything still referenced from a global variable, including closures, survives collection. Only script functions and scopes that the host retains directly (raw values held outside the engine) should not be relied upon across a collection; keep persistent state in globals.
+
+`CollectGarbage` does not reclaim objects that only reference each other (`a.b = b; b.a = a`); in a running engine they live until the engine is freed. Freeing the engine releases all memory of every object it created, whatever the script did with cycles through objects, arrays, Map and Set entries, proxies, typed arrays, promises and generators.
+
+A value that the host still holds when the engine is freed (a `TJSValue` returned by `Evaluate`, for example) keeps its contents, and so does everything it refers to; functions and the collections, promises and generators of the engine are emptied, and a script function or built-in function from the engine can no longer be called: calling it raises a `TypeError` instead of failing. Releasing a very deep chain of objects, arrays, Map and Set entries, iterators, proxies or promises does not recurse through one destructor per level, so it cannot overflow the stack. A cycle that the host keeps holding is not released by the host letting go of it; break the cycle first.
+
+## Promises and the Job Queue
+
+Promise reactions and the continuations of async functions are jobs in a queue that belongs to the engine. `Execute` runs the queue empty when the script ends, also when the script throws, so `then` callbacks and the code after an `await` have run when `Execute` returns:
+
+```delphi
+Engine.Execute('Promise.resolve(1).then(function (v) { result = v + 1; });');
+// result is already 2 here
+```
+
+Jobs that are still waiting after that, because host code queued them outside a script, run with `Engine.RunPendingJobs`; with an empty queue it does nothing. Jobs count against the step budget like ordinary script code, so `StepBudget` stops a promise loop that never ends with `EJSStepBudgetExceeded`. A promise that is never settled leaves its callbacks unrun; freeing the engine releases them. Unhandled rejections are ignored.
 
 ## Stopping a Running Script
 
@@ -142,7 +162,9 @@ Every JavaScript call recurses in the interpreter, so unbounded recursion overfl
 
 **Checked after the fact.** A `replace` with a regular expression is refused up front when the source length plus the number of matches times the replacement length exceeds the limit, but a replacement that expands `$` patterns is only caught by the check on the finished result. `JSON.parse` does not limit the arrays it builds from its input.
 
-**Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. The engine does not collect reference cycles, so a script that builds one should break it before it ends.
+**Source text.** The parser and the evaluator check how much stack is left, so source of any shape ends in a `RangeError` instead of a stack overflow: long chains of operators, member accesses and calls are handled in loops, deep nesting of expressions, statements, functions, classes, templates and destructuring patterns is refused, and so is a regular expression whose groups nest too deeply. A regular expression whose matching would need more stack than the thread has left raises a `RangeError` as well. Long lists of statements, arguments and array or object elements are not limited by the stack.
+
+**Cycles.** An array that contains itself converts to a string the way JavaScript does (the repeated array is an empty element) and `JSON.stringify` of a circular structure raises a `TypeError`. A running engine does not collect reference cycles (see Memory Management), but a script can build as many as it likes: freeing the engine breaks every one of them.
 
 **Host-side conversion.** `TJSValue.ToString` is meant for values the host holds. It caps array nesting at the default call depth but does not limit the text length; inside the engine every conversion goes through `ToLimitedString` with the engine's limits.
 
@@ -172,6 +194,7 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 - Operators (arithmetic, comparison, logical, bitwise)
 - Object literals and property access (shorthand properties, methods, computed keys, getters and setters)
 - Arrow functions with lexical `this` and `arguments`
+- Classes (`class`, `extends`, `super`, `new.target`, static members, accessors, computed names)
 - Template literals and tagged templates, `String.raw`
 - Default parameters, rest parameters and spread in calls, arrays and objects
 - Destructuring in declarations, parameters, assignments and `for-of` heads, with defaults and rest
@@ -279,37 +302,42 @@ powershell -File Conformance/run-conformance.ps1
 
 `fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
 
-Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet, such as classes, generators and Promise, are skipped):
+Pass rates for the areas with the most tests, counting only the tests that run (tests for features JS4D does not support yet are skipped):
 
 | Area | Tests run | Passed | Rate |
 |---|---:|---:|---:|
-| built-ins/Array | 2752 | 2745 | 99.7% |
-| built-ins/ArrayBuffer | 78 | 78 | 100.0% |
+| built-ins/Array | 2753 | 2751 | 99.9% |
+| built-ins/AggregateError | 23 | 23 | 100.0% |
+| built-ins/ArrayBuffer | 80 | 80 | 100.0% |
 | built-ins/DataView | 376 | 374 | 99.5% |
-| built-ins/Date | 599 | 597 | 99.7% |
-| built-ins/Function | 438 | 417 | 95.2% |
-| built-ins/JSON | 135 | 130 | 96.3% |
+| built-ins/Date | 599 | 599 | 100.0% |
+| built-ins/Function | 459 | 458 | 99.8% |
+| built-ins/GeneratorFunction | 21 | 21 | 100.0% |
+| built-ins/GeneratorPrototype | 61 | 61 | 100.0% |
+| built-ins/JSON | 135 | 135 | 100.0% |
 | built-ins/Map | 154 | 154 | 100.0% |
 | built-ins/Math | 312 | 312 | 100.0% |
-| built-ins/Number | 304 | 301 | 99.0% |
-| built-ins/Object | 3297 | 3279 | 99.5% |
-| built-ins/Proxy | 268 | 268 | 100.0% |
+| built-ins/Number | 334 | 331 | 99.1% |
+| built-ins/Object | 3319 | 3310 | 99.7% |
+| built-ins/Proxy | 273 | 273 | 100.0% |
+
+| built-ins/Promise | 642 | 638 | 99.4% |
 | built-ins/Reflect | 153 | 153 | 100.0% |
 | built-ins/RegExp | 804 | 780 | 97.0% |
 | built-ins/Set | 194 | 194 | 100.0% |
-| built-ins/String | 1165 | 1154 | 99.1% |
-| built-ins/Symbol | 75 | 73 | 97.3% |
+| built-ins/String | 1167 | 1156 | 99.1% |
+| built-ins/Symbol | 75 | 75 | 100.0% |
 | built-ins/TypedArray | 703 | 703 | 100.0% |
-| built-ins/TypedArrayConstructors | 364 | 361 | 99.2% |
+| built-ins/TypedArrayConstructors | 365 | 364 | 99.7% |
 | built-ins/WeakMap | 92 | 92 | 100.0% |
 | built-ins/WeakSet | 77 | 77 | 100.0% |
-| language/expressions | 3581 | 3543 | 98.9% |
-| language/statements | 2510 | 2483 | 98.9% |
-| **Total** | 20788 | 20577 | 99.0% |
+| language/expressions | 5864 | 5856 | 99.9% |
+| language/statements | 4527 | 4524 | 99.9% |
+| **Total** | 26258 | 26178 | 99.7% |
 
 The full per-directory table is in `Conformance/results/baseline.txt` after a run.
 
-Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
+Tests that need features JS4D does not implement are skipped: BigInt, Temporal, async iteration (`for await`, async generators), class fields, private members and static blocks, modules and dynamic import, tail calls, and the ES2018 and later library and syntax features. Tests with the `async` flag run: the runner drains the job queue and waits for the `$DONE` callback. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
 
 Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
 

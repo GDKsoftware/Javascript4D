@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.IteratorProtocol,
   JS4D.OrderedStore;
@@ -45,6 +46,11 @@ type
     function GetKind: TJSCollectionKind;
     function GetStore: TJSOrderedStore;
 
+  protected
+    procedure ReleaseReferences; override;
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
+
   public
     constructor Create(const Kind: TJSCollectionKind; const Registry: TJSCollectionRegistry);
     destructor Destroy; override;
@@ -80,6 +86,12 @@ type
     function Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
     procedure Finish;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+    procedure ReleaseReferences; override;
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
+
   public
     constructor Create(const Collection: IJSCollection; const Kind: TJSCollectionIterationKind;
                        const ArrayPrototype: IJSObject; const ObjectPrototype: IJSObject);
@@ -107,8 +119,29 @@ begin
   if Assigned(FRegistry) then
     FRegistry.Remove(Self);
 
-  FStore.Free;
+  ReleaseNested;
+  FreeAndNil(FStore);
   inherited;
+end;
+
+procedure TJSCollectionObject.ReleaseReferences;
+begin
+  ReleaseNested;
+  FStore.Clear;
+  inherited;
+end;
+
+function TJSCollectionObject.HoldsNested: Boolean;
+begin
+  Result := (Assigned(FStore) and FStore.HoldsNestedObjects) or inherited HoldsNested;
+end;
+
+procedure TJSCollectionObject.DetachNested(const Pending: TList<IJSObject>);
+begin
+  if Assigned(FStore) then
+    FStore.DetachNestedObjects(Pending);
+
+  inherited DetachNested(Pending);
 end;
 
 function TJSCollectionObject.GetKind: TJSCollectionKind;
@@ -186,8 +219,39 @@ end;
 
 destructor TJSCollectionIterator.Destroy;
 begin
+  ReleaseNested;
   FCursor.Free;
   inherited;
+end;
+
+procedure TJSCollectionIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FCollection);
+  ReportReference(Visit, FArrayPrototype);
+  ReportReference(Visit, FObjectPrototype);
+end;
+
+procedure TJSCollectionIterator.ReleaseReferences;
+begin
+  Finish;
+  FArrayPrototype := nil;
+  FObjectPrototype := nil;
+  inherited;
+end;
+
+function TJSCollectionIterator.HoldsNested: Boolean;
+begin
+  Result := Assigned(FCollection) or inherited HoldsNested;
+end;
+
+procedure TJSCollectionIterator.DetachNested(const Pending: TList<IJSObject>);
+begin
+  if Assigned(FCollection) then
+    Pending.Add(FCollection);
+
+  Finish;
+  inherited DetachNested(Pending);
 end;
 
 function TJSCollectionIterator.GetSourceKind: TJSCollectionKind;

@@ -6,13 +6,14 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type
   TJSJsonReviver = class
   private
     class function Walk(const Holder: IJSObject; const Name: string; const Reviver: IJSFunction): TJSValue; static;
-    class procedure WalkMembers(const Container: IJSObject; const Reviver: IJSFunction); static;
+    class procedure WalkMembers(const Container: TJSValue; const Reviver: IJSFunction); static;
     class procedure WalkMember(const Container: IJSObject; const Name: string; const Reviver: IJSFunction); static;
 
   public
@@ -24,14 +25,15 @@ implementation
 
 uses
   JS4D.ArrayLike,
-  JS4D.ObjectKeys;
+  JS4D.ObjectKeys,
+  JS4D.ObjectOperations;
 
 class function TJSJsonReviver.Revive(const Parsed: TJSValue; const Reviver: IJSFunction;
                                      const ObjectPrototype: IJSObject): TJSValue;
 begin
   const Root: IJSObject = TJSObject.Create;
   Root.Prototype := ObjectPrototype;
-  Root.SetProperty('', Parsed);
+  TJSObjectOperations.CreateDataProperty(Root, '', Parsed);
 
   Result := Walk(Root, '', Reviver);
 end;
@@ -41,28 +43,28 @@ class function TJSJsonReviver.Walk(const Holder: IJSObject; const Name: string;
 begin
   const Value = Holder.GetProperty(Name);
   if Value.IsObject then
-    WalkMembers(Value.ToObject, Reviver);
+    WalkMembers(Value, Reviver);
 
   Result := Reviver.Call(Holder, [TJSValue.CreateString(Name), Value]);
 end;
 
-class procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const Reviver: IJSFunction);
+class procedure TJSJsonReviver.WalkMembers(const Container: TJSValue; const Reviver: IJSFunction);
 begin
-  var ContainerArray: IJSArray;
-  if Supports(Container, IJSArray, ContainerArray) then
+  const ContainerObject = Container.ToObject;
+  if TJSObjectOperations.IsArray(Container) then
   begin
-    const Count = TJSArrayLike.ToLength(Container);
+    const Count = TJSArrayLike.ToLength(ContainerObject);
     for var Index: Int64 := 0 to Count - 1 do
     begin
-      WalkMember(Container, TJSArrayLike.IndexName(Index), Reviver);
+      WalkMember(ContainerObject, TJSArrayLike.IndexName(Index), Reviver);
     end;
 
     Exit;
   end;
 
-  for var Name in TJSObjectKeys.Enumerable(Container) do
+  for var Name in TJSObjectKeys.Enumerable(ContainerObject) do
   begin
-    WalkMember(Container, Name, Reviver);
+    WalkMember(ContainerObject, Name, Reviver);
   end;
 end;
 

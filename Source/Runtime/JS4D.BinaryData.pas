@@ -7,6 +7,8 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
+  JS4D.ObjectHeap,
   JS4D.Types;
 
 type
@@ -56,8 +58,8 @@ type
     function ReadElement(const Index: Integer): TJSValue;
     // Converts the value to a number and stores it, unless the index is no longer valid.
     procedure StoreValue(const Index: Integer; const Value: TJSValue);
-    function IsElementKey(const Name: string): Boolean;
-    function IsNumericKey(const Name: string): Boolean;
+    function IsElementKey(const Name: TJSPropertyKey): Boolean;
+    function IsNumericKey(const Name: TJSPropertyKey): Boolean;
     property Kind: TJSElementKind read GetKind;
     property Buffer: IJSArrayBuffer read GetBuffer;
     property ByteOffset: Integer read GetByteOffset;
@@ -80,9 +82,9 @@ type
   // Asks an object whether a property name is one of the integer-indexed keys of a typed array.
   TJSBinaryKeys = class
   public
-    class function TryStoreElement(const Target: IJSObject; const Name: string; const Value: TJSValue;
+    class function TryStoreElement(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
                                    const Receiver: TJSValue; out IsStored: Boolean): Boolean; static;
-    class function IsElementKey(const Target: IJSObject; const Name: string): Boolean; static;
+    class function IsElementKey(const Target: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
   TJSArrayBufferObject = class(TJSObjectImpl, IJSArrayBuffer)
@@ -110,6 +112,9 @@ type
     function GetByteOffset: Integer;
     function GetByteLength: Integer;
 
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+
   public
     constructor Create(const Buffer: IJSArrayBuffer; const ByteOffset: Integer; const ByteLength: Integer);
   end;
@@ -132,10 +137,15 @@ type
       FByteOffset: Integer;
       FLength: Integer;
 
+  protected
+    function LookupOwn(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): TJSOwnLookup; override;
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+
+  private
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
     class function IsCanonicalNumber(const Name: string): Boolean; static;
-    function ClassifyKey(const Name: string; out Index: Integer): TKeyClass;
-    function IsInvalidIndexKey(const Name: string): Boolean;
+    function ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
+    function IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
     function CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
     function GetKind: TJSElementKind;
     function GetBuffer: IJSArrayBuffer;
@@ -150,20 +160,18 @@ type
 
     function ReadElement(const Index: Integer): TJSValue;
     procedure StoreValue(const Index: Integer; const Value: TJSValue);
-    function IsElementKey(const Name: string): Boolean;
-    function IsNumericKey(const Name: string): Boolean;
+    function IsElementKey(const Name: TJSPropertyKey): Boolean;
+    function IsNumericKey(const Name: TJSPropertyKey): Boolean;
 
-    function HasProperty(const Name: string): Boolean; override;
-    function GetProperty(const Name: string): TJSValue; override;
-    procedure SetProperty(const Name: string; const Value: TJSValue); override;
-    procedure DeleteProperty(const Name: string); override;
-    function IsPropertyConfigurable(const Name: string): Boolean; override;
+    function GetProperty(const Name: TJSPropertyKey): TJSValue; override;
+    procedure SetProperty(const Name: TJSPropertyKey; const Value: TJSValue); override;
+    procedure DeleteProperty(const Name: TJSPropertyKey); override;
+    function IsPropertyConfigurable(const Name: TJSPropertyKey): Boolean; override;
     function GetOwnPropertyNames: TArray<string>; override;
-    function GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor; override;
-    function HasOwnProperty(const Name: string): Boolean; override;
-    function TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean; override;
-    function DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean; override;
-    function TryGetPropertyDescriptor(const Name: string; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function GetOwnPropertyDescriptor(const Name: TJSPropertyKey): TJSPropertyDescriptor; override;
+    function HasOwnProperty(const Name: TJSPropertyKey): Boolean; override;
+    function TryAssignOwnProperty(const Name: TJSPropertyKey; const Value: TJSValue): Boolean; override;
+    function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; override;
     function IsFrozen: Boolean; override;
     function IsSealed: Boolean; override;
     procedure Freeze; override;
@@ -295,7 +303,7 @@ end;
 
 { TJSBinaryKeys }
 
-class function TJSBinaryKeys.TryStoreElement(const Target: IJSObject; const Name: string; const Value: TJSValue;
+class function TJSBinaryKeys.TryStoreElement(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
                                              const Receiver: TJSValue; out IsStored: Boolean): Boolean;
 begin
   IsStored := True;
@@ -315,7 +323,7 @@ begin
   Result := not TypedArray.IsElementKey(Name);
 end;
 
-class function TJSBinaryKeys.IsElementKey(const Target: IJSObject; const Name: string): Boolean;
+class function TJSBinaryKeys.IsElementKey(const Target: IJSObject; const Name: TJSPropertyKey): Boolean;
 begin
   var TypedArray: IJSTypedArray;
 
@@ -366,6 +374,12 @@ begin
   FByteLength := ByteLength;
 end;
 
+procedure TJSDataViewObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FBuffer);
+end;
+
 function TJSDataViewObject.GetBuffer: IJSArrayBuffer;
 begin
   Result := FBuffer;
@@ -387,11 +401,18 @@ constructor TJSTypedArrayObject.Create(const Kind: TJSElementKind; const Buffer:
                                        const ByteOffset: Integer; const Length: Integer);
 begin
   inherited Create;
+  HasOrdinaryLookup := False;
 
   FKind := Kind;
   FBuffer := Buffer;
   FByteOffset := ByteOffset;
   FLength := Length;
+end;
+
+procedure TJSTypedArrayObject.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FBuffer);
 end;
 
 function TJSTypedArrayObject.GetKind: TJSElementKind;
@@ -489,9 +510,11 @@ begin
   Result := TJSValue.CreateNumber(Number).ToString = Name;
 end;
 
-function TJSTypedArrayObject.ClassifyKey(const Name: string; out Index: Integer): TKeyClass;
+function TJSTypedArrayObject.ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
 begin
   Index := -1;
+
+  const Name = Key.Stored;
 
   const IsEmpty = (Name = '');
   if IsEmpty then
@@ -514,21 +537,21 @@ begin
   Result := TKeyClass.NotNumeric;
 end;
 
-function TJSTypedArrayObject.IsInvalidIndexKey(const Name: string): Boolean;
+function TJSTypedArrayObject.IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
 begin
   var Index: Integer;
 
   Result := ClassifyKey(Name, Index) = TKeyClass.InvalidIndex;
 end;
 
-function TJSTypedArrayObject.IsElementKey(const Name: string): Boolean;
+function TJSTypedArrayObject.IsElementKey(const Name: TJSPropertyKey): Boolean;
 begin
   var Index: Integer;
 
   Result := ClassifyKey(Name, Index) = TKeyClass.ValidIndex;
 end;
 
-function TJSTypedArrayObject.IsNumericKey(const Name: string): Boolean;
+function TJSTypedArrayObject.IsNumericKey(const Name: TJSPropertyKey): Boolean;
 begin
   var Index: Integer;
 
@@ -543,17 +566,24 @@ begin
   Result.Configurable := True;
 end;
 
-function TJSTypedArrayObject.HasProperty(const Name: string): Boolean;
+function TJSTypedArrayObject.LookupOwn(const Name: TJSPropertyKey;
+                                       out Descriptor: TJSPropertyDescriptor): TJSOwnLookup;
 begin
   var Index: Integer;
-  const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited HasProperty(Name));
 
-  Result := (KeyClass = TKeyClass.ValidIndex);
+  case ClassifyKey(Name, Index) of
+    TKeyClass.NotNumeric  : Result := inherited LookupOwn(Name, Descriptor);
+    TKeyClass.ValidIndex  :
+      begin
+        Descriptor := CreateElementDescriptor(Index);
+        Result := TJSOwnLookup.Found;
+      end;
+  else
+    Result := TJSOwnLookup.Absent;
+  end;
 end;
 
-function TJSTypedArrayObject.GetProperty(const Name: string): TJSValue;
+function TJSTypedArrayObject.GetProperty(const Name: TJSPropertyKey): TJSValue;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -563,7 +593,7 @@ begin
   Result := ReadElement(Index);
 end;
 
-procedure TJSTypedArrayObject.SetProperty(const Name: string; const Value: TJSValue);
+procedure TJSTypedArrayObject.SetProperty(const Name: TJSPropertyKey; const Value: TJSValue);
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -578,14 +608,14 @@ begin
     TJSElementCodec.Write(FBuffer.Bytes, FByteOffset + (Index * FKind.ElementSize), FKind, Number);
 end;
 
-procedure TJSTypedArrayObject.DeleteProperty(const Name: string);
+procedure TJSTypedArrayObject.DeleteProperty(const Name: TJSPropertyKey);
 begin
   var Index: Integer;
   if ClassifyKey(Name, Index) = TKeyClass.NotNumeric then
     inherited DeleteProperty(Name);
 end;
 
-function TJSTypedArrayObject.IsPropertyConfigurable(const Name: string): Boolean;
+function TJSTypedArrayObject.IsPropertyConfigurable(const Name: TJSPropertyKey): Boolean;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -614,7 +644,7 @@ begin
   end;
 end;
 
-function TJSTypedArrayObject.GetOwnPropertyDescriptor(const Name: string): TJSPropertyDescriptor;
+function TJSTypedArrayObject.GetOwnPropertyDescriptor(const Name: TJSPropertyKey): TJSPropertyDescriptor;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -628,7 +658,7 @@ begin
   Result.Value := TJSValue.CreateUndefined;
 end;
 
-function TJSTypedArrayObject.HasOwnProperty(const Name: string): Boolean;
+function TJSTypedArrayObject.HasOwnProperty(const Name: TJSPropertyKey): Boolean;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -638,7 +668,7 @@ begin
   Result := (KeyClass = TKeyClass.ValidIndex);
 end;
 
-function TJSTypedArrayObject.TryAssignOwnProperty(const Name: string; const Value: TJSValue): Boolean;
+function TJSTypedArrayObject.TryAssignOwnProperty(const Name: TJSPropertyKey; const Value: TJSValue): Boolean;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -649,7 +679,7 @@ begin
   Result := True;
 end;
 
-function TJSTypedArrayObject.DefineOwnProperty(const Name: string; const Definition: TJSPropertyDefinition): Boolean;
+function TJSTypedArrayObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
@@ -669,19 +699,6 @@ begin
     StoreValue(Index, Definition.Value);
 
   Result := True;
-end;
-
-function TJSTypedArrayObject.TryGetPropertyDescriptor(const Name: string;
-                                                      out Descriptor: TJSPropertyDescriptor): Boolean;
-begin
-  var Index: Integer;
-  const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited TryGetPropertyDescriptor(Name, Descriptor));
-
-  Result := (KeyClass = TKeyClass.ValidIndex);
-  if Result then
-    Descriptor := CreateElementDescriptor(Index);
 end;
 
 function TJSTypedArrayObject.IsFrozen: Boolean;
