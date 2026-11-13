@@ -23,6 +23,7 @@ type
 
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
     procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
+    function CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -168,6 +169,11 @@ begin
   if IsCacheCurrent then
     Exit(Cache.Slot);
 
+  Result := CacheOwnSlot(Cache, Name);
+end;
+
+function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
     Exit(nil);
 
