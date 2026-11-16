@@ -67,6 +67,8 @@ type
     function ResumableDoWhile(const Node: TJSDoWhileStatement): TJSValue;
     function ResumableFor(const Node: TJSForStatement): TJSValue;
     procedure RunForHead(const Node: TJSForStatement; const Frame: TJSStatementFrame; const IsLexical: Boolean);
+    function PassesForTest(const Node: TJSForStatement; const Frame: TJSStatementFrame): Boolean;
+    procedure CopyForScope(const Node: TJSForStatement; const Frame: TJSStatementFrame; const IsLexical: Boolean);
     function RunForBody(const Node: TJSForStatement; const Frame: TJSStatementFrame;
                         const IsLexical: Boolean): TJSValue;
     function EvaluateLoopSubject(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
@@ -77,6 +79,7 @@ type
     function RunForInIterations(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
     function ResumableForOf(const Node: TJSForOfStatement): TJSValue;
     function RunForOfIterations(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
+    function RunForOfLoop(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
     function ResumableSwitch(const Node: TJSSwitchStatement): TJSValue;
     procedure SelectSwitchCase(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame);
     function RunSwitchCases(const Node: TJSSwitchStatement; const Frame: TJSStatementFrame): TJSValue;
@@ -143,7 +146,7 @@ begin
 end;
 
 procedure TJSGeneratorEngine.DefinePrototypeProperty(const Func: IJSFunction; const PrototypeObject: IJSObject;
-                                                 const IsWritable: Boolean);
+                                                     const IsWritable: Boolean);
 begin
   const PrototypeValue = TJSValue.CreateObject(PrototypeObject);
   var PrototypeDescriptor := TJSPropertyDescriptor.Create(PrototypeValue);
@@ -189,12 +192,13 @@ begin
 end;
 
 function TJSGeneratorEngine.StartAsyncFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
-                                           const Body: TJSBlockStatement): TJSValue;
+                                               const Body: TJSBlockStatement): TJSValue;
 begin
-  if not Assigned(FInterpreter.AsyncHost) then
+  const Host = FInterpreter.AsyncHost;
+  if not Assigned(Host) then
     raise TJSErrorFactory.TypeError(ASYNC_UNAVAILABLE);
 
-  const ResultPromise = FInterpreter.AsyncHost.CreateResult;
+  const ResultPromise = Host.CreateResult;
   Result := TJSValue.CreateObject(ResultPromise);
 
   var Suspended: IJSGenerator;
@@ -211,14 +215,15 @@ begin
     end;
   end;
 
-  FInterpreter.AsyncHost.Start(ResultPromise, Suspended);
+  Host.Start(ResultPromise, Suspended);
 end;
 
 procedure TJSGeneratorEngine.RejectAsyncStart(const ResultPromise: IJSObject; const Error: Exception);
 begin
+  const Host = FInterpreter.AsyncHost;
   const Reason = FInterpreter.ExceptionToValue(Error);
 
-  FInterpreter.AsyncHost.Reject(ResultPromise, Reason);
+  Host.Reject(ResultPromise, Reason);
 end;
 
 function TJSGeneratorEngine.VisitAwait(const Node: TJSAwaitExpression): TJSValue;
@@ -230,8 +235,9 @@ end;
 
 procedure TJSGeneratorEngine.RaiseSuspension(const Node: TJSASTNode; const Value: TJSValue; const IsResult: Boolean);
 begin
-  if Assigned(FInterpreter.Generator) then
-    FInterpreter.Generator.IsSuspending := True;
+  const Active = FInterpreter.Generator;
+  if Assigned(Active) then
+    Active.IsSuspending := True;
 
   raise TJSYieldSignal.Create(Node, Value, IsResult);
 end;
@@ -250,7 +256,7 @@ begin
 end;
 
 function TJSGeneratorEngine.AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode;
-                                    const Value: TJSValue): TJSBodyResult;
+                                        const Value: TJSValue): TJSBodyResult;
 begin
   const BodyObject = Body as TObject;
   const Generator = BodyObject as TJSGeneratorObject;
@@ -264,7 +270,7 @@ begin
 end;
 
 function TJSGeneratorEngine.ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                        const Value: TJSValue): TJSValue;
+                                            const Value: TJSValue): TJSValue;
 begin
   case Generator.State of
     TJSGeneratorState.Executing:
@@ -281,7 +287,7 @@ begin
 end;
 
 function TJSGeneratorEngine.ResumeUnstartedGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                                 const Value: TJSValue): TJSValue;
+                                                     const Value: TJSValue): TJSValue;
 begin
   const EndsBeforeStarting = (Mode <> TJSResumeMode.Next);
   if EndsBeforeStarting then
@@ -310,7 +316,7 @@ begin
 end;
 
 function TJSGeneratorEngine.RunGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                     const Value: TJSValue): TJSValue;
+                                         const Value: TJSValue): TJSValue;
 begin
   const Advanced = AdvanceGenerator(Generator, Mode, Value);
 
@@ -346,7 +352,7 @@ begin
 end;
 
 function TJSGeneratorEngine.AdvanceGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                         const Value: TJSValue): TJSBodyResult;
+                                             const Value: TJSValue): TJSBodyResult;
 begin
   FInterpreter.EnsureCallDepthAvailable;
 
@@ -371,7 +377,7 @@ begin
 end;
 
 function TJSGeneratorEngine.RunGeneratorBody(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                         const Value: TJSValue; const IsResuming: Boolean): TJSBodyResult;
+                                             const Value: TJSValue; const IsResuming: Boolean): TJSBodyResult;
 begin
   try
     if IsResuming then
@@ -402,7 +408,7 @@ begin
 end;
 
 function TJSGeneratorEngine.SuspendGenerator(const Generator: TJSGeneratorObject;
-                                         const Signal: TJSYieldSignal): TJSBodyResult;
+                                             const Signal: TJSYieldSignal): TJSBodyResult;
 begin
   Generator.IsSuspending := False;
   Generator.State := TJSGeneratorState.SuspendedYield;
@@ -433,7 +439,7 @@ begin
 end;
 
 procedure TJSGeneratorEngine.DepositResumption(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
-                                           const Value: TJSValue);
+                                               const Value: TJSValue);
 begin
   var Resumption: TJSResumption;
   Resumption.Mode := Mode;
@@ -454,8 +460,9 @@ end;
 
 function TJSGeneratorEngine.VisitRemembered(const Node: TJSASTNode): TJSValue;
 begin
+  const Active = FInterpreter.Generator;
   var Entry: TJSResumption;
-  if FInterpreter.Generator.TryFindResumption(Node, Entry) then
+  if Active.TryFindResumption(Node, Entry) then
   begin
     Result := ConsumeResumption(Entry);
     Exit;
@@ -466,7 +473,7 @@ begin
 
   Entry.Mode := TJSResumeMode.Next;
   Entry.Value := Result;
-  FInterpreter.Generator.AddResumption(Node, Entry);
+  Active.AddResumption(Node, Entry);
 end;
 
 function TJSGeneratorEngine.ConsumeResumption(const Entry: TJSResumption): TJSValue;
@@ -505,7 +512,8 @@ begin
   try
     Result := DelegateStep(Node, Frame);
   finally
-    FInterpreter.Generator.ReleaseFrame(Node);
+    const Active = FInterpreter.Generator;
+    Active.ReleaseFrame(Node);
   end;
 end;
 
@@ -638,7 +646,8 @@ end;
 
 function TJSGeneratorEngine.FrameFor(const Node: TJSASTNode): TJSStatementFrame;
 begin
-  const Existing = FInterpreter.Generator.FindFrame(Node);
+  const Active = FInterpreter.Generator;
+  const Existing = Active.FindFrame(Node);
   if Assigned(Existing) then
   begin
     Result := TJSStatementFrame(Existing);
@@ -646,7 +655,7 @@ begin
   end;
 
   Result := TJSStatementFrame.Create;
-  FInterpreter.Generator.AddFrame(Node, Result);
+  Active.AddFrame(Node, Result);
 end;
 
 procedure TJSGeneratorEngine.RunRemembering(const Action: TProc);
@@ -654,7 +663,8 @@ begin
   try
     Action;
   finally
-    FInterpreter.Generator.ReleaseResumptions;
+    const Active = FInterpreter.Generator;
+    Active.ReleaseResumptions;
   end;
 end;
 
@@ -691,12 +701,13 @@ begin
   try
     Result := ResumableStatement(Node);
   finally
-    FInterpreter.Generator.ReleaseFrame(Node);
+    const Active = FInterpreter.Generator;
+    Active.ReleaseFrame(Node);
   end;
 end;
 
 procedure TJSGeneratorEngine.EnterFrameScope(const Frame: TJSStatementFrame; const ScopeInfo: TJSScopeInfo;
-                                         const NeedsScope: Boolean);
+                                             const NeedsScope: Boolean);
 begin
   Frame.OuterScope := FInterpreter.CurrentScope;
   if not NeedsScope then
@@ -816,7 +827,7 @@ begin
 end;
 
 procedure TJSGeneratorEngine.InitializeDeclarator(const Node: TJSVariableDeclaration;
-                                              const Declarator: TJSVariableDeclarator);
+                                                  const Declarator: TJSVariableDeclarator);
 begin
   const IsLexical = (Node.Kind <> TJSDeclarationKind.Var_);
 
@@ -839,7 +850,8 @@ begin
     if Assigned(Declarator.Init) then
     begin
       const InitialValue = FInterpreter.VisitNamed(Declarator.Init, Declarator.Id.Name);
-      FInterpreter.CurrentScope.SetVariable(Declarator.Id.Name, InitialValue);
+      const Scope = FInterpreter.CurrentScope;
+      Scope.SetVariable(Declarator.Id.Name, InitialValue);
     end;
 
     Exit;
@@ -849,7 +861,8 @@ begin
   if Assigned(Declarator.Init) then
     InitialValue := FInterpreter.VisitNamed(Declarator.Init, Declarator.Id.Name);
 
-  FInterpreter.CurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
+  const LexicalScope = FInterpreter.CurrentScope;
+  LexicalScope.InitializeLexical(Declarator.Id.Name, InitialValue);
 end;
 
 function TJSGeneratorEngine.ResumableIf(const Node: TJSIfStatement): TJSValue;
@@ -972,7 +985,7 @@ begin
 end;
 
 procedure TJSGeneratorEngine.RunForHead(const Node: TJSForStatement; const Frame: TJSStatementFrame;
-                                    const IsLexical: Boolean);
+                                        const IsLexical: Boolean);
 begin
   if (not Frame.IsAt(TJSFrameStage.ForHead)) then
     Exit;
@@ -992,24 +1005,14 @@ begin
 end;
 
 function TJSGeneratorEngine.RunForBody(const Node: TJSForStatement; const Frame: TJSStatementFrame;
-                                   const IsLexical: Boolean): TJSValue;
+                                       const IsLexical: Boolean): TJSValue;
 begin
   Result := TJSValue.CreateUndefined;
 
   while True do
   begin
-    if Frame.IsAt(TJSFrameStage.ForTesting) then
-    begin
-      const HasTest = Assigned(Node.Test);
-      if HasTest then
-      begin
-        const TestValue = EvaluateRemembering(Node.Test);
-        if not TestValue.ToBoolean then
-          Break;
-      end;
-
-      Frame.MoveTo(TJSFrameStage.ForBody);
-    end;
+    if not PassesForTest(Node, Frame) then
+      Break;
 
     if Frame.IsAt(TJSFrameStage.ForBody) then
     begin
@@ -1021,22 +1024,45 @@ begin
       Frame.MoveTo(TJSFrameStage.ForCopyingScope);
     end;
 
-    if Frame.IsAt(TJSFrameStage.ForCopyingScope) then
-    begin
-      if IsLexical and Node.MayCaptureScope then
-      begin
-        FInterpreter.CopyIterationScope;
-        Frame.Scope := FInterpreter.CurrentScope;
-      end;
-
-      Frame.MoveTo(TJSFrameStage.ForUpdating);
-    end;
+    CopyForScope(Node, Frame, IsLexical);
 
     if Assigned(Node.Update) then
       EvaluateRemembering(Node.Update);
 
     Frame.MoveTo(TJSFrameStage.ForTesting);
   end;
+end;
+
+function TJSGeneratorEngine.PassesForTest(const Node: TJSForStatement; const Frame: TJSStatementFrame): Boolean;
+begin
+  Result := True;
+  if not Frame.IsAt(TJSFrameStage.ForTesting) then
+    Exit;
+
+  const HasTest = Assigned(Node.Test);
+  if HasTest then
+  begin
+    const TestValue = EvaluateRemembering(Node.Test);
+    Result := TestValue.ToBoolean;
+  end;
+
+  if Result then
+    Frame.MoveTo(TJSFrameStage.ForBody);
+end;
+
+procedure TJSGeneratorEngine.CopyForScope(const Node: TJSForStatement; const Frame: TJSStatementFrame;
+                                          const IsLexical: Boolean);
+begin
+  if not Frame.IsAt(TJSFrameStage.ForCopyingScope) then
+    Exit;
+
+  if IsLexical and Node.MayCaptureScope then
+  begin
+    FInterpreter.CopyIterationScope;
+    Frame.Scope := FInterpreter.CurrentScope;
+  end;
+
+  Frame.MoveTo(TJSFrameStage.ForUpdating);
 end;
 
 function TJSGeneratorEngine.EvaluateLoopSubject(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
@@ -1085,7 +1111,7 @@ begin
 end;
 
 function TJSGeneratorEngine.RunLoopIteration(const Body: TJSStatement; const Frame: TJSStatementFrame;
-                                         const Previous: TJSValue): TJSIterationResult;
+                                             const Previous: TJSValue): TJSIterationResult;
 begin
   Result.KeepLooping := True;
   Result.Value := Previous;
@@ -1217,41 +1243,8 @@ end;
 
 function TJSGeneratorEngine.RunForOfIterations(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
 begin
-  Result := TJSValue.CreateUndefined;
-
   try
-    while True do
-    begin
-      if Frame.IsAt(TJSFrameStage.ForOfNextValue) then
-      begin
-        if not Frame.Source.HasNext then
-          Break;
-
-        FInterpreter.CurrentScope := Frame.OuterScope;
-        Frame.Current := Frame.Source.Next;
-        Frame.MoveTo(TJSFrameStage.ForOfBinding);
-      end;
-
-      if Frame.IsAt(TJSFrameStage.ForOfBinding) then
-      begin
-        BindLoopVariable(Node, Frame);
-        Frame.MoveTo(TJSFrameStage.ForOfBody);
-      end
-      else
-      begin
-        FInterpreter.CurrentScope := Frame.Scope;
-      end;
-
-      const Iteration = RunLoopIteration(Node.Body, Frame, TJSValue.CreateUndefined);
-      Result := Iteration.Value;
-      if not Iteration.KeepLooping then
-      begin
-        Frame.Source.Close;
-        Break;
-      end;
-
-      Frame.MoveTo(TJSFrameStage.ForOfNextValue);
-    end;
+    Result := RunForOfLoop(Node, Frame);
   except
     on TJSYieldSignal do
       raise;
@@ -1262,6 +1255,44 @@ begin
       Frame.Source.CloseForException(Error);
       raise;
     end;
+  end;
+end;
+
+function TJSGeneratorEngine.RunForOfLoop(const Node: TJSForOfStatement; const Frame: TJSStatementFrame): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
+
+  while True do
+  begin
+    if Frame.IsAt(TJSFrameStage.ForOfNextValue) then
+    begin
+      if not Frame.Source.HasNext then
+        Break;
+
+      FInterpreter.CurrentScope := Frame.OuterScope;
+      Frame.Current := Frame.Source.Next;
+      Frame.MoveTo(TJSFrameStage.ForOfBinding);
+    end;
+
+    if Frame.IsAt(TJSFrameStage.ForOfBinding) then
+    begin
+      BindLoopVariable(Node, Frame);
+      Frame.MoveTo(TJSFrameStage.ForOfBody);
+    end
+    else
+    begin
+      FInterpreter.CurrentScope := Frame.Scope;
+    end;
+
+    const Iteration = RunLoopIteration(Node.Body, Frame, TJSValue.CreateUndefined);
+    Result := Iteration.Value;
+    if not Iteration.KeepLooping then
+    begin
+      Frame.Source.Close;
+      Break;
+    end;
+
+    Frame.MoveTo(TJSFrameStage.ForOfNextValue);
   end;
 end;
 

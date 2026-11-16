@@ -33,7 +33,7 @@ type
     Version: Cardinal;
     Slot: PJSPropertyDescriptor;
 
-    class function IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean; static;
+    class function IsIntrinsic(const Slot: PJSPropertyDescriptor; const Original: IInterface): Boolean; static;
     function Holds(const HolderObject: IJSObject; const Key: TJSPropertyKey; const Original: IInterface): Boolean;
   end;
 
@@ -60,9 +60,10 @@ implementation
 
 { TJSIntrinsicSlot }
 
-class function TJSIntrinsicSlot.IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean;
+class function TJSIntrinsicSlot.IsIntrinsic(const Slot: PJSPropertyDescriptor; const Original: IInterface): Boolean;
 begin
-  Result := Assigned(Original) and Candidate.IsObject and ((Candidate.ToObject as IInterface) = Original);
+  Result := Assigned(Original) and (not Slot.IsAccessor) and Slot.Value.IsObject and
+            ((Slot.Value.ToObject as IInterface) = Original);
 end;
 
 function TJSIntrinsicSlot.Holds(const HolderObject: IJSObject; const Key: TJSPropertyKey;
@@ -90,7 +91,7 @@ begin
     Version := HolderImpl.PropertyLayoutVersion;
   end;
 
-  Result := ((not Slot.IsAccessor) and TJSIntrinsicSlot.IsIntrinsic(Slot.Value, Original));
+  Result := TJSIntrinsicSlot.IsIntrinsic(Slot, Original);
 end;
 
 { TJSMutatorCache }

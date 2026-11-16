@@ -39,13 +39,22 @@ implementation
 function TJSIterationSource.HasNext: Boolean;
 begin
   if Assigned(Protocol) then
-    Exit(Protocol.HasNext);
+  begin
+    Result := Protocol.HasNext;
+    Exit;
+  end;
 
   if Assigned(Elements) then
-    Exit(Position < Elements.Length);
+  begin
+    Result := Position < Elements.Length;
+    Exit;
+  end;
 
   if Assigned(ArrayLike) then
-    Exit(Position < TJSArrayLike.ToLength(ArrayLike));
+  begin
+    Result := Position < TJSArrayLike.ToLength(ArrayLike);
+    Exit;
+  end;
 
   Result := (Position < Length(Items));
 end;
@@ -58,7 +67,10 @@ end;
 function TJSIterationSource.Next: TJSValue;
 begin
   if Assigned(Protocol) then
-    Exit(Protocol.Next);
+  begin
+    Result := Protocol.Next;
+    Exit;
+  end;
 
   Result := TJSValue.CreateUndefined;
 

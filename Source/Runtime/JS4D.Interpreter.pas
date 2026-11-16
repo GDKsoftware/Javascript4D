@@ -1045,7 +1045,10 @@ function TJSInterpreter.EvaluateArguments(const Nodes: TObjectList<TJSExpression
                                           const HasSpread: Boolean): TArray<TJSValue>;
 begin
   if HasSpread then
-    Exit(EvaluateSpreadArguments(Nodes));
+  begin
+    Result := EvaluateSpreadArguments(Nodes);
+    Exit;
+  end;
 
   SetLength(Result, Nodes.Count);
 
@@ -1230,7 +1233,10 @@ end;
 function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 begin
   if ThisValue.IsObject then
-    Exit(ThisValue.ToObject);
+  begin
+    Result := ThisValue.ToObject;
+    Exit;
+  end;
 
   if Func.ReceivesRawThis then
   begin
@@ -1246,7 +1252,10 @@ begin
   begin
     const IsPrimitive = not ThisValue.IsNullOrUndefined;
     if IsPrimitive then
-      Exit(WrapPrimitive(ThisValue));
+    begin
+      Result := WrapPrimitive(ThisValue);
+      Exit;
+    end;
 
     Exit(nil);
   end;
@@ -2099,7 +2108,10 @@ begin
     raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
 
   if Value.IsObject then
-    Exit(Value.ToObject);
+  begin
+    Result := Value.ToObject;
+    Exit;
+  end;
 
   Result := WrapPrimitive(Value);
 end;
@@ -2139,7 +2151,10 @@ begin
 
   const IsGlobalCode = (FCurrentScope = FGlobalScope);
   if IsGlobalCode then
-    Exit(VisitIdentifier(Identifier));
+  begin
+    Result := VisitIdentifier(Identifier);
+    Exit;
+  end;
 
   const DeclaringScope = FCurrentScope.Resolve(Identifier.Name);
   if not Assigned(DeclaringScope) then
@@ -2149,7 +2164,8 @@ begin
   if Supports(DeclaringScope, IJSObjectScope, ObjectScope) then
   begin
     ThisObj := ObjectScope.BindingObject;
-    Exit(ObjectScope.GetBindingValue(Identifier.Name, FStrictMode));
+    Result := ObjectScope.GetBindingValue(Identifier.Name, FStrictMode);
+    Exit;
   end;
 
   if not DeclaringScope.TryGetVariable(Identifier.Name, Result) then
@@ -2718,13 +2734,19 @@ begin
   const ErrorName = ErrorConstructorName(Error);
   const IsKnownError = (not ErrorName.IsEmpty) and FGlobalScope.HasVariable(ErrorName);
   if not IsKnownError then
-    Exit(TJSValue.CreateString(Error.Message));
+  begin
+    Result := TJSValue.CreateString(Error.Message);
+    Exit;
+  end;
 
   var Func: IJSFunction;
   const ConstructorValue = FGlobalScope.GetVariable(ErrorName);
   const IsCallable = ConstructorValue.IsFunction and Supports(ConstructorValue.ToObject, IJSFunction, Func);
   if not IsCallable then
-    Exit(TJSValue.CreateString(Error.Message));
+  begin
+    Result := TJSValue.CreateString(Error.Message);
+    Exit;
+  end;
 
   const Prefix = ErrorName + ': ';
   var Message := Error.Message;
@@ -3893,7 +3915,10 @@ begin
 
     var Slot: PJSPropertyDescriptor;
     if TJSObjectImpl(Current).TryGetOwnSlot(Key, Slot) then
-      Exit((not Slot.IsAccessor) and TJSIntrinsicSlot.IsIntrinsic(Slot.Value, Original));
+    begin
+      Result := TJSIntrinsicSlot.IsIntrinsic(Slot, Original);
+      Exit;
+    end;
 
     Current := Current.Prototype;
   end;
@@ -4114,11 +4139,17 @@ begin
   const BindingObject = Binding as TObject;
   const IsPlainScope = (BindingObject.ClassType = TJSScope);
   if IsPlainScope then
-    Exit(Binding.GetVariable(Name));
+  begin
+    Result := Binding.GetVariable(Name);
+    Exit;
+  end;
 
   var ObjectScope: IJSObjectScope;
   if Supports(Binding, IJSObjectScope, ObjectScope) then
-    Exit(ObjectScope.GetBindingValue(Name, FStrictMode));
+  begin
+    Result := ObjectScope.GetBindingValue(Name, FStrictMode);
+    Exit;
+  end;
 
   Result := Binding.GetVariable(Name);
 end;

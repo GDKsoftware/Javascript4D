@@ -75,9 +75,10 @@ begin
     if HasBinding then
     begin
       DeclaredName := Node.Id.Name;
-      FInterpreter.CurrentScope := TJSScope.Create(OuterScope);
-      FInterpreter.RegisterScope(FInterpreter.CurrentScope);
-      FInterpreter.CurrentScope.DeclareLexical(DeclaredName, True);
+      const ClassScope: IJSScope = TJSScope.Create(OuterScope);
+      FInterpreter.CurrentScope := ClassScope;
+      FInterpreter.RegisterScope(ClassScope);
+      ClassScope.DeclareLexical(DeclaredName, True);
     end;
 
     const Heritage = ResolveClassHeritage(Node);
@@ -93,7 +94,10 @@ begin
 
     Result := TJSValue.CreateObject(ClassConstructor);
     if HasBinding then
-      FInterpreter.CurrentScope.InitializeLexical(DeclaredName, Result);
+    begin
+      const ClassScope = FInterpreter.CurrentScope;
+      ClassScope.InitializeLexical(DeclaredName, Result);
+    end;
   finally
     FInterpreter.CurrentScope := OuterScope;
     FInterpreter.StrictMode := OuterStrictMode;
@@ -134,8 +138,8 @@ begin
 end;
 
 function TJSClassBuilder.CreateClassConstructor(const Node: TJSClassExpression; const Prototype: IJSObject;
-                                               const ConstructorParent: IJSObject;
-                                               const DeclaredName: string): IJSFunction;
+                                                const ConstructorParent: IJSObject;
+                                                const DeclaredName: string): IJSFunction;
 begin
   const Func = TJSFunction.Create;
   Func.Prototype := ConstructorParent;
@@ -162,7 +166,8 @@ begin
   FInterpreter.RegisterFunction(Func);
   Func.HomeObject := Prototype;
 
-  FInterpreter.GeneratorEngine.DefinePrototypeProperty(Func, Prototype, False);
+  const Engine = FInterpreter.GeneratorEngine;
+  Engine.DefinePrototypeProperty(Func, Prototype, False);
 
   const ConstructorValue = TJSValue.CreateObject(Func as IJSObject);
   var ConstructorDescriptor := TJSPropertyDescriptor.Create(ConstructorValue);
@@ -173,7 +178,7 @@ begin
 end;
 
 procedure TJSClassBuilder.DefineClassMember(const Member: TJSClassMember; const ClassConstructor: IJSFunction;
-                                           const Prototype: IJSObject);
+                                            const Prototype: IJSObject);
 begin
   var Target := Prototype;
   if Member.IsStatic then
@@ -189,7 +194,7 @@ begin
 end;
 
 procedure TJSClassBuilder.DefineClassMethod(const Target: IJSObject; const Key: TJSPropertyKey;
-                                           const Member: TJSClassMember);
+                                            const Member: TJSClassMember);
 begin
   const MethodName = FInterpreter.FunctionNameForKey(Key);
   const Method = FInterpreter.CreateMethodFunction(Member.Value, MethodName);
@@ -208,7 +213,7 @@ begin
 end;
 
 procedure TJSClassBuilder.DefineClassAccessor(const Target: IJSObject; const Key: TJSPropertyKey;
-                                             const Member: TJSClassMember);
+                                              const Member: TJSClassMember);
 begin
   const IsGetter = (Member.Kind = TJSPropertyKind.Getter);
   const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
@@ -236,7 +241,7 @@ begin
 end;
 
 procedure TJSClassBuilder.DefineClassProperty(const Target: IJSObject; const Key: TJSPropertyKey;
-                                             const Definition: TJSPropertyDefinition);
+                                              const Definition: TJSPropertyDefinition);
 begin
   const IsDefined = Target.DefineOwnProperty(Key, Definition);
   if not IsDefined then

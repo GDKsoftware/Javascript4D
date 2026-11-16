@@ -134,7 +134,10 @@ begin
     FLexicalStates.EnsureInitialized(Name);
 
   if Assigned(FParent) then
-    Exit(FParent.GetVariable(Name));
+  begin
+    Result := FParent.GetVariable(Name);
+    Exit;
+  end;
 
   Result := TJSValue.CreateUndefined;
 end;
@@ -250,7 +253,10 @@ begin
     Exit(Self);
 
   if Assigned(FParent) then
-    Exit(FParent.Resolve(Name));
+  begin
+    Result := FParent.Resolve(Name);
+    Exit;
+  end;
 
   Result := nil;
 end;

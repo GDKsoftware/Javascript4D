@@ -20,6 +20,12 @@ type
     procedure MarkGeneratorReferences(const Generator: IJSGenerator);
     procedure MarkFrame(const Frame: IJSFrame);
     procedure MarkOwnProperties(const Obj: IJSObject);
+    procedure TraceItem(const Item: IInterface);
+    procedure TraceScope(const Scope: IJSScope);
+    procedure TraceProxy(const Proxy: IJSProxy);
+    procedure TraceFunction(const Func: IJSFunction);
+    procedure TraceArray(const Arr: IJSArray);
+    procedure TraceObject(const Obj: IJSObject);
 
   public
     constructor Create;
@@ -53,7 +59,7 @@ end;
 
 procedure TJSGarbageMarker.Mark(const Item: IInterface);
 begin
-  if Item = nil then
+  if not Assigned(Item) then
     Exit;
 
   const Id = Pointer(Item as IInterface);
@@ -128,53 +134,74 @@ begin
     const Item = FWork.Last;
     FWork.Delete(FWork.Count - 1);
 
-    var Scope: IJSScope;
-    var Func: IJSFunction;
-    var Proxy: IJSProxy;
-    var Arr: IJSArray;
-    var Obj: IJSObject;
-
-    if Supports(Item, IJSScope, Scope) then
-    begin
-      Mark(Scope.Parent);
-      for var Value in Scope.GetOwnVariables do
-        MarkValue(Value);
-    end
-    else if Supports(Item, IJSProxy, Proxy) then
-    begin
-      Mark(Proxy.ProxyTarget);
-      Mark(Proxy.ProxyHandler);
-    end
-    else if Supports(Item, IJSFunction, Func) then
-    begin
-      Mark(Func.ClosureScope);
-      Mark(Func.LexicalThis);
-      Mark(Func.Prototype);
-      Mark(Func.HomeObject);
-      MarkFrame(Func.Frame);
-      MarkOwnProperties(Func);
-    end
-    else if Supports(Item, IJSArray, Arr) then
-    begin
-      for var ElementIndex := 0 to Arr.Length - 1 do
-        MarkValue(Arr.Elements[ElementIndex]);
-      Mark(Arr.Prototype);
-      MarkOwnProperties(Arr);
-    end
-    else if Supports(Item, IJSObject, Obj) then
-    begin
-      var ArgumentsScope: IJSArgumentsScope;
-      if Supports(Obj, IJSArgumentsScope, ArgumentsScope) then
-        Mark(ArgumentsScope.MappedScope);
-
-      var Generator: IJSGenerator;
-      if Supports(Obj, IJSGenerator, Generator) then
-        MarkGeneratorReferences(Generator);
-
-      Mark(Obj.Prototype);
-      MarkOwnProperties(Obj);
-    end;
+    TraceItem(Item);
   end;
+end;
+
+procedure TJSGarbageMarker.TraceItem(const Item: IInterface);
+begin
+  var Scope: IJSScope;
+  var Func: IJSFunction;
+  var Proxy: IJSProxy;
+  var Arr: IJSArray;
+  var Obj: IJSObject;
+
+  if Supports(Item, IJSScope, Scope) then
+    TraceScope(Scope)
+  else if Supports(Item, IJSProxy, Proxy) then
+    TraceProxy(Proxy)
+  else if Supports(Item, IJSFunction, Func) then
+    TraceFunction(Func)
+  else if Supports(Item, IJSArray, Arr) then
+    TraceArray(Arr)
+  else if Supports(Item, IJSObject, Obj) then
+    TraceObject(Obj);
+end;
+
+procedure TJSGarbageMarker.TraceScope(const Scope: IJSScope);
+begin
+  Mark(Scope.Parent);
+  for var Value in Scope.GetOwnVariables do
+    MarkValue(Value);
+end;
+
+procedure TJSGarbageMarker.TraceProxy(const Proxy: IJSProxy);
+begin
+  Mark(Proxy.ProxyTarget);
+  Mark(Proxy.ProxyHandler);
+end;
+
+procedure TJSGarbageMarker.TraceFunction(const Func: IJSFunction);
+begin
+  Mark(Func.ClosureScope);
+  Mark(Func.LexicalThis);
+  Mark(Func.Prototype);
+  Mark(Func.HomeObject);
+  MarkFrame(Func.Frame);
+  MarkOwnProperties(Func);
+end;
+
+procedure TJSGarbageMarker.TraceArray(const Arr: IJSArray);
+begin
+  for var ElementIndex := 0 to Arr.Length - 1 do
+    MarkValue(Arr.Elements[ElementIndex]);
+
+  Mark(Arr.Prototype);
+  MarkOwnProperties(Arr);
+end;
+
+procedure TJSGarbageMarker.TraceObject(const Obj: IJSObject);
+begin
+  var ArgumentsScope: IJSArgumentsScope;
+  if Supports(Obj, IJSArgumentsScope, ArgumentsScope) then
+    Mark(ArgumentsScope.MappedScope);
+
+  var Generator: IJSGenerator;
+  if Supports(Obj, IJSGenerator, Generator) then
+    MarkGeneratorReferences(Generator);
+
+  Mark(Obj.Prototype);
+  MarkOwnProperties(Obj);
 end;
 
 end.
