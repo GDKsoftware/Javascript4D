@@ -137,6 +137,8 @@ type
     KeepLooping: Boolean;
   end;
 
+  TJSLoopJump = (Propagate, Stop, Proceed);
+
   TJSThrowSignal = class(Exception)
   private
     FValue: TJSValue;
@@ -172,8 +174,6 @@ type
     procedure ResolveKey(const Limits: TJSLimits); inline;
     procedure Prepare(const Interpreter: TJSInterpreter);
   end;
-
-  TJSNextLink<T> = reference to function(const Link: T): T;
 
   TJSEvaluatedKey = record
     Key: TJSPropertyKey;
@@ -593,6 +593,8 @@ type
     procedure RunRemembering(const Action: TProc);
     function EvaluateRemembering(const Node: TJSExpression): TJSValue;
     function ResumableExec(const Node: TJSStatement): TJSValue;
+    procedure RaiseSuspension(const Node: TJSASTNode; const Value: TJSValue; const IsResult: Boolean);
+    procedure EnterFrameScope(const Frame: TJSStatementFrame; const ScopeInfo: TJSScopeInfo; const NeedsScope: Boolean);
     function ResumableStatement(const Node: TJSStatement): TJSValue;
     function ResumableReturn(const Node: TJSReturnStatement): TJSValue;
     function ResumableThrow(const Node: TJSThrowStatement): TJSValue;
@@ -636,6 +638,13 @@ type
     procedure HoistVariable(const Name: string);
     procedure EnsureNoEvalLexicalConflict(const Name: string);
     procedure EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
+    procedure EnterLoopScope(const MayCaptureScope: Boolean; const Declaration: TJSVariableDeclaration);
+    procedure EnsureWithAllowed(const Node: TJSWithStatement);
+    procedure EnterWithScope(const Target: TJSValue);
+    procedure DeclareCatchBinding(const Handler: TJSCatchClause; const Thrown: TJSValue);
+    function ResolveLoopJump(const Signal: TJSJumpSignal; const OwnLabels: TArray<string>): TJSLoopJump;
+    function FindSwitchStart(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): Integer;
+    function RunSwitchFrom(const Node: TJSSwitchStatement; const StartIndex: Integer): TJSValue;
     function VisitScopedBlock(const Node: TJSBlockStatement): TJSValue;
     function CreateFunctionObject(const Node: TJSFunctionDeclaration): IJSFunction;
     procedure ConvertToGeneratorFunction(const Func: IJSFunction);
@@ -761,8 +770,8 @@ type
     procedure RaiseCannotAssign(const PropName: TJSPropertyKey);
     procedure RaiseCannotDelete(const Node: TJSUnaryExpression; const PropName: TJSPropertyKey);
     procedure RequireBoundThis;
-    class function CollectChain<T: class>(const First: T; const ChainLength: Integer;
-                                          const NextLink: TJSNextLink<T>): TArray<T>; static;
+    function CollectChain(const First: TJSExpression; const ChainLength: Integer): TArray<TJSExpression>;
+    function NextChainLink(const Link: TJSExpression): TJSExpression;
     function EvaluateChainLinks(const Links: TArray<TJSExpression>; const FirstLink: Integer;
                                 const Start: TJSValue): TJSValue;
     function ConstructBound(const Bound: TJSBoundFunction; const Args: TArray<TJSValue>; const Func: IJSFunction;
@@ -2686,6 +2695,15 @@ begin
   end;
 end;
 
+procedure TJSInterpreter.EnterLoopScope(const MayCaptureScope: Boolean; const Declaration: TJSVariableDeclaration);
+begin
+  FCurrentScope := TJSScope.Create(FCurrentScope);
+  if MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  DeclareLexicalNames(Declaration);
+end;
+
 procedure TJSInterpreter.EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
 begin
   FCurrentScope := TJSScope.Create(FCurrentScope);
@@ -2753,40 +2771,9 @@ function TJSInterpreter.VisitVariableDeclaration(const Node: TJSVariableDeclarat
 begin
   Result := TJSValue.CreateUndefined;
 
-  if Node.Kind <> TJSDeclarationKind.Var_ then
-  begin
-    for var Declarator in Node.Declarations do
-    begin
-      if Assigned(Declarator.Pattern) then
-      begin
-        const BoundValue = Visit(Declarator.Init);
-        BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Lexical);
-        Continue;
-      end;
-
-      var InitialValue := TJSValue.CreateUndefined;
-
-      if Assigned(Declarator.Init) then
-        InitialValue := VisitNamed(Declarator.Init, Declarator.Id.Name);
-
-      FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
-    end;
-
-    Exit;
-  end;
-
   for var Declarator in Node.Declarations do
   begin
-    if not Assigned(Declarator.Init) then
-      Continue;
-
-    if Assigned(Declarator.Pattern) then
-    begin
-      const BoundValue = Visit(Declarator.Init);
-      BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Variable);
-    end
-    else
-      FCurrentScope.SetVariable(Declarator.Id.Name, VisitNamed(Declarator.Init, Declarator.Id.Name));
+    InitializeDeclarator(Node, Declarator);
   end;
 end;
 
@@ -2869,20 +2856,31 @@ end;
 
 function TJSInterpreter.VisitWithStatement(const Node: TJSWithStatement): TJSValue;
 begin
-  if FStrictMode then
-    raise TJSErrorFactory.SyntaxError('with statement is not allowed in strict mode', Node.Line, Node.Column);
+  EnsureWithAllowed(Node);
 
   const TargetValue = Visit(Node.Target);
-  const ScopeObject = ToScopeObject(TargetValue);
   const OuterScope = FCurrentScope;
 
-  FCurrentScope := TJSObjectScope.Create(OuterScope, ScopeObject, @FStrictMode);
-  RegisterScope(FCurrentScope);
+  EnterWithScope(TargetValue);
   try
     Result := ExecuteStatement(Node.Body);
   finally
     FCurrentScope := OuterScope;
   end;
+end;
+
+procedure TJSInterpreter.EnsureWithAllowed(const Node: TJSWithStatement);
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.SyntaxError(WITH_IN_STRICT_MODE, Node.Line, Node.Column);
+end;
+
+procedure TJSInterpreter.EnterWithScope(const Target: TJSValue);
+begin
+  const ScopeObject = ToScopeObject(Target);
+
+  FCurrentScope := TJSObjectScope.Create(FCurrentScope, ScopeObject, @FStrictMode);
+  RegisterScope(FCurrentScope);
 end;
 
 function TJSInterpreter.VisitCalleeIdentifier(const Identifier: TJSIdentifier; out ThisObj: IJSObject): TJSValue;
@@ -2950,19 +2948,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
   end;
@@ -2977,19 +2972,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
   until not Visit(Node.Test).ToBoolean;
@@ -3021,12 +3013,8 @@ begin
   const OuterScope = FCurrentScope;
   const Declaration = TJSVariableDeclaration(Node.Init);
 
-  FCurrentScope := TJSScope.Create(OuterScope);
-  if Node.MayCaptureScope then
-    RegisterScope(FCurrentScope);
-
   try
-    DeclareLexicalNames(Declaration);
+    EnterLoopScope(Node.MayCaptureScope, Declaration);
     Visit(Declaration);
 
     if Node.MayCaptureScope then
@@ -3056,20 +3044,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        AdvanceForLoop(Node, CopiesIterationScope);
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
 
@@ -3104,12 +3088,8 @@ begin
 
   const OuterScope = FCurrentScope;
 
-  FCurrentScope := TJSScope.Create(OuterScope);
-  if Node.MayCaptureScope then
-    RegisterScope(FCurrentScope);
-
   try
-    DeclareLexicalNames(TJSVariableDeclaration(Node.Left));
+    EnterLoopScope(Node.MayCaptureScope, TJSVariableDeclaration(Node.Left));
     Result := Visit(TJSExpression(Node.Right));
   finally
     FCurrentScope := OuterScope;
@@ -3205,19 +3185,35 @@ begin
   try
     Result := ExecuteStatement(Body);
   except
-    on Signal: TJSBreakSignal do
+    on Signal: TJSJumpSignal do
     begin
-      if Signal.IsLabelled then
+      const Jump = ResolveLoopJump(Signal, OwnLabels);
+      const MustPropagate = (Jump = TJSLoopJump.Propagate);
+      if MustPropagate then
         raise;
 
-      KeepLooping := False;
-    end;
-    on Signal: TJSContinueSignal do
-    begin
-      if not Signal.AppliesTo(OwnLabels) then
-        raise;
+      KeepLooping := (Jump <> TJSLoopJump.Stop);
     end;
   end;
+end;
+
+function TJSInterpreter.ResolveLoopJump(const Signal: TJSJumpSignal; const OwnLabels: TArray<string>): TJSLoopJump;
+begin
+  const IsBreak = (Signal is TJSBreakSignal);
+  if IsBreak then
+  begin
+    if Signal.IsLabelled then
+      Result := TJSLoopJump.Propagate
+    else
+      Result := TJSLoopJump.Stop;
+
+    Exit;
+  end;
+
+  if Signal.AppliesTo(OwnLabels) then
+    Result := TJSLoopJump.Proceed
+  else
+    Result := TJSLoopJump.Propagate;
 end;
 
 function TJSInterpreter.VisitForInStatement(const Node: TJSForInStatement): TJSValue;
@@ -3353,10 +3349,20 @@ end;
 
 function TJSInterpreter.ExecuteSwitchCases(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): TJSValue;
 begin
-  Result := TJSValue.CreateUndefined;
+  const StartIndex = FindSwitchStart(Node, DiscriminantValue);
+  const HasStart = (StartIndex <> NO_CASE);
+  if not HasStart then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
-  var Matched := False;
-  var DefaultCaseIndex := -1;
+  Result := RunSwitchFrom(Node, StartIndex);
+end;
+
+function TJSInterpreter.FindSwitchStart(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): Integer;
+begin
+  var DefaultCaseIndex := NO_CASE;
 
   for var CaseIndex := 0 to Node.Cases.Count - 1 do
   begin
@@ -3369,56 +3375,33 @@ begin
     end;
 
     const TestValue = Visit(SwitchCase.Test);
-
     if StrictEquals(DiscriminantValue, TestValue) then
     begin
-      Matched := True;
-
-      try
-        for var StatementIndex := CaseIndex to Node.Cases.Count - 1 do
-        begin
-          const CurrentCase = Node.Cases[StatementIndex];
-
-          for var Statement in CurrentCase.Consequent do
-          begin
-            Result := ExecuteStatement(Statement);
-          end;
-        end;
-      except
-        on Signal: TJSBreakSignal do
-        begin
-          if Signal.IsLabelled then
-            raise;
-
-          Exit;
-        end;
-      end;
-
-      Break;
+      Result := CaseIndex;
+      Exit;
     end;
   end;
 
-  const ShouldRunDefault = (not Matched) and (DefaultCaseIndex >= 0);
-  if ShouldRunDefault then
-  begin
-    try
-      for var StatementIndex := DefaultCaseIndex to Node.Cases.Count - 1 do
-      begin
-        const CurrentCase = Node.Cases[StatementIndex];
+  Result := DefaultCaseIndex;
+end;
 
-        for var Statement in CurrentCase.Consequent do
-        begin
-          Result := ExecuteStatement(Statement);
-        end;
-      end;
-    except
-      on Signal: TJSBreakSignal do
-      begin
-        if Signal.IsLabelled then
-          raise;
+function TJSInterpreter.RunSwitchFrom(const Node: TJSSwitchStatement; const StartIndex: Integer): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
 
-        Exit;
+  try
+    for var CaseIndex := StartIndex to Node.Cases.Count - 1 do
+    begin
+      for var Statement in Node.Cases[CaseIndex].Consequent do
+      begin
+        Result := ExecuteStatement(Statement);
       end;
+    end;
+  except
+    on Signal: TJSBreakSignal do
+    begin
+      if Signal.IsLabelled then
+        raise;
     end;
   end;
 end;
@@ -3441,17 +3424,10 @@ begin
         raise;
       on EJSControlFlowSignal do
         raise;
-      on E: TJSThrowSignal do
-      begin
-        if Assigned(Node.Handler) then
-          Result := VisitCatchClause(Node.Handler, E.Value)
-        else
-          raise;
-      end;
       on E: Exception do
       begin
         if Assigned(Node.Handler) then
-          Result := VisitCatchClause(Node.Handler, CreateErrorValue(E))
+          Result := VisitCatchClause(Node.Handler, ExceptionToValue(E))
         else
           raise;
       end;
@@ -3512,24 +3488,28 @@ function TJSInterpreter.VisitCatchClause(const Handler: TJSCatchClause; const Th
 begin
   PushScope;
   try
-    if Assigned(Handler.Pattern) then
-    begin
-      for var Name in TJSPatternNames.Of_(Handler.Pattern) do
-      begin
-        FCurrentScope.DeclareLexical(Name, False);
-      end;
-
-      BindTarget(Handler.Pattern, Thrown, TJSBindingMode.Lexical);
-    end
-    else
-    begin
-      FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
-    end;
+    DeclareCatchBinding(Handler, Thrown);
 
     Result := Visit(Handler.Body);
   finally
     PopScope;
   end;
+end;
+
+procedure TJSInterpreter.DeclareCatchBinding(const Handler: TJSCatchClause; const Thrown: TJSValue);
+begin
+  if not Assigned(Handler.Pattern) then
+  begin
+    FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
+    Exit;
+  end;
+
+  for var Name in TJSPatternNames.Of_(Handler.Pattern) do
+  begin
+    FCurrentScope.DeclareLexical(Name, False);
+  end;
+
+  BindTarget(Handler.Pattern, Thrown, TJSBindingMode.Lexical);
 end;
 
 procedure TJSInterpreter.RunFinalizer(const Node: TJSTryStatement);
@@ -3695,7 +3675,15 @@ function TJSInterpreter.VisitAwait(const Node: TJSAwaitExpression): TJSValue;
 begin
   const Operand = Visit(Node.Argument);
 
-  raise TJSYieldSignal.Create(Node, Operand, False);
+  RaiseSuspension(Node, Operand, False);
+end;
+
+procedure TJSInterpreter.RaiseSuspension(const Node: TJSASTNode; const Value: TJSValue; const IsResult: Boolean);
+begin
+  if Assigned(FGenerator) then
+    FGenerator.IsSuspending := True;
+
+  raise TJSYieldSignal.Create(Node, Value, IsResult);
 end;
 
 procedure TJSInterpreter.ConvertToAsyncFunction(const Func: IJSFunction);
@@ -3866,6 +3854,7 @@ end;
 function TJSInterpreter.SuspendGenerator(const Generator: TJSGeneratorObject;
                                          const Signal: TJSYieldSignal): TJSBodyResult;
 begin
+  Generator.IsSuspending := False;
   Generator.State := TJSGeneratorState.SuspendedYield;
   Generator.SuspendedAt := Signal.Node;
 
@@ -3956,27 +3945,17 @@ begin
   if Assigned(Node.Argument) then
     Operand := Visit(Node.Argument);
 
-  raise TJSYieldSignal.Create(Node, Operand, False);
+  RaiseSuspension(Node, Operand, False);
 end;
 
 function TJSInterpreter.VisitYieldDelegate(const Node: TJSYieldExpression): TJSValue;
 begin
   const Frame = FrameFor(Node);
 
-  var IsSuspended := False;
   try
-    try
-      Result := DelegateStep(Node, Frame);
-    except
-      on TJSYieldSignal do
-      begin
-        IsSuspended := True;
-        raise;
-      end;
-    end;
+    Result := DelegateStep(Node, Frame);
   finally
-    if not IsSuspended then
-      FGenerator.DropFrame(Node);
+    FGenerator.ReleaseFrame(Node);
   end;
 end;
 
@@ -4004,7 +3983,7 @@ begin
   end;
 
   const DelegatedResult = TJSValue.CreateObject(ResultObject);
-  raise TJSYieldSignal.Create(Node, DelegatedResult, True);
+  RaiseSuspension(Node, DelegatedResult, True);
 end;
 
 procedure TJSInterpreter.OpenDelegate(const Iterable: TJSValue; const Frame: TJSStatementFrame);
@@ -4122,20 +4101,10 @@ end;
 
 procedure TJSInterpreter.RunRemembering(const Action: TProc);
 begin
-  var IsSuspended := False;
   try
-    try
-      Action;
-    except
-      on TJSYieldSignal do
-      begin
-        IsSuspended := True;
-        raise;
-      end;
-    end;
+    Action;
   finally
-    if not IsSuspended then
-      FGenerator.DropResumptions;
+    FGenerator.ReleaseResumptions;
   end;
 end;
 
@@ -4169,21 +4138,22 @@ begin
 
   ConsumeStep;
 
-  var IsSuspended := False;
   try
-    try
-      Result := ResumableStatement(Node);
-    except
-      on TJSYieldSignal do
-      begin
-        IsSuspended := True;
-        raise;
-      end;
-    end;
+    Result := ResumableStatement(Node);
   finally
-    if not IsSuspended then
-      FGenerator.DropFrame(Node);
+    FGenerator.ReleaseFrame(Node);
   end;
+end;
+
+procedure TJSInterpreter.EnterFrameScope(const Frame: TJSStatementFrame; const ScopeInfo: TJSScopeInfo;
+                                         const NeedsScope: Boolean);
+begin
+  Frame.OuterScope := FCurrentScope;
+  if not NeedsScope then
+    Exit;
+
+  EnterLexicalScope(ScopeInfo);
+  Frame.Scope := FCurrentScope;
 end;
 
 function TJSInterpreter.ResumableStatement(const Node: TJSStatement): TJSValue;
@@ -4250,13 +4220,7 @@ begin
   if Frame.IsAt(TJSFrameStage.Fresh) then
   begin
     Frame.MoveTo(TJSFrameStage.BlockRunning);
-    Frame.OuterScope := FCurrentScope;
-
-    if NeedsScope then
-    begin
-      EnterLexicalScope(Node.ScopeInfo);
-      Frame.Scope := FCurrentScope;
-    end;
+    EnterFrameScope(Frame, Node.ScopeInfo, NeedsScope);
   end
   else if NeedsScope then
   begin
@@ -4320,14 +4284,22 @@ begin
     Exit;
   end;
 
+  if not IsLexical then
+  begin
+    if Assigned(Declarator.Init) then
+    begin
+      const InitialValue = VisitNamed(Declarator.Init, Declarator.Id.Name);
+      FCurrentScope.SetVariable(Declarator.Id.Name, InitialValue);
+    end;
+
+    Exit;
+  end;
+
   var InitialValue := TJSValue.CreateUndefined;
   if Assigned(Declarator.Init) then
     InitialValue := VisitNamed(Declarator.Init, Declarator.Id.Name);
 
-  if IsLexical then
-    FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue)
-  else if Assigned(Declarator.Init) then
-    FCurrentScope.SetVariable(Declarator.Id.Name, InitialValue);
+  FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
 end;
 
 function TJSInterpreter.ResumableIf(const Node: TJSIfStatement): TJSValue;
@@ -4431,11 +4403,7 @@ begin
 
     if IsLexical then
     begin
-      FCurrentScope := TJSScope.Create(Frame.OuterScope);
-      if Node.MayCaptureScope then
-        RegisterScope(FCurrentScope);
-
-      DeclareLexicalNames(TJSVariableDeclaration(Node.Init));
+      EnterLoopScope(Node.MayCaptureScope, TJSVariableDeclaration(Node.Init));
       Frame.Scope := FCurrentScope;
     end;
   end
@@ -4532,11 +4500,8 @@ begin
 
   if not Assigned(Frame.Scope) then
   begin
-    FCurrentScope := TJSScope.Create(Frame.OuterScope);
-    if Node.MayCaptureScope then
-      RegisterScope(FCurrentScope);
-
-    DeclareLexicalNames(TJSVariableDeclaration(Node.Left));
+    FCurrentScope := Frame.OuterScope;
+    EnterLoopScope(Node.MayCaptureScope, TJSVariableDeclaration(Node.Left));
     Frame.Scope := FCurrentScope;
   end
   else
@@ -4578,17 +4543,14 @@ begin
   try
     Result.Value := ResumableExec(Body);
   except
-    on Signal: TJSBreakSignal do
+    on Signal: TJSJumpSignal do
     begin
-      if Signal.IsLabelled then
+      const Jump = ResolveLoopJump(Signal, Frame.Labels);
+      const MustPropagate = (Jump = TJSLoopJump.Propagate);
+      if MustPropagate then
         raise;
 
-      Result.KeepLooping := False;
-    end;
-    on Signal: TJSContinueSignal do
-    begin
-      if not Signal.AppliesTo(Frame.Labels) then
-        raise;
+      Result.KeepLooping := (Jump <> TJSLoopJump.Stop);
     end;
   end;
 end;
@@ -4763,15 +4725,9 @@ begin
   if Frame.IsAt(TJSFrameStage.Fresh) then
   begin
     Frame.Subject := EvaluateRemembering(Node.Discriminant);
-    Frame.OuterScope := FCurrentScope;
     Frame.DefaultCaseIndex := NO_CASE;
     Frame.MoveTo(TJSFrameStage.SwitchSelecting);
-
-    if HasScope then
-    begin
-      EnterLexicalScope(Node.ScopeInfo);
-      Frame.Scope := FCurrentScope;
-    end;
+    EnterFrameScope(Frame, Node.ScopeInfo, HasScope);
   end
   else if HasScope then
   begin
@@ -4886,19 +4842,16 @@ end;
 
 function TJSInterpreter.ResumableWith(const Node: TJSWithStatement): TJSValue;
 begin
-  if FStrictMode then
-    raise TJSErrorFactory.SyntaxError(WITH_IN_STRICT_MODE, Node.Line, Node.Column);
+  EnsureWithAllowed(Node);
 
   const Frame = FrameFor(Node);
 
   if Frame.IsAt(TJSFrameStage.Fresh) then
   begin
     const TargetValue = EvaluateRemembering(Node.Target);
-    const ScopeObject = ToScopeObject(TargetValue);
 
     Frame.OuterScope := FCurrentScope;
-    FCurrentScope := TJSObjectScope.Create(Frame.OuterScope, ScopeObject, @FStrictMode);
-    RegisterScope(FCurrentScope);
+    EnterWithScope(TargetValue);
     Frame.Scope := FCurrentScope;
     Frame.MoveTo(TJSFrameStage.WithEntered);
   end
@@ -5001,18 +4954,7 @@ begin
   PushScope;
   Frame.Scope := FCurrentScope;
 
-  if not Assigned(Handler.Pattern) then
-  begin
-    FCurrentScope.DeclareVariable(Handler.Param.Name, Frame.Thrown);
-    Exit;
-  end;
-
-  for var Name in TJSPatternNames.Of_(Handler.Pattern) do
-  begin
-    FCurrentScope.DeclareLexical(Name, False);
-  end;
-
-  BindTarget(Handler.Pattern, Frame.Thrown, TJSBindingMode.Lexical);
+  DeclareCatchBinding(Handler, Frame.Thrown);
 end;
 
 procedure TJSInterpreter.RunFinalizerBlock(const Node: TJSTryStatement; const Frame: TJSStatementFrame);
@@ -5868,8 +5810,7 @@ begin
   end;
 end;
 
-class function TJSInterpreter.CollectChain<T>(const First: T; const ChainLength: Integer;
-                                                 const NextLink: TJSNextLink<T>): TArray<T>;
+function TJSInterpreter.CollectChain(const First: TJSExpression; const ChainLength: Integer): TArray<TJSExpression>;
 begin
   SetLength(Result, ChainLength + 1);
 
@@ -5880,34 +5821,44 @@ begin
     Result[Count] := Link;
     Inc(Count);
 
-    Link := NextLink(Link);
+    Link := NextChainLink(Link);
   end;
 
   SetLength(Result, Count);
 end;
 
+function TJSInterpreter.NextChainLink(const Link: TJSExpression): TJSExpression;
+begin
+  const IsAccessLink = (Link.ChainKind = TJSChainKind.Access);
+  if IsAccessLink then
+  begin
+    const Operand = ChainOperand(Link);
+    const ContinuesAccessChain = (Assigned(Operand) and IsChainLink(Operand));
+    if ContinuesAccessChain then
+      Result := Operand
+    else
+      Result := nil;
+
+    Exit;
+  end;
+
+  const Next = Link.ChainChild;
+  const ContinuesChain = (Assigned(Next) and (Next.ChainKind = Link.ChainKind) and (not Next.IsRemembered));
+  if ContinuesChain then
+    Result := Next
+  else
+    Result := nil;
+end;
+
 function TJSInterpreter.VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;
 begin
-  const Links = CollectChain<TJSBinaryExpression>(Node, Node.ChainLength,
-    function(const Link: TJSBinaryExpression): TJSBinaryExpression
-    begin
-      const Next = Link.Left;
-      const ContinuesChain = ((Next is TJSBinaryExpression) and (not Next.IsRemembered));
-      if ContinuesChain then
-      begin
-        Result := TJSBinaryExpression(Next);
-      end
-      else
-      begin
-        Result := nil;
-      end;
-    end);
+  const Links = CollectChain(Node, Node.ChainLength);
 
-  const LastLink = Links[High(Links)];
+  const LastLink = TJSBinaryExpression(Links[High(Links)]);
   Result := Visit(LastLink.Left);
   for var Index := High(Links) downto 0 do
   begin
-    const Current = Links[Index];
+    const Current = TJSBinaryExpression(Links[Index]);
     const Right = Visit(Current.Right);
     Result := ApplyBinary(Current, Result, Right);
   end;
@@ -5956,26 +5907,13 @@ end;
 
 function TJSInterpreter.VisitLogicalChain(const Node: TJSLogicalExpression): TJSValue;
 begin
-  const Links = CollectChain<TJSLogicalExpression>(Node, Node.ChainLength,
-    function(const Link: TJSLogicalExpression): TJSLogicalExpression
-    begin
-      const Next = Link.Left;
-      const ContinuesChain = ((Next is TJSLogicalExpression) and (not Next.IsRemembered));
-      if ContinuesChain then
-      begin
-        Result := TJSLogicalExpression(Next);
-      end
-      else
-      begin
-        Result := nil;
-      end;
-    end);
+  const Links = CollectChain(Node, Node.ChainLength);
 
-  const LastLink = Links[High(Links)];
+  const LastLink = TJSLogicalExpression(Links[High(Links)]);
   Result := Visit(LastLink.Left);
   for var Index := High(Links) downto 0 do
   begin
-    Result := ApplyLogical(Links[Index], Result);
+    Result := ApplyLogical(TJSLogicalExpression(Links[Index]), Result);
   end;
 end;
 
@@ -6164,7 +6102,6 @@ procedure TJSInterpreter.BindResumableArrayPattern(const Pattern: TJSArrayPatter
                                                    const Mode: TJSBindingMode);
 begin
   const Frame = FrameFor(Pattern);
-  var IsSuspended := False;
   try
     if Frame.IsAt(TJSFrameStage.Fresh) then
     begin
@@ -6176,10 +6113,7 @@ begin
       BindResumableElements(Pattern, Frame, Mode);
     except
       on TJSYieldSignal do
-      begin
-        IsSuspended := True;
         raise;
-      end;
       on EJSExecutionInterrupted do
         raise;
       on Error: Exception do
@@ -6191,8 +6125,7 @@ begin
 
     Frame.Source.Close;
   finally
-    if not IsSuspended then
-      FGenerator.DropFrame(Pattern);
+    FGenerator.ReleaseFrame(Pattern);
   end;
 end;
 
@@ -7145,20 +7078,7 @@ end;
 
 function TJSInterpreter.VisitValueChain(const Node: TJSExpression; const ChainLength: Integer): TJSValue;
 begin
-  const Links = CollectChain<TJSExpression>(Node, ChainLength,
-    function(const Link: TJSExpression): TJSExpression
-    begin
-      const Operand = ChainOperand(Link);
-      const ContinuesChain = (Assigned(Operand) and IsChainLink(Operand));
-      if ContinuesChain then
-      begin
-        Result := Operand;
-      end
-      else
-      begin
-        Result := nil;
-      end;
-    end);
+  const Links = CollectChain(Node, ChainLength);
 
   const LastLink = Links[High(Links)];
   const FirstOperand = ChainOperand(LastLink);

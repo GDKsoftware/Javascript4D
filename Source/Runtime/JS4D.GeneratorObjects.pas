@@ -45,6 +45,7 @@ type
     FFrames: TObjectDictionary<TJSASTNode, TJSGeneratorFrame>;
     FResumptionsByNode: TDictionary<TJSASTNode, TJSResumption>;
     FSuspendedAt: TJSASTNode;
+    FIsSuspending: Boolean;
 
     procedure DropAll;
     procedure EnumerateValue(const Value: TJSValue; const Visit: TJSReferenceVisitor);
@@ -61,10 +62,10 @@ type
     procedure ReleaseHeldValues; override;
     function FindFrame(const Node: TJSASTNode): TJSGeneratorFrame;
     procedure AddFrame(const Node: TJSASTNode; const Frame: TJSGeneratorFrame);
-    procedure DropFrame(const Node: TJSASTNode);
+    procedure ReleaseFrame(const Node: TJSASTNode);
     function TryFindResumption(const Node: TJSASTNode; out Entry: TJSResumption): Boolean;
     procedure AddResumption(const Node: TJSASTNode; const Entry: TJSResumption);
-    procedure DropResumptions;
+    procedure ReleaseResumptions;
 
     property State: TJSGeneratorState read FState write FState;
     property FunctionObject: IJSFunction read FFunctionObject write FFunctionObject;
@@ -76,6 +77,7 @@ type
     property NewTarget: IJSFunction read FNewTarget write FNewTarget;
     property Binding: IJSThisBinding read FBinding write FBinding;
     property SuspendedAt: TJSASTNode read FSuspendedAt write FSuspendedAt;
+    property IsSuspending: Boolean read FIsSuspending write FIsSuspending;
   end;
 
 implementation
@@ -102,6 +104,7 @@ procedure TJSGeneratorObject.Finish;
 begin
   FState := TJSGeneratorState.Completed;
   FSuspendedAt := nil;
+  FIsSuspending := False;
   DropAll;
 
   FScope := nil;
@@ -130,8 +133,11 @@ begin
   FResumptionsByNode.Clear;
 end;
 
-procedure TJSGeneratorObject.DropResumptions;
+procedure TJSGeneratorObject.ReleaseResumptions;
 begin
+  if FIsSuspending then
+    Exit;
+
   FResumptionsByNode.Clear;
 end;
 
@@ -146,8 +152,11 @@ begin
   FFrames.Add(Node, Frame);
 end;
 
-procedure TJSGeneratorObject.DropFrame(const Node: TJSASTNode);
+procedure TJSGeneratorObject.ReleaseFrame(const Node: TJSASTNode);
 begin
+  if FIsSuspending then
+    Exit;
+
   FFrames.Remove(Node);
 end;
 
