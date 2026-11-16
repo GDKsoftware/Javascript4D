@@ -500,6 +500,9 @@ type
     procedure AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
     function ParentConstructorOf(const Func: IJSFunction): IJSFunction;
     procedure EnsureCallDepthAvailable;
+    function CallFromHost(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
+    function CallNative(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
+    procedure RejectClassConstructorCall(const Func: IJSFunction);
     function CallBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>; const BoundThis: IJSObject): TJSValue;
     function ConstructBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
                                   const NewTarget: IJSFunction): TJSValue;
@@ -7836,24 +7839,48 @@ begin
   const IsCalledByHost = (FHeapEntries = 0);
   if IsCalledByHost then
   begin
-    const PreviousHeap = EnterHeap;
-    try
-      Result := CallFunction(Func, Args, ThisObj);
-    finally
-      LeaveHeap(PreviousHeap);
-    end;
-
+    Result := CallFromHost(Func, Args, ThisObj);
     Exit;
   end;
 
+  if Func.IsNative then
+  begin
+    Result := CallNative(Func, Args, ThisObj);
+    Exit;
+  end;
+
+  RejectClassConstructorCall(Func);
+  Result := InvokeFunction(Func, Args, ThisObj, nil, nil);
+end;
+
+function TJSInterpreter.CallNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                   const ThisObj: IJSObject): TJSValue;
+begin
+  ConsumeStep;
+
+  const NativeResult = Func.NativeFunction(ThisObj, Args);
+  Result := WithArrayPrototype(NativeResult);
+end;
+
+function TJSInterpreter.CallFromHost(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                     const ThisObj: IJSObject): TJSValue;
+begin
+  const PreviousHeap = EnterHeap;
+  try
+    Result := CallFunction(Func, Args, ThisObj);
+  finally
+    LeaveHeap(PreviousHeap);
+  end;
+end;
+
+procedure TJSInterpreter.RejectClassConstructorCall(const Func: IJSFunction);
+begin
   const IsClassConstructor = Func.Kind in [TJSFunctionKind.BaseConstructor, TJSFunctionKind.DerivedConstructor];
   if IsClassConstructor then
   begin
     const Message = Format(CLASS_CONSTRUCTOR_CALL, [Func.Name]);
     raise TJSErrorFactory.TypeError(Message);
   end;
-
-  Result := InvokeFunction(Func, Args, ThisObj, nil, nil);
 end;
 
 procedure TJSInterpreter.EnsureCallDepthAvailable;

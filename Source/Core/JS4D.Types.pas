@@ -106,6 +106,7 @@ type
 
     class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
       const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
+    class function TryGetPlainNestedArray(const Element: TJSValue; out Nested: IJSArray): Boolean; static;
     class function ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string; static;
     function ToComputedPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
     function ToHookedArrayString(const Limits: TJSLimits): string;
@@ -1406,6 +1407,19 @@ begin
   end;
 end;
 
+class function TJSValue.TryGetPlainNestedArray(const Element: TJSValue; out Nested: IJSArray): Boolean;
+begin
+  Nested := nil;
+  Result := False;
+
+  if not Element.IsArray then
+    Exit;
+
+  const ElementObject = Element.ToObject;
+  Result := Element.HasUntouchedArrayConversion(TJSPrimitiveHint.String_) and
+            Supports(ElementObject, IJSArray, Nested);
+end;
+
 class procedure TJSValue.AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
   const Visiting: TList<Pointer>; const Limits: TJSLimits);
 begin
@@ -1424,11 +1438,9 @@ begin
       end;
 
       const ElementValue = SourceArray[Index];
-      const ElementObject = ElementValue.ToObject;
       var Nested: IJSArray;
 
-      const IsPlainNested = ElementValue.IsArray and ElementValue.HasUntouchedArrayConversion(TJSPrimitiveHint.String_);
-      if IsPlainNested and Supports(ElementObject, IJSArray, Nested) then
+      if TryGetPlainNestedArray(ElementValue, Nested) then
       begin
         const NestedMarker = Pointer(Nested as IInterface);
 
