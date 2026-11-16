@@ -13,6 +13,8 @@ const
   ERRORS_PROPERTY = 'errors';
   FUNCTION_NAME = 'Function';
   ANONYMOUS_NAME = 'anonymous';
+  GETTER_NAME_FORMAT = 'get %s';
+  SETTER_NAME_FORMAT = 'set %s';
 
 implementation
 

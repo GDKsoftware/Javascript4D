@@ -9,6 +9,7 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
+  JS4D.IntrinsicCache,
   JS4D.Interpreter;
 
 type

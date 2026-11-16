@@ -15,6 +15,7 @@ uses
   JS4D.Parser,
   JS4D.AST,
   JS4D.SourceContext,
+  JS4D.IntrinsicCache,
   JS4D.Interpreter,
   JS4D.Operators,
   JS4D.Builtins,

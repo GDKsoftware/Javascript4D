@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.Types,
+  JS4D.ControlFlow,
   JS4D.Interpreter,
   JS4D.BinarySupport,
   JS4D.GeneratorObjects,
@@ -108,7 +109,7 @@ begin
   const Outcome = FSupport.Capture(
     function: TJSValue
     begin
-      Advanced := FInterpreter.AdvanceBody(Body, Resumption.Mode, Resumption.Value);
+      Advanced := FInterpreter.GeneratorEngine.AdvanceBody(Body, Resumption.Mode, Resumption.Value);
       Result := TJSValue.CreateUndefined;
     end);
 

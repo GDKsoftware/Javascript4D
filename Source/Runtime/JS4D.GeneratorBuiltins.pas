@@ -101,7 +101,7 @@ begin
   const Generator = (This as TJSGeneratorObject);
   const Argument = TJSBinarySupport.Argument(Args, 0);
 
-  Result := FInterpreter.ResumeGenerator(Generator, Mode, Argument);
+  Result := FInterpreter.GeneratorEngine.ResumeGenerator(Generator, Mode, Argument);
 end;
 
 function TJSGeneratorBuiltins.CreateResumeMethod(const Name: string; const Mode: TJSResumeMode): IJSFunction;

@@ -7,6 +7,7 @@ interface
 uses
   DUnitX.TestFramework,
   JS4D.Errors,
+  JS4D.ControlFlow,
   JS4D.Interpreter,
   JS4D.Engine;
 

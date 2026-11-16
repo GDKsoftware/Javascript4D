@@ -130,6 +130,17 @@ contains
   JS4D.UnicodeNormalization in '..\..\Source\Runtime\JS4D.UnicodeNormalization.pas',
   JS4D.PropertyDescriptors in '..\..\Source\Runtime\JS4D.PropertyDescriptors.pas',
   JS4D.PrototypeMethods in '..\..\Source\Runtime\JS4D.PrototypeMethods.pas',
+  JS4D.Scope in '..\..\Source\Runtime\JS4D.Scope.pas',
+  JS4D.ControlFlow in '..\..\Source\Runtime\JS4D.ControlFlow.pas',
+  JS4D.CallFrames in '..\..\Source\Runtime\JS4D.CallFrames.pas',
+  JS4D.IterationSource in '..\..\Source\Runtime\JS4D.IterationSource.pas',
+  JS4D.StatementFrame in '..\..\Source\Runtime\JS4D.StatementFrame.pas',
+  JS4D.IntrinsicCache in '..\..\Source\Runtime\JS4D.IntrinsicCache.pas',
+  JS4D.GarbageMarker in '..\..\Source\Runtime\JS4D.GarbageMarker.pas',
+  JS4D.ResumableExecution in '..\..\Source\Runtime\JS4D.ResumableExecution.pas',
+  JS4D.ClassEvaluation in '..\..\Source\Runtime\JS4D.ClassEvaluation.pas',
+  JS4D.GeneratorEngine in '..\..\Source\Runtime\JS4D.GeneratorEngine.pas',
+  JS4D.ClassBuilder in '..\..\Source\Runtime\JS4D.ClassBuilder.pas',
   JS4D.Interpreter in '..\..\Source\Runtime\JS4D.Interpreter.pas';
 
 end.

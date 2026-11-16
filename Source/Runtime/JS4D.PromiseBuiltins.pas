@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.Types,
+  JS4D.ControlFlow,
   JS4D.Interpreter,
   JS4D.BinarySupport,
   JS4D.AggregateErrorBuiltins,
