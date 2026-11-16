@@ -8,12 +8,13 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   JS4D.Types,
+  JS4D.SlotMap,
   JS4D.LexicalStates;
 
 type
   TJSScope = class(TInterfacedObject, IJSScope)
   private
-    FVariables: TDictionary<string, TJSValue>;
+    FVariables: TJSSlotMap<TJSValue>;
     FParent: IJSScope;
     FLexicalStates: TJSLexicalStates;
     FDeletableNames: TDictionary<string, Byte>;
@@ -57,7 +58,7 @@ implementation
 constructor TJSScope.Create(const Parent: IJSScope);
 begin
   inherited Create;
-  FVariables := TDictionary<string, TJSValue>.Create;
+  FVariables := TJSSlotMap<TJSValue>.Create;
   FParent := Parent;
 end;
 
@@ -77,12 +78,13 @@ end;
 
 procedure TJSScope.Clear;
 begin
-  for var Pair in FVariables do
+  for var Position := 0 to FVariables.Count - 1 do
   begin
-    if Pair.Value.IsFunction then
+    const Value = FVariables.SlotAt(Position)^;
+    if Value.IsFunction then
     begin
       var Func: IJSFunction;
-      if Supports(Pair.Value.ToObject, IJSFunction, Func) then
+      if Supports(Value.ToObject, IJSFunction, Func) then
         Func.ClosureScope := nil;
     end;
   end;
@@ -94,11 +96,9 @@ end;
 function TJSScope.GetOwnVariables: TArray<TJSValue>;
 begin
   SetLength(Result, FVariables.Count);
-  var Index := 0;
-  for var Pair in FVariables do
+  for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result[Index] := Pair.Value;
-    Inc(Index);
+    Result[Position] := FVariables.SlotAt(Position)^;
   end;
 end;
 
@@ -213,9 +213,9 @@ function TJSScope.CloneForIteration: TJSScope;
 begin
   Result := TJSScope.Create(FParent);
 
-  for var Pair in FVariables do
+  for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result.FVariables.Add(Pair.Key, Pair.Value);
+    Result.FVariables.Add(FVariables.NameAt(Position), FVariables.SlotAt(Position)^);
   end;
 
   if Assigned(FLexicalStates) then

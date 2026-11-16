@@ -106,6 +106,8 @@ type
 
     class procedure AppendArrayText(const SourceArray: IJSArray; const Builder: TStringBuilder;
       const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
+    class procedure AppendElementText(const ElementValue: TJSValue; const Builder: TStringBuilder;
+      const Visiting: TList<Pointer>; const Limits: TJSLimits); static;
     class function TryGetPlainNestedArray(const Element: TJSValue; out Nested: IJSArray): Boolean; static;
     class function ToPlainArrayText(const Source: IJSArray; const Limits: TJSLimits): string; static;
     function ToComputedPropertyKey(const Limits: TJSLimits): TJSPropertyKey;
@@ -1437,29 +1439,37 @@ begin
         Builder.Append(ARRAY_SEPARATOR);
       end;
 
-      const ElementValue = SourceArray[Index];
-      var Nested: IJSArray;
-
-      if TryGetPlainNestedArray(ElementValue, Nested) then
-      begin
-        const NestedMarker = Pointer(Nested as IInterface);
-
-        // An array that is already being converted is a cycle and yields an empty element.
-        if not Visiting.Contains(NestedMarker) then
-          AppendArrayText(Nested, Builder, Visiting, Limits);
-      end
-      else if not ElementValue.IsNullOrUndefined then
-      begin
-        const ElementText = ElementValue.ToLimitedString(Limits);
-        const WithElement = Int64(Builder.Length) + Length(ElementText);
-
-        Limits.EnsureStringLength(WithElement);
-        Builder.Append(ElementText);
-      end;
+      AppendElementText(SourceArray[Index], Builder, Visiting, Limits);
     end;
   finally
     Visiting.Delete(Visiting.Count - 1);
   end;
+end;
+
+class procedure TJSValue.AppendElementText(const ElementValue: TJSValue; const Builder: TStringBuilder;
+  const Visiting: TList<Pointer>; const Limits: TJSLimits);
+begin
+  var Nested: IJSArray;
+
+  if ElementValue.IsArray and TryGetPlainNestedArray(ElementValue, Nested) then
+  begin
+    const NestedMarker = Pointer(Nested as IInterface);
+
+    // An array that is already being converted is a cycle and yields an empty element.
+    if not Visiting.Contains(NestedMarker) then
+      AppendArrayText(Nested, Builder, Visiting, Limits);
+
+    Exit;
+  end;
+
+  if ElementValue.IsNullOrUndefined then
+    Exit;
+
+  const ElementText = ElementValue.ToLimitedString(Limits);
+  const WithElement = Int64(Builder.Length) + Length(ElementText);
+
+  Limits.EnsureStringLength(WithElement);
+  Builder.Append(ElementText);
 end;
 
 function TJSValue.ToObject: IJSObject;
