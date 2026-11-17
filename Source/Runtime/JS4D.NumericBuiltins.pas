@@ -44,10 +44,14 @@ type
       RANDOM_FALLBACK_SEED = UInt64($9E3779B97F4A7C15);
       RANDOM_WARM_UP_STEPS = 8;
       RANDOM_DISCARDED_BITS = 11;
+      NO_PARAMETERS = 0;
+      ONE_PARAMETER = 1;
+      TWO_PARAMETERS = 2;
 
     class function NumberOf(const Value: TJSValue): Double; static;
     class function ArgumentAsNumber(const Args: TArray<TJSValue>; const Index: Integer): Double; static;
-    class procedure DefineMethod(const Target: IJSObject; const Name: string; const Method: TNativeFunction); static;
+    class procedure DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
+                                 const Method: TNativeFunction); static;
     class procedure DefineConstant(const Target: IJSObject; const Name: string; const Value: Double); static;
     class procedure DefineUnaryMath(const MathObject: IJSObject; const Name: string;
                                     const Operation: TUnaryMathOperation); static;
@@ -107,23 +111,28 @@ begin
 end;
 
 class procedure TJSNumericBuiltins.DefineMethod(const Target: IJSObject; const Name: string;
-                                                const Method: TNativeFunction);
+                                                const ParameterCount: Integer; const Method: TNativeFunction);
 begin
   const Func = TJSFunction.CreateNative(Name, Method);
   Func.IsConstructor := False;
+  TJSFunction.DefineLength(Func, ParameterCount);
 
-  Target.SetProperty(Name, TJSValue.CreateObject(Func));
+  const FuncValue = TJSValue.CreateObject(Func);
+
+  Target.SetProperty(Name, FuncValue);
 end;
 
 class procedure TJSNumericBuiltins.DefineConstant(const Target: IJSObject; const Name: string; const Value: Double);
 begin
-  TJSObjectOperations.DefineConstantData(Target, Name, TJSValue.CreateNumber(Value));
+  const NumberValue = TJSValue.CreateNumber(Value);
+
+  TJSObjectOperations.DefineConstantData(Target, Name, NumberValue);
 end;
 
 class procedure TJSNumericBuiltins.DefineUnaryMath(const MathObject: IJSObject; const Name: string;
                                                    const Operation: TUnaryMathOperation);
 begin
-  DefineMethod(MathObject, Name,
+  DefineMethod(MathObject, Name, ONE_PARAMETER,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Argument = ArgumentAsNumber(Args, 0);
@@ -136,7 +145,7 @@ end;
 class procedure TJSNumericBuiltins.DefineBinaryMath(const MathObject: IJSObject; const Name: string;
                                                     const Operation: TBinaryMathOperation);
 begin
-  DefineMethod(MathObject, Name,
+  DefineMethod(MathObject, Name, TWO_PARAMETERS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Left = ArgumentAsNumber(Args, 0);
@@ -150,7 +159,7 @@ end;
 class procedure TJSNumericBuiltins.DefineExtremum(const MathObject: IJSObject; const Name: string;
                                                   const EmptyResult: Double; const Choose: TBinaryMathOperation);
 begin
-  DefineMethod(MathObject, Name,
+  DefineMethod(MathObject, Name, TWO_PARAMETERS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Extremum := EmptyResult;
@@ -183,7 +192,8 @@ class function TJSNumericBuiltins.SeedRandomState(const MathObject: IJSObject): 
 begin
   const ObjectAddress = UInt64(NativeUInt(Pointer(MathObject)));
   Result := UInt64(TStopwatch.GetTimeStamp) xor (ObjectAddress shl 32) xor ObjectAddress;
-  if Result = 0 then
+  const IsZeroSeed = (Result = 0);
+  if IsZeroSeed then
     Result := RANDOM_FALLBACK_SEED;
 
   for var Step := 1 to RANDOM_WARM_UP_STEPS do
@@ -196,7 +206,7 @@ class procedure TJSNumericBuiltins.DefineRandom(const MathObject: IJSObject);
 begin
   var State := SeedRandomState(MathObject);
 
-  DefineMethod(MathObject, MATH_RANDOM_NAME,
+  DefineMethod(MathObject, MATH_RANDOM_NAME, NO_PARAMETERS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       State := NextRandomState(State);
@@ -220,18 +230,18 @@ end;
 
 class procedure TJSNumericBuiltins.DefineRoundingFunctions(const MathObject: IJSObject);
 begin
-  DefineUnaryMath(MathObject, 'floor', TJSMathFunctions.Floor);
-  DefineUnaryMath(MathObject, 'ceil', TJSMathFunctions.Ceil);
-  DefineUnaryMath(MathObject, 'round', TJSMathFunctions.Round);
-  DefineUnaryMath(MathObject, 'trunc', TJSMathFunctions.Trunc);
+  DefineUnaryMath(MathObject, 'floor', TJSMathFunctions.JsFloor);
+  DefineUnaryMath(MathObject, 'ceil', TJSMathFunctions.JsCeil);
+  DefineUnaryMath(MathObject, 'round', TJSMathFunctions.JsRound);
+  DefineUnaryMath(MathObject, 'trunc', TJSMathFunctions.JsTrunc);
   DefineUnaryMath(MathObject, 'fround', TJSMathFunctions.Fround);
 end;
 
 class procedure TJSNumericBuiltins.DefineTrigonometricFunctions(const MathObject: IJSObject);
 begin
-  DefineUnaryMath(MathObject, 'sin', TJSMathFunctions.Sin);
+  DefineUnaryMath(MathObject, 'sin', TJSMathFunctions.JsSin);
   DefineUnaryMath(MathObject, 'cos', TJSMathFunctions.Cosine);
-  DefineUnaryMath(MathObject, 'tan', TJSMathFunctions.Tan);
+  DefineUnaryMath(MathObject, 'tan', TJSMathFunctions.JsTan);
   DefineUnaryMath(MathObject, 'asin', TJSMathFunctions.ArcSine);
   DefineUnaryMath(MathObject, 'acos', TJSMathFunctions.ArcCosine);
   DefineUnaryMath(MathObject, 'atan', TJSMathFunctions.ArcTangent);
@@ -260,7 +270,7 @@ end;
 class procedure TJSNumericBuiltins.DefineRootAndSignFunctions(const MathObject: IJSObject);
 begin
   DefineUnaryMath(MathObject, 'abs', TJSMathFunctions.AbsoluteValue);
-  DefineUnaryMath(MathObject, 'sign', TJSMathFunctions.Sign);
+  DefineUnaryMath(MathObject, 'sign', TJSMathFunctions.JsSign);
   DefineUnaryMath(MathObject, 'sqrt', TJSMathFunctions.SquareRoot);
   DefineUnaryMath(MathObject, 'cbrt', TJSMathFunctions.Cbrt);
 end;
@@ -268,7 +278,7 @@ end;
 class procedure TJSNumericBuiltins.DefineNumberPredicate(const NumberObject: IJSObject; const Name: string;
                                                          const Predicate: TNumberPredicate);
 begin
-  DefineMethod(NumberObject, Name,
+  DefineMethod(NumberObject, Name, ONE_PARAMETER,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Argument = TJSArrayLike.Argument(Args, 0);
@@ -280,7 +290,7 @@ end;
 
 class procedure TJSNumericBuiltins.DefineHypot(const MathObject: IJSObject);
 begin
-  DefineMethod(MathObject, 'hypot',
+  DefineMethod(MathObject, 'hypot', TWO_PARAMETERS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Numbers: TArray<Double>;
@@ -298,7 +308,7 @@ end;
 
 class procedure TJSNumericBuiltins.DefineImul(const MathObject: IJSObject);
 begin
-  DefineMethod(MathObject, 'imul',
+  DefineMethod(MathObject, 'imul', TWO_PARAMETERS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const LeftArgument = TJSArrayLike.Argument(Args, 0);
@@ -313,7 +323,7 @@ end;
 
 class procedure TJSNumericBuiltins.DefineClz32(const MathObject: IJSObject);
 begin
-  DefineMethod(MathObject, 'clz32',
+  DefineMethod(MathObject, 'clz32', ONE_PARAMETER,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Argument = TJSArrayLike.Argument(Args, 0);

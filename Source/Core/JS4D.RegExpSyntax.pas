@@ -13,6 +13,14 @@ type
     IsUnicode: Boolean;
     IsSticky: Boolean;
 
+    const
+      GLOBAL = 'g';
+      IGNORE_CASE = 'i';
+      MULTILINE = 'm';
+      UNICODE = 'u';
+      STICKY = 'y';
+
+    class function Includes(const Flags: string; const Flag: Char): Boolean; static;
     class function Parse(const Flags: string): TJSRegExpFlags; static;
   end;
 
@@ -146,24 +154,24 @@ type
   end;
 
 const
-  GLOBAL_FLAG = 'g';
-  IGNORE_CASE_FLAG = 'i';
-  MULTILINE_FLAG = 'm';
-  UNICODE_FLAG = 'u';
-  STICKY_FLAG = 'y';
   VALID_FLAG_CHARACTERS = 'gimuy';
   EMPTY_PATTERN_SOURCE = '(?:)';
   INVALID_FLAGS_MESSAGE = 'Invalid regular expression flags: %s';
 
 { TJSRegExpFlags }
 
+class function TJSRegExpFlags.Includes(const Flags: string; const Flag: Char): Boolean;
+begin
+  Result := (Pos(Flag, Flags) > 0);
+end;
+
 class function TJSRegExpFlags.Parse(const Flags: string): TJSRegExpFlags;
 begin
-  Result.IsGlobal := (Pos(GLOBAL_FLAG, Flags) > 0);
-  Result.IgnoresCase := (Pos(IGNORE_CASE_FLAG, Flags) > 0);
-  Result.IsMultiline := (Pos(MULTILINE_FLAG, Flags) > 0);
-  Result.IsUnicode := (Pos(UNICODE_FLAG, Flags) > 0);
-  Result.IsSticky := (Pos(STICKY_FLAG, Flags) > 0);
+  Result.IsGlobal := Includes(Flags, GLOBAL);
+  Result.IgnoresCase := Includes(Flags, IGNORE_CASE);
+  Result.IsMultiline := Includes(Flags, MULTILINE);
+  Result.IsUnicode := Includes(Flags, UNICODE);
+  Result.IsSticky := Includes(Flags, STICKY);
 end;
 
 { TJSRegExpSyntax }

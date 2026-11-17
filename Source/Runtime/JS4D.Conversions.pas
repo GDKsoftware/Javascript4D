@@ -15,7 +15,6 @@ type
   private
     const
       NOT_CALLABLE = 'The value of property ''%s'' is not a function';
-      CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property must be an object or undefined';
       SPECIES_NOT_A_CONSTRUCTOR = 'The species of a constructor must be a constructor, null or undefined';
 
@@ -29,7 +28,7 @@ type
     class function ToLength(const Value: TJSValue): Int64; static;
     class function ToUint32(const Value: TJSValue): Int64; static;
     class function AsFunction(const Value: TJSValue): IJSFunction; static;
-    class function IsRegExp(const Value: TJSValue): Boolean; static;
+    class function IsRegExpLike(const Value: TJSValue): Boolean; static;
     class function FindMethod(const Source: TJSValue; const Key: TJSPropertyKey): IJSFunction; static;
     class function SpeciesConstructor(const Source: IJSObject; const DefaultConstructor: IJSFunction;
                                       const IntrinsicSpeciesGetter: IJSFunction = nil): IJSFunction; static;
@@ -39,6 +38,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
   JS4D.PropertyNames,
   JS4D.Errors,
   JS4D.SymbolRegistry,
@@ -96,7 +96,7 @@ begin
   Supports(Value.ToObject, IJSFunction, Result);
 end;
 
-class function TJSConversions.IsRegExp(const Value: TJSValue): Boolean;
+class function TJSConversions.IsRegExpLike(const Value: TJSValue): Boolean;
 begin
   if not Value.IsObject then
     Exit(False);
@@ -136,7 +136,7 @@ begin
   const IsIntrinsicGetter = Assigned(IntrinsicSpeciesGetter) and
                             ConstructorObject.TryGetPropertyDescriptor(SpeciesKey, Descriptor) and
                             Descriptor.IsAccessor and Descriptor.Getter.IsFunction and
-                            ((Descriptor.Getter.ToObject as IInterface) = (IntrinsicSpeciesGetter as IInterface));
+                            TJSObjectOperations.IsSameObject(Descriptor.Getter.ToObject, IntrinsicSpeciesGetter);
   if IsIntrinsicGetter then
     Exit(ConstructorValue);
 
@@ -164,10 +164,7 @@ end;
 class procedure TJSConversions.PutProperty(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
 begin
   if not TJSPropertyDescriptors.CanPut(Target, Key) then
-  begin
-    const Message = Format(CANNOT_ASSIGN_PROPERTY, [Key.Text]);
-    raise TJSErrorFactory.TypeError(Message);
-  end;
+    raise TJSErrorFactory.CannotAssignReadOnly(Key.Text);
 
   Target.SetProperty(Key, Value);
 end;

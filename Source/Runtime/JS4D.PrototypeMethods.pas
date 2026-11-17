@@ -13,6 +13,7 @@ uses
   JS4D.Interpreter,
   JS4D.SymbolRegistry,
   JS4D.StrictThis,
+  JS4D.BuiltinSupport,
   JS4D.Builtins;
 
 type
@@ -20,7 +21,12 @@ type
 
   TJSPrototypeMethods = class
   private
-    FInterpreter: TJSInterpreter;
+    const
+      NO_PARAMETERS = 0;
+
+    var
+      FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
 
     function DefineMethod(const PrototypeObj: IJSObject; const MethodName: string;
                           const Method: TNativeFunction): IJSFunction;
@@ -54,6 +60,11 @@ type
     function RegExpFlags(const This: IJSObject): TJSValue;
     function RegExpFlagValue(const This: IJSObject; const PrototypeIdentity: Pointer; const PropertyName: string;
                              const FromRegExp: TRegExpReader): TJSValue;
+    function RegExpFlagOf(const RegExpObj: IJSRegExp; const Flag: Char): Boolean;
+    function FlagReader(const Flag: Char): TRegExpReader;
+    function ReadSource(const RegExpObj: IJSRegExp): TJSValue;
+    function RegExpSource(const This: IJSObject; const PrototypeIdentity: Pointer): TJSValue;
+    procedure RaiseCalledOnNullOrUndefined(const TypeName: string; const MethodName: string);
     procedure DefineGetter(const Target: IJSObject; const PropertyName: string; const Getter: TNativeFunction);
     procedure DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
                                      const FromRegExp: TRegExpReader);
@@ -71,6 +82,7 @@ type
 
   public
     constructor Create(const Interpreter: TJSInterpreter);
+    destructor Destroy; override;
 
     class function IsConstructCall(const This: IJSObject; const PrototypeObj: IJSObject): Boolean; static;
 
@@ -88,6 +100,7 @@ implementation
 uses
   JS4D.PropertyNames,
   JS4D.ObjectOperations,
+  JS4D.RegExpSyntax,
   JS4D.Conversions,
   JS4D.LocaleArguments,
   JS4D.LocaleNumberFormat;
@@ -122,7 +135,6 @@ const
   NOT_A_REGEXP_RECEIVER = 'RegExp.prototype method called on a value that is not a regular expression';
   NOT_A_REGEXP_GETTER_RECEIVER = 'RegExp.prototype.%s getter called on a value that is not a regular expression';
   FLAGS_ON_NON_OBJECT = 'RegExp.prototype.flags getter called on a value that is not an object';
-  PROPERTY_FLAGS = 'flags';
   PROPERTY_DOT_ALL = 'dotAll';
   PROPERTY_GLOBAL = 'global';
   PROPERTY_HAS_INDICES = 'hasIndices';
@@ -132,29 +144,46 @@ const
   PROPERTY_UNICODE = 'unicode';
   PROPERTY_SOURCE = 'source';
   EMPTY_PATTERN_SOURCE = '(?:)';
+  HAS_INDICES_FLAG = 'd';
+  DOT_ALL_FLAG = 's';
+  UNSUPPORTED_FLAG = 'Unsupported regular expression flag: %s';
   REGEXP_FLAG_PROPERTIES: array[0..6] of TRegExpFlagProperty = (
-    (Name: PROPERTY_HAS_INDICES; Flag: 'd'),
-    (Name: PROPERTY_GLOBAL; Flag: 'g'),
-    (Name: PROPERTY_IGNORE_CASE; Flag: 'i'),
-    (Name: PROPERTY_MULTILINE; Flag: 'm'),
-    (Name: PROPERTY_DOT_ALL; Flag: 's'),
-    (Name: PROPERTY_UNICODE; Flag: 'u'),
-    (Name: PROPERTY_STICKY; Flag: 'y')
+    (Name: PROPERTY_HAS_INDICES; Flag: HAS_INDICES_FLAG),
+    (Name: PROPERTY_GLOBAL; Flag: TJSRegExpFlags.GLOBAL),
+    (Name: PROPERTY_IGNORE_CASE; Flag: TJSRegExpFlags.IGNORE_CASE),
+    (Name: PROPERTY_MULTILINE; Flag: TJSRegExpFlags.MULTILINE),
+    (Name: PROPERTY_DOT_ALL; Flag: DOT_ALL_FLAG),
+    (Name: PROPERTY_UNICODE; Flag: TJSRegExpFlags.UNICODE),
+    (Name: PROPERTY_STICKY; Flag: TJSRegExpFlags.STICKY)
+  );
+  REGEXP_FLAG_GETTERS: array[0..4] of TRegExpFlagProperty = (
+    (Name: PROPERTY_GLOBAL; Flag: TJSRegExpFlags.GLOBAL),
+    (Name: PROPERTY_IGNORE_CASE; Flag: TJSRegExpFlags.IGNORE_CASE),
+    (Name: PROPERTY_MULTILINE; Flag: TJSRegExpFlags.MULTILINE),
+    (Name: PROPERTY_UNICODE; Flag: TJSRegExpFlags.UNICODE),
+    (Name: PROPERTY_STICKY; Flag: TJSRegExpFlags.STICKY)
   );
   UNDEFINED_TEXT = 'undefined';
   NOT_A_FUNCTION = 'Function.prototype.toString called on a value that is not a function';
   ERROR_TO_STRING_ON_NON_OBJECT = 'Error.prototype.toString called on a value that is not an object';
   REGEXP_FORMAT = '/%s/%s';
+  ERROR_TEXT_FORMAT = '%s: %s';
   NATIVE_FUNCTION_FORMAT = 'function %s() { [native code] }';
   PROPERTY_NAME = 'name';
   PROPERTY_MESSAGE = 'message';
   DEFAULT_ERROR_NAME = CLASS_ERROR;
-  ERROR_SEPARATOR = ': ';
 
 constructor TJSPrototypeMethods.Create(const Interpreter: TJSInterpreter);
 begin
   inherited Create;
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
+end;
+
+destructor TJSPrototypeMethods.Destroy;
+begin
+  FSupport.Free;
+  inherited;
 end;
 
 class function TJSPrototypeMethods.IsConstructCall(const This: IJSObject; const PrototypeObj: IJSObject): Boolean;
@@ -165,18 +194,20 @@ begin
   if Supports(This, IJSPrimitiveWrapper) then
     Exit(False);
 
-  Result := (This.Prototype as IInterface) = (PrototypeObj as IInterface);
+  Result := TJSObjectOperations.IsSameObject(This.Prototype, PrototypeObj);
+end;
+
+procedure TJSPrototypeMethods.RaiseCalledOnNullOrUndefined(const TypeName: string; const MethodName: string);
+begin
+  const Message = Format(CALLED_ON_NULL_OR_UNDEFINED, [TypeName, MethodName]);
+
+  raise TJSErrorFactory.TypeError(Message);
 end;
 
 function TJSPrototypeMethods.DefineMethod(const PrototypeObj: IJSObject; const MethodName: string;
                                           const Method: TNativeFunction): IJSFunction;
 begin
-  Result := TJSFunction.CreateNative(MethodName, Method);
-  Result.IsConstructor := False;
-
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Result));
-  Descriptor.Enumerable := False;
-  PrototypeObj.DefineProperty(MethodName, Descriptor);
+  Result := FSupport.DefineMethod(PrototypeObj, MethodName, NO_PARAMETERS, Method);
 end;
 
 procedure TJSPrototypeMethods.DefineRawThisMethod(const PrototypeObj: IJSObject; const MethodName: string;
@@ -190,8 +221,7 @@ procedure TJSPrototypeMethods.DefineIntrinsicMethod(const PrototypeObj: IJSObjec
                                                     const Method: TNativeFunction; const Role: TJSIntrinsicRole);
 begin
   const Func = DefineMethod(PrototypeObj, MethodName, Method);
-  const FuncImpl = Func as TJSFunctionImpl;
-  FuncImpl.IntrinsicRole := Role;
+  Func.IntrinsicRole := Role;
 end;
 
 function TJSPrototypeMethods.BoxThis(const This: IJSObject): IJSObject;
@@ -213,7 +243,12 @@ function TJSPrototypeMethods.ObjectToText(const Source: IJSObject): string;
 begin
   var Wrapper: IJSPrimitiveWrapper;
   if Supports(Source, IJSPrimitiveWrapper, Wrapper) then
-    Exit(Wrapper.Primitive.ToString);
+  begin
+    const WrappedValue = Wrapper.Primitive;
+
+    Result := WrappedValue.ToString;
+    Exit;
+  end;
 
   const SourceValue = TJSValue.CreateObject(Source);
   if SourceValue.IsArray then
@@ -248,8 +283,8 @@ end;
 
 function TJSPrototypeMethods.ConvertArgumentToPrimitive(const Arg: TJSValue; const PreferString: Boolean): TJSValue;
 begin
-  const IsRegExp = Arg.IsObject and Supports(Arg.ToObject, IJSRegExp);
-  const KeepsIdentity = (not Arg.IsObject) or Arg.IsArray or Arg.IsFunction or IsRegExp;
+  const IsRegExpInstance = Arg.IsObject and Supports(Arg.ToObject, IJSRegExp);
+  const KeepsIdentity = (not Arg.IsObject) or Arg.IsArray or Arg.IsFunction or IsRegExpInstance;
   if KeepsIdentity then
     Result := Arg
   else
@@ -276,7 +311,9 @@ begin
   if IsNumber then
   begin
     const Primitive = ObjectToPrimitive(Arg.ToObject, False);
-    Result := TJSValue.CreateNumber(Primitive.ToNumber);
+    const NumberValue = Primitive.ToNumber;
+
+    Result := TJSValue.CreateNumber(NumberValue);
   end
   else
     Result := ConvertArgumentToPrimitive(Arg, True);
@@ -296,20 +333,24 @@ end;
 function TJSPrototypeMethods.ThisToText(const This: IJSObject; const MethodName: string): string;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [TYPE_NAME_STRING, MethodName]));
+    RaiseCalledOnNullOrUndefined(TYPE_NAME_STRING, MethodName);
 
   Result := ObjectToText(This);
 end;
 
 function TJSPrototypeMethods.ThisToPrimitive(const This: IJSObject; const TypeName: string;
-                                                const MethodName: string): TJSValue;
+                                             const MethodName: string): TJSValue;
 begin
   var Wrapper: IJSPrimitiveWrapper;
   const IsWrapper = Supports(This, IJSPrimitiveWrapper, Wrapper);
 
   const HasExpectedType = IsWrapper and (Wrapper.GetClassName = TypeName);
   if not HasExpectedType then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_INCOMPATIBLE_TYPE, [TypeName, MethodName]));
+  begin
+    const Message = Format(CALLED_ON_INCOMPATIBLE_TYPE, [TypeName, MethodName]);
+
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   Result := Wrapper.Primitive;
 end;
@@ -327,7 +368,8 @@ begin
     Exit(Wrapper.GetClassName);
   end;
 
-  if TJSObjectOperations.IsArray(TJSValue.CreateObject(Source)) then
+  const SourceValue = TJSValue.CreateObject(Source);
+  if TJSObjectOperations.IsArray(SourceValue) then
     Exit(CLASS_ARRAY);
 
   if Supports(Source, IJSFunction) then
@@ -368,7 +410,8 @@ begin
   const Subject = BoxThis(This);
   const ClassTag = ClassTagOf(Subject);
 
-  const CustomTag = Subject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag));
+  const ToStringTagKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
+  const CustomTag = Subject.GetProperty(ToStringTagKey);
   if CustomTag.IsString then
     Exit(CustomTag.AsString);
 
@@ -379,7 +422,7 @@ function TJSPrototypeMethods.ObjectToLocaleString(const This: IJSObject): TJSVal
 begin
   const ThisValue = TJSStrictThis.ValueOf(This);
   if ThisValue.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_TO_LOCALE_STRING]));
+    RaiseCalledOnNullOrUndefined(CLASS_OBJECT, METHOD_TO_LOCALE_STRING);
 
   Result := FInterpreter.InvokeMethod(ThisValue, TO_STRING_METHOD);
 end;
@@ -387,7 +430,7 @@ end;
 function TJSPrototypeMethods.ObjectValueOf(const This: IJSObject): TJSValue;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, VALUE_OF_METHOD]));
+    RaiseCalledOnNullOrUndefined(CLASS_OBJECT, VALUE_OF_METHOD);
 
   Result := TJSValue.CreateObject(This);
 end;
@@ -402,12 +445,15 @@ begin
   end;
 
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_IS_PROTOTYPE_OF]));
+    RaiseCalledOnNullOrUndefined(CLASS_OBJECT, METHOD_IS_PROTOTYPE_OF);
 
-  var Current := Args[0].ToObject.Prototype;
+  const Candidate = Args[0].ToObject;
+
+  var Current := Candidate.Prototype;
   while Assigned(Current) do
   begin
-    if (Current as IInterface) = (This as IInterface) then
+    const IsMatch = TJSObjectOperations.IsSameObject(Current, This);
+    if IsMatch then
     begin
       Result := TJSValue.CreateBoolean(True);
       Exit;
@@ -449,7 +495,9 @@ begin
     Exit;
   end;
 
-  Result := TJSValue.CreateString(ErrorName + ERROR_SEPARATOR + ErrorMessage);
+  const ErrorText = Format(ERROR_TEXT_FORMAT, [ErrorName, ErrorMessage]);
+
+  Result := TJSValue.CreateString(ErrorText);
 end;
 
 function TJSPrototypeMethods.RegExpToString(const This: IJSObject): TJSValue;
@@ -458,7 +506,8 @@ begin
   if not Supports(This, IJSRegExp, RegExpObj) then
     raise TJSErrorFactory.TypeError(NOT_A_REGEXP);
 
-  const FlagsText = RegExpFlags(This).ToString;
+  const FlagsValue = RegExpFlags(This);
+  const FlagsText = FlagsValue.ToString;
   const SourceText = Format(REGEXP_FORMAT, [RegExpObj.Source, FlagsText]);
 
   Result := TJSValue.CreateString(SourceText);
@@ -472,7 +521,8 @@ begin
   var Flags := '';
   for var FlagProperty in REGEXP_FLAG_PROPERTIES do
   begin
-    if This.GetProperty(FlagProperty.Name).ToBoolean then
+    const FlagValue = This.GetProperty(FlagProperty.Name);
+    if FlagValue.ToBoolean then
       Flags := Flags + FlagProperty.Flag;
   end;
 
@@ -497,23 +547,53 @@ begin
     Exit;
   end;
 
-  raise TJSErrorFactory.TypeError(Format(NOT_A_REGEXP_GETTER_RECEIVER, [PropertyName]));
+  const Message = Format(NOT_A_REGEXP_GETTER_RECEIVER, [PropertyName]);
+
+  raise TJSErrorFactory.TypeError(Message);
+end;
+
+function TJSPrototypeMethods.RegExpFlagOf(const RegExpObj: IJSRegExp; const Flag: Char): Boolean;
+begin
+  case Flag of
+    TJSRegExpFlags.GLOBAL      : Result := RegExpObj.Global;
+    TJSRegExpFlags.IGNORE_CASE : Result := RegExpObj.IgnoreCase;
+    TJSRegExpFlags.MULTILINE   : Result := RegExpObj.Multiline;
+    TJSRegExpFlags.UNICODE     : Result := RegExpObj.Unicode;
+    TJSRegExpFlags.STICKY      : Result := RegExpObj.Sticky;
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_FLAG, [Flag]);
+  end;
+end;
+
+function TJSPrototypeMethods.FlagReader(const Flag: Char): TRegExpReader;
+begin
+  Result :=
+    function(const RegExpObj: IJSRegExp): TJSValue
+    begin
+      const IsSet = RegExpFlagOf(RegExpObj, Flag);
+
+      Result := TJSValue.CreateBoolean(IsSet);
+    end;
+end;
+
+function TJSPrototypeMethods.ReadSource(const RegExpObj: IJSRegExp): TJSValue;
+begin
+  Result := TJSValue.CreateString(RegExpObj.Source);
+end;
+
+function TJSPrototypeMethods.RegExpSource(const This: IJSObject; const PrototypeIdentity: Pointer): TJSValue;
+begin
+  Result := RegExpFlagValue(This, PrototypeIdentity, PROPERTY_SOURCE, ReadSource);
+  if Result.IsUndefined then
+    Result := TJSValue.CreateString(EMPTY_PATTERN_SOURCE);
 end;
 
 procedure TJSPrototypeMethods.DefineGetter(const Target: IJSObject; const PropertyName: string;
                                            const Getter: TNativeFunction);
 begin
-  const Func: IJSFunction = TJSFunction.CreateNative(Format(GETTER_NAME_FORMAT, [PropertyName]), Getter);
-  Func.IsConstructor := False;
-  TJSFunction.DefineLength(Func, 0);
+  const GetterName = Format(GETTER_NAME_FORMAT, [PropertyName]);
 
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateUndefined);
-  Descriptor.IsAccessor := True;
-  Descriptor.Getter := TJSValue.CreateObject(Func);
-  Descriptor.Setter := TJSValue.CreateUndefined;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-  Target.DefineProperty(PropertyName, Descriptor);
+  FSupport.DefineGetter(Target, PropertyName, GetterName, Getter);
 end;
 
 procedure TJSPrototypeMethods.DefineRegExpFlagGetter(const PrototypeObj: IJSObject; const PropertyName: string;
@@ -532,7 +612,7 @@ procedure TJSPrototypeMethods.RegisterRegExpAccessors(const PrototypeObj: IJSObj
 begin
   const PrototypeIdentity = Pointer(PrototypeObj as IInterface);
 
-  DefineGetter(PrototypeObj, PROPERTY_FLAGS,
+  DefineGetter(PrototypeObj, FLAGS_PROPERTY,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := RegExpFlags(This);
@@ -541,45 +621,15 @@ begin
   DefineGetter(PrototypeObj, PROPERTY_SOURCE,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := RegExpFlagValue(This, PrototypeIdentity, PROPERTY_SOURCE,
-        function(const RegExpObj: IJSRegExp): TJSValue
-        begin
-          Result := TJSValue.CreateString(RegExpObj.Source);
-        end);
-
-      if Result.IsUndefined then
-        Result := TJSValue.CreateString(EMPTY_PATTERN_SOURCE);
+      Result := RegExpSource(This, PrototypeIdentity);
     end);
 
-  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_GLOBAL,
-    function(const RegExpObj: IJSRegExp): TJSValue
-    begin
-      Result := TJSValue.CreateBoolean(RegExpObj.Global);
-    end);
+  for var FlagProperty in REGEXP_FLAG_GETTERS do
+  begin
+    const Reader = FlagReader(FlagProperty.Flag);
 
-  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_IGNORE_CASE,
-    function(const RegExpObj: IJSRegExp): TJSValue
-    begin
-      Result := TJSValue.CreateBoolean(RegExpObj.IgnoreCase);
-    end);
-
-  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_MULTILINE,
-    function(const RegExpObj: IJSRegExp): TJSValue
-    begin
-      Result := TJSValue.CreateBoolean(RegExpObj.Multiline);
-    end);
-
-  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_UNICODE,
-    function(const RegExpObj: IJSRegExp): TJSValue
-    begin
-      Result := TJSValue.CreateBoolean(RegExpObj.Unicode);
-    end);
-
-  DefineRegExpFlagGetter(PrototypeObj, PROPERTY_STICKY,
-    function(const RegExpObj: IJSRegExp): TJSValue
-    begin
-      Result := TJSValue.CreateBoolean(RegExpObj.Sticky);
-    end);
+    DefineRegExpFlagGetter(PrototypeObj, FlagProperty.Name, Reader);
+  end;
 end;
 
 function TJSPrototypeMethods.RegExpExec(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -589,7 +639,8 @@ begin
     raise TJSErrorFactory.TypeError(NOT_A_REGEXP_RECEIVER);
 
   var Subject := UNDEFINED_TEXT;
-  if Length(Args) > 0 then
+  const HasArgument = (Length(Args) > 0);
+  if HasArgument then
     Subject := ValueToText(Args[0]);
 
   Result := RegExpObj.Exec(Subject);
@@ -618,13 +669,17 @@ begin
   if not (IsSearchMethod and HasSearchString) then
     Exit;
 
-  const IsRegExp = TJSConversions.IsRegExp(Args[0]);
-  if IsRegExp then
-    raise TJSErrorFactory.TypeError(Format(REGEXP_SEARCH_STRING_MESSAGE, [MethodName]));
+  const IsRegExpLike = TJSConversions.IsRegExpLike(Args[0]);
+  if not IsRegExpLike then
+    Exit;
+
+  const Message = Format(REGEXP_SEARCH_STRING_MESSAGE, [MethodName]);
+
+  raise TJSErrorFactory.TypeError(Message);
 end;
 
 function TJSPrototypeMethods.CallStringMethod(const This: IJSObject; const MethodName: string;
-                                                 const Args: TArray<TJSValue>): TJSValue;
+                                              const Args: TArray<TJSValue>): TJSValue;
 begin
   const IsValueAccessor = (MethodName = TO_STRING_METHOD) or (MethodName = VALUE_OF_METHOD);
   if IsValueAccessor then
@@ -639,12 +694,7 @@ begin
 
   const PrimitiveArgs = ConvertStringArguments(MethodName, Args);
 
-  const Executor: TJSCallbackExecutor =
-    function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
-    begin
-      const ThisArg = FInterpreter.ThisObjectFor(Func, TJSValue.CreateUndefined);
-      Result := FInterpreter.CallFunction(Func, CallbackArgs, ThisArg);
-    end;
+  const Executor: TJSCallbackExecutor = FInterpreter.CallWithUndefinedThis;
 
   Result := TJSBuiltins.CallStringMethod(Text, MethodName, PrimitiveArgs, Executor, FInterpreter.Limits);
 end;
@@ -663,12 +713,13 @@ begin
 end;
 
 function TJSPrototypeMethods.CallNumberMethod(const This: IJSObject; const MethodName: string;
-                                                 const Args: TArray<TJSValue>): TJSValue;
+                                              const Args: TArray<TJSValue>): TJSValue;
 begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_NUMBER, MethodName);
   const NumberValue = Primitive.AsNumber;
 
-  if MethodName = METHOD_TO_LOCALE_STRING then
+  const IsLocaleString = (MethodName = METHOD_TO_LOCALE_STRING);
+  if IsLocaleString then
   begin
     var LocaleText: string;
     if TryFormatLocaleNumber(NumberValue, Args, LocaleText) then
@@ -690,10 +741,13 @@ function TJSPrototypeMethods.CallBooleanMethod(const This: IJSObject; const Meth
 begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_BOOLEAN, MethodName);
 
-  if MethodName = VALUE_OF_METHOD then
+  const IsValueOf = (MethodName = VALUE_OF_METHOD);
+  if IsValueOf then
     Exit(Primitive);
 
-  Result := TJSValue.CreateString(Primitive.ToString);
+  const BooleanText = Primitive.ToString;
+
+  Result := TJSValue.CreateString(BooleanText);
 end;
 
 procedure TJSPrototypeMethods.RegisterObjectMethods(const PrototypeObj: IJSObject);
@@ -789,7 +843,9 @@ procedure TJSPrototypeMethods.RegisterStringMethods(const PrototypeObj: IJSObjec
 begin
   for var MethodName in TJSBuiltins.StringMethodNames do
   begin
-    DefineMethod(PrototypeObj, MethodName, BindStringMethod(MethodName));
+    const Method = BindStringMethod(MethodName);
+
+    DefineMethod(PrototypeObj, MethodName, Method);
   end;
 end;
 
@@ -797,7 +853,9 @@ procedure TJSPrototypeMethods.RegisterNumberMethods(const PrototypeObj: IJSObjec
 begin
   for var MethodName in TJSBuiltins.NumberMethodNames + [METHOD_TO_LOCALE_STRING] do
   begin
-    DefineMethod(PrototypeObj, MethodName, BindNumberMethod(MethodName));
+    const Method = BindNumberMethod(MethodName);
+
+    DefineMethod(PrototypeObj, MethodName, Method);
   end;
 end;
 
@@ -805,7 +863,9 @@ procedure TJSPrototypeMethods.RegisterBooleanMethods(const PrototypeObj: IJSObje
 begin
   for var MethodName in [TO_STRING_METHOD, VALUE_OF_METHOD] do
   begin
-    DefineMethod(PrototypeObj, MethodName, BindBooleanMethod(MethodName));
+    const Method = BindBooleanMethod(MethodName);
+
+    DefineMethod(PrototypeObj, MethodName, Method);
   end;
 end;
 

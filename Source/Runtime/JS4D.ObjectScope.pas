@@ -61,7 +61,7 @@ uses
   System.SysUtils;
 
 const
-  ASSIGNMENT_TO_UNDECLARED = 'Assignment to undeclared variable %s';
+  NO_LEXICAL_BINDINGS = 'An object scope has no lexical bindings: %s';
 
 class function TJSObjectScope.DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean;
 begin
@@ -107,10 +107,7 @@ procedure TJSObjectScope.SetMutableBinding(const Name: string; const Value: TJSV
 begin
   const StillExists = FBindingObject.HasProperty(Name);
   if IsStrict and (not StillExists) then
-  begin
-    const Message = Format(ASSIGNMENT_TO_UNDECLARED, [Name]);
-    raise TJSErrorFactory.ReferenceError(Message);
-  end;
+    raise TJSErrorFactory.AssignmentToUndeclared(Name);
 
   FBindingObject.SetProperty(Name, Value);
 end;
@@ -195,6 +192,7 @@ end;
 
 procedure TJSObjectScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
 begin
+  raise ENotSupportedException.CreateFmt(NO_LEXICAL_BINDINGS, [Name]);
 end;
 
 procedure TJSObjectScope.InitializeLexical(const Name: string; const Value: TJSValue);

@@ -24,8 +24,6 @@ type
       REPLACE_ALL_NAME = 'replaceAll';
       SEARCH_NAME = 'search';
       SPLIT_NAME = 'split';
-      FLAGS_PROPERTY = 'flags';
-      GLOBAL_FLAG = 'g';
       CALLED_ON_NULL_OR_UNDEFINED = 'String.prototype.%s called on null or undefined';
       REPLACE_ALL_NEEDS_GLOBAL = 'replaceAll must be called with a global RegExp';
       NULL_FLAGS = 'The flags of a regular expression must not be null or undefined';
@@ -44,7 +42,6 @@ type
     function InvokeOnNewRegExp(const Key: TJSPropertyKey; const Pattern: TJSValue; const Text: string): TJSValue;
     function MatchOrSearch(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
                            const Which: TJSWellKnownSymbol): TJSValue;
-    function CallReplacer(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue;
     function ReplaceInText(const Subject: TJSValue; const SearchValue: TJSValue; const ReplaceValue: TJSValue;
                            const ReplaceAll: Boolean): TJSValue;
     function Replace(const This: IJSObject; const Args: TArray<TJSValue>; const ReplaceAll: Boolean): TJSValue;
@@ -68,6 +65,8 @@ uses
   JS4D.ArrayLike,
   JS4D.Errors,
   JS4D.Conversions,
+  JS4D.PropertyNames,
+  JS4D.RegExpSyntax,
   JS4D.PatternOperations;
 
 constructor TJSStringPatternMethods.Create(const Interpreter: TJSInterpreter);
@@ -134,7 +133,7 @@ end;
 
 procedure TJSStringPatternMethods.RequireGlobalFlags(const SearchValue: TJSValue);
 begin
-  if not TJSConversions.IsRegExp(SearchValue) then
+  if not TJSConversions.IsRegExpLike(SearchValue) then
     Exit;
 
   const Flags = SearchValue.ToObject.GetProperty(FLAGS_PROPERTY);
@@ -142,7 +141,7 @@ begin
     raise TJSErrorFactory.TypeError(NULL_FLAGS);
 
   const FlagsText = ToText(Flags);
-  const IsGlobal = (Pos(GLOBAL_FLAG, FlagsText) > 0);
+  const IsGlobal = TJSRegExpFlags.Includes(FlagsText, TJSRegExpFlags.GLOBAL);
   if not IsGlobal then
     raise TJSErrorFactory.TypeError(REPLACE_ALL_NEEDS_GLOBAL);
 end;
@@ -186,31 +185,22 @@ begin
   Result := InvokeOnNewRegExp(Key, Pattern, Text);
 end;
 
-function TJSStringPatternMethods.CallReplacer(const Func: IJSFunction;
-                                              const CallbackArgs: TArray<TJSValue>): TJSValue;
-begin
-  const Undefined = TJSValue.CreateUndefined;
-  const ThisArg = FInterpreter.ThisObjectFor(Func, Undefined);
-
-  Result := FInterpreter.CallFunction(Func, CallbackArgs, ThisArg);
-end;
-
 function TJSStringPatternMethods.ReplaceInText(const Subject: TJSValue; const SearchValue: TJSValue;
                                                const ReplaceValue: TJSValue; const ReplaceAll: Boolean): TJSValue;
 begin
   const Text = ToText(Subject);
   const SearchText = ToText(SearchValue);
 
-  var Replacement := ReplaceValue;
-  if not ReplaceValue.IsFunction then
-  begin
-    const ReplacementText = ToText(ReplaceValue);
-    Replacement := TJSValue.CreateString(ReplacementText);
-  end;
+  var ReplacementTemplate := '';
+  var ReplacementFunction: IJSFunction := nil;
+  if ReplaceValue.IsFunction then
+    ReplacementFunction := TJSConversions.AsFunction(ReplaceValue)
+  else
+    ReplacementTemplate := ToText(ReplaceValue);
 
-  const Executor: TJSCallbackExecutor = CallReplacer;
-  const Replaced = TJSPatternOperations.ReplaceText(Text, SearchText, Replacement, ReplaceAll, Executor,
-                                                    FInterpreter.Limits);
+  const Executor: TJSCallbackExecutor = FInterpreter.CallWithUndefinedThis;
+  const Replaced = TJSPatternOperations.ReplaceText(Text, SearchText, ReplacementTemplate, ReplacementFunction,
+                                                    ReplaceAll, Executor, FInterpreter.Limits);
 
   Result := TJSValue.CreateString(Replaced);
 end;

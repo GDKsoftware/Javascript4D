@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BuiltinSupport;
@@ -23,22 +24,21 @@ type
       REFLECT_TAG = 'Reflect';
       APPLY_NAME = 'apply';
       CONSTRUCT_NAME = 'construct';
-      DEFINE_PROPERTY_NAME = 'defineProperty';
-      DELETE_PROPERTY_NAME = 'deleteProperty';
+      DEFINE_PROPERTY_NAME = METHOD_DEFINE_PROPERTY;
+      DELETE_PROPERTY_NAME = METHOD_DELETE_PROPERTY;
       GET_NAME = 'get';
-      GET_OWN_PROPERTY_DESCRIPTOR_NAME = 'getOwnPropertyDescriptor';
-      GET_PROTOTYPE_OF_NAME = 'getPrototypeOf';
+      GET_OWN_PROPERTY_DESCRIPTOR_NAME = METHOD_GET_OWN_PROPERTY_DESCRIPTOR;
+      GET_PROTOTYPE_OF_NAME = METHOD_GET_PROTOTYPE_OF;
       HAS_NAME = 'has';
-      IS_EXTENSIBLE_NAME = 'isExtensible';
-      OWN_KEYS_NAME = 'ownKeys';
-      PREVENT_EXTENSIONS_NAME = 'preventExtensions';
+      IS_EXTENSIBLE_NAME = METHOD_IS_EXTENSIBLE;
+      OWN_KEYS_NAME = METHOD_OWN_KEYS;
+      PREVENT_EXTENSIONS_NAME = METHOD_PREVENT_EXTENSIONS;
       SET_NAME = 'set';
-      SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
+      SET_PROTOTYPE_OF_NAME = METHOD_SET_PROTOTYPE_OF;
       NOT_AN_OBJECT = 'Reflect.%s called on a non-object';
       NOT_CALLABLE = 'Reflect.%s requires a function as its target';
       NOT_A_CONSTRUCTOR = 'Reflect.construct requires a constructor';
       ARGUMENT_LIST_NOT_AN_OBJECT = 'The argument list must be an object';
-      PROTOTYPE_NOT_AN_OBJECT = 'Object prototype may only be an Object or null';
 
     var
       FInterpreter: TJSInterpreter;
@@ -328,9 +328,10 @@ begin
   const Prototype = TJSArrayLike.Argument(Args, 1);
   const IsValidPrototype = Prototype.IsObject or Prototype.IsNull;
   if not IsValidPrototype then
-    raise TJSErrorFactory.TypeError(PROTOTYPE_NOT_AN_OBJECT);
+    raise TJSErrorFactory.PrototypeNotObjectOrNull;
 
-  const IsChanged = TJSObjectOperations.SetPrototypeOf(Target, Prototype.ToObject);
+  const NewPrototype = Prototype.ToObject;
+  const IsChanged = TJSObjectOperations.SetPrototypeOf(Target, NewPrototype);
 
   Result := TJSValue.CreateBoolean(IsChanged);
 end;

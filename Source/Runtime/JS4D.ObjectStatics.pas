@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
   JS4D.ArrayObject,
   JS4D.Interpreter,
@@ -28,20 +29,18 @@ type
       IS_FROZEN_NAME = 'isFrozen';
       SEAL_NAME = 'seal';
       IS_SEALED_NAME = 'isSealed';
-      PREVENT_EXTENSIONS_NAME = 'preventExtensions';
-      IS_EXTENSIBLE_NAME = 'isExtensible';
-      GET_PROTOTYPE_OF_NAME = 'getPrototypeOf';
+      PREVENT_EXTENSIONS_NAME = METHOD_PREVENT_EXTENSIONS;
+      IS_EXTENSIBLE_NAME = METHOD_IS_EXTENSIBLE;
+      GET_PROTOTYPE_OF_NAME = METHOD_GET_PROTOTYPE_OF;
       GET_OWN_PROPERTY_NAMES_NAME = 'getOwnPropertyNames';
       GET_OWN_PROPERTY_SYMBOLS_NAME = 'getOwnPropertySymbols';
-      GET_OWN_PROPERTY_DESCRIPTOR_NAME = 'getOwnPropertyDescriptor';
+      GET_OWN_PROPERTY_DESCRIPTOR_NAME = METHOD_GET_OWN_PROPERTY_DESCRIPTOR;
       GET_OWN_PROPERTY_DESCRIPTORS_NAME = 'getOwnPropertyDescriptors';
       IS_NAME = 'is';
-      DEFINE_PROPERTY_NAME = 'defineProperty';
+      DEFINE_PROPERTY_NAME = METHOD_DEFINE_PROPERTY;
       DEFINE_PROPERTIES_NAME = 'defineProperties';
       UNDEFINED_KEY = 'undefined';
-      CANNOT_ASSIGN_READ_ONLY = 'Cannot assign to read only property ''%s''';
       METHOD_CALLED_ON_NON_OBJECT = 'Object method called on a value that is not an object';
-      PROTOTYPE_MUST_BE_OBJECT_OR_NULL = 'Object prototype may only be an Object or null';
 
     var
       FInterpreter: TJSInterpreter;
@@ -94,7 +93,6 @@ implementation
 uses
   JS4D.ArrayLike,
   JS4D.Errors,
-  JS4D.PropertyNames,
   JS4D.ObjectOperations,
   JS4D.PropertyDescriptors;
 
@@ -135,10 +133,7 @@ class procedure TJSObjectStatics.PutChecked(const Target: IJSObject; const Name:
 begin
   const CanPut = TJSPropertyDescriptors.CanPut(Target, Name);
   if not CanPut then
-  begin
-    const Message = Format(CANNOT_ASSIGN_READ_ONLY, [Name.Text]);
-    raise TJSErrorFactory.TypeError(Message);
-  end;
+    raise TJSErrorFactory.CannotAssignReadOnly(Name.Text);
 
   Target.SetProperty(Name, Value);
 end;
@@ -317,7 +312,7 @@ begin
   const PrototypeArgument = TJSArrayLike.Argument(Args, 0);
   const IsValidPrototype = (PrototypeArgument.IsObject or PrototypeArgument.IsNull);
   if not IsValidPrototype then
-    raise TJSErrorFactory.TypeError(PROTOTYPE_MUST_BE_OBJECT_OR_NULL);
+    raise TJSErrorFactory.PrototypeNotObjectOrNull;
 
   const Created = TJSObject.Create;
   if PrototypeArgument.IsObject then

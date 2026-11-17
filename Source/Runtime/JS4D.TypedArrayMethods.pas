@@ -154,6 +154,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
   JS4D.PropertyNames,
   JS4D.Conversions,
   JS4D.Errors,
@@ -751,7 +752,7 @@ begin
 
   var SourceBytes := Source.Buffer.Bytes;
   var SourceStart := Source.ByteOffset;
-  const IsSameBuffer = (Source.Buffer as IInterface) = (Target.Buffer as IInterface);
+  const IsSameBuffer = TJSObjectOperations.IsSameObject(Source.Buffer, Target.Buffer);
   if IsSameBuffer then
   begin
     SourceBytes := Copy(SourceBytes, SourceStart, SourceLength * SourceKind.ElementSize);

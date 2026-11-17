@@ -39,7 +39,6 @@ type
 
   public
     class function ToInteger(const Value: Double): Double; static;
-    class function IsFinite(const Value: Double): Boolean; static;
 
     class function Day(const Time: Double): Double; static;
     class function TimeWithinDay(const Time: Double): Double; static;
@@ -95,13 +94,13 @@ const
 
 class function TJSDateMath.Modulo(const Value: Double; const Divisor: Double): Double;
 begin
-  Result := Value - (Divisor * TJSMathFunctions.Floor(Value / Divisor));
+  Result := Value - (Divisor * TJSMathFunctions.JsFloor(Value / Divisor));
 end;
 
 class function TJSDateMath.TimeUnitOfCycle(const Time: Double; const MsPerUnit: Double;
                                            const UnitsPerCycle: Integer): Integer;
 begin
-  const WholeUnits = TJSMathFunctions.Floor(Time / MsPerUnit);
+  const WholeUnits = TJSMathFunctions.JsFloor(Time / MsPerUnit);
   const UnitInCycle = Modulo(WholeUnits, UnitsPerCycle);
 
   Result := Trunc(UnitInCycle);
@@ -142,14 +141,9 @@ begin
   Result := Whole;
 end;
 
-class function TJSDateMath.IsFinite(const Value: Double): Boolean;
-begin
-  Result := not (System.Math.IsNaN(Value) or System.Math.IsInfinite(Value));
-end;
-
 class function TJSDateMath.Day(const Time: Double): Double;
 begin
-  Result := TJSMathFunctions.Floor(Time / MS_PER_DAY);
+  Result := TJSMathFunctions.JsFloor(Time / MS_PER_DAY);
 end;
 
 class function TJSDateMath.TimeWithinDay(const Time: Double): Double;
@@ -168,9 +162,9 @@ end;
 
 class function TJSDateMath.DayFromYear(const Year: Double): Double;
 begin
-  const LeapDays = TJSMathFunctions.Floor((Year - LEAP_YEAR_REFERENCE) / YEARS_PER_LEAP_CYCLE);
-  const CenturyDays = TJSMathFunctions.Floor((Year - CENTURY_REFERENCE) / YEARS_PER_CENTURY);
-  const FourCenturyDays = TJSMathFunctions.Floor((Year - FOUR_CENTURY_REFERENCE) / YEARS_PER_FOUR_CENTURIES);
+  const LeapDays = TJSMathFunctions.JsFloor((Year - LEAP_YEAR_REFERENCE) / YEARS_PER_LEAP_CYCLE);
+  const CenturyDays = TJSMathFunctions.JsFloor((Year - CENTURY_REFERENCE) / YEARS_PER_CENTURY);
+  const FourCenturyDays = TJSMathFunctions.JsFloor((Year - FOUR_CENTURY_REFERENCE) / YEARS_PER_FOUR_CENTURIES);
 
   Result := (DAYS_PER_COMMON_YEAR * (Year - EPOCH_YEAR)) + LeapDays - CenturyDays + FourCenturyDays;
 end;
@@ -183,7 +177,7 @@ end;
 class function TJSDateMath.YearFromTime(const Time: Double): Double;
 begin
   const AverageYearLength = MS_PER_DAY * AVERAGE_DAYS_PER_YEAR;
-  const YearsSinceEpoch = TJSMathFunctions.Floor(Time / AverageYearLength);
+  const YearsSinceEpoch = TJSMathFunctions.JsFloor(Time / AverageYearLength);
 
   Result := YearsSinceEpoch + EPOCH_YEAR;
 
@@ -279,7 +273,10 @@ end;
 
 class function TJSDateMath.MakeTime(const Hour, Minute, Second, Millisecond: Double): Double;
 begin
-  const AllFinite = IsFinite(Hour) and IsFinite(Minute) and IsFinite(Second) and IsFinite(Millisecond);
+  const AllFinite = (TJSMathFunctions.IsFiniteNumber(Hour) and
+                     TJSMathFunctions.IsFiniteNumber(Minute) and
+                     TJSMathFunctions.IsFiniteNumber(Second) and
+                     TJSMathFunctions.IsFiniteNumber(Millisecond));
   if not AllFinite then
     Exit(System.Math.NaN);
 
@@ -292,13 +289,15 @@ end;
 
 class function TJSDateMath.MakeDay(const Year, Month, Date: Double): Double;
 begin
-  const AllFinite = IsFinite(Year) and IsFinite(Month) and IsFinite(Date);
+  const AllFinite = (TJSMathFunctions.IsFiniteNumber(Year) and
+                     TJSMathFunctions.IsFiniteNumber(Month) and
+                     TJSMathFunctions.IsFiniteNumber(Date));
   if not AllFinite then
     Exit(System.Math.NaN);
 
   const WholeMonth = ToInteger(Month);
   const WholeDate = ToInteger(Date);
-  const YearCarry = TJSMathFunctions.Floor(WholeMonth / MONTHS_PER_YEAR);
+  const YearCarry = TJSMathFunctions.JsFloor(WholeMonth / MONTHS_PER_YEAR);
   const YearNumber = ToInteger(Year) + YearCarry;
   const MonthInYear = Modulo(WholeMonth, MONTHS_PER_YEAR);
   const MonthNumber = Trunc(MonthInYear);
@@ -315,7 +314,8 @@ end;
 
 class function TJSDateMath.MakeDate(const Day, Time: Double): Double;
 begin
-  const BothFinite = IsFinite(Day) and IsFinite(Time);
+  const BothFinite = (TJSMathFunctions.IsFiniteNumber(Day) and
+                      TJSMathFunctions.IsFiniteNumber(Time));
   if not BothFinite then
     Exit(System.Math.NaN);
 
@@ -324,7 +324,8 @@ end;
 
 class function TJSDateMath.TimeClip(const Time: Double): Double;
 begin
-  const IsOutOfRange = (not IsFinite(Time)) or (Abs(Time) > MAX_TIME_VALUE);
+  const IsInfiniteTime = (not TJSMathFunctions.IsFiniteNumber(Time));
+  const IsOutOfRange = (IsInfiniteTime or (Abs(Time) > MAX_TIME_VALUE));
   if IsOutOfRange then
     Exit(System.Math.NaN);
 

@@ -540,6 +540,7 @@ type
     function ToStringCoerced(const Value: TJSValue): string;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
     function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
+    function CallWithUndefinedThis(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
 
     function ActiveBinding: IJSThisBinding;
     function ActiveCallee: IJSFunction;
@@ -655,7 +656,6 @@ const
   CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s'' of object';
   DELETE_UNQUALIFIED_IN_STRICT_MODE = 'Delete of an unqualified identifier in strict mode';
   ASSIGN_TO_RESTRICTED_NAME = 'Assignment to %s in strict mode';
-  ASSIGN_TO_UNDECLARED_VARIABLE = 'Assignment to undeclared variable %s';
   BOUND_NAME_FORMAT = 'bound %s';
   UNSUPPORTED_UNARY_OPERATOR = 'Unsupported unary operator: %d';
   UNSUPPORTED_BINDING_MODE = 'Unsupported binding mode: %d';
@@ -4290,11 +4290,7 @@ begin
 
   const IsUndeclaredInStrictCode = (FStrictMode and (not Assigned(Binding)));
   if IsUndeclaredInStrictCode then
-  begin
-    const Message = Format(ASSIGN_TO_UNDECLARED_VARIABLE, [Identifier.Name]);
-
-    raise TJSErrorFactory.ReferenceError(Message, Node.Line, Node.Column);
-  end;
+    raise TJSErrorFactory.AssignmentToUndeclared(Identifier.Name, Node.Line, Node.Column);
 
   var NewValue: TJSValue;
   const IsPlainAssignment = (Node.Operator = TJSAssignmentOperator.Assign);
@@ -4395,11 +4391,7 @@ procedure TJSInterpreter.GuardBindingStillExists(const Name: string);
 begin
   const StillExists = FGlobalBindings.HasVariable(Name);
   if not StillExists then
-  begin
-    const Message = Format(ASSIGN_TO_UNDECLARED_VARIABLE, [Name]);
-
-    raise TJSErrorFactory.ReferenceError(Message);
-  end;
+    raise TJSErrorFactory.AssignmentToUndeclared(Name);
 end;
 
 function TJSInterpreter.AssignToMember(const Node: TJSAssignmentExpression): TJSValue;
@@ -6027,6 +6019,14 @@ function TJSInterpreter.PrototypeHoldsElements: Boolean;
 begin
   var PrototypeArray: IJSArray;
   Result := Supports(FArrayPrototype, IJSArray, PrototypeArray) and (PrototypeArray.Length > 0);
+end;
+
+function TJSInterpreter.CallWithUndefinedThis(const Func: IJSFunction; const Args: TArray<TJSValue>): TJSValue;
+begin
+  const Undefined = TJSValue.CreateUndefined;
+  const ThisArg = ThisObjectFor(Func, Undefined);
+
+  Result := CallFunction(Func, Args, ThisArg);
 end;
 
 function TJSInterpreter.InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;

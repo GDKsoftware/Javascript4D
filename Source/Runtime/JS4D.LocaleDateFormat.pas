@@ -82,14 +82,23 @@ type
 
     class function HasDateFields(const Options: TJSDateFormatOptions): Boolean; static;
     class function HasTimeFields(const Options: TJSDateFormatOptions): Boolean; static;
+    class function IncludesDate(const Scope: TJSDateFormatScope): Boolean; static;
+    class function IncludesTime(const Scope: TJSDateFormatScope): Boolean; static;
+    class function NeedsDefaults(const Options: TJSDateFormatOptions;
+                                 const Scope: TJSDateFormatScope): Boolean; static;
     class function IsTwelveHour(const Locale: PJSLocaleDefinition;
                                 const Options: TJSDateFormatOptions): Boolean; static;
     class function PartsOf(const Moment: Double): TDateParts; static;
     class function WeekdayKey(const Style: TJSDateFieldStyle): string; static;
     class function MonthKey(const Style: TJSDateFieldStyle): string; static;
+    class function NumericOrTwoDigitKey(const Style: TJSDateFieldStyle; const NumericKey: string;
+                                        const TwoDigitKey: string): string; static;
     class function DatePatternKey(const Options: TJSDateFormatOptions): string; static;
     class function TimePatternKey(const Options: TJSDateFormatOptions): string; static;
     class function NumberText(const Value: Integer; const Width: Integer): string; static;
+    class function StyleText(const Style: TJSDateFieldStyle; const LongName: string; const ShortName: string;
+                             const NarrowNames: string; const Index: Integer;
+                             const UnsupportedFormat: string): string; static;
     class function WeekdayText(const Locale: PJSLocaleDefinition; const Weekday: Integer;
                                const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string; static;
     class function MonthText(const Locale: PJSLocaleDefinition; const Month: Integer;
@@ -108,6 +117,9 @@ type
                              const Options: TJSDateFormatOptions): TPatternSegment; static;
     class function RenderPattern(const Pattern: string; const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                  const Options: TJSDateFormatOptions): string; static;
+    class function PatternText(const Patterns: TJSPatternMap; const Key: string; const Parts: TDateParts;
+                               const Locale: PJSLocaleDefinition;
+                               const Options: TJSDateFormatOptions): string; static;
     class function DateText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                             const Options: TJSDateFormatOptions): string; static;
     class function TimeText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
@@ -142,34 +154,41 @@ begin
             (Options.Second <> TJSDateFieldStyle.None);
 end;
 
+class function TJSLocaleDateFormatter.IncludesDate(const Scope: TJSDateFormatScope): Boolean;
+begin
+  Result := (Scope <> TJSDateFormatScope.TimeOnly);
+end;
+
+class function TJSLocaleDateFormatter.IncludesTime(const Scope: TJSDateFormatScope): Boolean;
+begin
+  Result := (Scope <> TJSDateFormatScope.DateOnly);
+end;
+
+class function TJSLocaleDateFormatter.NeedsDefaults(const Options: TJSDateFormatOptions;
+                                                    const Scope: TJSDateFormatScope): Boolean;
+begin
+  const HasRequestedDate = IncludesDate(Scope) and HasDateFields(Options);
+  const HasRequestedTime = IncludesTime(Scope) and HasTimeFields(Options);
+
+  Result := not (HasRequestedDate or HasRequestedTime);
+end;
+
 class function TJSLocaleDateFormatter.WithDefaults(const Options: TJSDateFormatOptions;
                                                    const Scope: TJSDateFormatScope): TJSDateFormatOptions;
 begin
   Result := Options;
 
-  const ChecksDate = (Scope <> TJSDateFormatScope.TimeOnly);
-  const ChecksTime = (Scope <> TJSDateFormatScope.DateOnly);
-
-  var NeedsDefaults := True;
-  if ChecksDate and HasDateFields(Options) then
-    NeedsDefaults := False;
-
-  if ChecksTime and HasTimeFields(Options) then
-    NeedsDefaults := False;
-
-  if not NeedsDefaults then
+  if not NeedsDefaults(Options, Scope) then
     Exit;
 
-  const AddsDate = (Scope <> TJSDateFormatScope.TimeOnly);
-  if AddsDate then
+  if IncludesDate(Scope) then
   begin
     Result.Year := TJSDateFieldStyle.Numeric;
     Result.Month := TJSDateFieldStyle.Numeric;
     Result.Day := TJSDateFieldStyle.Numeric;
   end;
 
-  const AddsTime = (Scope <> TJSDateFormatScope.DateOnly);
-  if AddsTime then
+  if IncludesTime(Scope) then
   begin
     Result.Hour := TJSDateFieldStyle.Numeric;
     Result.Minute := TJSDateFieldStyle.Numeric;
@@ -226,6 +245,18 @@ begin
   end;
 end;
 
+class function TJSLocaleDateFormatter.NumericOrTwoDigitKey(const Style: TJSDateFieldStyle;
+                                                           const NumericKey: string;
+                                                           const TwoDigitKey: string): string;
+begin
+  case Style of
+    TJSDateFieldStyle.None     : Result := '';
+    TJSDateFieldStyle.TwoDigit : Result := TwoDigitKey;
+  else
+    Result := NumericKey;
+  end;
+end;
+
 class function TJSLocaleDateFormatter.DatePatternKey(const Options: TJSDateFormatOptions): string;
 begin
   Result := WeekdayKey(Options.Weekday);
@@ -234,40 +265,18 @@ begin
   if HasYear then
     Result := Result + YEAR_KEY;
 
-  Result := Result + MonthKey(Options.Month);
+  const DayKey = NumericOrTwoDigitKey(Options.Day, NUMERIC_DAY_KEY, TWO_DIGIT_DAY_KEY);
 
-  case Options.Day of
-    TJSDateFieldStyle.None     : ;
-    TJSDateFieldStyle.TwoDigit : Result := Result + TWO_DIGIT_DAY_KEY;
-  else
-    Result := Result + NUMERIC_DAY_KEY;
-  end;
+  Result := Result + MonthKey(Options.Month) + DayKey;
 end;
 
 class function TJSLocaleDateFormatter.TimePatternKey(const Options: TJSDateFormatOptions): string;
 begin
-  Result := '';
+  const HourKey = NumericOrTwoDigitKey(Options.Hour, NUMERIC_HOUR_KEY, TWO_DIGIT_HOUR_KEY);
+  const MinuteKey = NumericOrTwoDigitKey(Options.Minute, NUMERIC_MINUTE_KEY, TWO_DIGIT_MINUTE_KEY);
+  const SecondKey = NumericOrTwoDigitKey(Options.Second, NUMERIC_SECOND_KEY, TWO_DIGIT_SECOND_KEY);
 
-  case Options.Hour of
-    TJSDateFieldStyle.None     : ;
-    TJSDateFieldStyle.TwoDigit : Result := Result + TWO_DIGIT_HOUR_KEY;
-  else
-    Result := Result + NUMERIC_HOUR_KEY;
-  end;
-
-  case Options.Minute of
-    TJSDateFieldStyle.None     : ;
-    TJSDateFieldStyle.TwoDigit : Result := Result + TWO_DIGIT_MINUTE_KEY;
-  else
-    Result := Result + NUMERIC_MINUTE_KEY;
-  end;
-
-  case Options.Second of
-    TJSDateFieldStyle.None     : ;
-    TJSDateFieldStyle.TwoDigit : Result := Result + TWO_DIGIT_SECOND_KEY;
-  else
-    Result := Result + NUMERIC_SECOND_KEY;
-  end;
+  Result := HourKey + MinuteKey + SecondKey;
 end;
 
 class function TJSLocaleDateFormatter.NumberText(const Value: Integer; const Width: Integer): string;
@@ -278,30 +287,39 @@ begin
   Result := StringOfChar('0', MissingZeros) + Digits;
 end;
 
+class function TJSLocaleDateFormatter.StyleText(const Style: TJSDateFieldStyle; const LongName: string;
+                                                const ShortName: string; const NarrowNames: string;
+                                                const Index: Integer; const UnsupportedFormat: string): string;
+begin
+  case Style of
+    TJSDateFieldStyle.Long   : Result := LongName;
+    TJSDateFieldStyle.Narrow : Result := NarrowNames.Substring(Index, 1);
+    TJSDateFieldStyle.Short  : Result := ShortName;
+  else
+    raise ENotSupportedException.CreateFmt(UnsupportedFormat, [Ord(Style)]);
+  end;
+end;
+
 class function TJSLocaleDateFormatter.WeekdayText(const Locale: PJSLocaleDefinition; const Weekday: Integer;
                                                   const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string;
 begin
-  case Style of
-    TJSDateFieldStyle.Long   : Result := Locale.WeekdaysLong[Weekday];
-    TJSDateFieldStyle.Narrow : Result := Locale.WeekdaysNarrow.Substring(Weekday, 1);
-    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.WeekdaysShortStandalone[Weekday],
-                                                Locale.WeekdaysShort[Weekday]);
-  else
-    raise ENotSupportedException.CreateFmt(UNSUPPORTED_WEEKDAY_STYLE, [Ord(Style)]);
-  end;
+  const LongName = Locale.WeekdaysLong[Weekday];
+  const StandaloneName = Locale.WeekdaysShortStandalone[Weekday];
+  const FormatName = Locale.WeekdaysShort[Weekday];
+  const ShortName = IfThen(IsStandalone, StandaloneName, FormatName);
+
+  Result := StyleText(Style, LongName, ShortName, Locale.WeekdaysNarrow, Weekday, UNSUPPORTED_WEEKDAY_STYLE);
 end;
 
 class function TJSLocaleDateFormatter.MonthText(const Locale: PJSLocaleDefinition; const Month: Integer;
                                                 const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string;
 begin
-  case Style of
-    TJSDateFieldStyle.Long   : Result := Locale.MonthsLong[Month];
-    TJSDateFieldStyle.Narrow : Result := Locale.MonthsNarrow.Substring(Month, 1);
-    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.MonthsShortStandalone[Month],
-                                                Locale.MonthsShort[Month]);
-  else
-    raise ENotSupportedException.CreateFmt(UNSUPPORTED_MONTH_STYLE, [Ord(Style)]);
-  end;
+  const LongName = Locale.MonthsLong[Month];
+  const StandaloneName = Locale.MonthsShortStandalone[Month];
+  const FormatName = Locale.MonthsShort[Month];
+  const ShortName = IfThen(IsStandalone, StandaloneName, FormatName);
+
+  Result := StyleText(Style, LongName, ShortName, Locale.MonthsNarrow, Month, UNSUPPORTED_MONTH_STYLE);
 end;
 
 class function TJSLocaleDateFormatter.YearText(const Year: Integer; const Style: TJSDateFieldStyle): string;
@@ -444,44 +462,41 @@ begin
   end;
 end;
 
-class function TJSLocaleDateFormatter.DateText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
-                                               const Options: TJSDateFormatOptions): string;
+class function TJSLocaleDateFormatter.PatternText(const Patterns: TJSPatternMap; const Key: string;
+                                                  const Parts: TDateParts; const Locale: PJSLocaleDefinition;
+                                                  const Options: TJSDateFormatOptions): string;
 begin
   Result := '';
 
-  const Key = DatePatternKey(Options);
   if Key.IsEmpty then
     Exit;
 
   var Pattern: string;
-  const IsFound = Locale.DatePatternMap.TryGetValue(Key, Pattern);
+  const IsFound = Patterns.TryGetValue(Key, Pattern);
   if not IsFound then
     Exit;
 
   Result := RenderPattern(Pattern, Parts, Locale, Options);
 end;
 
+class function TJSLocaleDateFormatter.DateText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
+                                               const Options: TJSDateFormatOptions): string;
+begin
+  const Key = DatePatternKey(Options);
+
+  Result := PatternText(Locale.DatePatternMap, Key, Parts, Locale, Options);
+end;
+
 class function TJSLocaleDateFormatter.TimeText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                                const Options: TJSDateFormatOptions): string;
 begin
-  Result := '';
-
   const Key = TimePatternKey(Options);
-  if Key.IsEmpty then
-    Exit;
-
   const UsesTwelveHour = IsTwelveHour(Locale, Options);
 
-  var Pattern: string;
-  var IsFound: Boolean;
   if UsesTwelveHour then
-    IsFound := Locale.TimePatterns12Map.TryGetValue(Key, Pattern)
+    Result := PatternText(Locale.TimePatterns12Map, Key, Parts, Locale, Options)
   else
-    IsFound := Locale.TimePatterns24Map.TryGetValue(Key, Pattern);
-  if not IsFound then
-    Exit;
-
-  Result := RenderPattern(Pattern, Parts, Locale, Options);
+    Result := PatternText(Locale.TimePatterns24Map, Key, Parts, Locale, Options);
 end;
 
 class function TJSLocaleDateFormatter.DateTimeGlue(const Locale: PJSLocaleDefinition;

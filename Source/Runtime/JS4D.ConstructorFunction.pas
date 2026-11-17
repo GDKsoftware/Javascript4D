@@ -26,7 +26,6 @@ type
   public
     constructor CreateConstructor(const Name: string; const Func: TNativeFunction;
                                   const Handler: TJSConstructHandler);
-    destructor Destroy; override;
 
     function ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
   end;
@@ -43,12 +42,6 @@ begin
 end;
 
 procedure TJSConstructorFunction.ReleaseReferences;
-begin
-  FHandler := nil;
-  inherited;
-end;
-
-destructor TJSConstructorFunction.Destroy;
 begin
   FHandler := nil;
   inherited;

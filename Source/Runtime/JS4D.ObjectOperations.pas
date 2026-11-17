@@ -34,6 +34,11 @@ type
 
   TJSObjectOperations = class
   private
+    class function ReadFromDescriptor(const Descriptor: TJSPropertyDescriptor;
+                                      const Receiver: TJSValue): TJSValue; static;
+    class function FreshDataDescriptor: TJSPropertyDescriptor; static;
+    class function TryDelegateSet(const Current: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
+                                  const Receiver: TJSValue; out Outcome: Boolean): Boolean; static;
     class function CallSetter(const OwnDescriptor: TJSPropertyDescriptor; const Value: TJSValue;
                               const Receiver: TJSValue): Boolean; static;
     class function SetOnReceiver(const OwnDescriptor: TJSPropertyDescriptor; const Name: TJSPropertyKey;
@@ -108,6 +113,25 @@ begin
     Descriptor := Target.GetOwnPropertyDescriptor(Name);
 end;
 
+class function TJSObjectOperations.ReadFromDescriptor(const Descriptor: TJSPropertyDescriptor;
+                                                      const Receiver: TJSValue): TJSValue;
+begin
+  if not Descriptor.IsAccessor then
+  begin
+    Result := Descriptor.Value;
+    Exit;
+  end;
+
+  var Getter: IJSFunction;
+  if not Descriptor.Getter.TryGetFunction(Getter) then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
+
+  Result := Getter.Call(Receiver.ToObject, nil);
+end;
+
 class function TJSObjectOperations.GetWithReceiver(const Target: IJSObject; const Name: TJSPropertyKey;
                                                    const Receiver: TJSValue): TJSValue;
 begin
@@ -124,17 +148,8 @@ begin
     if Current.HasOwnProperty(Name) then
     begin
       const Descriptor = Current.GetOwnPropertyDescriptor(Name);
-      if not Descriptor.IsAccessor then
-        Exit(Descriptor.Value);
 
-      var Getter: IJSFunction;
-      if not Descriptor.Getter.TryGetFunction(Getter) then
-      begin
-        Result := TJSValue.CreateUndefined;
-        Exit;
-      end;
-
-      Result := Getter.Call(Receiver.ToObject, nil);
+      Result := ReadFromDescriptor(Descriptor, Receiver);
       Exit;
     end;
 
@@ -144,27 +159,49 @@ begin
   Result := TJSValue.CreateUndefined;
 end;
 
+class function TJSObjectOperations.FreshDataDescriptor: TJSPropertyDescriptor;
+begin
+  Result := Default(TJSPropertyDescriptor);
+  Result.Value := TJSValue.CreateUndefined;
+  Result.Writable := True;
+  Result.Enumerable := True;
+  Result.Configurable := True;
+end;
+
+class function TJSObjectOperations.TryDelegateSet(const Current: IJSObject; const Name: TJSPropertyKey;
+                                                  const Value: TJSValue; const Receiver: TJSValue;
+                                                  out Outcome: Boolean): Boolean;
+begin
+  Result := True;
+
+  var Proxy: IJSProxy;
+  if TryGetProxy(Current, Proxy) then
+  begin
+    Outcome := Proxy.SetWithReceiver(Name, Value, Receiver);
+    Exit;
+  end;
+
+  if TJSBinaryKeys.TryStoreElement(Current, Name, Value, Receiver) then
+  begin
+    Outcome := True;
+    Exit;
+  end;
+
+  Outcome := False;
+  Result := False;
+end;
+
 class function TJSObjectOperations.SetWithReceiver(const Target: IJSObject; const Name: TJSPropertyKey;
                                                    const Value: TJSValue; const Receiver: TJSValue): Boolean;
 begin
-  var OwnDescriptor := Default(TJSPropertyDescriptor);
-  OwnDescriptor.Value := TJSValue.CreateUndefined;
-  OwnDescriptor.Writable := True;
-  OwnDescriptor.Enumerable := True;
-  OwnDescriptor.Configurable := True;
+  var OwnDescriptor := FreshDataDescriptor;
 
   var Current := Target;
   while Assigned(Current) do
   begin
-    var Proxy: IJSProxy;
-    if TryGetProxy(Current, Proxy) then
-    begin
-      Result := Proxy.SetWithReceiver(Name, Value, Receiver);
-      Exit;
-    end;
-
-    if TJSBinaryKeys.TryStoreElement(Current, Name, Value, Receiver) then
-      Exit(True);
+    var Outcome: Boolean;
+    if TryDelegateSet(Current, Name, Value, Receiver, Outcome) then
+      Exit(Outcome);
 
     if Current.HasOwnProperty(Name) then
     begin
@@ -274,7 +311,10 @@ class function TJSObjectOperations.PreventExtensions(const Target: IJSObject): B
 begin
   var Proxy: IJSProxy;
   if TryGetProxy(Target, Proxy) then
-    Exit(Proxy.TryPreventExtensions);
+  begin
+    Result := Proxy.TryPreventExtensions;
+    Exit;
+  end;
 
   Target.PreventExtensions;
   Result := True;
@@ -289,7 +329,7 @@ begin
     Exit;
   end;
 
-  const IsUnchanged = ((Target.Prototype as IInterface) = (Prototype as IInterface));
+  const IsUnchanged = IsSameObject(Target.Prototype, Prototype);
   if IsUnchanged then
     Exit(True);
 
@@ -301,7 +341,8 @@ begin
   var Ancestor := Prototype;
   while Assigned(Ancestor) do
   begin
-    if (Ancestor as IInterface) = (Target as IInterface) then
+    const IsCycle = IsSameObject(Ancestor, Target);
+    if IsCycle then
       Exit(False);
 
     if TryGetProxy(Ancestor, Proxy) then
@@ -318,7 +359,10 @@ class function TJSObjectOperations.OwnKeys(const Target: IJSObject): TArray<TJSP
 begin
   var Proxy: IJSProxy;
   if TryGetProxy(Target, Proxy) then
-    Exit(Proxy.OwnKeys);
+  begin
+    Result := Proxy.OwnKeys;
+    Exit;
+  end;
 
   const Names = Target.GetOwnPropertyNames;
   const SymbolKeys = Target.GetOwnSymbolKeysInCreationOrder;

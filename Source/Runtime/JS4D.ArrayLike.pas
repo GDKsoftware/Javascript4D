@@ -235,7 +235,7 @@ begin
     Exit;
 
   const Candidate = TJSConversions.SpeciesConstructor(Target, IntrinsicArray, IntrinsicSpeciesGetter);
-  const IsIntrinsic = Assigned(IntrinsicArray) and ((Candidate as IInterface) = (IntrinsicArray as IInterface));
+  const IsIntrinsic = Assigned(IntrinsicArray) and TJSObjectOperations.IsSameObject(Candidate, IntrinsicArray);
   if not IsIntrinsic then
     Result := Candidate;
 end;

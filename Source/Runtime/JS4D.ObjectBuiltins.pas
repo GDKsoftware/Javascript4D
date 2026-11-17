@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BuiltinSupport;
@@ -18,17 +19,18 @@ type
     const
       OBJECT_NAME = 'Object';
       HAS_OWN_NAME = 'hasOwn';
-      SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
+      SET_PROTOTYPE_OF_NAME = METHOD_SET_PROTOTYPE_OF;
       PROTO_GETTER_NAME = 'get __proto__';
       PROTO_SETTER_NAME = 'set __proto__';
       FROM_ENTRIES_NAME = 'fromEntries';
+      HAS_OWN_LENGTH = 2;
+      SET_PROTOTYPE_OF_LENGTH = 2;
+      FROM_ENTRIES_LENGTH = 1;
       KEY_PROPERTY = '0';
       VALUE_PROPERTY = '1';
-      PROTOTYPE_NOT_AN_OBJECT = 'Object prototype may only be an Object or null';
       SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this object: it is not extensible or the prototype chain ' +
                              'would be cyclic';
       NOT_ITERABLE = 'Object.fromEntries requires an iterable object';
-      ENTRY_NOT_AN_OBJECT = 'Iterator value is not an entry object';
 
     var
       FInterpreter: TJSInterpreter;
@@ -44,7 +46,6 @@ type
     procedure DefineProtoAccessor(const ObjectPrototype: IJSObject);
     procedure AddEntry(const Target: IJSObject; const Entry: TJSValue);
     function FromEntries(const Args: TArray<TJSValue>): TJSValue;
-    procedure DefineStatic(const ObjectConstructor: IJSObject; const Name: string; const Method: TNativeFunction);
 
   public
     constructor Create(const Interpreter: TJSInterpreter);
@@ -56,7 +57,6 @@ type
 implementation
 
 uses
-  JS4D.PropertyNames,
   JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.ArrayStatics,
@@ -90,10 +90,13 @@ end;
 
 function TJSObjectBuiltins.HasOwn(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = ObjectFor(TJSArrayLike.Argument(Args, 0));
-  const Key = TJSArrayLike.Argument(Args, 1).ToPropertyKey(FInterpreter.Limits);
+  const TargetValue = TJSArrayLike.Argument(Args, 0);
+  const KeyValue = TJSArrayLike.Argument(Args, 1);
+  const Target = ObjectFor(TargetValue);
+  const Key = KeyValue.ToPropertyKey(FInterpreter.Limits);
+  const IsOwn = Target.HasOwnProperty(Key);
 
-  Result := TJSValue.CreateBoolean(Target.HasOwnProperty(Key));
+  Result := TJSValue.CreateBoolean(IsOwn);
 end;
 
 function TJSObjectBuiltins.SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
@@ -106,7 +109,7 @@ begin
 
   const IsValidPrototype = NewPrototype.IsNull or NewPrototype.IsObject;
   if not IsValidPrototype then
-    raise TJSErrorFactory.TypeError(PROTOTYPE_NOT_AN_OBJECT);
+    raise TJSErrorFactory.PrototypeNotObjectOrNull;
 
   Result := Subject;
   if not Subject.IsObject then
@@ -184,7 +187,7 @@ end;
 procedure TJSObjectBuiltins.AddEntry(const Target: IJSObject; const Entry: TJSValue);
 begin
   if not Entry.IsObject then
-    raise TJSErrorFactory.TypeError(ENTRY_NOT_AN_OBJECT);
+    raise TJSErrorFactory.EntryNotAnObject;
 
   const EntryObject = Entry.ToObject;
   const Key = EntryObject.GetProperty(KEY_PROPERTY);
@@ -192,7 +195,9 @@ begin
 
   const Definition = TJSPropertyDefinition.ForDataProperty(Value);
 
-  TJSPropertyDescriptors.Define(Target, Key.ToPropertyKey(FInterpreter.Limits), Definition, FInterpreter.Limits);
+  const PropertyKey = Key.ToPropertyKey(FInterpreter.Limits);
+
+  TJSPropertyDescriptors.Define(Target, PropertyKey, Definition, FInterpreter.Limits);
 end;
 
 function TJSObjectBuiltins.FromEntries(const Args: TArray<TJSValue>): TJSValue;
@@ -215,29 +220,15 @@ begin
     try
       AddEntry(Created, Entry);
     except
-      on EJSExecutionInterrupted do
-        raise;
-      on Exception do
+      on Failure: Exception do
       begin
-        Closer(True);
+        TJSArrayStatics.CloseAfterFailure(Closer, Failure);
         raise;
       end;
     end;
   end;
 
   Result := TJSValue.CreateObject(Created);
-end;
-
-procedure TJSObjectBuiltins.DefineStatic(const ObjectConstructor: IJSObject; const Name: string;
-                                         const Method: TNativeFunction);
-begin
-  const Func = TJSFunction.CreateNative(Name, Method);
-  Func.Prototype := FInterpreter.FunctionPrototype;
-  FInterpreter.RegisterFunction(Func);
-
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func));
-  Descriptor.Enumerable := False;
-  ObjectConstructor.DefineProperty(Name, Descriptor);
 end;
 
 procedure TJSObjectBuiltins.Register;
@@ -248,19 +239,19 @@ begin
   const ObjectPrototype = PrototypeValue.ToObject;
   DefineProtoAccessor(ObjectPrototype);
 
-  DefineStatic(ObjectConstructor, HAS_OWN_NAME,
+  FSupport.DefineMethod(ObjectConstructor, HAS_OWN_NAME, HAS_OWN_LENGTH,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := HasOwn(Args);
     end);
 
-  DefineStatic(ObjectConstructor, SET_PROTOTYPE_OF_NAME,
+  FSupport.DefineMethod(ObjectConstructor, SET_PROTOTYPE_OF_NAME, SET_PROTOTYPE_OF_LENGTH,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := SetPrototypeOf(Args);
     end);
 
-  DefineStatic(ObjectConstructor, FROM_ENTRIES_NAME,
+  FSupport.DefineMethod(ObjectConstructor, FROM_ENTRIES_NAME, FROM_ENTRIES_LENGTH,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := FromEntries(Args);

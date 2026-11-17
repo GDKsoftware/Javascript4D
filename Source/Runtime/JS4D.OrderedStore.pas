@@ -83,7 +83,7 @@ type
     procedure RegisterCursor(const Cursor: TJSStoreCursor);
     procedure UnregisterCursor(const Cursor: TJSStoreCursor);
     function TryReadFrom(const Cursor: TJSStoreCursor; out Key: TJSValue; out Value: TJSValue): Boolean;
-    procedure ResetAndRelease(Entries: TArray<TEntry>);
+    procedure ResetAndRelease(EntriesToRelease: TArray<TEntry>);
 
   public
     constructor Create;
@@ -331,7 +331,7 @@ begin
   ResetAndRelease(FEntries);
 end;
 
-procedure TJSOrderedStore.ResetAndRelease(Entries: TArray<TEntry>);
+procedure TJSOrderedStore.ResetAndRelease(EntriesToRelease: TArray<TEntry>);
 begin
   FEntries := nil;
   FUsed := 0;

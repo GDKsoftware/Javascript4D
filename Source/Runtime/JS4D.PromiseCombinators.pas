@@ -33,7 +33,6 @@ type
       FULFILLED_STATUS = 'fulfilled';
       REJECTED_STATUS = 'rejected';
       NOT_CALLABLE = 'The resolve property of the promise constructor is not a function';
-      NOT_ITERABLE = 'The value is not iterable';
       NOT_AN_OBJECT = 'Promise combinator called on a value that is not an object';
 
     var
@@ -164,7 +163,7 @@ begin
   var Closer: TJSSequenceCloser;
   const IsIterable = FInterpreter.TryOpenSequenceReader(Iterable, Reader, Closer);
   if not IsIterable then
-    raise TJSErrorFactory.TypeError(NOT_ITERABLE);
+    raise TJSErrorFactory.NotIterable;
 
   const Combination: IJSCombination = TJSCombination.Create;
   try

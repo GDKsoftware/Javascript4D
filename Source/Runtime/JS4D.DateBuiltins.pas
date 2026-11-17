@@ -14,7 +14,7 @@ type
   TJSDateBuiltins = class
   private
     type
-      TDateField = (Year, Month, Date, Hours, Minutes, Seconds, Milliseconds, WeekDay);
+      TDateField = (FullYear, Month, DayOfMonth, Hours, Minutes, Seconds, Milliseconds, WeekDay);
       TTextForm = (Full, DateOnly, TimeOnly, Utc);
       TThisMethod = function(const This: IJSObject): TJSValue of object;
       TThisAndArgumentsMethod = function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue of object;
@@ -105,6 +105,7 @@ type
 implementation
 
 uses
+  JS4D.MathFunctions,
   JS4D.PropertyNames,
   JS4D.Conversions,
   System.Math,
@@ -197,9 +198,9 @@ end;
 class function TJSDateBuiltins.ComponentOf(const Field: TDateField; const Moment: Double): Double;
 begin
   case Field of
-    TDateField.Year         : Result := TJSDateMath.YearFromTime(Moment);
+    TDateField.FullYear         : Result := TJSDateMath.YearFromTime(Moment);
     TDateField.Month        : Result := TJSDateMath.MonthFromTime(Moment);
-    TDateField.Date         : Result := TJSDateMath.DateFromTime(Moment);
+    TDateField.DayOfMonth         : Result := TJSDateMath.DateFromTime(Moment);
     TDateField.Hours        : Result := TJSDateMath.HourFromTime(Moment);
     TDateField.Minutes      : Result := TJSDateMath.MinuteFromTime(Moment);
     TDateField.Seconds      : Result := TJSDateMath.SecondFromTime(Moment);
@@ -213,7 +214,7 @@ end;
 class function TJSDateBuiltins.ComponentsOf(const Moment: Double): TArray<Double>;
 begin
   SetLength(Result, COMPONENT_COUNT);
-  for var Part := TDateField.Year to TDateField.Milliseconds do
+  for var Part := TDateField.FullYear to TDateField.Milliseconds do
   begin
     Result[Ord(Part)] := ComponentOf(Part, Moment);
   end;
@@ -231,9 +232,9 @@ end;
 
 class function TJSDateBuiltins.ComposeTime(const Components: TArray<Double>): Double;
 begin
-  const Year = Components[Ord(TDateField.Year)];
+  const Year = Components[Ord(TDateField.FullYear)];
   const Month = Components[Ord(TDateField.Month)];
-  const Day = Components[Ord(TDateField.Date)];
+  const Day = Components[Ord(TDateField.DayOfMonth)];
   const Hour = Components[Ord(TDateField.Hours)];
   const Minute = Components[Ord(TDateField.Minutes)];
   const Second = Components[Ord(TDateField.Seconds)];
@@ -248,9 +249,9 @@ end;
 class function TJSDateBuiltins.CollectComponents(const Args: TArray<TJSValue>): TArray<Double>;
 begin
   SetLength(Result, COMPONENT_COUNT);
-  Result[Ord(TDateField.Year)] := System.Math.NaN;
+  Result[Ord(TDateField.FullYear)] := System.Math.NaN;
   Result[Ord(TDateField.Month)] := DEFAULT_MONTH;
-  Result[Ord(TDateField.Date)] := DEFAULT_DAY;
+  Result[Ord(TDateField.DayOfMonth)] := DEFAULT_DAY;
 
   const ProvidedCount = Min(Length(Args), COMPONENT_COUNT);
   for var Index := 0 to ProvidedCount - 1 do
@@ -258,7 +259,7 @@ begin
     Result[Index] := TJSConversions.ToNumber(Args[Index]);
   end;
 
-  Result[Ord(TDateField.Year)] := MakeFullYear(Result[Ord(TDateField.Year)]);
+  Result[Ord(TDateField.FullYear)] := MakeFullYear(Result[Ord(TDateField.FullYear)]);
 end;
 
 class function TJSDateBuiltins.NumberArgumentOrNaN(const Args: TArray<TJSValue>; const Position: Integer): Double;
@@ -301,7 +302,7 @@ begin
     Exit(True);
   end;
 
-  Result := (Field = TDateField.Year);
+  Result := (Field = TDateField.FullYear);
 end;
 
 class function TJSDateBuiltins.TimeFromValue(const Value: TJSValue): Double;
@@ -547,7 +548,7 @@ begin
   end;
 
   const FullYear = MakeFullYear(Requested);
-  const NewTime = ApplySetter(Target, OriginalTime, TDateField.Year, [FullYear], True);
+  const NewTime = ApplySetter(Target, OriginalTime, TDateField.FullYear, [FullYear], True);
 
   Result := TJSValue.CreateNumber(NewTime);
 end;
@@ -601,7 +602,7 @@ begin
   const Subject = TJSValue.CreateObject(This);
 
   const Primitive = Subject.ToPrimitive(False);
-  const IsNonFinite = Primitive.IsNumber and (not TJSDateMath.IsFinite(Primitive.AsNumber));
+  const IsNonFinite = Primitive.IsNumber and (not TJSMathFunctions.IsFiniteNumber(Primitive.AsNumber));
   if IsNonFinite then
   begin
     Result := TJSValue.CreateNull;

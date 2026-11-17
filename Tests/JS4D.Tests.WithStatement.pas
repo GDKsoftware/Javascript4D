@@ -7,6 +7,8 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
+  JS4D.Types,
+  JS4D.ObjectScope,
   JS4D.Engine;
 
 type
@@ -23,6 +25,9 @@ type
 
     [TearDown]
     procedure TearDown;
+
+    [Test]
+    procedure ObjectScope_DeclareLexical_RaisesNotSupported;
 
     [Test]
     procedure With_ReadsPropertyOfObject;
@@ -138,6 +143,19 @@ begin
   const Script = Format('var name = ""; try { %s } catch (e) { name = e.name; } name', [Source]);
 
   Result := (FEngine.Evaluate(Script).AsString = ErrorName);
+end;
+
+procedure TWithStatementTests.ObjectScope_DeclareLexical_RaisesNotSupported;
+begin
+  const Bindings: IJSObject = TJSObject.Create;
+  const Scope: IJSScope = TJSObjectScope.Create(nil, Bindings, nil);
+
+  Assert.WillRaise(
+    procedure
+    begin
+      Scope.DeclareLexical('x', False);
+    end,
+    ENotSupportedException);
 end;
 
 procedure TWithStatementTests.With_ReadsPropertyOfObject;

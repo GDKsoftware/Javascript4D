@@ -61,12 +61,20 @@ type
                                  const ThisArg: TJSValue; const Context: TJSArrayStaticsContext): TJSValue; static;
 
   public
+    class procedure CloseAfterFailure(const Closer: TJSSequenceCloser; const Failure: Exception); static;
     class function Handles(const MethodName: string): Boolean; static;
     class function Call(const MethodName: string; const ThisObj: IJSObject; const Args: TArray<TJSValue>;
                         const Context: TJSArrayStaticsContext): TJSValue; static;
   end;
 
 implementation
+
+class procedure TJSArrayStatics.CloseAfterFailure(const Closer: TJSSequenceCloser; const Failure: Exception);
+begin
+  const IsInterruption = (Failure is EJSExecutionInterrupted);
+  if not IsInterruption then
+    Closer(True);
+end;
 
 class function TJSArrayStatics.Handles(const MethodName: string): Boolean;
 begin
@@ -217,11 +225,9 @@ begin
     const Mapped = MapItem(Mapper, Item, Index, ThisArg, Context);
     DefineElement(Target, Index, Mapped, Context);
   except
-    on EJSExecutionInterrupted do
-      raise;
-    on Exception do
+    on Failure: Exception do
     begin
-      Closer(True);
+      CloseAfterFailure(Closer, Failure);
       raise;
     end;
   end;

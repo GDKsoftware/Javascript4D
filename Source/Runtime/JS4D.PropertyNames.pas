@@ -18,6 +18,7 @@ const
   DONE_PROPERTY = 'done';
   VALUE_PROPERTY = 'value';
   RAW_PROPERTY = 'raw';
+  FLAGS_PROPERTY = 'flags';
   KEYS_PROPERTY = 'keys';
   VALUES_PROPERTY = 'values';
   ENTRIES_PROPERTY = 'entries';
@@ -58,6 +59,14 @@ const
   METHOD_STARTS_WITH = 'startsWith';
   METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_UNSHIFT = 'unshift';
+  METHOD_GET_PROTOTYPE_OF = 'getPrototypeOf';
+  METHOD_SET_PROTOTYPE_OF = 'setPrototypeOf';
+  METHOD_IS_EXTENSIBLE = 'isExtensible';
+  METHOD_PREVENT_EXTENSIONS = 'preventExtensions';
+  METHOD_GET_OWN_PROPERTY_DESCRIPTOR = 'getOwnPropertyDescriptor';
+  METHOD_DEFINE_PROPERTY = 'defineProperty';
+  METHOD_DELETE_PROPERTY = 'deleteProperty';
+  METHOD_OWN_KEYS = 'ownKeys';
 
 implementation
 

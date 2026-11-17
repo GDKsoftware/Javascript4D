@@ -44,7 +44,6 @@ type
       TElementFormatter = reference to function(const Element: TJSValue): string;
 
     const
-      NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       UNSUPPORTED_METHOD = 'Unsupported generic array method: %s';
       EMPTY_RESULT_METHODS = [TGenericMethod.Concat];
       METHODS: array[TGenericMethod] of TGenericMethodInfo = (
@@ -234,10 +233,7 @@ class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: s
                                     const Args: TArray<TJSValue>; const Context: TJSArrayGenericContext): TJSValue;
 begin
   if not Assigned(Target) then
-  begin
-    const Message = Format(NOT_CALLED_ON_OBJECT, [MethodName]);
-    raise TJSErrorFactory.TypeError(Message);
-  end;
+    raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(MethodName);
 
   var Method: TGenericMethod;
   if not TryFindMethod(MethodName, Method) then
@@ -715,8 +711,7 @@ begin
     Exit;
   end;
 
-  const Message = Format(NOT_CALLED_ON_OBJECT, [TO_STRING_METHOD]);
-  raise TJSErrorFactory.TypeError(Message);
+  raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(TO_STRING_METHOD);
 end;
 
 end.

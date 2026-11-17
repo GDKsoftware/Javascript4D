@@ -387,6 +387,8 @@ type
     procedure SetIsDefaultConstructor(const Value: Boolean);
     function GetFrame: IJSFrame;
     procedure SetFrame(const Value: IJSFrame);
+    function GetIntrinsicRole: TJSIntrinsicRole;
+    procedure SetIntrinsicRole(const Value: TJSIntrinsicRole);
     procedure ReleaseCapturedContext;
     function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     property Name: string read GetName write SetName;
@@ -406,6 +408,7 @@ type
     property Kind: TJSFunctionKind read GetKind write SetKind;
     property IsDefaultConstructor: Boolean read GetIsDefaultConstructor write SetIsDefaultConstructor;
     property Frame: IJSFrame read GetFrame write SetFrame;
+    property IntrinsicRole: TJSIntrinsicRole read GetIntrinsicRole write SetIntrinsicRole;
   end;
 
   IJSError = interface(IJSObject)
@@ -699,6 +702,8 @@ type
     procedure SetIsDefaultConstructor(const Value: Boolean);
     function GetFrame: IJSFrame;
     procedure SetFrame(const Value: IJSFrame);
+    function GetIntrinsicRole: TJSIntrinsicRole;
+    procedure SetIntrinsicRole(const Value: TJSIntrinsicRole);
 
   public
     constructor Create;
@@ -2935,6 +2940,16 @@ end;
 procedure TJSFunctionImpl.SetFrame(const Value: IJSFrame);
 begin
   FFrame := Value;
+end;
+
+function TJSFunctionImpl.GetIntrinsicRole: TJSIntrinsicRole;
+begin
+  Result := FIntrinsicRole;
+end;
+
+procedure TJSFunctionImpl.SetIntrinsicRole(const Value: TJSIntrinsicRole);
+begin
+  FIntrinsicRole := Value;
 end;
 
 function TJSFunctionImpl.GetName: string;

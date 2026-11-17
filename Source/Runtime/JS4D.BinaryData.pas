@@ -185,6 +185,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
   JS4D.Conversions,
   JS4D.Errors;
 
@@ -360,7 +361,7 @@ begin
   if not IsNumeric then
     Exit(False);
 
-  const IsReceiver = Receiver.IsObject and ((Receiver.ToObject as IInterface) = (Target as IInterface));
+  const IsReceiver = Receiver.IsObject and TJSObjectOperations.IsSameObject(Receiver.ToObject, Target);
   if IsReceiver then
   begin
     Target.SetProperty(Name, Value);

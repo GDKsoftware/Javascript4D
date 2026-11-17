@@ -22,6 +22,8 @@ type
     class function Remainder(const Dividend: Double; const Divisor: Double): Double; static;
     class function ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue; static;
     class function Add(const Left: TJSValue; const Right: TJSValue; const Limits: TJSLimits): TJSValue; static;
+    class function RelationHolds(const BinaryOperator: TJSBinaryOperator; const Left: Double;
+                                 const Right: Double): Boolean; static;
     class function Compare(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                            const Right: TJSValue): Boolean; static;
     class function ShiftRightKeepingSign(const Value: Integer; const Count: Byte): Integer; static;
@@ -60,12 +62,16 @@ end;
 
 class function TJSOperators.ToUint32(const Value: TJSValue): Cardinal;
 begin
-  Result := Cardinal(TJSConversions.ToUint32(Value));
+  const Converted = TJSConversions.ToUint32(Value);
+
+  Result := Cardinal(Converted);
 end;
 
 class function TJSOperators.ToInt32(const Value: TJSValue): Integer;
 begin
-  Result := Integer(ToUint32(Value));
+  const Converted = ToUint32(Value);
+
+  Result := Integer(Converted);
 end;
 
 class function TJSOperators.BinaryOperatorFor(const AssignmentOperator: TJSAssignmentOperator): TJSBinaryOperator;
@@ -143,10 +149,12 @@ end;
 
 class function TJSOperators.Divide(const Dividend: Double; const Divisor: Double): Double;
 begin
-  if Divisor <> 0 then
+  const IsDivisionByZero = (Divisor = 0);
+  if not IsDivisionByZero then
     Exit(Dividend / Divisor);
 
-  if IsNaN(Dividend) or (Dividend = 0) then
+  const IsIndeterminate = (IsNaN(Dividend) or (Dividend = 0));
+  if IsIndeterminate then
     Exit(NaN);
 
   const IsNegativeResult = ((Dividend < 0) xor Divisor.Sign);
@@ -158,16 +166,16 @@ end;
 
 class function TJSOperators.Remainder(const Dividend: Double; const Divisor: Double): Double;
 begin
-  const IsUndefinedRemainder = (Divisor = 0) or IsNaN(Divisor) or IsNaN(Dividend) or IsInfinite(Dividend);
+  const IsUndefinedRemainder = ((Divisor = 0) or IsNaN(Divisor) or IsNaN(Dividend) or IsInfinite(Dividend));
   if IsUndefinedRemainder then
     Exit(NaN);
 
   if IsInfinite(Divisor) then
     Exit(Dividend);
 
-  const Remainder = FMod(Dividend, Divisor);
+  const Modulus = FMod(Dividend, Divisor);
 
-  Result := TJSMathFunctions.KeepZeroSign(Remainder, Dividend);
+  Result := TJSMathFunctions.KeepZeroSign(Modulus, Dividend);
 end;
 
 class function TJSOperators.ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue;
@@ -188,18 +196,36 @@ begin
   const LeftPrimitive = ToAddOperand(Left, Limits);
   const RightPrimitive = ToAddOperand(Right, Limits);
 
-  const IsStringConcat = LeftPrimitive.IsString or RightPrimitive.IsString;
+  const IsStringConcat = (LeftPrimitive.IsString or RightPrimitive.IsString);
   if not IsStringConcat then
   begin
-    Result := TJSValue.CreateNumber(LeftPrimitive.ToNumber + RightPrimitive.ToNumber);
+    const Sum = LeftPrimitive.ToNumber + RightPrimitive.ToNumber;
+
+    Result := TJSValue.CreateNumber(Sum);
     Exit;
   end;
 
   const LeftText = LeftPrimitive.ToLimitedString(Limits);
   const RightText = RightPrimitive.ToLimitedString(Limits);
-  Limits.EnsureStringLength(Int64(Length(LeftText)) + Length(RightText));
+  const CombinedLength = Int64(Length(LeftText)) + Length(RightText);
+  Limits.EnsureStringLength(CombinedLength);
 
-  Result := TJSValue.CreateString(LeftText + RightText);
+  const Combined = LeftText + RightText;
+
+  Result := TJSValue.CreateString(Combined);
+end;
+
+class function TJSOperators.RelationHolds(const BinaryOperator: TJSBinaryOperator; const Left: Double;
+                                          const Right: Double): Boolean;
+begin
+  case BinaryOperator of
+    TJSBinaryOperator.LessThan           : Result := (Left < Right);
+    TJSBinaryOperator.LessThanOrEqual    : Result := (Left <= Right);
+    TJSBinaryOperator.GreaterThan        : Result := (Left > Right);
+    TJSBinaryOperator.GreaterThanOrEqual : Result := (Left >= Right);
+  else
+    raise ENotSupportedException.CreateFmt(NOT_A_RELATIONAL_OPERATOR, [Ord(BinaryOperator)]);
+  end;
 end;
 
 class function TJSOperators.Compare(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
@@ -208,31 +234,21 @@ begin
   const LeftPrimitive = Left.ToPrimitive(False);
   const RightPrimitive = Right.ToPrimitive(False);
 
-  if LeftPrimitive.IsString and RightPrimitive.IsString then
+  const AreStrings = (LeftPrimitive.IsString and RightPrimitive.IsString);
+  if AreStrings then
   begin
-    const Order = CompareStr(LeftPrimitive.AsString, RightPrimitive.AsString);
+    const LeftText = LeftPrimitive.AsString;
+    const RightText = RightPrimitive.AsString;
+    const Order = CompareStr(LeftText, RightText);
 
-    case BinaryOperator of
-      TJSBinaryOperator.LessThan           : Exit(Order < 0);
-      TJSBinaryOperator.LessThanOrEqual    : Exit(Order <= 0);
-      TJSBinaryOperator.GreaterThan        : Exit(Order > 0);
-      TJSBinaryOperator.GreaterThanOrEqual : Exit(Order >= 0);
-    else
-      raise ENotSupportedException.CreateFmt(NOT_A_RELATIONAL_OPERATOR, [Ord(BinaryOperator)]);
-    end;
+    Result := RelationHolds(BinaryOperator, Order, 0);
+    Exit;
   end;
 
   const LeftNumber = LeftPrimitive.ToNumber;
   const RightNumber = RightPrimitive.ToNumber;
 
-  case BinaryOperator of
-    TJSBinaryOperator.LessThan           : Result := (LeftNumber < RightNumber);
-    TJSBinaryOperator.LessThanOrEqual    : Result := (LeftNumber <= RightNumber);
-    TJSBinaryOperator.GreaterThan        : Result := (LeftNumber > RightNumber);
-    TJSBinaryOperator.GreaterThanOrEqual : Result := (LeftNumber >= RightNumber);
-  else
-    raise ENotSupportedException.CreateFmt(NOT_A_RELATIONAL_OPERATOR, [Ord(BinaryOperator)]);
-  end;
+  Result := RelationHolds(BinaryOperator, LeftNumber, RightNumber);
 end;
 
 class function TJSOperators.Bitwise(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
@@ -252,7 +268,8 @@ end;
 
 class function TJSOperators.ShiftRightKeepingSign(const Value: Integer; const Count: Byte): Integer;
 begin
-  if Value >= 0 then
+  const IsNonNegative = (Value >= 0);
+  if IsNonNegative then
     Exit(Value shr Count);
 
   Result := not ((not Value) shr Count);
@@ -264,13 +281,18 @@ begin
   const LeftInteger = ToInt32(Left);
   const Count = Byte(ToUint32(Right) and SHIFT_COUNT_MASK);
 
+  const LeftBits = Cardinal(LeftInteger);
+
+  var Shifted: Double;
   case BinaryOperator of
-    TJSBinaryOperator.LeftShift          : Result := TJSValue.CreateNumber(Integer(Cardinal(LeftInteger) shl Count));
-    TJSBinaryOperator.RightShift         : Result := TJSValue.CreateNumber(ShiftRightKeepingSign(LeftInteger, Count));
-    TJSBinaryOperator.UnsignedRightShift : Result := TJSValue.CreateNumber(Cardinal(LeftInteger) shr Count);
+    TJSBinaryOperator.LeftShift          : Shifted := Integer(LeftBits shl Count);
+    TJSBinaryOperator.RightShift         : Shifted := ShiftRightKeepingSign(LeftInteger, Count);
+    TJSBinaryOperator.UnsignedRightShift : Shifted := LeftBits shr Count;
   else
     raise ENotSupportedException.CreateFmt(NOT_A_SHIFT_OPERATOR, [Ord(BinaryOperator)]);
   end;
+
+  Result := TJSValue.CreateNumber(Shifted);
 end;
 
 end.

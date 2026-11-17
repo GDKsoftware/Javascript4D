@@ -106,8 +106,6 @@ const
   INCOMPATIBLE_ITERATOR = 'Method %s Iterator.prototype.next called on an incompatible receiver';
   ADDER_NOT_CALLABLE = '''%s'' returned for property ''%s'' of object is not a function';
   CALLBACK_NOT_CALLABLE = '%s.prototype.forEach requires a callback function';
-  NOT_ITERABLE = 'The value is not iterable';
-  ENTRY_NOT_AN_OBJECT = 'Iterator value is not an entry object';
   INVALID_WEAK_KEY = 'Invalid value used as a weak collection key';
 
 constructor TJSCollectionBuiltins.Create(const Interpreter: TJSInterpreter);
@@ -324,7 +322,7 @@ begin
   end;
 
   if not Item.IsObject then
-    raise TJSErrorFactory.TypeError(ENTRY_NOT_AN_OBJECT);
+    raise TJSErrorFactory.EntryNotAnObject;
 
   const Entry = Item.ToObject;
   const Key = TJSArrayLike.GetElement(Entry, 0);
@@ -341,7 +339,7 @@ begin
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
   if not FInterpreter.TryOpenSequenceReader(Iterable, Reader, Closer) then
-    raise TJSErrorFactory.TypeError(NOT_ITERABLE);
+    raise TJSErrorFactory.NotIterable;
 
   var Item: TJSValue;
   while Reader(Item) do
@@ -552,7 +550,8 @@ end;
 
 procedure TJSCollectionBuiltins.Register;
 begin
-  const IteratorPrototype = FInterpreter.Iteration.ArrayIteratorPrototype.Prototype;
+  const ArrayIteratorPrototype = FInterpreter.Iteration.ArrayIteratorPrototype;
+  const IteratorPrototype = ArrayIteratorPrototype.Prototype;
   FMapIteratorPrototype := CreateIteratorPrototype(TJSCollectionKind.Map, IteratorPrototype);
   FSetIteratorPrototype := CreateIteratorPrototype(TJSCollectionKind.Set_, IteratorPrototype);
 

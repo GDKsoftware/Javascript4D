@@ -50,6 +50,7 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
   JS4D.Conversions,
   JS4D.PropertyNames,
   System.Math,
@@ -119,7 +120,7 @@ begin
   if Result.IsDetached then
     raise TJSErrorFactory.TypeError(SPECIES_DETACHED);
 
-  const IsSameBuffer = ((Result as IInterface) = (Source as IInterface));
+  const IsSameBuffer = TJSObjectOperations.IsSameObject(Result, Source);
   if IsSameBuffer then
     raise TJSErrorFactory.TypeError(SPECIES_SAME_BUFFER);
 

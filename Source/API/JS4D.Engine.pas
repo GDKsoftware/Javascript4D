@@ -1210,8 +1210,7 @@ begin
   for var MethodName in TJSBuiltins.ArrayMethodNames do
   begin
     const Method = CreateArrayPrototypeMethod(MethodName);
-    const MethodImplementation = Method as TJSFunctionImpl;
-    MethodImplementation.IntrinsicRole := ArrayIntrinsicRole(MethodName);
+    Method.IntrinsicRole := ArrayIntrinsicRole(MethodName);
 
     const MethodValue = TJSValue.CreateObject(Method);
     PrototypeObject.SetProperty(MethodName, MethodValue);
@@ -1460,7 +1459,7 @@ begin
   const FlagsArgument = TJSArrayLike.Argument(Args, 1);
 
   const IsPlainCall = not TJSPrototypeMethods.IsConstructCall(This, PrototypeObject);
-  const PatternIsRegExp = TJSConversions.IsRegExp(PatternArgument);
+  const PatternIsRegExp = TJSConversions.IsRegExpLike(PatternArgument);
   const HasFlags = not FlagsArgument.IsUndefined;
   const ReturnsPattern = (IsPlainCall and
                           PatternIsRegExp and

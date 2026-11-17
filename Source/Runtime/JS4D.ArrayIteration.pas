@@ -63,7 +63,6 @@ type
       EMPTY_RESULT_METHODS = [TIterationMethod.Filter, TIterationMethod.Flat, TIterationMethod.FlatMap];
       UNSUPPORTED_METHOD = 'Unsupported array iteration method: %s';
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
-      NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
       REDUCE_OF_EMPTY_ARRAY = 'Reduce of empty array with no initial value';
 
@@ -214,10 +213,7 @@ class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName:
                                       const BeforeElements: TProc): TJSValue;
 begin
   if not Assigned(Target) then
-  begin
-    const Message = Format(NOT_CALLED_ON_OBJECT, [MethodName]);
-    raise TJSErrorFactory.TypeError(Message);
-  end;
+    raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(MethodName);
 
   var Method: TIterationMethod;
   if not TryFindMethod(MethodName, Method) then

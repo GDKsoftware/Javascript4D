@@ -87,7 +87,10 @@ begin
   if not Handler.IsObject then
     raise TJSErrorFactory.TypeError(HANDLER_NOT_AN_OBJECT);
 
-  Result := TJSProxyFactory.CreateProxy(FRuntime, Target.ToObject, Handler.ToObject);
+  const TargetObject = Target.ToObject;
+  const HandlerObject = Handler.ToObject;
+
+  Result := TJSProxyFactory.CreateProxy(FRuntime, TargetObject, HandlerObject);
 end;
 
 function TJSProxyBuiltins.CreateRevoker(const Proxy: IJSObject): IJSFunction;
