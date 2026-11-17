@@ -2771,7 +2771,7 @@ begin
     Exit;
   end;
 
-  for var Name in TJSPatternNames.Of_(Handler.Pattern) do
+  for var Name in TJSPatternNames.NamesOf(Handler.Pattern) do
   begin
     FCurrentScope.DeclareLexical(Name, False);
   end;
@@ -3608,7 +3608,7 @@ begin
   if Element is TJSAssignmentPattern then
   begin
     Result.Target := TJSAssignmentPattern(Element).Target;
-    Result.Default := TJSAssignmentPattern(Element).Default;
+    Result.Default := TJSAssignmentPattern(Element).DefaultValue;
   end;
 
   if Mode <> TJSBindingMode.Assign then

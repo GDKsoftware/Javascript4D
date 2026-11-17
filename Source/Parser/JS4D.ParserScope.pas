@@ -15,63 +15,74 @@ type
     Block
   );
 
-  TJSParserScope = class
-  private
-    FKind: TJSParserScopeKind;
-    FParameters: TArray<string>;
-    FCatchParameter: string;
-    FCatchPatternNames: TArray<string>;
-    FLexicalNames: TDictionary<string, Boolean>;
-    FVarNames: TDictionary<string, Boolean>;
-    FScopeInfo: TJSScopeInfo;
+  TJSCatchBinding = record
+    Names: TArray<string>;
+    IsPattern: Boolean;
 
-    function ContainsName(const Names: TArray<string>; const Name: string): Boolean;
-    function IsParameter(const Name: string): Boolean;
-    function IsCatchPatternName(const Name: string): Boolean;
-
-  public
-    constructor Create(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
-    destructor Destroy; override;
-
-    function DeclaresLexical(const Name: string): Boolean;
-    function ConflictsWithVar(const Name: string): Boolean;
-    function BlocksFunctionHoisting(const Name: string): Boolean;
-    function TryAddLexical(const Name: string; const IsFunction: Boolean; const AllowFunctionDuplicate: Boolean): Boolean;
-    procedure AddVar(const Name: string);
-    function HasVar(const Name: string): Boolean;
-    procedure AddDeclaration(const Declaration: TJSStatement);
-    function TakeScopeInfo: TJSScopeInfo;
-
-    property Kind: TJSParserScopeKind read FKind;
-    property CatchParameter: string read FCatchParameter write FCatchParameter;
-    property CatchPatternNames: TArray<string> read FCatchPatternNames write FCatchPatternNames;
+    class function None: TJSCatchBinding; static;
+    class function Simple(const Name: string): TJSCatchBinding; static;
+    class function Pattern(const Names: TArray<string>): TJSCatchBinding; static;
   end;
 
   TJSScopeTracker = class
   private
     type
+      TScope = class
+      private
+        FKind: TJSParserScopeKind;
+        FParameters: TArray<string>;
+        FCatchBinding: TJSCatchBinding;
+        FLexicalNames: TDictionary<string, Boolean>;
+        FVarNames: THashSet<string>;
+        FScopeInfo: TJSScopeInfo;
+
+        function ContainsName(const Names: TArray<string>; const Name: string): Boolean;
+        function IsParameter(const Name: string): Boolean;
+
+      public
+        constructor Create(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                           const CatchBinding: TJSCatchBinding);
+        destructor Destroy; override;
+
+        function DeclaresLexical(const Name: string): Boolean;
+        function ConflictsWithVar(const Name: string): Boolean;
+        function BlocksFunctionHoisting(const Name: string): Boolean;
+        function TryAddLexical(const Name: string; const IsFunction: Boolean;
+                               const AllowFunctionDuplicate: Boolean): Boolean;
+        procedure AddVar(const Name: string);
+        procedure AddDeclaration(const Declaration: TJSStatement);
+        function TakeScopeInfo: TJSScopeInfo;
+
+        property Kind: TJSParserScopeKind read FKind;
+      end;
+
       TFunctionCandidate = record
         Declaration: TJSFunctionDeclaration;
         Depth: Integer;
+
+        class function Create(const Declaration: TJSFunctionDeclaration;
+                              const Depth: Integer): TFunctionCandidate; static;
       end;
 
   private
-    FScopes: TObjectList<TJSParserScope>;
+    FScopes: TObjectList<TScope>;
     FCandidates: TList<TFunctionCandidate>;
 
-    procedure ResolveCandidates(const Scope: TJSParserScope; const Depth: Integer);
+    procedure ResolveCandidates(const Scope: TScope; const Depth: Integer);
+    function FunctionScopeIndex: Integer;
 
   public
     constructor Create;
     destructor Destroy; override;
 
-    procedure Enter(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
-    procedure SetCatchParameter(const Name: string);
-    procedure SetCatchPatternNames(const Names: TArray<string>);
+    procedure Enter(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                    const CatchBinding: TJSCatchBinding);
     function Leave: TJSScopeInfo;
+    procedure Discard;
     function IsFunctionLevel: Boolean;
 
-    function TryDeclareLexical(const Name: string; const IsFunction: Boolean; const AllowFunctionDuplicate: Boolean): Boolean;
+    function TryDeclareLexical(const Name: string; const IsFunction: Boolean;
+                               const AllowFunctionDuplicate: Boolean): Boolean;
     function TryDeclareVar(const Name: string): Boolean;
     procedure AddDeclaration(const Declaration: TJSStatement);
     procedure AddFunctionCandidate(const Declaration: TJSFunctionDeclaration);
@@ -79,16 +90,40 @@ type
 
 implementation
 
-{ TJSParserScope }
+{ TJSCatchBinding }
 
-constructor TJSParserScope.Create(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
+class function TJSCatchBinding.None: TJSCatchBinding;
+begin
+  Result.Names := nil;
+  Result.IsPattern := False;
+end;
+
+class function TJSCatchBinding.Simple(const Name: string): TJSCatchBinding;
+begin
+  Result.Names := [Name];
+  Result.IsPattern := False;
+end;
+
+class function TJSCatchBinding.Pattern(const Names: TArray<string>): TJSCatchBinding;
+begin
+  Result.Names := Names;
+  Result.IsPattern := True;
+end;
+
+{ TJSScopeTracker.TScope }
+
+constructor TJSScopeTracker.TScope.Create(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                                          const CatchBinding: TJSCatchBinding);
 begin
   inherited Create;
   FKind := Kind;
   FParameters := Parameters;
+  FCatchBinding := CatchBinding;
+  FLexicalNames := TDictionary<string, Boolean>.Create;
+  FVarNames := THashSet<string>.Create;
 end;
 
-destructor TJSParserScope.Destroy;
+destructor TJSScopeTracker.TScope.Destroy;
 begin
   FScopeInfo.Free;
   FVarNames.Free;
@@ -96,7 +131,7 @@ begin
   inherited;
 end;
 
-function TJSParserScope.ContainsName(const Names: TArray<string>; const Name: string): Boolean;
+function TJSScopeTracker.TScope.ContainsName(const Names: TArray<string>; const Name: string): Boolean;
 begin
   for var Candidate in Names do
   begin
@@ -107,67 +142,60 @@ begin
   Result := False;
 end;
 
-function TJSParserScope.IsParameter(const Name: string): Boolean;
+function TJSScopeTracker.TScope.IsParameter(const Name: string): Boolean;
 begin
   Result := ContainsName(FParameters, Name);
 end;
 
-function TJSParserScope.IsCatchPatternName(const Name: string): Boolean;
+function TJSScopeTracker.TScope.DeclaresLexical(const Name: string): Boolean;
 begin
-  Result := ContainsName(FCatchPatternNames, Name);
+  Result := FLexicalNames.ContainsKey(Name);
 end;
 
-function TJSParserScope.DeclaresLexical(const Name: string): Boolean;
+function TJSScopeTracker.TScope.ConflictsWithVar(const Name: string): Boolean;
 begin
-  Result := Assigned(FLexicalNames) and FLexicalNames.ContainsKey(Name);
+  const IsPatternName = (FCatchBinding.IsPattern and ContainsName(FCatchBinding.Names, Name));
+
+  Result := (DeclaresLexical(Name) or IsPatternName);
 end;
 
-function TJSParserScope.ConflictsWithVar(const Name: string): Boolean;
+function TJSScopeTracker.TScope.BlocksFunctionHoisting(const Name: string): Boolean;
 begin
-  Result := DeclaresLexical(Name) or IsCatchPatternName(Name);
+  const IsFunctionParameter = ((FKind = TJSParserScopeKind.Function_) and IsParameter(Name));
+
+  Result := (DeclaresLexical(Name) or IsFunctionParameter);
 end;
 
-function TJSParserScope.BlocksFunctionHoisting(const Name: string): Boolean;
+function TJSScopeTracker.TScope.TryAddLexical(const Name: string; const IsFunction: Boolean;
+                                              const AllowFunctionDuplicate: Boolean): Boolean;
 begin
-  Result := DeclaresLexical(Name) or ((FKind = TJSParserScopeKind.Function_) and IsParameter(Name));
-end;
-
-function TJSParserScope.TryAddLexical(const Name: string; const IsFunction: Boolean;
-                                      const AllowFunctionDuplicate: Boolean): Boolean;
-begin
-  var ExistingIsFunction: Boolean;
-  const IsDeclared = Assigned(FLexicalNames) and FLexicalNames.TryGetValue(Name, ExistingIsFunction);
+  var ExistingIsFunction := False;
+  const IsDeclared = FLexicalNames.TryGetValue(Name, ExistingIsFunction);
   if IsDeclared then
-    Exit(ExistingIsFunction and IsFunction and AllowFunctionDuplicate);
+  begin
+    Result := (ExistingIsFunction and IsFunction and AllowFunctionDuplicate);
+    Exit;
+  end;
 
-  const ClashesWithVar = HasVar(Name);
-  const ClashesWithParameter = (FKind = TJSParserScopeKind.Function_) and IsParameter(Name);
-  const ClashesWithCatchParameter = ((not FCatchParameter.IsEmpty) and (Name = FCatchParameter)) or
-                                    IsCatchPatternName(Name);
-  if ClashesWithVar or ClashesWithParameter or ClashesWithCatchParameter then
-    Exit(False);
-
-  if not Assigned(FLexicalNames) then
-    FLexicalNames := TDictionary<string, Boolean>.Create;
+  const ClashesWithVar = FVarNames.Contains(Name);
+  const ClashesWithParameter = ((FKind = TJSParserScopeKind.Function_) and IsParameter(Name));
+  const ClashesWithCatchBinding = ContainsName(FCatchBinding.Names, Name);
+  if ClashesWithVar or ClashesWithParameter or ClashesWithCatchBinding then
+  begin
+    Result := False;
+    Exit;
+  end;
 
   FLexicalNames.Add(Name, IsFunction);
   Result := True;
 end;
 
-procedure TJSParserScope.AddVar(const Name: string);
+procedure TJSScopeTracker.TScope.AddVar(const Name: string);
 begin
-  if not Assigned(FVarNames) then
-    FVarNames := TDictionary<string, Boolean>.Create;
-
-  FVarNames.AddOrSetValue(Name, True);
+  FVarNames.Add(Name);
 end;
 
-function TJSParserScope.HasVar(const Name: string): Boolean;
-begin
-  Result := Assigned(FVarNames) and FVarNames.ContainsKey(Name);
-end;
-
-procedure TJSParserScope.AddDeclaration(const Declaration: TJSStatement);
+procedure TJSScopeTracker.TScope.AddDeclaration(const Declaration: TJSStatement);
 begin
   if not Assigned(FScopeInfo) then
     FScopeInfo := TJSScopeInfo.Create;
@@ -175,10 +203,19 @@ begin
   FScopeInfo.Declarations.Add(Declaration);
 end;
 
-function TJSParserScope.TakeScopeInfo: TJSScopeInfo;
+function TJSScopeTracker.TScope.TakeScopeInfo: TJSScopeInfo;
 begin
   Result := FScopeInfo;
   FScopeInfo := nil;
+end;
+
+{ TJSScopeTracker.TFunctionCandidate }
+
+class function TJSScopeTracker.TFunctionCandidate.Create(const Declaration: TJSFunctionDeclaration;
+                                                         const Depth: Integer): TFunctionCandidate;
+begin
+  Result.Declaration := Declaration;
+  Result.Depth := Depth;
 end;
 
 { TJSScopeTracker }
@@ -186,7 +223,7 @@ end;
 constructor TJSScopeTracker.Create;
 begin
   inherited Create;
-  FScopes := TObjectList<TJSParserScope>.Create(True);
+  FScopes := TObjectList<TScope>.Create(True);
   FCandidates := TList<TFunctionCandidate>.Create;
 end;
 
@@ -197,19 +234,10 @@ begin
   inherited;
 end;
 
-procedure TJSScopeTracker.Enter(const Kind: TJSParserScopeKind; const Parameters: TArray<string>);
+procedure TJSScopeTracker.Enter(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
+                                const CatchBinding: TJSCatchBinding);
 begin
-  FScopes.Add(TJSParserScope.Create(Kind, Parameters));
-end;
-
-procedure TJSScopeTracker.SetCatchParameter(const Name: string);
-begin
-  FScopes.Last.CatchParameter := Name;
-end;
-
-procedure TJSScopeTracker.SetCatchPatternNames(const Names: TArray<string>);
-begin
-  FScopes.Last.CatchPatternNames := Names;
+  FScopes.Add(TScope.Create(Kind, Parameters, CatchBinding));
 end;
 
 function TJSScopeTracker.Leave: TJSScopeInfo;
@@ -222,7 +250,13 @@ begin
   FScopes.Delete(Depth);
 end;
 
-procedure TJSScopeTracker.ResolveCandidates(const Scope: TJSParserScope; const Depth: Integer);
+procedure TJSScopeTracker.Discard;
+begin
+  const AbandonedScopeInfo = Leave;
+  AbandonedScopeInfo.Free;
+end;
+
+procedure TJSScopeTracker.ResolveCandidates(const Scope: TScope; const Depth: Integer);
 begin
   const IsFunctionScope = (Scope.Kind = TJSParserScopeKind.Function_);
 
@@ -254,18 +288,33 @@ begin
   Result := FScopes.Last.TryAddLexical(Name, IsFunction, AllowFunctionDuplicate);
 end;
 
+function TJSScopeTracker.FunctionScopeIndex: Integer;
+begin
+  Result := FScopes.Count - 1;
+
+  while (Result > 0) and (FScopes[Result].Kind <> TJSParserScopeKind.Function_) do
+  begin
+    Dec(Result);
+  end;
+end;
+
 function TJSScopeTracker.TryDeclareVar(const Name: string): Boolean;
 begin
-  for var Index := FScopes.Count - 1 downto 0 do
+  const OutermostIndex = FunctionScopeIndex;
+  const InnermostIndex = FScopes.Count - 1;
+
+  for var Index := InnermostIndex downto OutermostIndex do
   begin
-    const Scope = FScopes[Index];
-    if Scope.ConflictsWithVar(Name) then
-      Exit(False);
+    if FScopes[Index].ConflictsWithVar(Name) then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
 
-    Scope.AddVar(Name);
-
-    if Scope.Kind = TJSParserScopeKind.Function_ then
-      Break;
+  for var Index := InnermostIndex downto OutermostIndex do
+  begin
+    FScopes[Index].AddVar(Name);
   end;
 
   Result := True;
@@ -278,9 +327,7 @@ end;
 
 procedure TJSScopeTracker.AddFunctionCandidate(const Declaration: TJSFunctionDeclaration);
 begin
-  var Candidate: TFunctionCandidate;
-  Candidate.Declaration := Declaration;
-  Candidate.Depth := FScopes.Count - 1;
+  const Candidate = TFunctionCandidate.Create(Declaration, FScopes.Count - 1);
   FCandidates.Add(Candidate);
 end;
 

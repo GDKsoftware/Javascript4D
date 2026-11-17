@@ -122,6 +122,15 @@
         <DCCReference Include="Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="Source\Parser\JS4D.ParserScope.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserConstants.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserTypes.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserBase.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserPatterns.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserExpressions.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserFunctions.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserRules.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.ParserLookahead.pas"/>
+        <DCCReference Include="Source\Parser\JS4D.PatternConverter.pas"/>
         <DCCReference Include="Source\Core\JS4D.PropertyKey.pas"/>
         <DCCReference Include="Source\Runtime\JS4D.BinaryData.pas"/>
         <DCCReference Include="Source\Runtime\JS4D.ControlFlow.pas"/>

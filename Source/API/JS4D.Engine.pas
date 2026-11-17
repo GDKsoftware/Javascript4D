@@ -208,6 +208,7 @@ uses
   System.Math,
   System.Character,
   JS4D.Parser,
+  JS4D.SuspensionAnalysis,
   JS4D.IntrinsicCache,
   JS4D.Operators,
   JS4D.Builtins,
@@ -407,6 +408,11 @@ begin
   try
     Result := Parser.Parse(IsStrictContext, Context);
     FPrograms.Add(Result);
+
+    for var Body in Parser.SuspendableBodies do
+    begin
+      TJSSuspensionAnalysis.Mark(Body);
+    end;
   finally
     Parser.Free;
   end;

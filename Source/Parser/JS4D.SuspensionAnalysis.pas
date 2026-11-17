@@ -385,7 +385,7 @@ end;
 class function TJSSuspensionAnalysis.MarkAssignmentPattern(const Node: TJSAssignmentPattern): Boolean;
 begin
   const TargetHoldsSuspension = MarkExpression(Node.Target);
-  const DefaultHoldsSuspension = MarkExpression(Node.Default);
+  const DefaultHoldsSuspension = MarkExpression(Node.DefaultValue);
   Result := (TargetHoldsSuspension or DefaultHoldsSuspension);
 end;
 
@@ -598,7 +598,7 @@ end;
 class procedure TJSSuspensionAnalysis.RememberAssignmentPattern(const Node: TJSAssignmentPattern);
 begin
   Remember(Node.Target);
-  Remember(Node.Default);
+  Remember(Node.DefaultValue);
 end;
 
 class procedure TJSSuspensionAnalysis.RememberUnary(const Node: TJSUnaryExpression);

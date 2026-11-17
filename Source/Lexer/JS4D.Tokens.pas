@@ -10,6 +10,7 @@ uses
 
 const
   YIELD_NAME = 'yield';
+  TRUE_NAME = 'true';
 
 type
   TJSTokenType = (
@@ -229,7 +230,7 @@ const
     (Text: 'class'; TokenType: TJSTokenType.KeywordClass),
     (Text: 'extends'; TokenType: TJSTokenType.KeywordExtends),
     (Text: 'super'; TokenType: TJSTokenType.KeywordSuper),
-    (Text: 'true'; TokenType: TJSTokenType.BooleanLiteral),
+    (Text: TRUE_NAME; TokenType: TJSTokenType.BooleanLiteral),
     (Text: 'false'; TokenType: TJSTokenType.BooleanLiteral),
     (Text: 'null'; TokenType: TJSTokenType.NullLiteral)
   );

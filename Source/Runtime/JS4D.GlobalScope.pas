@@ -23,7 +23,7 @@ type
 
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
     procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
-    function CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+    function CacheOwnSlot(const Cache: PJSBindingCache; const Name: string): PJSPropertyDescriptor;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -39,7 +39,7 @@ type
     function HasVariable(const Name: string): Boolean;
     function GetVariable(const Name: string): TJSValue;
     function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
-    function FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+    function FindOwnSlot(const Cache: PJSBindingCache; const Name: string): PJSPropertyDescriptor;
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
@@ -162,7 +162,7 @@ begin
     Value := Descriptor.Value;
 end;
 
-function TJSGlobalScope.FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+function TJSGlobalScope.FindOwnSlot(const Cache: PJSBindingCache; const Name: string): PJSPropertyDescriptor;
 begin
   const IsCacheCurrent = ((Cache.Owner = FGlobalStorage) and
                           (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion));
@@ -172,7 +172,7 @@ begin
   Result := CacheOwnSlot(Cache, Name);
 end;
 
-function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+function TJSGlobalScope.CacheOwnSlot(const Cache: PJSBindingCache; const Name: string): PJSPropertyDescriptor;
 begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
     Exit(nil);
