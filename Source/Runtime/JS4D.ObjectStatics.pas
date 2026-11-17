@@ -92,6 +92,7 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.Errors,
   JS4D.PropertyNames,
   JS4D.ObjectOperations,
@@ -155,7 +156,7 @@ begin
   DefineStatic(Name,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSBuiltinSupport.ArgumentAt(Args, 0);
+      Result := TJSArrayLike.Argument(Args, 0);
 
       const IsObjectArgument = Result.IsObject;
       if IsObjectArgument then
@@ -169,7 +170,7 @@ begin
   DefineStatic(Name,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
 
       var Verdict := ResultForPrimitive;
       if Argument.IsObject then
@@ -200,14 +201,14 @@ end;
 
 function TJSObjectStatics.CoerceFirstArgument(const Args: TArray<TJSValue>): IJSObject;
 begin
-  const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const Argument = TJSArrayLike.Argument(Args, 0);
 
   Result := FSupport.ToObject(Argument);
 end;
 
 function TJSObjectStatics.RequireObjectArgument(const Args: TArray<TJSValue>): IJSObject;
 begin
-  const Target = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const Target = TJSArrayLike.Argument(Args, 0);
   if not Target.IsObject then
     raise TJSErrorFactory.TypeError(METHOD_CALLED_ON_NON_OBJECT);
 
@@ -313,7 +314,7 @@ end;
 
 function TJSObjectStatics.CreateObject(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const PrototypeArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const PrototypeArgument = TJSArrayLike.Argument(Args, 0);
   const IsValidPrototype = (PrototypeArgument.IsObject or PrototypeArgument.IsNull);
   if not IsValidPrototype then
     raise TJSErrorFactory.TypeError(PROTOTYPE_MUST_BE_OBJECT_OR_NULL);
@@ -322,7 +323,7 @@ begin
   if PrototypeArgument.IsObject then
     Created.Prototype := PrototypeArgument.ToObject;
 
-  const Properties = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const Properties = TJSArrayLike.Argument(Args, 1);
   if not Properties.IsUndefined then
     TJSPropertyDescriptors.DefineAll(Created, Properties, FInterpreter.Limits);
 
@@ -332,7 +333,7 @@ end;
 function TJSObjectStatics.DefineProperties(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Target = RequireObjectArgument(Args);
-  const Properties = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const Properties = TJSArrayLike.Argument(Args, 1);
 
   TJSPropertyDescriptors.DefineAll(Target, Properties, FInterpreter.Limits);
 
@@ -343,7 +344,7 @@ function TJSObjectStatics.DefineProperty(const This: IJSObject; const Args: TArr
 begin
   const Target = RequireObjectArgument(Args);
   const Name = KeyArgumentAt(Args, 1);
-  const Description = TJSBuiltinSupport.ArgumentAt(Args, 2);
+  const Description = TJSArrayLike.Argument(Args, 2);
 
   const Definition = TJSPropertyDescriptors.ToDefinition(Description);
   TJSPropertyDescriptors.Define(Target, Name, Definition, FInterpreter.Limits);
@@ -425,8 +426,8 @@ end;
 
 function TJSObjectStatics.SameValue(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Left = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const Right = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const Left = TJSArrayLike.Argument(Args, 0);
+  const Right = TJSArrayLike.Argument(Args, 1);
 
   const AreSame = Left.SameValue(Right);
 

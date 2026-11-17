@@ -23,7 +23,6 @@ type
       PARSE_FLOAT_NAME = 'parseFloat';
       PARSE_INT_NAME = 'parseInt';
       EPSILON_VALUE = 2.220446049250313e-16;
-      MAX_SAFE_INTEGER_VALUE = 9007199254740991.0;
       MAX_DOUBLE_NAME = 'MAX_VALUE';
       MIN_DOUBLE_NAME = 'MIN_VALUE';
       MIN_DOUBLE_VALUE = 5e-324;
@@ -80,6 +79,8 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
+  JS4D.ArrayLike,
   System.Math,
   System.Diagnostics,
   JS4D.BuiltinSupport,
@@ -92,16 +93,16 @@ begin
   if Value.IsNumber then
     Result := Value.AsNumber
   else
-    Result := TJSOperators.ToNumber(Value);
+    Result := TJSConversions.ToNumber(Value);
 end;
 
 class function TJSNumericBuiltins.ArgumentAsNumber(const Args: TArray<TJSValue>; const Index: Integer): Double;
 begin
-  const HasArgument = (Index < Length(Args));
-  if HasArgument then
-    Result := NumberOf(Args[Index])
+  const Argument = TJSArrayLike.Argument(Args, Index);
+  if Argument.IsUndefined then
+    Result := NaN
   else
-    Result := NaN;
+    Result := NumberOf(Argument);
 end;
 
 class procedure TJSNumericBuiltins.DefineMethod(const Target: IJSObject; const Name: string;
@@ -273,7 +274,7 @@ begin
   DefineMethod(NumberObject, Name,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
       const Matches = (Argument.IsNumber and Predicate(Argument.ToNumber));
 
       Result := TJSValue.CreateBoolean(Matches);
@@ -289,7 +290,7 @@ begin
       SetLength(Numbers, Length(Args));
       for var Index := 0 to High(Args) do
       begin
-        Numbers[Index] := TJSOperators.ToNumber(Args[Index]);
+        Numbers[Index] := TJSConversions.ToNumber(Args[Index]);
       end;
 
       const Magnitude = TJSMathFunctions.Hypot(Numbers);
@@ -303,8 +304,8 @@ begin
   DefineMethod(MathObject, 'imul',
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const LeftArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-      const RightArgument = TJSBuiltinSupport.ArgumentAt(Args, 1);
+      const LeftArgument = TJSArrayLike.Argument(Args, 0);
+      const RightArgument = TJSArrayLike.Argument(Args, 1);
       const Left = TJSOperators.ToInt32(LeftArgument);
       const Right = TJSOperators.ToInt32(RightArgument);
       const Product = TJSMathFunctions.Imul(Left, Right);
@@ -318,7 +319,7 @@ begin
   DefineMethod(MathObject, 'clz32',
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
       const Value = TJSOperators.ToUint32(Argument);
       const LeadingZeros = TJSMathFunctions.Clz32(Value);
 
@@ -358,8 +359,8 @@ class procedure TJSNumericBuiltins.RegisterNumber(const NumberObject: IJSObject;
 begin
   RegisterNumberConstants(NumberObject);
   DefineConstant(NumberObject, EPSILON_NAME, EPSILON_VALUE);
-  DefineConstant(NumberObject, MAX_SAFE_INTEGER_NAME, MAX_SAFE_INTEGER_VALUE);
-  DefineConstant(NumberObject, MIN_SAFE_INTEGER_NAME, -MAX_SAFE_INTEGER_VALUE);
+  DefineConstant(NumberObject, MAX_SAFE_INTEGER_NAME, MAX_SAFE_INTEGER);
+  DefineConstant(NumberObject, MIN_SAFE_INTEGER_NAME, -MAX_SAFE_INTEGER);
 
   DefineNumberPredicate(NumberObject, 'isFinite', TJSMathFunctions.IsFiniteNumber);
   DefineNumberPredicate(NumberObject, 'isNaN',

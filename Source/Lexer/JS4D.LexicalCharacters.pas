@@ -50,7 +50,6 @@ type
     class function ContainsCodePoint(const CodePoints: array of Integer; const CodePoint: Integer): Boolean; static;
     class function IsOtherIdentifierStart(const Ch: Char): Boolean; static;
     class function IsOtherIdentifierPart(const Ch: Char): Boolean; static;
-    class function IsSurrogatePairAt(const Text: string; const Index: Integer): Boolean; static;
 
   public
     class function IsLineTerminator(const Ch: Char): Boolean; static;
@@ -64,6 +63,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Utf16;
 
 { TJSLexicalCharacters }
 
@@ -116,16 +118,9 @@ begin
   Result := (IsIdentifierStart(Ch) or IsCombiningOrConnector or IsJoiner or IsOtherIdentifierPart(Ch));
 end;
 
-class function TJSLexicalCharacters.IsSurrogatePairAt(const Text: string; const Index: Integer): Boolean;
-begin
-  const HasNext = (Index < Length(Text));
-
-  Result := (HasNext and Text[Index].IsHighSurrogate and Text[Index + 1].IsLowSurrogate);
-end;
-
 class function TJSLexicalCharacters.CodePointLengthAt(const Text: string; const Index: Integer): Integer;
 begin
-  if IsSurrogatePairAt(Text, Index) then
+  if TJSUtf16.IsPairAt(Text, Index) then
     Result := 2
   else
     Result := 1;
@@ -138,7 +133,7 @@ begin
   if not IsInText then
     Exit(False);
 
-  if not IsSurrogatePairAt(Text, Index) then
+  if not TJSUtf16.IsPairAt(Text, Index) then
   begin
     const Ch = Text[Index];
     Exit(IsIdentifierStart(Ch) or ((not IsFirstChar) and IsIdentifierPart(Ch)));

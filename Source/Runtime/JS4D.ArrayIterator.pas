@@ -91,7 +91,7 @@ end;
 
 function TJSArrayIterator.HoldsNested: Boolean;
 begin
-  Result := Assigned(FTarget) or inherited HoldsNested;
+  Result := (Assigned(FTarget) or inherited HoldsNested);
 end;
 
 procedure TJSArrayIterator.DetachNested(const Pending: TList<IJSObject>);
@@ -117,6 +117,19 @@ begin
   ReportReference(Visit, FTypedArray);
   ReportReference(Visit, FArrayPrototype);
   ReportReference(Visit, FObjectPrototype);
+end;
+
+function TJSArrayIterator.NextResult: TJSValue;
+begin
+  if TryPrepareNext then
+  begin
+    const Value = Next;
+    Result := TJSIteratorResults.CreateResult(FObjectPrototype, Value, False);
+    Exit;
+  end;
+
+  const Done = TJSValue.CreateUndefined;
+  Result := TJSIteratorResults.CreateResult(FObjectPrototype, Done, True);
 end;
 
 function TJSArrayIterator.TryPrepareNext: Boolean;
@@ -153,18 +166,6 @@ begin
   else
     raise ENotSupportedException.CreateFmt(UNSUPPORTED_ARRAY_ITERATOR_KIND, [Ord(FKind)]);
   end;
-end;
-
-function TJSArrayIterator.NextResult: TJSValue;
-begin
-  if TryPrepareNext then
-  begin
-    const Value = Next;
-    Result := TJSIteratorResults.CreateResult(FObjectPrototype, Value, False);
-    Exit;
-  end;
-
-  Result := TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True);
 end;
 
 function TJSArrayIterator.ReadElement(const Index: Int64): TJSValue;

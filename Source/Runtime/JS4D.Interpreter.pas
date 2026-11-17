@@ -566,6 +566,7 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
   JS4D.GarbageMarker,
   JS4D.PropertyNames,
   JS4D.CallFrames,
@@ -574,7 +575,6 @@ uses
 
 const
   ITERATIVE_CHAIN_LENGTH = 64;
-  ARRAY_TO_STRING_METHOD = 'toString';
   UNDEFINED_TYPE = 'undefined';
   SYMBOL_TYPE = 'symbol';
   OBJECT_TYPE = 'object';
@@ -582,15 +582,8 @@ const
   NUMBER_TYPE = 'number';
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
-  LENGTH_PROPERTY = 'length';
   BOUND_NAME_PREFIX = 'bound ';
   SYMBOL_FUNCTION_NAME = '[%s]';
-  METHOD_PUSH = 'push';
-  METHOD_POP = 'pop';
-  METHOD_FILTER = 'filter';
-  METHOD_CONCAT = 'concat';
-  METHOD_FLAT = 'flat';
-  METHOD_FLAT_MAP = 'flatMap';
   ARGUMENTS_NAME = 'arguments';
   READ_ONLY_LENGTH = 'Cannot assign to read only property ''length''';
   EVAL_NAME = 'eval';
@@ -603,9 +596,6 @@ const
   CALLEE_PROPERTY = 'callee';
   EMPTY_NAME = '';
   INVALID_FUNCTION_SOURCE = 'Invalid function parameters or body';
-  METHOD_CALL = 'call';
-  METHOD_APPLY = 'apply';
-  METHOD_BIND = 'bind';
   ARGUMENT_LIST_NOT_OBJECT = 'Function.prototype.apply requires an array-like object as argument list';
 
   CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s'' of object';
@@ -3229,12 +3219,12 @@ begin
   case Node.Operator of
     TJSUnaryOperator.Minus:
       begin
-        const Number = TJSOperators.ToNumber(Arg);
+        const Number = TJSConversions.ToNumber(Arg);
         Result := TJSValue.CreateNumber(-Number);
       end;
     TJSUnaryOperator.Plus:
       begin
-        const Number = TJSOperators.ToNumber(Arg);
+        const Number = TJSConversions.ToNumber(Arg);
         Result := TJSValue.CreateNumber(Number);
       end;
     TJSUnaryOperator.LogicalNot:
@@ -4244,7 +4234,7 @@ end;
 
 function TJSInterpreter.UpdateGlobalVariable(const Node: TJSUpdateExpression; const Identifier: TJSIdentifier): TJSValue;
 begin
-  const OldNumber = TJSOperators.ToNumber(GlobalDataSlot(Identifier).Value);
+  const OldNumber = TJSConversions.ToNumber(GlobalDataSlot(Identifier).Value);
 
   var NewNumber := OldNumber - 1;
   if Node.Operator = TJSUpdateOperator.Increment then
@@ -4269,7 +4259,7 @@ begin
 
   const Binding = FCurrentScope.Resolve(Identifier.Name);
   const OldValue = GetBindingValue(Binding, Identifier.Name);
-  const OldNumber = TJSOperators.ToNumber(OldValue);
+  const OldNumber = TJSConversions.ToNumber(OldValue);
 
   var NewNumber := OldNumber - 1;
   if Node.Operator = TJSUpdateOperator.Increment then
@@ -4289,7 +4279,7 @@ begin
   var Reference := ResolveMemberReference(TJSMemberExpression(Node.Argument));
   Reference.Prepare(Self);
   const OldValue = GetReferenceValue(Reference);
-  const OldNumber = TJSOperators.ToNumber(OldValue);
+  const OldNumber = TJSConversions.ToNumber(OldValue);
 
   var NewNumber := OldNumber - 1;
   if Node.Operator = TJSUpdateOperator.Increment then
@@ -5570,7 +5560,7 @@ begin
   Result := nil;
 
   if CreatesSpeciesResult(MethodName) then
-    Result := TJSArrayLike.SpeciesConstructor(Target, FArrayConstructor, FArraySpeciesGetter);
+    Result := TJSArrayLike.CustomSpeciesConstructor(Target, FArrayConstructor, FArraySpeciesGetter);
 end;
 
 function TJSInterpreter.CopyToSpeciesResult(const Species: IJSFunction; const Plain: TJSValue;
@@ -5653,7 +5643,7 @@ end;
 
 function TJSInterpreter.CallsReplacedJoin(const Arr: IJSArray; const MethodName: string): Boolean;
 begin
-  Result := (MethodName = ARRAY_TO_STRING_METHOD) and
+  Result := (MethodName = TO_STRING_METHOD) and
             (not TJSValue.CreateObject(Arr).HasUntouchedArrayConversion(TJSPrimitiveHint.String_));
 end;
 

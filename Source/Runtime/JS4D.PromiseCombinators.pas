@@ -29,7 +29,6 @@ type
   private
     const
       STATUS_PROPERTY = 'status';
-      VALUE_PROPERTY = 'value';
       REASON_PROPERTY = 'reason';
       FULFILLED_STATUS = 'fulfilled';
       REJECTED_STATUS = 'rejected';
@@ -128,7 +127,7 @@ begin
   const ConstructorObject = ConstructorValue.ToObject;
   const Candidate = ConstructorObject.GetProperty(RESOLVE_PROPERTY);
 
-  const IsCallable = TJSBuiltinSupport.TryGetFunction(Candidate, Result);
+  const IsCallable = Candidate.TryGetFunction(Result);
   if not IsCallable then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 end;

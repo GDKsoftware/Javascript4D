@@ -11,116 +11,305 @@ uses
   JS4D.Interpreter;
 
 type
-  TJSArityTable = record
-    Owner: string;
-    Entries: string;
-  end;
-
   TJSBuiltinAttributes = class
   private
+    type
+      TBuiltinOwner = (
+        Global, ObjectConstructor, ObjectPrototype,
+        FunctionConstructor, FunctionPrototype, ArrayConstructor,
+        ArrayPrototype, StringConstructor, StringPrototype,
+        NumberConstructor, NumberPrototype, BooleanConstructor,
+        BooleanPrototype, MathObject, JsonObject,
+        DateConstructor, DatePrototype, RegExpConstructor,
+        RegExpPrototype, ErrorConstructor, ErrorPrototype,
+        EvalErrorConstructor, EvalErrorPrototype, RangeErrorConstructor,
+        RangeErrorPrototype, ReferenceErrorConstructor, ReferenceErrorPrototype,
+        SyntaxErrorConstructor, SyntaxErrorPrototype, TypeErrorConstructor,
+        TypeErrorPrototype, URIErrorConstructor, URIErrorPrototype);
+
+      TMemberArity = record
+        Owner: TBuiltinOwner;
+        Name: string;
+        Arity: Integer;
+      end;
+
     const
       PATH_SEPARATOR = '.';
-      ENTRY_SEPARATOR = ' ';
-      ARITY_SEPARATOR = ':';
-      GLOBAL_OWNER = '';
-      PROTOTYPE_PROPERTY = 'prototype';
-      ARITY_TABLES: array[0..32] of TJSArityTable = (
-        (Owner: GLOBAL_OWNER;
-         Entries: 'Object:1 Function:1 Array:1 String:1 Number:1 Boolean:1 Date:7 RegExp:2 Error:1 ' +
-                  'EvalError:1 RangeError:1 ReferenceError:1 SyntaxError:1 TypeError:1 URIError:1 ' +
-                  'eval:1 parseInt:2 parseFloat:1 isNaN:1 isFinite:1 decodeURI:1 decodeURIComponent:1 ' +
-                  'encodeURI:1 encodeURIComponent:1'),
-        (Owner: 'Object';
-         Entries: 'getPrototypeOf:1 getOwnPropertyDescriptor:2 getOwnPropertyNames:1 getOwnPropertySymbols:1 ' +
-                  'create:2 defineProperty:3 ' +
-                  'defineProperties:2 seal:1 freeze:1 preventExtensions:1 isSealed:1 isFrozen:1 isExtensible:1 ' +
-                  'keys:1 assign:2 entries:1 values:1 is:2 getOwnPropertyDescriptors:1 hasOwn:2 setPrototypeOf:2 fromEntries:1'),
-        (Owner: 'Object.prototype';
-         Entries: 'toString:0 toLocaleString:0 valueOf:0 hasOwnProperty:1 isPrototypeOf:1 propertyIsEnumerable:1'),
-        (Owner: 'Function';
-         Entries: ''),
-        (Owner: 'Function.prototype';
-         Entries: 'toString:0 apply:2 call:1 bind:1'),
-        (Owner: 'Array';
-         Entries: 'isArray:1 of:0 from:1'),
-        (Owner: 'Array.prototype';
-         Entries: 'toString:0 toLocaleString:0 concat:1 join:1 pop:0 push:1 reverse:0 shift:0 slice:2 sort:1 ' +
-                  'splice:2 unshift:1 indexOf:1 lastIndexOf:1 every:1 some:1 forEach:1 map:1 filter:1 reduce:1 ' +
-                  'reduceRight:1 find:1 findIndex:1 fill:1 copyWithin:2 includes:1 keys:0 values:0 entries:0 ' +
-                  'flat:0 flatMap:1 at:1'),
-        (Owner: 'String';
-         Entries: 'fromCharCode:1 fromCodePoint:1 raw:1'),
-        (Owner: 'String.prototype';
-         Entries: 'toString:0 valueOf:0 charAt:1 charCodeAt:1 concat:1 indexOf:1 lastIndexOf:1 localeCompare:1 ' +
-                  'match:1 replace:2 search:1 slice:2 split:2 substring:2 toLowerCase:0 toLocaleLowerCase:0 ' +
-                  'toUpperCase:0 toLocaleUpperCase:0 trim:0 substr:2 startsWith:1 endsWith:1 includes:1 repeat:1 ' +
-                  'padStart:1 padEnd:1 trimStart:0 trimEnd:0 trimLeft:0 trimRight:0 codePointAt:1 normalize:0 at:1'),
-        (Owner: 'Number';
-         Entries: 'isFinite:1 isInteger:1 isNaN:1 isSafeInteger:1 parseFloat:1 parseInt:2'),
-        (Owner: 'Number.prototype';
-         Entries: 'toString:1 toLocaleString:0 valueOf:0 toFixed:1 toExponential:1 toPrecision:1'),
-        (Owner: 'Boolean';
-         Entries: ''),
-        (Owner: 'Boolean.prototype';
-         Entries: 'toString:0 valueOf:0'),
-        (Owner: 'Math';
-         Entries: 'abs:1 acos:1 asin:1 atan:1 atan2:2 ceil:1 cos:1 exp:1 floor:1 log:1 max:2 min:2 pow:2 ' +
-                  'random:0 round:1 sin:1 sqrt:1 tan:1 trunc:1 sign:1 cbrt:1 log2:1 log10:1 log1p:1 expm1:1 ' +
-                  'sinh:1 cosh:1 tanh:1 asinh:1 acosh:1 atanh:1 hypot:2 fround:1 imul:2 clz32:1'),
-        (Owner: 'JSON';
-         Entries: 'parse:2 stringify:3'),
-        (Owner: 'Date';
-         Entries: 'parse:1 UTC:7 now:0'),
-        (Owner: 'Date.prototype';
-         Entries: 'toString:0 toDateString:0 toTimeString:0 toLocaleString:0 toLocaleDateString:0 ' +
-                  'toLocaleTimeString:0 valueOf:0 getTime:0 getFullYear:0 getUTCFullYear:0 getMonth:0 ' +
-                  'getUTCMonth:0 getDate:0 getUTCDate:0 getDay:0 getUTCDay:0 getHours:0 getUTCHours:0 ' +
-                  'getMinutes:0 getUTCMinutes:0 getSeconds:0 getUTCSeconds:0 getMilliseconds:0 ' +
-                  'getUTCMilliseconds:0 getTimezoneOffset:0 setTime:1 setMilliseconds:1 setUTCMilliseconds:1 ' +
-                  'setSeconds:2 setUTCSeconds:2 setMinutes:3 setUTCMinutes:3 setHours:4 setUTCHours:4 ' +
-                  'setDate:1 setUTCDate:1 setMonth:2 setUTCMonth:2 setFullYear:3 setUTCFullYear:3 ' +
-                  'toUTCString:0 toISOString:0 toJSON:1 getYear:0 setYear:1 toGMTString:0'),
-        (Owner: 'RegExp';
-         Entries: ''),
-        (Owner: 'RegExp.prototype';
-         Entries: 'exec:1 test:1 toString:0 compile:2'),
-        (Owner: 'Error';
-         Entries: ''),
-        (Owner: 'Error.prototype';
-         Entries: 'toString:0'),
-        (Owner: 'EvalError';
-         Entries: ''),
-        (Owner: 'EvalError.prototype';
-         Entries: ''),
-        (Owner: 'RangeError';
-         Entries: ''),
-        (Owner: 'RangeError.prototype';
-         Entries: ''),
-        (Owner: 'ReferenceError';
-         Entries: ''),
-        (Owner: 'ReferenceError.prototype';
-         Entries: ''),
-        (Owner: 'SyntaxError';
-         Entries: ''),
-        (Owner: 'SyntaxError.prototype';
-         Entries: ''),
-        (Owner: 'TypeError';
-         Entries: ''),
-        (Owner: 'TypeError.prototype';
-         Entries: ''),
-        (Owner: 'URIError';
-         Entries: ''),
-        (Owner: 'URIError.prototype';
-         Entries: '')
-      );
+      OWNER_PATHS: array[TBuiltinOwner] of string = (
+        '',
+        'Object',
+        'Object.prototype',
+        'Function',
+        'Function.prototype',
+        'Array',
+        'Array.prototype',
+        'String',
+        'String.prototype',
+        'Number',
+        'Number.prototype',
+        'Boolean',
+        'Boolean.prototype',
+        'Math',
+        'JSON',
+        'Date',
+        'Date.prototype',
+        'RegExp',
+        'RegExp.prototype',
+        'Error',
+        'Error.prototype',
+        'EvalError',
+        'EvalError.prototype',
+        'RangeError',
+        'RangeError.prototype',
+        'ReferenceError',
+        'ReferenceError.prototype',
+        'SyntaxError',
+        'SyntaxError.prototype',
+        'TypeError',
+        'TypeError.prototype',
+        'URIError',
+        'URIError.prototype');
+      MEMBER_ARITIES: array[0..231] of TMemberArity = (
+        (Owner: TBuiltinOwner.Global; Name: 'Object'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'Function'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'Array'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'String'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'Number'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'Boolean'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'Date'; Arity: 7),
+        (Owner: TBuiltinOwner.Global; Name: 'RegExp'; Arity: 2),
+        (Owner: TBuiltinOwner.Global; Name: 'Error'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'EvalError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'RangeError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'ReferenceError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'SyntaxError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'TypeError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'URIError'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'eval'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'parseInt'; Arity: 2),
+        (Owner: TBuiltinOwner.Global; Name: 'parseFloat'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'isNaN'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'isFinite'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'decodeURI'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'decodeURIComponent'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'encodeURI'; Arity: 1),
+        (Owner: TBuiltinOwner.Global; Name: 'encodeURIComponent'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'getPrototypeOf'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'getOwnPropertyDescriptor'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'getOwnPropertyNames'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'getOwnPropertySymbols'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'create'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'defineProperty'; Arity: 3),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'defineProperties'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'seal'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'freeze'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'preventExtensions'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'isSealed'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'isFrozen'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'isExtensible'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'keys'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'assign'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'entries'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'values'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'is'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'getOwnPropertyDescriptors'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'hasOwn'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'setPrototypeOf'; Arity: 2),
+        (Owner: TBuiltinOwner.ObjectConstructor; Name: 'fromEntries'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'toLocaleString'; Arity: 0),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'valueOf'; Arity: 0),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'hasOwnProperty'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'isPrototypeOf'; Arity: 1),
+        (Owner: TBuiltinOwner.ObjectPrototype; Name: 'propertyIsEnumerable'; Arity: 1),
+        (Owner: TBuiltinOwner.FunctionPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.FunctionPrototype; Name: 'apply'; Arity: 2),
+        (Owner: TBuiltinOwner.FunctionPrototype; Name: 'call'; Arity: 1),
+        (Owner: TBuiltinOwner.FunctionPrototype; Name: 'bind'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayConstructor; Name: 'isArray'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayConstructor; Name: 'of'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayConstructor; Name: 'from'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'toLocaleString'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'concat'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'join'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'pop'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'push'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'reverse'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'shift'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'slice'; Arity: 2),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'sort'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'splice'; Arity: 2),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'unshift'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'indexOf'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'lastIndexOf'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'every'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'some'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'forEach'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'map'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'filter'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'reduce'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'reduceRight'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'find'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'findIndex'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'fill'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'copyWithin'; Arity: 2),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'includes'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'keys'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'values'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'entries'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'flat'; Arity: 0),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'flatMap'; Arity: 1),
+        (Owner: TBuiltinOwner.ArrayPrototype; Name: 'at'; Arity: 1),
+        (Owner: TBuiltinOwner.StringConstructor; Name: 'fromCharCode'; Arity: 1),
+        (Owner: TBuiltinOwner.StringConstructor; Name: 'fromCodePoint'; Arity: 1),
+        (Owner: TBuiltinOwner.StringConstructor; Name: 'raw'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'valueOf'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'charAt'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'charCodeAt'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'concat'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'indexOf'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'lastIndexOf'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'localeCompare'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'match'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'replace'; Arity: 2),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'search'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'slice'; Arity: 2),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'split'; Arity: 2),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'substring'; Arity: 2),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'toLowerCase'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'toLocaleLowerCase'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'toUpperCase'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'toLocaleUpperCase'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'trim'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'substr'; Arity: 2),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'startsWith'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'endsWith'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'includes'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'repeat'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'padStart'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'padEnd'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'trimStart'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'trimEnd'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'trimLeft'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'trimRight'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'codePointAt'; Arity: 1),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'normalize'; Arity: 0),
+        (Owner: TBuiltinOwner.StringPrototype; Name: 'at'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'isFinite'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'isInteger'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'isNaN'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'isSafeInteger'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'parseFloat'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberConstructor; Name: 'parseInt'; Arity: 2),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'toString'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'toLocaleString'; Arity: 0),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'valueOf'; Arity: 0),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'toFixed'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'toExponential'; Arity: 1),
+        (Owner: TBuiltinOwner.NumberPrototype; Name: 'toPrecision'; Arity: 1),
+        (Owner: TBuiltinOwner.BooleanPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.BooleanPrototype; Name: 'valueOf'; Arity: 0),
+        (Owner: TBuiltinOwner.MathObject; Name: 'abs'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'acos'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'asin'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'atan'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'atan2'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'ceil'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'cos'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'exp'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'floor'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'log'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'max'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'min'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'pow'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'random'; Arity: 0),
+        (Owner: TBuiltinOwner.MathObject; Name: 'round'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'sin'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'sqrt'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'tan'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'trunc'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'sign'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'cbrt'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'log2'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'log10'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'log1p'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'expm1'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'sinh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'cosh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'tanh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'asinh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'acosh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'atanh'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'hypot'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'fround'; Arity: 1),
+        (Owner: TBuiltinOwner.MathObject; Name: 'imul'; Arity: 2),
+        (Owner: TBuiltinOwner.MathObject; Name: 'clz32'; Arity: 1),
+        (Owner: TBuiltinOwner.JsonObject; Name: 'parse'; Arity: 2),
+        (Owner: TBuiltinOwner.JsonObject; Name: 'stringify'; Arity: 3),
+        (Owner: TBuiltinOwner.DateConstructor; Name: 'parse'; Arity: 1),
+        (Owner: TBuiltinOwner.DateConstructor; Name: 'UTC'; Arity: 7),
+        (Owner: TBuiltinOwner.DateConstructor; Name: 'now'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toDateString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toTimeString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toLocaleString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toLocaleDateString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toLocaleTimeString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'valueOf'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getTime'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getFullYear'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCFullYear'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getMonth'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCMonth'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getDate'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCDate'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getDay'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCDay'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getHours'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCHours'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getMinutes'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCMinutes'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getSeconds'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCSeconds'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getMilliseconds'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getUTCMilliseconds'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getTimezoneOffset'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setTime'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setMilliseconds'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCMilliseconds'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setSeconds'; Arity: 2),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCSeconds'; Arity: 2),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setMinutes'; Arity: 3),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCMinutes'; Arity: 3),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setHours'; Arity: 4),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCHours'; Arity: 4),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setDate'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCDate'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setMonth'; Arity: 2),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCMonth'; Arity: 2),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setFullYear'; Arity: 3),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setUTCFullYear'; Arity: 3),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toUTCString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toISOString'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toJSON'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'getYear'; Arity: 0),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'setYear'; Arity: 1),
+        (Owner: TBuiltinOwner.DatePrototype; Name: 'toGMTString'; Arity: 0),
+        (Owner: TBuiltinOwner.RegExpPrototype; Name: 'exec'; Arity: 1),
+        (Owner: TBuiltinOwner.RegExpPrototype; Name: 'test'; Arity: 1),
+        (Owner: TBuiltinOwner.RegExpPrototype; Name: 'toString'; Arity: 0),
+        (Owner: TBuiltinOwner.RegExpPrototype; Name: 'compile'; Arity: 2),
+        (Owner: TBuiltinOwner.ErrorPrototype; Name: 'toString'; Arity: 0));
 
     var
       FInterpreter: TJSInterpreter;
 
-    function ResolveOwner(const Path: string): IJSObject;
+    function ResolveOwner(const Owner: TBuiltinOwner): IJSObject;
     function ResolveMember(const Target: IJSObject; const Name: string): TJSValue;
-    procedure ApplyTable(const Table: TJSArityTable);
-    procedure DefineMethodLengths(const Table: TJSArityTable; const Target: IJSObject);
+    function ApplyOwner(const Owner: TBuiltinOwner; const FirstRow: Integer): Integer;
+    procedure DefineMethodLength(const Member: TMemberArity; const Target: IJSObject);
     procedure HideProperties(const Target: IJSObject);
 
   public
@@ -131,6 +320,9 @@ type
 
 implementation
 
+uses
+  JS4D.PropertyNames;
+
 constructor TJSBuiltinAttributes.Create(const Interpreter: TJSInterpreter);
 begin
   inherited Create;
@@ -139,32 +331,41 @@ end;
 
 procedure TJSBuiltinAttributes.Apply;
 begin
-  for var Table in ARITY_TABLES do
+  var FirstRow := 0;
+  for var Owner := Low(TBuiltinOwner) to High(TBuiltinOwner) do
   begin
-    ApplyTable(Table);
+    FirstRow := ApplyOwner(Owner, FirstRow);
   end;
 end;
 
-procedure TJSBuiltinAttributes.ApplyTable(const Table: TJSArityTable);
+function TJSBuiltinAttributes.ApplyOwner(const Owner: TBuiltinOwner; const FirstRow: Integer): Integer;
 begin
-  const IsGlobalTable = (Table.Owner = GLOBAL_OWNER);
-  const Target = ResolveOwner(Table.Owner);
-  if (not IsGlobalTable) and (not Assigned(Target)) then
-    Exit;
+  const IsGlobal = (Owner = TBuiltinOwner.Global);
+  const Target = ResolveOwner(Owner);
+  const IsMissing = (not IsGlobal) and (not Assigned(Target));
 
-  DefineMethodLengths(Table, Target);
+  Result := FirstRow;
+  while (Result < Length(MEMBER_ARITIES)) and (MEMBER_ARITIES[Result].Owner = Owner) do
+  begin
+    if not IsMissing then
+      DefineMethodLength(MEMBER_ARITIES[Result], Target);
 
-  if not IsGlobalTable then
+    Inc(Result);
+  end;
+
+  if not (IsGlobal or IsMissing) then
     HideProperties(Target);
 end;
 
-function TJSBuiltinAttributes.ResolveOwner(const Path: string): IJSObject;
+function TJSBuiltinAttributes.ResolveOwner(const Owner: TBuiltinOwner): IJSObject;
 begin
   Result := nil;
-  if Path = GLOBAL_OWNER then
+
+  const IsGlobal = (Owner = TBuiltinOwner.Global);
+  if IsGlobal then
     Exit;
 
-  const Segments = Path.Split([PATH_SEPARATOR]);
+  const Segments = OWNER_PATHS[Owner].Split([PATH_SEPARATOR]);
   const Root = FInterpreter.GetGlobalVariable(Segments[0]);
   if not Root.IsObject then
     Exit;
@@ -188,25 +389,21 @@ begin
   Result := FInterpreter.GetGlobalVariable(Name);
 end;
 
-procedure TJSBuiltinAttributes.DefineMethodLengths(const Table: TJSArityTable; const Target: IJSObject);
+procedure TJSBuiltinAttributes.DefineMethodLength(const Member: TMemberArity; const Target: IJSObject);
 begin
-  const Entries = Table.Entries.Split([ENTRY_SEPARATOR], TStringSplitOptions.ExcludeEmpty);
-  for var Entry in Entries do
-  begin
-    const Parts = Entry.Split([ARITY_SEPARATOR]);
-    const Member = ResolveMember(Target, Parts[0]);
-    if not Member.IsFunction then
-      Continue;
+  const Value = ResolveMember(Target, Member.Name);
+  if not Value.IsFunction then
+    Exit;
 
-    const Arity = StrToInt(Parts[1]);
-    TJSFunction.DefineLength(Member.ToObject, Arity);
+  TJSFunction.DefineLength(Value.ToObject, Member.Arity);
 
-    var Method: IJSFunction;
-    const IsFunction = Supports(Member.ToObject, IJSFunction, Method);
-    const IsMethod = IsFunction and (Assigned(Target) or (not Method.HasOwnProperty(PROTOTYPE_PROPERTY)));
-    if IsMethod then
-      Method.IsConstructor := False;
-  end;
+  var Method: IJSFunction;
+  if not Value.TryGetFunction(Method) then
+    Exit;
+
+  const IsMethod = (Assigned(Target) or (not Method.HasOwnProperty(PROTOTYPE_PROPERTY)));
+  if IsMethod then
+    Method.IsConstructor := False;
 end;
 
 procedure TJSBuiltinAttributes.HideProperties(const Target: IJSObject);

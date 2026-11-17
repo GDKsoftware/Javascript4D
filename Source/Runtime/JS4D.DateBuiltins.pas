@@ -32,7 +32,6 @@ type
     class procedure DefineFunctionAttributes(const Func: IJSFunction; const Name: string;
                                              const ParameterCount: Integer); static;
     class function ThisDate(const This: IJSObject): IJSDate; static;
-    class function ToNumberValue(const Value: TJSValue): Double; static;
     class function ComponentOf(const Field: TDateField; const Moment: Double): Double; static;
     class function MakeFullYear(const Year: Double): Double; static;
     class function ComposeTime(const Components: TArray<Double>): Double; static;
@@ -77,6 +76,8 @@ type
 implementation
 
 uses
+  JS4D.PropertyNames,
+  JS4D.Conversions,
   System.Math,
   System.StrUtils,
   JS4D.Errors,
@@ -105,7 +106,6 @@ const
   STATIC_UTC_NAME = UTC_INFIX;
   STATIC_NOW_NAME = 'now';
   STATIC_PARSE_NAME = 'parse';
-  METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_TO_LOCALE_DATE_STRING = 'toLocaleDateString';
   METHOD_TO_LOCALE_TIME_STRING = 'toLocaleTimeString';
   METHOD_TO_GMT_STRING = 'toGMTString';
@@ -115,8 +115,6 @@ const
   METHOD_SET_YEAR = 'setYear';
   METHOD_TO_JSON = 'toJSON';
   METHOD_GET_TIME = 'getTime';
-  METHOD_VALUE_OF = 'valueOf';
-  METHOD_TO_STRING = 'toString';
   METHOD_TO_DATE_STRING = 'toDateString';
   METHOD_TO_TIME_STRING = 'toTimeString';
   METHOD_TO_UTC_STRING = 'toUTCString';
@@ -155,11 +153,6 @@ class function TJSDateBuiltins.ThisDate(const This: IJSObject): IJSDate;
 begin
   if not Supports(This, IJSDate, Result) then
     raise TJSErrorFactory.TypeError(THIS_NOT_A_DATE);
-end;
-
-class function TJSDateBuiltins.ToNumberValue(const Value: TJSValue): Double;
-begin
-  Result := Value.ToPrimitive(False).ToNumber;
 end;
 
 class function TJSDateBuiltins.NumberResult(const Time: Double): TJSValue;
@@ -227,7 +220,7 @@ begin
 
   for var Index := 0 to Min(Length(Args), FIELD_COUNT) - 1 do
   begin
-    Result[Index] := ToNumberValue(Args[Index]);
+    Result[Index] := TJSConversions.ToNumber(Args[Index]);
   end;
 
   Result[Ord(TDateField.Year)] := MakeFullYear(Result[Ord(TDateField.Year)]);
@@ -356,7 +349,7 @@ begin
       for var Index := 0 to High(Values) do
       begin
         if Index < Length(Args) then
-          Values[Index] := ToNumberValue(Args[Index])
+          Values[Index] := TJSConversions.ToNumber(Args[Index])
         else
           Values[Index] := System.Math.NaN;
       end;
@@ -428,7 +421,7 @@ begin
 
   var Requested := System.Math.NaN;
   if Length(Args) > 0 then
-    Requested := ToNumberValue(Args[0]);
+    Requested := TJSConversions.ToNumber(Args[0]);
 
   Target.Time := TJSDateMath.TimeClip(Requested);
   Result := NumberResult(Target.Time);
@@ -441,7 +434,7 @@ begin
 
   var Requested := System.Math.NaN;
   if Length(Args) > 0 then
-    Requested := ToNumberValue(Args[0]);
+    Requested := TJSConversions.ToNumber(Args[0]);
 
   if System.Math.IsNaN(Requested) then
   begin
@@ -532,7 +525,7 @@ end;
 
 procedure TJSDateBuiltins.DefineStringMethods;
 begin
-  DefineMethod(METHOD_TO_STRING, 0, BindFormatter(TTextForm.Full));
+  DefineMethod(TO_STRING_METHOD, 0, BindFormatter(TTextForm.Full));
   DefineMethod(METHOD_TO_DATE_STRING, 0, BindFormatter(TTextForm.DateOnly));
   DefineMethod(METHOD_TO_TIME_STRING, 0, BindFormatter(TTextForm.TimeOnly));
   DefineMethod(METHOD_TO_LOCALE_STRING, 0, BindLocaleFormatter(TTextForm.Full, TJSDateFormatScope.DateAndTime));
@@ -597,7 +590,7 @@ end;
 
 procedure TJSDateBuiltins.DefineUtilityMethods;
 begin
-  DefineMethod(METHOD_VALUE_OF, 0, BindTimeValue());
+  DefineMethod(VALUE_OF_METHOD, 0, BindTimeValue());
   DefineMethod(METHOD_GET_TIME, 0, BindTimeValue());
   DefineMethod(METHOD_GET_YEAR, 0, BindThis(GetYear));
   DefineMethod(METHOD_GET_TIMEZONE_OFFSET, 0, BindThis(GetTimezoneOffset));

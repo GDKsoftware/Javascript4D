@@ -33,7 +33,6 @@ type
       FInterpreter: TJSInterpreter;
 
     function ThisValueOf(const This: IJSObject; const MethodName: string): TJSValue;
-    function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
     function ToText(const Value: TJSValue): string;
     function TryDelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
                            const Rest: TArray<TJSValue>; out Delegated: TJSValue): Boolean;
@@ -57,6 +56,7 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.Errors,
   JS4D.Conversions,
   JS4D.PatternOperations;
@@ -78,14 +78,6 @@ begin
     Exit(Wrapper.Primitive);
 
   Result := TJSValue.CreateObject(This);
-end;
-
-function TJSStringPatternMethods.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
-begin
-  if Position < Length(Args) then
-    Result := Args[Position]
-  else
-    Result := TJSValue.CreateUndefined;
 end;
 
 function TJSStringPatternMethods.ToText(const Value: TJSValue): string;
@@ -147,7 +139,7 @@ function TJSStringPatternMethods.MatchOrSearch(const This: IJSObject; const Args
                                                const MethodName: string; const Which: TJSWellKnownSymbol): TJSValue;
 begin
   const Subject = ThisValueOf(This, MethodName);
-  const Pattern = Argument(Args, 0);
+  const Pattern = TJSArrayLike.Argument(Args, 0);
   const Key = TJSSymbolRegistry.WellKnownKey(Which);
 
   var Delegated: TJSValue;
@@ -168,8 +160,8 @@ begin
     MethodName := REPLACE_ALL_NAME;
 
   const Subject = ThisValueOf(This, MethodName);
-  const SearchValue = Argument(Args, 0);
-  const ReplaceValue = Argument(Args, 1);
+  const SearchValue = TJSArrayLike.Argument(Args, 0);
+  const ReplaceValue = TJSArrayLike.Argument(Args, 1);
 
   if ReplaceAll and SearchValue.IsObject then
     RequireGlobalFlags(SearchValue);
@@ -204,8 +196,8 @@ end;
 function TJSStringPatternMethods.Split(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Subject = ThisValueOf(This, SPLIT_NAME);
-  const Separator = Argument(Args, 0);
-  const LimitValue = Argument(Args, 1);
+  const Separator = TJSArrayLike.Argument(Args, 0);
+  const LimitValue = TJSArrayLike.Argument(Args, 1);
 
   const SplitKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Split);
   var Delegated: TJSValue;

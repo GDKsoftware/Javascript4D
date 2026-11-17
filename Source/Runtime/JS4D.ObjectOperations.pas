@@ -124,8 +124,7 @@ begin
         Exit(Descriptor.Value);
 
       var Getter: IJSFunction;
-      const HasGetter = Descriptor.Getter.IsFunction and Supports(Descriptor.Getter.ToObject, IJSFunction, Getter);
-      if not HasGetter then
+      if not Descriptor.Getter.TryGetFunction(Getter) then
       begin
         Result := TJSValue.CreateUndefined;
         Exit;
@@ -182,8 +181,7 @@ class function TJSObjectOperations.CallSetter(const OwnDescriptor: TJSPropertyDe
                                               const Receiver: TJSValue): Boolean;
 begin
   var Setter: IJSFunction;
-  const HasSetter = OwnDescriptor.Setter.IsFunction and Supports(OwnDescriptor.Setter.ToObject, IJSFunction, Setter);
-  if not HasSetter then
+  if not OwnDescriptor.Setter.TryGetFunction(Setter) then
     Exit(False);
 
   Setter.Call(Receiver.ToObject, [Value]);

@@ -77,6 +77,7 @@ type
     function GetCount: Integer;
     procedure Append(const Identity: TJSStoreKey; const Key: TJSValue; const Value: TJSValue);
     procedure CompactIfSparse;
+    function MoveLiveEntries(const LiveBefore: TArray<Integer>): Integer;
     procedure Compact;
     procedure MoveCursors(const LiveBefore: TArray<Integer>);
     procedure RegisterCursor(const Cursor: TJSStoreCursor);
@@ -230,7 +231,7 @@ end;
 
 class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
 begin
-  Result := Value.IsObject and (not Value.IsFunction);
+  Result := (Value.IsObject and (not Value.IsFunction));
 end;
 
 function TJSOrderedStore.GetCount: Integer;
@@ -379,6 +380,30 @@ begin
     Compact;
 end;
 
+function TJSOrderedStore.MoveLiveEntries(const LiveBefore: TArray<Integer>): Integer;
+begin
+  const TracksCursors = (Length(LiveBefore) > 0);
+
+  Result := 0;
+  for var Source := 0 to FUsed - 1 do
+  begin
+    if TracksCursors then
+      LiveBefore[Source] := Result;
+
+    if not FEntries[Source].IsLive then
+      Continue;
+
+    const HasMoved = (Result <> Source);
+    if HasMoved then
+    begin
+      FEntries[Result] := FEntries[Source];
+      FIndex[FEntries[Result].Identity] := Result;
+    end;
+
+    Inc(Result);
+  end;
+end;
+
 procedure TJSOrderedStore.Compact;
 begin
   var LiveBefore: TArray<Integer>;
@@ -386,36 +411,20 @@ begin
   if HasCursors then
     SetLength(LiveBefore, FUsed + 1);
 
-  var Target := 0;
-  for var Source := 0 to FUsed - 1 do
-  begin
-    if HasCursors then
-      LiveBefore[Source] := Target;
-
-    if not FEntries[Source].IsLive then
-      Continue;
-
-    if Target <> Source then
-    begin
-      FEntries[Target] := FEntries[Source];
-      FIndex[FEntries[Target].Identity] := Target;
-    end;
-
-    Inc(Target);
-  end;
+  const LiveCount = MoveLiveEntries(LiveBefore);
 
   if HasCursors then
   begin
-    LiveBefore[FUsed] := Target;
+    LiveBefore[FUsed] := LiveCount;
     MoveCursors(LiveBefore);
   end;
 
-  for var Index := Target to FUsed - 1 do
+  for var Index := LiveCount to FUsed - 1 do
   begin
     FEntries[Index] := Default(TEntry);
   end;
 
-  FUsed := Target;
+  FUsed := LiveCount;
   FGaps := 0;
 end;
 

@@ -9,8 +9,8 @@ uses
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
-  JS4D.SymbolRegistry,
-  JS4D.Interpreter;
+  JS4D.Interpreter,
+  JS4D.BuiltinSupport;
 
 type
   TJSReflectBuiltins = class(TJSBuiltinSet)
@@ -42,6 +42,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
 
     function RequireTarget(const Args: TArray<TJSValue>; const MethodName: string): IJSObject;
     function RequireObject(const Value: TJSValue; const MethodName: string): IJSObject;
@@ -68,10 +69,10 @@ type
 
     procedure DefineFunction(const Reflect: IJSObject; const Name: string; const ParameterCount: Integer;
                              const Method: TReflectMethod);
-    procedure DefineToStringTag(const Reflect: IJSObject);
 
   public
     constructor Create(const Interpreter: TJSInterpreter);
+    destructor Destroy; override;
 
     procedure Register; override;
   end;
@@ -89,6 +90,13 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
+end;
+
+destructor TJSReflectBuiltins.Destroy;
+begin
+  FSupport.Free;
+  inherited;
 end;
 
 function TJSReflectBuiltins.RequireTarget(const Args: TArray<TJSValue>; const MethodName: string): IJSObject;
@@ -111,8 +119,7 @@ end;
 
 function TJSReflectBuiltins.RequireFunction(const Value: TJSValue; const MethodName: string): IJSFunction;
 begin
-  const IsCallable = Value.IsFunction and Supports(Value.ToObject, IJSFunction, Result);
-  if not IsCallable then
+  if not Value.TryGetFunction(Result) then
   begin
     const Message = Format(NOT_CALLABLE, [MethodName]);
     raise TJSErrorFactory.TypeError(Message);
@@ -121,8 +128,7 @@ end;
 
 function TJSReflectBuiltins.RequireConstructor(const Value: TJSValue): IJSFunction;
 begin
-  const IsConstructor = Value.IsFunction and Supports(Value.ToObject, IJSFunction, Result) and Result.IsConstructor;
-  if not IsConstructor then
+  if not Value.TryGetConstructor(Result) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
 
@@ -338,26 +344,7 @@ begin
       Result := Method(Args);
     end;
 
-  const Func = TJSFunction.CreateNative(Name, Native);
-  Func.IsConstructor := False;
-  Func.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Func, ParameterCount);
-  FInterpreter.RegisterFunction(Func);
-
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func));
-  Descriptor.Enumerable := False;
-  Reflect.DefineProperty(Name, Descriptor);
-end;
-
-procedure TJSReflectBuiltins.DefineToStringTag(const Reflect: IJSObject);
-begin
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateString(REFLECT_TAG));
-  Descriptor.Writable := False;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-
-  const TagKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
-  Reflect.DefineProperty(TagKey, Descriptor);
+  FSupport.DefineMethod(Reflect, Name, ParameterCount, Native);
 end;
 
 procedure TJSReflectBuiltins.Register;
@@ -379,7 +366,7 @@ begin
   DefineFunction(Reflect, SET_NAME, 3, Put);
   DefineFunction(Reflect, SET_PROTOTYPE_OF_NAME, 2, SetPrototypeOf);
 
-  DefineToStringTag(Reflect);
+  FSupport.DefineToStringTag(Reflect, REFLECT_TAG);
 
   const ReflectValue = TJSValue.CreateObject(Reflect);
   FInterpreter.SetGlobalVariable(REFLECT_NAME, ReflectValue);

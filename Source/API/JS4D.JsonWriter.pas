@@ -41,7 +41,6 @@ type
     procedure AppendCharacter(const Character: Char);
     procedure AppendUnicodeEscape(const Character: Char);
     procedure AppendNewLine;
-    class function IsSurrogatePair(const Text: string; const Position: Integer): Boolean; static;
 
     function TextOf(const Value: TJSValue): string;
     procedure ConfigureReplacer(const Replacer: TJSValue);
@@ -77,6 +76,8 @@ type
 implementation
 
 uses
+  JS4D.Utf16,
+  JS4D.Conversions,
   System.Math,
   System.Character,
   System.StrUtils,
@@ -130,13 +131,6 @@ begin
   Append(FIndent);
 end;
 
-class function TJSJsonWriter.IsSurrogatePair(const Text: string; const Position: Integer): Boolean;
-begin
-  const HasNext = (Position < Length(Text));
-
-  Result := (HasNext and Text[Position].IsHighSurrogate and Text[Position + 1].IsLowSurrogate);
-end;
-
 procedure TJSJsonWriter.AppendUnicodeEscape(const Character: Char);
 begin
   const HexDigits = LowerCase(IntToHex(Ord(Character), 4));
@@ -171,7 +165,7 @@ begin
   var Position := 1;
   while Position <= Length(Text) do
   begin
-    if IsSurrogatePair(Text, Position) then
+    if TJSUtf16.IsPairAt(Text, Position) then
     begin
       FOutput.Append(Text[Position]);
       FOutput.Append(Text[Position + 1]);
@@ -265,7 +259,7 @@ begin
 
   if Resolved.IsNumber then
   begin
-    const Requested = TJSArrayLike.ToInteger(Resolved);
+    const Requested = TJSConversions.ToIntegerOrInfinity(Resolved);
     const NeedsGap = (Requested >= 1);
     if NeedsGap then
     begin
@@ -330,7 +324,7 @@ begin
 
   if Primitive.IsNumber then
   begin
-    const Number = TJSArrayLike.ToNumber(Value);
+    const Number = TJSConversions.ToNumber(Value);
 
     Result := TJSValue.CreateNumber(Number);
   end

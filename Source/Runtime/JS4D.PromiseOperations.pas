@@ -230,7 +230,7 @@ end;
 
 function TJSPromiseOperations.RequireConstructor(const ConstructorValue: TJSValue): IJSFunction;
 begin
-  const IsConstructor = TJSBuiltinSupport.TryGetConstructor(ConstructorValue, Result);
+  const IsConstructor = ConstructorValue.TryGetConstructor(Result);
   if not IsConstructor then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
@@ -310,7 +310,7 @@ end;
 procedure TJSPromiseOperations.CallCapabilityFunction(const Target: TJSValue; const Argument: TJSValue);
 begin
   var Func: IJSFunction;
-  const IsFunction = TJSBuiltinSupport.TryGetFunction(Target, Func);
+  const IsFunction = Target.TryGetFunction(Func);
   if not IsFunction then
     raise TJSErrorFactory.TypeError(CAPABILITY_NOT_CALLABLE);
 
@@ -453,7 +453,7 @@ begin
   var IsNormal := (not Job.IsRejection);
 
   var HandlerFunction: IJSFunction;
-  const HasHandler = TJSBuiltinSupport.TryGetFunction(Handler, HandlerFunction);
+  const HasHandler = Handler.TryGetFunction(HandlerFunction);
   if HasHandler then
   begin
     const HandlerArgs: TArray<TJSValue> = [Job.Argument];
@@ -485,7 +485,7 @@ begin
   const Resolving = CreateResolvingFunctions(Job.Promise);
 
   var ThenFunction: IJSFunction;
-  const HasThen = TJSBuiltinSupport.TryGetFunction(Job.ThenFunction, ThenFunction);
+  const HasThen = Job.ThenFunction.TryGetFunction(ThenFunction);
   if not HasThen then
     raise TJSErrorFactory.TypeError(CAPABILITY_NOT_CALLABLE);
 

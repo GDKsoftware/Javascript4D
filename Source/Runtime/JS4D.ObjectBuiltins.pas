@@ -21,7 +21,6 @@ type
       SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
       PROTO_GETTER_NAME = 'get __proto__';
       PROTO_SETTER_NAME = 'set __proto__';
-      PROTOTYPE_PROPERTY = 'prototype';
       FROM_ENTRIES_NAME = 'fromEntries';
       KEY_PROPERTY = '0';
       VALUE_PROPERTY = '1';
@@ -57,6 +56,7 @@ type
 implementation
 
 uses
+  JS4D.PropertyNames,
   JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.ArrayStatics,

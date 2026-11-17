@@ -12,7 +12,6 @@ uses
   JS4D.PropertyNames,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.ProxyObjects,
   JS4D.ConstructorFunction;
 
 type
@@ -24,11 +23,8 @@ type
   TJSBuiltinSupport = class
   private
     const
-      MAX_SAFE_INTEGER = 9007199254740991.0;
       INVALID_INDEX = 'Invalid index: %s';
       DETACHED_BUFFER = 'Cannot perform %s on a detached ArrayBuffer';
-      CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of the object is not an object';
-      SPECIES_NOT_A_CONSTRUCTOR = 'The species of the constructor is not a constructor';
       NOT_A_FUNCTION = '%s is not a function';
 
     var
@@ -38,12 +34,9 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
 
     class function ToIndex(const Value: TJSValue): Int64; static;
-    class function TryGetFunction(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
-    class function TryGetConstructor(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
     class function IsCallable(const Value: TJSValue): Boolean; static;
     class function ReturnsThis: TNativeFunction; static;
     class procedure RequireNotDetached(const IsDetached: Boolean; const MethodName: string); static;
-    class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     class function ArgumentsFrom(const Args: TArray<TJSValue>; const FirstPosition: Integer): TArray<TJSValue>; static;
 
     function ToObject(const Value: TJSValue): IJSObject;
@@ -72,7 +65,6 @@ type
     function CreateConstructor(const Name: string; const ParameterCount: Integer; const RequiresNewMessage: string;
                                const Handler: TJSConstructHandler): IJSFunction;
     function PrototypeFromConstructor(const NewTarget: IJSFunction; const DefaultPrototype: IJSObject): IJSObject;
-    function SpeciesConstructor(const Source: IJSObject; const DefaultConstructor: IJSFunction): IJSFunction;
 
     property Interpreter: TJSInterpreter read FInterpreter;
   end;
@@ -106,23 +98,16 @@ begin
   Result := Trunc(Whole);
 end;
 
-class function TJSBuiltinSupport.TryGetFunction(const Value: TJSValue; out Func: IJSFunction): Boolean;
-begin
-  Result := Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func);
-end;
-
-class function TJSBuiltinSupport.TryGetConstructor(const Value: TJSValue; out Func: IJSFunction): Boolean;
-begin
-  Result := TryGetFunction(Value, Func) and Func.IsConstructor;
-end;
-
 function TJSBuiltinSupport.ToObject(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
     raise TJSErrorFactory.NotCoercibleToObject;
 
   if Value.IsObject then
-    Exit(Value.ToObject);
+  begin
+    Result := Value.ToObject;
+    Exit;
+  end;
 
   Result := FInterpreter.WrapPrimitive(Value);
 end;
@@ -130,7 +115,7 @@ end;
 class function TJSBuiltinSupport.IsCallable(const Value: TJSValue): Boolean;
 begin
   var Func: IJSFunction;
-  Result := TryGetFunction(Value, Func);
+  Result := Value.TryGetFunction(Func);
 end;
 
 class procedure TJSBuiltinSupport.RequireNotDetached(const IsDetached: Boolean; const MethodName: string);
@@ -152,15 +137,6 @@ begin
       else
         Result := TJSValue.CreateUndefined;
     end;
-end;
-
-class function TJSBuiltinSupport.ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
-begin
-  const HasArgument = (Index < Length(Args));
-  if HasArgument then
-    Result := Args[Index]
-  else
-    Result := TJSValue.CreateUndefined;
 end;
 
 class function TJSBuiltinSupport.ArgumentsFrom(const Args: TArray<TJSValue>;
@@ -225,7 +201,7 @@ begin
   const Method = Holder.GetProperty(Name);
 
   var Func: IJSFunction;
-  const IsFunction = TryGetFunction(Method, Func);
+  const IsFunction = Method.TryGetFunction(Func);
   if not IsFunction then
   begin
     const Message = Format(NOT_A_FUNCTION, [Name]);
@@ -383,25 +359,6 @@ begin
   const Candidate = NewTarget.GetProperty(PROTOTYPE_PROPERTY);
   if Candidate.IsObject then
     Result := Candidate.ToObject;
-end;
-
-function TJSBuiltinSupport.SpeciesConstructor(const Source: IJSObject;
-                                             const DefaultConstructor: IJSFunction): IJSFunction;
-begin
-  const ConstructorValue = Source.GetProperty(CONSTRUCTOR_PROPERTY);
-  if ConstructorValue.IsUndefined then
-    Exit(DefaultConstructor);
-
-  if not ConstructorValue.IsObject then
-    raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
-
-  const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
-  const Species = ConstructorValue.ToObject.GetProperty(SpeciesKey);
-  if Species.IsNullOrUndefined then
-    Exit(DefaultConstructor);
-
-  if not TryGetConstructor(Species, Result) then
-    raise TJSErrorFactory.TypeError(SPECIES_NOT_A_CONSTRUCTOR);
 end;
 
 end.

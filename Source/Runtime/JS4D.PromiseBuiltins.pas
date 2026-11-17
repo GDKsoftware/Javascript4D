@@ -32,7 +32,6 @@ type
       PROMISE_PROPERTY = 'promise';
       REQUIRES_NEW = 'Promise constructor cannot be invoked without ''new''';
       RESOLVER_NOT_CALLABLE = 'Promise resolver is not a function';
-      INCOMPATIBLE_RECEIVER = 'Method Promise.prototype.%s called on an incompatible receiver';
       NOT_AN_OBJECT = 'Promise.%s called on a value that is not an object';
 
     var
@@ -77,6 +76,7 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
   JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
@@ -115,7 +115,7 @@ function TJSPromiseBuiltins.Construct(const Args: TArray<TJSValue>; const NewTar
 begin
   const ExecutorValue = TJSArrayLike.Argument(Args, 0);
   var Executor: IJSFunction;
-  const IsCallable = TJSBuiltinSupport.TryGetFunction(ExecutorValue, Executor);
+  const IsCallable = ExecutorValue.TryGetFunction(Executor);
   if not IsCallable then
     raise TJSErrorFactory.TypeError(RESOLVER_NOT_CALLABLE);
 
@@ -141,7 +141,7 @@ begin
   const IsPromise = (Assigned(This) and Supports(This, IJSPromise, Result));
   if not IsPromise then
   begin
-    const Message = Format(INCOMPATIBLE_RECEIVER, [MethodName]);
+    const Message = Format(INCOMPATIBLE_RECEIVER_FORMAT, [PROMISE_NAME, MethodName]);
     raise TJSErrorFactory.TypeError(Message);
   end;
 end;
@@ -160,7 +160,7 @@ end;
 function TJSPromiseBuiltins.ThenMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Promise = RequirePromise(This, THEN_PROPERTY);
-  const Species = FSupport.SpeciesConstructor(This, FConstructor);
+  const Species = TJSConversions.SpeciesConstructor(This, FConstructor);
   const ConstructorValue = TJSValue.CreateObject(Species);
   const Capability = FOperations.NewCapability(ConstructorValue);
 
@@ -244,14 +244,14 @@ end;
 function TJSPromiseBuiltins.FinallyMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Receiver = RequireObject(This, FINALLY_NAME);
-  const Species = FSupport.SpeciesConstructor(This, FConstructor);
+  const Species = TJSConversions.SpeciesConstructor(This, FConstructor);
   const ConstructorValue = TJSValue.CreateObject(Species);
 
   const OnFinallyValue = TJSArrayLike.Argument(Args, 0);
   var OnFinally: IJSFunction;
   var OnFulfilled := OnFinallyValue;
   var OnRejected := OnFinallyValue;
-  const IsCallable = TJSBuiltinSupport.TryGetFunction(OnFinallyValue, OnFinally);
+  const IsCallable = OnFinallyValue.TryGetFunction(OnFinally);
   if IsCallable then
   begin
     const ThenFinally = CreateThenFinally(OnFinally, ConstructorValue);
@@ -299,7 +299,7 @@ function TJSPromiseBuiltins.CallTryCallback(const Args: TArray<TJSValue>): TJSCa
 begin
   const CallbackValue = TJSArrayLike.Argument(Args, 0);
   var Callback: IJSFunction;
-  const IsCallable = TJSBuiltinSupport.TryGetFunction(CallbackValue, Callback);
+  const IsCallable = CallbackValue.TryGetFunction(Callback);
   if IsCallable then
   begin
     const CallbackArgs = TJSBuiltinSupport.ArgumentsFrom(Args, 1);

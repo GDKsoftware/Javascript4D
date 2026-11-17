@@ -57,6 +57,8 @@ type
     procedure RequireAlignedOffset(const Kind: TJSElementKind; const Offset: Int64);
     function RemainingLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
                              const Offset: Int64): Int64;
+    function ResolveViewLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer; const Offset: Int64;
+                               const HasLength: Boolean; const RequestedLength: Int64): Int64;
     function CreateFromBuffer(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
                               const Args: TArray<TJSValue>; const Prototype: IJSObject): IJSTypedArray;
     function CreateFromObject(const Kind: TJSElementKind; const Source: IJSObject;
@@ -96,6 +98,7 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
   JS4D.PropertyNames,
   JS4D.Errors,
   JS4D.Interpreter,
@@ -163,7 +166,8 @@ begin
   Result := ValidateTypedArray(Created.ToObject, MethodName);
 
   const IsLengthRequest = (Length(Args) = 1) and Args[0].IsNumber;
-  if IsLengthRequest and (Result.Length < Args[0].AsNumber) then
+  const IsTooShort = (IsLengthRequest and (Result.Length < Args[0].AsNumber));
+  if IsTooShort then
     raise TJSErrorFactory.TypeError(TYPED_ARRAY_TOO_SHORT);
 end;
 
@@ -171,7 +175,7 @@ function TJSTypedArrayBuiltins.SpeciesCreate(const Exemplar: IJSTypedArray; cons
                                              const MethodName: string): IJSTypedArray;
 begin
   const ExemplarObject: IJSObject = Exemplar;
-  const Species = FSupport.SpeciesConstructor(ExemplarObject, FConstructors[Exemplar.Kind]);
+  const Species = TJSConversions.SpeciesConstructor(ExemplarObject, FConstructors[Exemplar.Kind]);
 
   Result := CreateFromConstructor(Species, Args, MethodName);
 end;
@@ -181,7 +185,7 @@ begin
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 
-  if not TJSBuiltinSupport.TryGetConstructor(TJSValue.CreateObject(This), Result) then
+  if not TJSValue.CreateObject(This).TryGetConstructor(Result) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
 
@@ -199,9 +203,11 @@ begin
   const SourceSize = SourceKind.ElementSize;
   const TargetSize = Kind.ElementSize;
 
-  if SourceKind = Kind then
+  const IsSameKind = (SourceKind = Kind);
+  if IsSameKind then
   begin
-    if ElementCount > 0 then
+    const HasElements = (ElementCount > 0);
+    if HasElements then
       Move(SourceBytes[Source.ByteOffset], TargetBytes[0], ElementCount * TargetSize);
 
     Exit;
@@ -248,6 +254,26 @@ begin
   Result := (BufferLength - Offset) div Size;
 end;
 
+function TJSTypedArrayBuiltins.ResolveViewLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
+                                                 const Offset: Int64; const HasLength: Boolean;
+                                                 const RequestedLength: Int64): Int64;
+begin
+  if not HasLength then
+  begin
+    Result := RemainingLength(Kind, Buffer, Offset);
+    Exit;
+  end;
+
+  const IsOutside = ((Offset + (RequestedLength * Kind.ElementSize)) > Buffer.ByteLength);
+  if IsOutside then
+  begin
+    const Message = Format(LENGTH_OUT_OF_BOUNDS, [RequestedLength]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
+
+  Result := RequestedLength;
+end;
+
 function TJSTypedArrayBuiltins.CreateFromBuffer(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
                                                 const Args: TArray<TJSValue>;
                                                 const Prototype: IJSObject): IJSTypedArray;
@@ -264,19 +290,7 @@ begin
 
   TJSBuiltinSupport.RequireNotDetached(Buffer.IsDetached, Kind.ConstructorName);
 
-  if HasLength then
-  begin
-    const IsOutside = ((Offset + (NewLength * Kind.ElementSize)) > Buffer.ByteLength);
-    if IsOutside then
-    begin
-      const Message = Format(LENGTH_OUT_OF_BOUNDS, [NewLength]);
-      raise TJSErrorFactory.RangeError(Message);
-    end;
-  end
-  else
-  begin
-    NewLength := RemainingLength(Kind, Buffer, Offset);
-  end;
+  NewLength := ResolveViewLength(Kind, Buffer, Offset, HasLength, NewLength);
 
   const TypedArray = TJSTypedArrayObject.Create(Kind, Buffer, Integer(Offset), Integer(NewLength));
   TypedArray.Prototype := Prototype;
@@ -305,7 +319,7 @@ begin
   begin
     FSupport.Interpreter.ConsumeStep;
 
-    const Element = Source.GetProperty(TJSArrayLike.IndexName(Index));
+    const Element = TJSArrayLike.GetElement(Source, Index);
     Result.StoreConvertedValue(Index, Element);
   end;
 end;
@@ -408,7 +422,7 @@ begin
 
   var MapFunction: IJSFunction := nil;
   const IsMapping = not Mapper.IsUndefined;
-  if IsMapping and (not TJSBuiltinSupport.TryGetFunction(Mapper, MapFunction)) then
+  if IsMapping and (not Mapper.TryGetFunction(MapFunction)) then
     raise TJSErrorFactory.TypeError(NOT_A_FUNCTION);
 
   const Elements = OpenSourceElements(Source);

@@ -86,6 +86,7 @@ type
 implementation
 
 uses
+  JS4D.PropertyNames,
   JS4D.ObjectOperations,
   JS4D.Conversions,
   JS4D.LocaleArguments,
@@ -98,14 +99,8 @@ type
   end;
 
 const
-  METHOD_TO_STRING = 'toString';
-  METHOD_VALUE_OF = 'valueOf';
-  METHOD_TO_LOCALE_STRING = 'toLocaleString';
   METHOD_IS_PROTOTYPE_OF = 'isPrototypeOf';
   METHOD_EXEC = 'exec';
-  METHOD_STARTS_WITH = 'startsWith';
-  METHOD_ENDS_WITH = 'endsWith';
-  METHOD_INCLUDES = 'includes';
   REGEXP_SEARCH_STRING_MESSAGE = 'First argument to String.prototype.%s must not be a regular expression';
   TYPE_NAME_STRING = 'String';
   TYPE_NAME_NUMBER = 'Number';
@@ -127,7 +122,6 @@ const
   NOT_A_REGEXP_RECEIVER = 'RegExp.prototype method called on a value that is not a regular expression';
   NOT_A_REGEXP_GETTER_RECEIVER = 'RegExp.prototype.%s getter called on a value that is not a regular expression';
   FLAGS_ON_NON_OBJECT = 'RegExp.prototype.flags getter called on a value that is not an object';
-  GETTER_NAME_FORMAT = 'get %s';
   PROPERTY_FLAGS = 'flags';
   PROPERTY_DOT_ALL = 'dotAll';
   PROPERTY_GLOBAL = 'global';
@@ -387,13 +381,13 @@ begin
   if ThisValue.IsNullOrUndefined then
     raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_TO_LOCALE_STRING]));
 
-  Result := FInterpreter.InvokeMethod(ThisValue, METHOD_TO_STRING);
+  Result := FInterpreter.InvokeMethod(ThisValue, TO_STRING_METHOD);
 end;
 
 function TJSPrototypeMethods.ObjectValueOf(const This: IJSObject): TJSValue;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_VALUE_OF]));
+    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, VALUE_OF_METHOD]));
 
   Result := TJSValue.CreateObject(This);
 end;
@@ -632,7 +626,7 @@ end;
 function TJSPrototypeMethods.CallStringMethod(const This: IJSObject; const MethodName: string;
                                                  const Args: TArray<TJSValue>): TJSValue;
 begin
-  const IsValueAccessor = (MethodName = METHOD_TO_STRING) or (MethodName = METHOD_VALUE_OF);
+  const IsValueAccessor = (MethodName = TO_STRING_METHOD) or (MethodName = VALUE_OF_METHOD);
   if IsValueAccessor then
   begin
     Result := ThisToPrimitive(This, TYPE_NAME_STRING, MethodName);
@@ -683,7 +677,7 @@ begin
       Exit;
     end;
 
-    Result := TJSBuiltins.CallNumberMethod(NumberValue, METHOD_TO_STRING, []);
+    Result := TJSBuiltins.CallNumberMethod(NumberValue, TO_STRING_METHOD, []);
     Exit;
   end;
 
@@ -696,7 +690,7 @@ function TJSPrototypeMethods.CallBooleanMethod(const This: IJSObject; const Meth
 begin
   const Primitive = ThisToPrimitive(This, TYPE_NAME_BOOLEAN, MethodName);
 
-  if MethodName = METHOD_VALUE_OF then
+  if MethodName = VALUE_OF_METHOD then
     Exit(Primitive);
 
   Result := TJSValue.CreateString(Primitive.ToString);
@@ -704,7 +698,7 @@ end;
 
 procedure TJSPrototypeMethods.RegisterObjectMethods(const PrototypeObj: IJSObject);
 begin
-  DefineRawThisMethod(PrototypeObj, METHOD_TO_STRING,
+  DefineRawThisMethod(PrototypeObj, TO_STRING_METHOD,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ObjectToString(This);
@@ -716,7 +710,7 @@ begin
       Result := ObjectToLocaleString(This);
     end);
 
-  DefineIntrinsicMethod(PrototypeObj, METHOD_VALUE_OF,
+  DefineIntrinsicMethod(PrototypeObj, VALUE_OF_METHOD,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ObjectValueOf(This);
@@ -758,7 +752,7 @@ end;
 
 procedure TJSPrototypeMethods.RegisterErrorMethods(const PrototypeObj: IJSObject);
 begin
-  DefineRawThisMethod(PrototypeObj, METHOD_TO_STRING,
+  DefineRawThisMethod(PrototypeObj, TO_STRING_METHOD,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ErrorToString(This);
@@ -769,7 +763,7 @@ procedure TJSPrototypeMethods.RegisterRegExpMethods(const PrototypeObj: IJSObjec
 begin
   RegisterRegExpAccessors(PrototypeObj);
 
-  DefineMethod(PrototypeObj, METHOD_TO_STRING,
+  DefineMethod(PrototypeObj, TO_STRING_METHOD,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := RegExpToString(This);
@@ -784,7 +778,7 @@ end;
 
 procedure TJSPrototypeMethods.RegisterFunctionMethods(const PrototypeObj: IJSObject);
 begin
-  DefineMethod(PrototypeObj, METHOD_TO_STRING,
+  DefineMethod(PrototypeObj, TO_STRING_METHOD,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := FunctionToString(This);
@@ -809,7 +803,7 @@ end;
 
 procedure TJSPrototypeMethods.RegisterBooleanMethods(const PrototypeObj: IJSObject);
 begin
-  for var MethodName in [METHOD_TO_STRING, METHOD_VALUE_OF] do
+  for var MethodName in [TO_STRING_METHOD, VALUE_OF_METHOD] do
   begin
     DefineMethod(PrototypeObj, MethodName, BindBooleanMethod(MethodName));
   end;

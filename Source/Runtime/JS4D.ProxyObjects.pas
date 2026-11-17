@@ -10,7 +10,6 @@ uses
   JS4D.PropertyKey,
   JS4D.ObjectHeap,
   JS4D.Types,
-  JS4D.Errors,
   JS4D.ObjectOperations,
   JS4D.ConstructorFunction;
 
@@ -179,6 +178,20 @@ type
     class function CompleteDefinition(const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
     class function IsCompatible(const IsExtensible: Boolean; const Definition: TJSPropertyDefinition;
                                 const HasCurrent: Boolean; const Current: TJSPropertyDescriptor): Boolean; static;
+    class function IsCompatibleAccessor(const Definition: TJSPropertyDefinition;
+                                        const Current: TJSPropertyDescriptor): Boolean; static;
+    class function IsCompatibleData(const Definition: TJSPropertyDefinition;
+                                    const Current: TJSPropertyDescriptor): Boolean; static;
+    class procedure RaiseKeyError(const MessageFormat: string; const Name: TJSPropertyKey); static;
+    procedure RequireMissingDescriptorAllowed(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                              const HasTargetDescriptor: Boolean;
+                                              const TargetDescriptor: TJSPropertyDescriptor);
+    procedure RequireDefineInvariants(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                      const Definition: TJSPropertyDefinition);
+    procedure ClassifyTargetKeys(const Subject: IJSObject; const Configurable: TList<TJSPropertyKey>;
+                                 const NonConfigurable: TList<TJSPropertyKey>);
+    procedure ConsumeRequiredKeys(const Unchecked: TDictionary<string, Boolean>;
+                                  const Required: TList<TJSPropertyKey>; const MissingFormat: string);
     function KeyFromValue(const Item: TJSValue): TJSPropertyKey;
     function ReadKeyList(const Source: TJSValue): TArray<TJSPropertyKey>;
     procedure CheckOwnKeys(const Keys: TArray<TJSPropertyKey>);
@@ -319,6 +332,7 @@ type
 implementation
 
 uses
+  JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.SymbolRegistry,
   JS4D.PropertyDescriptors;
@@ -328,7 +342,6 @@ type
 
   TJSProxyShared = class
   public
-    class function IsCallable(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
     class function SameObject(const Left: IJSObject; const Right: IJSObject): Boolean; static;
     class function ObjectOrNull(const Value: IJSObject): TJSValue; static;
     class function ObjectOrUndefined(const Value: IJSObject): TJSValue; static;
@@ -432,7 +445,8 @@ end;
 
 function TJSProxyRuntime.EnterOperation: IInterface;
 begin
-  if FOperationDepth >= MAX_NESTED_OPERATIONS then
+  const ExceedsDepth = (FOperationDepth >= MAX_NESTED_OPERATIONS);
+  if ExceedsDepth then
     raise TJSErrorFactory.RangeError(OPERATIONS_TOO_DEEP);
 
   Inc(FOperationDepth);
@@ -487,7 +501,8 @@ begin
   while Supports(Current, IJSProxy, Nested) do
   begin
     Inc(Nesting);
-    if Nesting >= MAX_TARGET_NESTING then
+    const ExceedsNesting = (Nesting >= MAX_TARGET_NESTING);
+    if ExceedsNesting then
       raise TJSErrorFactory.RangeError(NESTING_TOO_DEEP);
 
     Current := Nested.GetProxyTarget;
@@ -548,8 +563,11 @@ begin
   if TrapValue.IsNullOrUndefined then
     Exit;
 
-  if not TJSProxyShared.IsCallable(TrapValue, Result.Handler) then
-    raise TJSErrorFactory.TypeError(Format(TRAP_NOT_CALLABLE, [TrapName]));
+  if not TrapValue.TryGetFunction(Result.Handler) then
+  begin
+    const Message = Format(TRAP_NOT_CALLABLE, [TrapName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.InvokeTrap(const Trap: TJSProxyTrap; const Args: TArray<TJSValue>): TJSValue;
@@ -611,6 +629,27 @@ begin
   Result.Writable := Definition.HasWritable and Definition.Writable;
 end;
 
+class function TJSProxyCore.IsCompatibleAccessor(const Definition: TJSPropertyDefinition;
+                                                 const Current: TJSPropertyDescriptor): Boolean;
+begin
+  const ChangesGetter = (Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter)));
+  const ChangesSetter = (Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter)));
+
+  Result := not (ChangesGetter or ChangesSetter);
+end;
+
+class function TJSProxyCore.IsCompatibleData(const Definition: TJSPropertyDefinition;
+                                             const Current: TJSPropertyDescriptor): Boolean;
+begin
+  if Current.Writable then
+    Exit(True);
+
+  const BecomesWritable = (Definition.HasWritable and Definition.Writable);
+  const ChangesValue = (Definition.HasValue and (not Definition.Value.SameValue(Current.Value)));
+
+  Result := not (BecomesWritable or ChangesValue);
+end;
+
 class function TJSProxyCore.IsCompatible(const IsExtensible: Boolean; const Definition: TJSPropertyDefinition;
                                          const HasCurrent: Boolean;
                                          const Current: TJSPropertyDescriptor): Boolean;
@@ -632,19 +671,16 @@ begin
     Exit(False);
 
   if Current.IsAccessor then
-  begin
-    const ChangesGetter = Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter));
-    const ChangesSetter = Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter));
-    Result := not (ChangesGetter or ChangesSetter);
-    Exit;
-  end;
+    Result := IsCompatibleAccessor(Definition, Current)
+  else
+    Result := IsCompatibleData(Definition, Current);
+end;
 
-  if Current.Writable then
-    Exit(True);
+class procedure TJSProxyCore.RaiseKeyError(const MessageFormat: string; const Name: TJSPropertyKey);
+begin
+  const Message = Format(MessageFormat, [Name.Text]);
 
-  const BecomesWritable = Definition.HasWritable and Definition.Writable;
-  const ChangesValue = Definition.HasValue and (not Definition.Value.SameValue(Current.Value));
-  Result := not (BecomesWritable or ChangesValue);
+  raise TJSErrorFactory.TypeError(Message);
 end;
 
 function TJSProxyCore.HasProperty(const Name: TJSPropertyKey): Boolean;
@@ -724,7 +760,8 @@ begin
     Exit(Subject.IsExtensible);
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]).ToBoolean;
-  if Result <> Subject.IsExtensible then
+  const IsMismatch = (Result <> Subject.IsExtensible);
+  if IsMismatch then
     raise TJSErrorFactory.TypeError(EXTENSIBLE_MISMATCH);
 end;
 
@@ -755,22 +792,37 @@ begin
   var TargetDescriptor: TJSPropertyDescriptor;
   const HasTargetDescriptor = TJSObjectOperations.TryGetOwnProperty(Subject, Name, TargetDescriptor);
 
-  const IsCompatibleResult = IsCompatible(Subject.IsExtensible, TJSProxyShared.ToDefinition(Completed),
-                                          HasTargetDescriptor, TargetDescriptor);
+  const CompletedDefinition = TJSProxyShared.ToDefinition(Completed);
+  const IsCompatibleResult = IsCompatible(Subject.IsExtensible, CompletedDefinition, HasTargetDescriptor,
+                                          TargetDescriptor);
   if not IsCompatibleResult then
-    raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_INCOMPATIBLE, [Name.Text]));
+    RaiseKeyError(DESCRIPTOR_INCOMPATIBLE, Name);
 
   if Completed.Configurable then
     Exit;
 
   const IsConfigurableInTarget = (not HasTargetDescriptor) or TargetDescriptor.Configurable;
   if IsConfigurableInTarget then
-    raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_FALSE_NON_CONFIGURABLE, [Name.Text]));
+    RaiseKeyError(DESCRIPTOR_FALSE_NON_CONFIGURABLE, Name);
 
   const ReportsNonWritable = Definition.HasWritable and (not Definition.Writable);
   const IsWritableInTarget = (not TargetDescriptor.IsAccessor) and TargetDescriptor.Writable;
   if ReportsNonWritable and IsWritableInTarget then
-    raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_FALSE_NON_WRITABLE, [Name.Text]));
+    RaiseKeyError(DESCRIPTOR_FALSE_NON_WRITABLE, Name);
+end;
+
+procedure TJSProxyCore.RequireMissingDescriptorAllowed(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                                       const HasTargetDescriptor: Boolean;
+                                                       const TargetDescriptor: TJSPropertyDescriptor);
+begin
+  if not HasTargetDescriptor then
+    Exit;
+
+  if not TargetDescriptor.Configurable then
+    RaiseKeyError(DESCRIPTOR_HIDES_NON_CONFIGURABLE, Name);
+
+  if not Subject.IsExtensible then
+    RaiseKeyError(DESCRIPTOR_HIDES_FROM_NON_EXTENSIBLE, Name);
 end;
 
 function TJSProxyCore.TryGetOwnProperty(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
@@ -784,32 +836,58 @@ begin
     Exit;
   end;
 
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const KeyValue = TJSObjectOperations.KeyToValue(Name);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, KeyValue]);
   const IsValid = TrapResult.IsObject or TrapResult.IsUndefined;
   if not IsValid then
-    raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_RESULT, [Name.Text]));
+    RaiseKeyError(DESCRIPTOR_RESULT, Name);
 
   var TargetDescriptor: TJSPropertyDescriptor;
   const HasTargetDescriptor = TJSObjectOperations.TryGetOwnProperty(Subject, Name, TargetDescriptor);
 
   if TrapResult.IsUndefined then
   begin
-    if not HasTargetDescriptor then
-      Exit(False);
-
-    if not TargetDescriptor.Configurable then
-      raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_HIDES_NON_CONFIGURABLE, [Name.Text]));
-
-    if not Subject.IsExtensible then
-      raise TJSErrorFactory.TypeError(Format(DESCRIPTOR_HIDES_FROM_NON_EXTENSIBLE, [Name.Text]));
-
-    Exit(False);
+    RequireMissingDescriptorAllowed(Subject, Name, HasTargetDescriptor, TargetDescriptor);
+    Result := False;
+    Exit;
   end;
 
   const Definition = TJSPropertyDescriptors.ToDefinition(TrapResult);
   Descriptor := CompleteDefinition(Definition);
   RequireDescriptorMatches(Subject, Name, Descriptor, Definition);
   Result := True;
+end;
+
+procedure TJSProxyCore.RequireDefineInvariants(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                               const Definition: TJSPropertyDefinition);
+begin
+  var TargetDescriptor: TJSPropertyDescriptor;
+  const HasTargetDescriptor = TJSObjectOperations.TryGetOwnProperty(Subject, Name, TargetDescriptor);
+  const SettingNonConfigurable = Definition.HasConfigurable and (not Definition.Configurable);
+
+  if not HasTargetDescriptor then
+  begin
+    if not Subject.IsExtensible then
+      RaiseKeyError(DEFINE_NON_EXTENSIBLE, Name);
+
+    if SettingNonConfigurable then
+      RaiseKeyError(DEFINE_NON_CONFIGURABLE_MISSING, Name);
+
+    Exit;
+  end;
+
+  if not IsCompatible(Subject.IsExtensible, Definition, True, TargetDescriptor) then
+    RaiseKeyError(DEFINE_INCOMPATIBLE, Name);
+
+  if SettingNonConfigurable and TargetDescriptor.Configurable then
+    RaiseKeyError(DEFINE_NON_CONFIGURABLE_MISSING, Name);
+
+  const IsNonConfigurableWritableData = (not TargetDescriptor.IsAccessor) and (not TargetDescriptor.Configurable) and
+                                        TargetDescriptor.Writable;
+  const SettingNonWritable = Definition.HasWritable and (not Definition.Writable);
+  if IsNonConfigurableWritableData and SettingNonWritable then
+    RaiseKeyError(DEFINE_NON_WRITABLE, Name);
 end;
 
 function TJSProxyCore.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
@@ -823,39 +901,13 @@ begin
     Exit;
   end;
 
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const KeyValue = TJSObjectOperations.KeyToValue(Name);
   const Described = DefinitionToObject(Definition);
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name),
-                                       Described]);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, KeyValue, Described]);
   Result := TrapResult.ToBoolean;
-  if not Result then
-    Exit;
-
-  var TargetDescriptor: TJSPropertyDescriptor;
-  const HasTargetDescriptor = TJSObjectOperations.TryGetOwnProperty(Subject, Name, TargetDescriptor);
-  const SettingNonConfigurable = Definition.HasConfigurable and (not Definition.Configurable);
-
-  if not HasTargetDescriptor then
-  begin
-    if not Subject.IsExtensible then
-      raise TJSErrorFactory.TypeError(Format(DEFINE_NON_EXTENSIBLE, [Name.Text]));
-
-    if SettingNonConfigurable then
-      raise TJSErrorFactory.TypeError(Format(DEFINE_NON_CONFIGURABLE_MISSING, [Name.Text]));
-
-    Exit;
-  end;
-
-  if not IsCompatible(Subject.IsExtensible, Definition, True, TargetDescriptor) then
-    raise TJSErrorFactory.TypeError(Format(DEFINE_INCOMPATIBLE, [Name.Text]));
-
-  if SettingNonConfigurable and TargetDescriptor.Configurable then
-    raise TJSErrorFactory.TypeError(Format(DEFINE_NON_CONFIGURABLE_MISSING, [Name.Text]));
-
-  const IsNonConfigurableWritableData = (not TargetDescriptor.IsAccessor) and (not TargetDescriptor.Configurable) and
-                                        TargetDescriptor.Writable;
-  const SettingNonWritable = Definition.HasWritable and (not Definition.Writable);
-  if IsNonConfigurableWritableData and SettingNonWritable then
-    raise TJSErrorFactory.TypeError(Format(DEFINE_NON_WRITABLE, [Name.Text]));
+  if Result then
+    RequireDefineInvariants(Subject, Name, Definition);
 end;
 
 function TJSProxyCore.GetWithReceiver(const Name: TJSPropertyKey; const Receiver: TJSValue): TJSValue;
@@ -980,7 +1032,8 @@ begin
 
   for var Position := 0 to Count - 1 do
   begin
-    Result[Position] := KeyFromValue(List.GetProperty(TJSArrayLike.IndexName(Position)));
+    const Item = List.GetProperty(TJSArrayLike.IndexName(Position));
+    Result[Position] := KeyFromValue(Item);
   end;
 end;
 
@@ -1000,54 +1053,62 @@ begin
   end;
 end;
 
+procedure TJSProxyCore.ClassifyTargetKeys(const Subject: IJSObject; const Configurable: TList<TJSPropertyKey>;
+                                          const NonConfigurable: TList<TJSPropertyKey>);
+begin
+  const TargetKeys = TJSObjectOperations.OwnKeys(Subject);
+
+  for var Key in TargetKeys do
+  begin
+    var Descriptor: TJSPropertyDescriptor;
+    const IsLocked = TJSObjectOperations.TryGetOwnProperty(Subject, Key, Descriptor) and
+                     (not Descriptor.Configurable);
+    if IsLocked then
+      NonConfigurable.Add(Key)
+    else
+      Configurable.Add(Key);
+  end;
+end;
+
+procedure TJSProxyCore.ConsumeRequiredKeys(const Unchecked: TDictionary<string, Boolean>;
+                                           const Required: TList<TJSPropertyKey>; const MissingFormat: string);
+begin
+  for var Key in Required do
+  begin
+    if not Unchecked.ContainsKey(Key.Stored) then
+      RaiseKeyError(MissingFormat, Key);
+
+    Unchecked.Remove(Key.Stored);
+  end;
+end;
+
 procedure TJSProxyCore.CheckOwnKeysAgainstTarget(const Subject: IJSObject; const Keys: TArray<TJSPropertyKey>);
 begin
   const IsTargetExtensible = Subject.IsExtensible;
-  const TargetKeys = TJSObjectOperations.OwnKeys(Subject);
 
   const Unchecked = TDictionary<string, Boolean>.Create;
   const Configurable = TList<TJSPropertyKey>.Create;
   const NonConfigurable = TList<TJSPropertyKey>.Create;
   try
+    ClassifyTargetKeys(Subject, Configurable, NonConfigurable);
+
     for var Key in Keys do
     begin
       Unchecked.Add(Key.Stored, True);
     end;
 
-    for var Key in TargetKeys do
-    begin
-      var Descriptor: TJSPropertyDescriptor;
-      const IsLocked = TJSObjectOperations.TryGetOwnProperty(Subject, Key, Descriptor) and
-                       (not Descriptor.Configurable);
-      if IsLocked then
-        NonConfigurable.Add(Key)
-      else
-        Configurable.Add(Key);
-    end;
-
-    if IsTargetExtensible and (NonConfigurable.Count = 0) then
+    const NeedsNoCheck = (IsTargetExtensible and (NonConfigurable.Count = 0));
+    if NeedsNoCheck then
       Exit;
 
-    for var Key in NonConfigurable do
-    begin
-      if not Unchecked.ContainsKey(Key.Stored) then
-        raise TJSErrorFactory.TypeError(Format(KEYS_MISSING_NON_CONFIGURABLE, [Key.Text]));
-
-      Unchecked.Remove(Key.Stored);
-    end;
-
+    ConsumeRequiredKeys(Unchecked, NonConfigurable, KEYS_MISSING_NON_CONFIGURABLE);
     if IsTargetExtensible then
       Exit;
 
-    for var Key in Configurable do
-    begin
-      if not Unchecked.ContainsKey(Key.Stored) then
-        raise TJSErrorFactory.TypeError(Format(KEYS_MISSING_FROM_NON_EXTENSIBLE, [Key.Text]));
+    ConsumeRequiredKeys(Unchecked, Configurable, KEYS_MISSING_FROM_NON_EXTENSIBLE);
 
-      Unchecked.Remove(Key.Stored);
-    end;
-
-    if Unchecked.Count > 0 then
+    const HasExtraKeys = (Unchecked.Count > 0);
+    if HasExtraKeys then
       raise TJSErrorFactory.TypeError(KEYS_EXTRA_FOR_NON_EXTENSIBLE);
   finally
     NonConfigurable.Free;
@@ -1132,11 +1193,6 @@ begin
 end;
 
 { TJSProxyShared }
-
-class function TJSProxyShared.IsCallable(const Value: TJSValue; out Func: IJSFunction): Boolean;
-begin
-  Result := Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func);
-end;
 
 class function TJSProxyShared.SameObject(const Left: IJSObject; const Right: IJSObject): Boolean;
 begin
@@ -1237,7 +1293,9 @@ begin
   const Getter = TJSFunction.CreateNative(INHERITED_ACCESSOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := Proxy.GetWithReceiver(Name, TJSProxyShared.ObjectOrUndefined(This));
+      const Receiver = TJSProxyShared.ObjectOrUndefined(This);
+
+      Result := Proxy.GetWithReceiver(Name, Receiver);
     end);
 
   const Setter = TJSFunction.CreateNative(INHERITED_ACCESSOR,
@@ -1297,7 +1355,8 @@ begin
     var Definition := Default(TJSPropertyDefinition);
     Definition.HasConfigurable := True;
 
-    if Level = TJSIntegrityLevel.Frozen then
+    const IsFrozenLevel = (Level = TJSIntegrityLevel.Frozen);
+    if IsFrozenLevel then
     begin
       var Descriptor: TJSPropertyDescriptor;
       if not Core.TryGetOwnProperty(Key, Descriptor) then
@@ -1352,7 +1411,7 @@ end;
 
 function TJSProxyObject.HoldsNested: Boolean;
 begin
-  Result := TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested;
+  Result := (TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested);
 end;
 
 procedure TJSProxyObject.DetachNested(const Pending: TList<IJSObject>);
@@ -1467,7 +1526,9 @@ end;
 
 procedure TJSProxyObject.DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor);
 begin
-  FCore.DefineOwnProperty(Name, TJSProxyShared.ToDefinition(Descriptor));
+  const Definition = TJSProxyShared.ToDefinition(Descriptor);
+
+  FCore.DefineOwnProperty(Name, Definition);
 end;
 
 function TJSProxyObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
@@ -1537,7 +1598,7 @@ end;
 
 function TJSProxyFunction.HoldsNested: Boolean;
 begin
-  Result := TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested;
+  Result := (TJSProxyShared.HoldsOnlyItsTargets(FCore) or inherited HoldsNested);
 end;
 
 procedure TJSProxyFunction.DetachNested(const Pending: TList<IJSObject>);
@@ -1667,7 +1728,9 @@ begin
     Exit;
   end;
 
-  FCore.DefineOwnProperty(Name, TJSProxyShared.ToDefinition(Descriptor));
+  const Definition = TJSProxyShared.ToDefinition(Descriptor);
+
+  FCore.DefineOwnProperty(Name, Definition);
 end;
 
 function TJSProxyFunction.DefineOwnProperty(const Name: TJSPropertyKey;

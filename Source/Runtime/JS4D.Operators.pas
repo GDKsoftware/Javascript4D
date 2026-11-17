@@ -15,7 +15,6 @@ type
   TJSOperators = class
   private
     const
-      TWO_POW_32 = 4294967296.0;
       SHIFT_COUNT_MASK = 31;
 
 
@@ -35,7 +34,6 @@ type
 
   public
     class function ToPrimitive(const Value: TJSValue): TJSValue; static;
-    class function ToNumber(const Value: TJSValue): Double; static;
     class function ToUint32(const Value: TJSValue): Cardinal; static;
     class function ToInt32(const Value: TJSValue): Integer; static;
     class function BinaryOperatorFor(const AssignmentOperator: TJSAssignmentOperator): TJSBinaryOperator; static;
@@ -44,6 +42,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Conversions;
 
 const
   NO_BINARY_FORM = 'Assignment operator has no binary form: %d';
@@ -57,22 +58,9 @@ begin
   Result := Value.ToPrimitiveWithHint(TJSPrimitiveHint.Default);
 end;
 
-class function TJSOperators.ToNumber(const Value: TJSValue): Double;
-begin
-  Result := Value.ToPrimitive(False).ToNumber;
-end;
-
 class function TJSOperators.ToUint32(const Value: TJSValue): Cardinal;
 begin
-  const Number = ToNumber(Value);
-
-  const IsFiniteNumber = not (IsNaN(Number) or IsInfinite(Number));
-  if not IsFiniteNumber then
-    Exit(0);
-
-  const Whole = Int(Number);
-  const Wrapped = Whole - Floor(Whole / TWO_POW_32) * TWO_POW_32;
-  Result := Cardinal(Trunc(Wrapped));
+  Result := Cardinal(TJSConversions.ToUint32(Value));
 end;
 
 class function TJSOperators.ToInt32(const Value: TJSValue): Integer;
@@ -103,8 +91,8 @@ end;
 class function TJSOperators.ApplyArithmetic(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                                             const Right: TJSValue): TJSValue;
 begin
-  const LeftNumber = ToNumber(Left);
-  const RightNumber = ToNumber(Right);
+  const LeftNumber = TJSConversions.ToNumber(Left);
+  const RightNumber = TJSConversions.ToNumber(Right);
 
   var Outcome: Double;
   case BinaryOperator of

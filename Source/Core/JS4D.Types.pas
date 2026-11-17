@@ -18,6 +18,11 @@ const
   TO_STRING_METHOD = 'toString';
   JOIN_METHOD = 'join';
   LENGTH_PROPERTY = 'length';
+  ARRAY_SEPARATOR = ',';
+  MAX_SAFE_INTEGER = 9007199254740991.0;
+  MAX_SAFE_INTEGER_COUNT = 9007199254740991;
+  UINT32_RANGE = 4294967296.0;
+  MAX_ARRAY_LENGTH = 4294967295;
   UNSUPPORTED_VALUE_TYPE_MESSAGE = 'Unsupported value type: %d';
 
 type
@@ -142,6 +147,8 @@ type
     function IsString: Boolean;
     function IsObject: Boolean;
     function IsFunction: Boolean;
+    function TryGetFunction(out Func: IJSFunction): Boolean;
+    function TryGetConstructor(out Func: IJSFunction): Boolean;
     function IsArray: Boolean;
     function IsSymbol: Boolean;
     function IsNonFunctionObject: Boolean;
@@ -292,6 +299,21 @@ type
     function TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
   end;
 
+  TJSArrayElementEnumerator = record
+  private
+    FSource: IJSArray;
+    FPosition: Integer;
+
+    function GetCurrent: TJSValue;
+
+  public
+    constructor Create(const Source: IJSArray);
+
+    function MoveNext: Boolean;
+
+    property Current: TJSValue read GetCurrent;
+  end;
+
   IJSArray = interface(IJSObject)
     ['{B2C3D4E5-F6A7-8901-BCDE-F23456789012}']
     function GetLength: Integer;
@@ -304,6 +326,7 @@ type
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
     function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
+    function GetEnumerator: TJSArrayElementEnumerator;
     property Length: Integer read GetLength;
     property LogicalLength: Int64 read GetLogicalLength;
     property Elements[const Index: Integer]: TJSValue read GetElement write SetElement; default;
@@ -861,7 +884,6 @@ const
   HINT_STRING = 'string';
   OBJECT_STRING = '[object Object]';
   FUNCTION_STRING = '[object Function]';
-  ARRAY_SEPARATOR = ',';
   CLASS_NAME_STRING = 'String';
   CLASS_NAME_NUMBER = 'Number';
   CLASS_NAME_BOOLEAN = 'Boolean';
@@ -1120,6 +1142,33 @@ end;
 function TJSValue.IsFunction: Boolean;
 begin
   Result := (FValueType = TJSValueType.Function_);
+end;
+
+constructor TJSArrayElementEnumerator.Create(const Source: IJSArray);
+begin
+  FSource := Source;
+  FPosition := -1;
+end;
+
+function TJSArrayElementEnumerator.MoveNext: Boolean;
+begin
+  Inc(FPosition);
+  Result := (FPosition < FSource.Length);
+end;
+
+function TJSArrayElementEnumerator.GetCurrent: TJSValue;
+begin
+  Result := FSource[FPosition];
+end;
+
+function TJSValue.TryGetFunction(out Func: IJSFunction): Boolean;
+begin
+  Result := IsFunction and Supports(ToObject, IJSFunction, Func);
+end;
+
+function TJSValue.TryGetConstructor(out Func: IJSFunction): Boolean;
+begin
+  Result := TryGetFunction(Func) and Func.IsConstructor;
 end;
 
 function TJSValue.IsArray: Boolean;
@@ -2648,16 +2697,16 @@ begin
 
   if Current.IsAccessor then
   begin
-    const ChangesGetter = Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter));
-    const ChangesSetter = Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter));
+    const ChangesGetter = (Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter)));
+    const ChangesSetter = (Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter)));
     Exit(not (ChangesGetter or ChangesSetter));
   end;
 
   if Current.Writable then
     Exit(True);
 
-  const BecomesWritable = Definition.HasWritable and Definition.Writable;
-  const ChangesValue = Definition.HasValue and (not Definition.Value.SameValue(Current.Value));
+  const BecomesWritable = (Definition.HasWritable and Definition.Writable);
+  const ChangesValue = (Definition.HasValue and (not Definition.Value.SameValue(Current.Value)));
   Result := not (BecomesWritable or ChangesValue);
 end;
 

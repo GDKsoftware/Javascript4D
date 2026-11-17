@@ -57,7 +57,8 @@ end;
 
 function TJSStringIterator.NextResult: TJSValue;
 begin
-  if FPosition > Length(FText) then
+  const IsExhausted = (FPosition > Length(FText));
+  if IsExhausted then
   begin
     Result := TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True);
     Exit;

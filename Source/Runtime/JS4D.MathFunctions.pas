@@ -18,7 +18,6 @@ type
       LARGEST_EXPONENT_FOR_EXP = 709.782712893384;
       LARGEST_EXPONENT_FOR_COSH = 710.4758600739439;
       LARGEST_EXPONENT_FOR_TANH = 20.0;
-      LARGEST_SAFE_INTEGER = 9007199254740991.0;
       SMALLEST_NORMAL_SINGLE = 1.1754943508222875e-38;
       SMALLEST_SINGLE_STEP = 1.401298464324817e-45;
       DROPPED_MANTISSA_BITS = MANTISSA_BITS - SINGLE_MANTISSA_BITS;
@@ -78,6 +77,7 @@ type
 implementation
 
 uses
+  JS4D.Types,
   System.SysUtils,
   System.Math;
 
@@ -725,7 +725,7 @@ end;
 
 class function TJSMathFunctions.IsSafeInteger(const Value: Double): Boolean;
 begin
-  Result := (IsInteger(Value) and (Abs(Value) <= LARGEST_SAFE_INTEGER));
+  Result := (IsInteger(Value) and (Abs(Value) <= MAX_SAFE_INTEGER));
 end;
 
 end.

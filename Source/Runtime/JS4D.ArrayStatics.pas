@@ -37,6 +37,7 @@ type
       METHOD_OF = 'of';
       METHOD_FROM = 'from';
       MAPPER_NOT_A_FUNCTION = 'Array.from: when provided, the map function must be a function';
+      UNSUPPORTED_METHOD = 'Unsupported Array static method: %s';
       SOURCE_NOT_COERCIBLE = 'Array.from requires an array-like or iterable object';
 
     class function CreateTarget(const ThisObj: IJSObject; const ConstructorArgs: TArray<TJSValue>;
@@ -76,30 +77,33 @@ end;
 class function TJSArrayStatics.Call(const MethodName: string; const ThisObj: IJSObject;
                                     const Args: TArray<TJSValue>; const Context: TJSArrayStaticsContext): TJSValue;
 begin
-  if MethodName = METHOD_OF then
+  const IsOf = (MethodName = METHOD_OF);
+  if IsOf then
   begin
     Result := ArrayOf(ThisObj, Args, Context);
     Exit;
   end;
 
-  if MethodName = METHOD_FROM then
+  const IsFrom = (MethodName = METHOD_FROM);
+  if IsFrom then
   begin
     Result := ArrayFrom(ThisObj, Args, Context);
     Exit;
   end;
 
-  raise ENotSupportedException.CreateFmt('Unsupported Array static method: %s', [MethodName]);
+  raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [MethodName]);
 end;
 
 class function TJSArrayStatics.CreateTarget(const ThisObj: IJSObject; const ConstructorArgs: TArray<TJSValue>;
                                             const Context: TJSArrayStaticsContext): IJSObject;
 begin
   var Constructor_: IJSFunction;
-  const IsConstructor = Supports(ThisObj, IJSFunction, Constructor_) and Constructor_.IsConstructor;
-  if IsConstructor then
+  const ThisValue = TJSValue.CreateObject(ThisObj);
+  if ThisValue.TryGetConstructor(Constructor_) then
   begin
     const Constructed = Context.Construct(Constructor_, ConstructorArgs);
-    Exit(Constructed.ToObject);
+    Result := Constructed.ToObject;
+    Exit;
   end;
 
   const Created = TJSArray.Create;
@@ -122,8 +126,9 @@ begin
   end;
 
   const Definition = TJSPropertyDefinition.ForDataProperty(Value);
+  const ElementName = TJSArrayLike.IndexName(Index);
 
-  TJSPropertyDescriptors.Define(Target, TJSArrayLike.IndexName(Index), Definition, Context.Limits);
+  TJSPropertyDescriptors.Define(Target, ElementName, Definition, Context.Limits);
 end;
 
 class function TJSArrayStatics.ArrayOf(const ThisObj: IJSObject; const Args: TArray<TJSValue>;
@@ -146,7 +151,8 @@ class function TJSArrayStatics.ArrayFrom(const ThisObj: IJSObject; const Args: T
                                          const Context: TJSArrayStaticsContext): TJSValue;
 begin
   const Items = TJSArrayLike.Argument(Args, 0);
-  const Mapper = RequireMapper(TJSArrayLike.Argument(Args, 1));
+  const MapperArgument = TJSArrayLike.Argument(Args, 1);
+  const Mapper = RequireMapper(MapperArgument);
   const ThisArg = TJSArrayLike.Argument(Args, 2);
 
   if Items.IsNullOrUndefined then
@@ -169,8 +175,7 @@ begin
   if MapFunction.IsUndefined then
     Exit;
 
-  const IsCallable = MapFunction.IsFunction and Supports(MapFunction.ToObject, IJSFunction, Result);
-  if not IsCallable then
+  if not MapFunction.TryGetFunction(Result) then
     raise TJSErrorFactory.TypeError(MAPPER_NOT_A_FUNCTION);
 end;
 
@@ -237,7 +242,8 @@ begin
 
   for var Index: Int64 := 0 to Count - 1 do
   begin
-    const Item = Source.GetProperty(TJSArrayLike.IndexName(Index));
+    const ElementName = TJSArrayLike.IndexName(Index);
+    const Item = Source.GetProperty(ElementName);
     const Mapped = MapItem(Mapper, Item, Index, ThisArg, Context);
     DefineElement(Target, Index, Mapped, Context);
   end;

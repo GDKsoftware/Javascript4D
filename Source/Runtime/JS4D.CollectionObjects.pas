@@ -178,7 +178,7 @@ end;
 
 function TJSCollectionIterator.HoldsNested: Boolean;
 begin
-  Result := Assigned(FCollection) or inherited HoldsNested;
+  Result := (Assigned(FCollection) or inherited HoldsNested);
 end;
 
 procedure TJSCollectionIterator.DetachNested(const Pending: TList<IJSObject>);

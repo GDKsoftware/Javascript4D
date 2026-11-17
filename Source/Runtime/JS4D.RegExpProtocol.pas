@@ -23,9 +23,7 @@ type
       FLAGS_PROPERTY = 'flags';
       LAST_INDEX_PROPERTY = 'lastIndex';
       INDEX_PROPERTY = 'index';
-      LENGTH_PROPERTY = 'length';
       GROUPS_PROPERTY = 'groups';
-      CONSTRUCTOR_PROPERTY = 'constructor';
       REGEXP_NAME = 'RegExp';
       TEST_NAME = 'test';
       MATCH_NAME = '[Symbol.match]';
@@ -39,13 +37,9 @@ type
       MULTILINE_FLAG = 'm';
       INITIAL_MATCH_CAPACITY = 16;
       FIRST_CAPTURE_NAME = '0';
-      MAX_ARRAY_LENGTH = 4294967295;
       THIS_NOT_AN_OBJECT = 'RegExp.prototype.%s called on a value that is not an object';
       EXEC_RESULT_INVALID = 'The result of the exec method must be an object or null';
       NOT_A_REGEXP = 'RegExp.prototype.exec called on a value that is not a regular expression';
-      CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of a regular expression must be an object or undefined';
-      SPECIES_NOT_A_CONSTRUCTOR = 'The species of a regular expression constructor must be a constructor, null or ' +
-                                  'undefined';
 
     type
       TMatchRecord = record
@@ -104,6 +98,7 @@ type
 implementation
 
 uses
+  JS4D.PropertyNames,
   JS4D.Utf16,
   JS4D.Errors,
   JS4D.Conversions,
@@ -130,15 +125,8 @@ class function TJSRegExpProtocol.AdvanceStringIndex(const Text: string; const In
 begin
   Result := Index + 1;
 
-  const HasNextUnit = (Index + 1 < Length(Text));
-  if not (IsUnicode and HasNextUnit) then
-    Exit;
-
-  const First = Ord(Text[Index + 1]);
-  const Second = Ord(Text[Index + 2]);
-  const IsSurrogatePair = InRange(First, HIGH_SURROGATE_FIRST, HIGH_SURROGATE_LAST) and
-                          InRange(Second, LOW_SURROGATE_FIRST, LOW_SURROGATE_LAST);
-  if IsSurrogatePair then
+  const SkipsPair = (IsUnicode and TJSUtf16.IsPairAt(Text, Index + 1));
+  if SkipsPair then
     Result := Index + 2;
 end;
 
@@ -494,29 +482,9 @@ end;
 
 function TJSRegExpProtocol.SpeciesConstructor(const Receiver: IJSObject): IJSFunction;
 begin
-  const DefaultConstructor = FInterpreter.GetGlobalVariable(REGEXP_NAME);
-  const ConstructorValue = Receiver.GetProperty(CONSTRUCTOR_PROPERTY);
-  if ConstructorValue.IsUndefined then
-  begin
-    Result := TJSConversions.AsFunction(DefaultConstructor);
-    Exit;
-  end;
+  const DefaultConstructor = TJSConversions.AsFunction(FInterpreter.GetGlobalVariable(REGEXP_NAME));
 
-  if not ConstructorValue.IsObject then
-    raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
-
-  const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
-  const Species = ConstructorValue.ToObject.GetProperty(SpeciesKey);
-  if Species.IsNullOrUndefined then
-  begin
-    Result := TJSConversions.AsFunction(DefaultConstructor);
-    Exit;
-  end;
-
-  Result := TJSConversions.AsFunction(Species);
-  const IsConstructor = Assigned(Result) and Result.IsConstructor;
-  if not IsConstructor then
-    raise TJSErrorFactory.TypeError(SPECIES_NOT_A_CONSTRUCTOR);
+  Result := TJSConversions.SpeciesConstructor(Receiver, DefaultConstructor);
 end;
 
 function TJSRegExpProtocol.CreateSplitter(const Species: IJSFunction; const Receiver: IJSObject;

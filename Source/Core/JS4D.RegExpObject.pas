@@ -78,7 +78,6 @@ uses
 const
   EMPTY_PATTERN_GROUP = '(?:)';
   PROP_LAST_INDEX = 'lastIndex';
-  MAX_SAFE_LAST_INDEX = 9007199254740991.0;
   LAST_INDEX_READ_ONLY = 'Cannot assign to read only property ''lastIndex''';
   PROP_INDEX = 'index';
   PROP_INPUT = 'input';
@@ -192,7 +191,7 @@ begin
   if Number.IsNaN then
     Exit(0);
 
-  const Clamped = EnsureRange(Number, 0, MAX_SAFE_LAST_INDEX);
+  const Clamped = EnsureRange(Number, 0, MAX_SAFE_INTEGER);
   Result := Trunc(Clamped);
 end;
 

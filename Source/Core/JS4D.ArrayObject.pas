@@ -83,6 +83,7 @@ type
     function HasElement(const Index: Integer): Boolean;
     procedure DeleteElement(const Index: Integer);
     function IsDenseAndMutable: Boolean;
+    function GetEnumerator: TJSArrayElementEnumerator;
 
     procedure SetProperty(const Name: TJSPropertyKey; const Value: TJSValue); override;
     procedure DeleteProperty(const Name: TJSPropertyKey); override;
@@ -105,7 +106,6 @@ uses
   JS4D.Errors;
 
 const
-  UINT32_RANGE = 4294967296.0;
   MAX_DENSE_GAP = 1024 * 1024;
 
 { TJSArrayImpl }
@@ -770,6 +770,11 @@ begin
 
   if Assigned(FHoles) then
     FHoles.Size := 0;
+end;
+
+function TJSArrayImpl.GetEnumerator: TJSArrayElementEnumerator;
+begin
+  Result := TJSArrayElementEnumerator.Create(Self);
 end;
 
 function TJSArrayImpl.GetLength: Integer;

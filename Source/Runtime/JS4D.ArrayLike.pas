@@ -19,28 +19,24 @@ type
   TJSArrayLike = class
   private
     const
-      LENGTH_PROPERTY = 'length';
-      MAX_SAFE_LENGTH = 9007199254740991.0;
-      MAX_SAFE_LENGTH_INTEGER = 9007199254740991;
-      MAX_ARRAY_LENGTH = 4294967295;
       LENGTH_EXCEEDS_SAFE_INTEGER = 'The array length would exceed 2^53 - 1';
-      CONSTRUCTOR_PROPERTY = 'constructor';
-      CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
-      SPECIES_NOT_A_CONSTRUCTOR = 'The species of an array constructor must be a constructor, null or undefined';
       COMPARER_NOT_A_FUNCTION = 'The comparison function of sort must be a function or undefined';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
-    class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: TJSPropertyKey;
-                             const IntrinsicSpeciesGetter: IJSFunction): TJSValue; static;
+    class function TryGetOwnArrayElement(const Target: IJSObject; const Index: Int64;
+                                         out Element: TJSValue): Boolean; static;
 
   public
     class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
     class function IndexName(const Index: Int64): string; static;
     class function CreateArray(const ArrayPrototype: IJSObject; const Items: TArray<TJSValue>): TJSValue; static;
-    class function ToNumber(const Value: TJSValue): Double; static;
-    class function ToInteger(const Value: TJSValue): Double; static;
     class function ToLength(const Target: IJSObject): Int64; static;
     class function RelativeIndex(const Value: TJSValue; const Count, DefaultIndex: Int64): Int64; static;
+    class function RelativeIndexArgument(const Args: TArray<TJSValue>; const Position: Integer;
+                                         const Count, DefaultIndex: Int64): Int64; static;
+    class function ToIntegerArgument(const Args: TArray<TJSValue>; const Position: Integer): Double; static;
+    class function ResolveRelative(const Relative: Double; const Count: Int64): Int64; static;
+    class function SpliceDeleteCount(const Args: TArray<TJSValue>; const Count, Start: Int64): Int64; static;
     class function TryGetElement(const Target: IJSObject; const Index: Int64; out Element: TJSValue): Boolean; static;
     class function GetElement(const Target: IJSObject; const Index: Int64): TJSValue; static;
     class procedure SetElement(const Target: IJSObject; const Index: Int64; const Value: TJSValue); static;
@@ -50,7 +46,7 @@ type
     class procedure RequireArrayLength(const Count: Int64); static;
     class procedure RequireSafeLength(const Count: Int64); static;
     class procedure RequireSortComparer(const Args: TArray<TJSValue>); static;
-    class function SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
+    class function CustomSpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
                                       const IntrinsicSpeciesGetter: IJSFunction): IJSFunction; static;
   end;
 
@@ -61,7 +57,8 @@ uses
 
 class function TJSArrayLike.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
 begin
-  if Position < Length(Args) then
+  const HasArgument = (Position < Length(Args));
+  if HasArgument then
     Result := Args[Position]
   else
     Result := TJSValue.CreateUndefined;
@@ -85,20 +82,6 @@ begin
   Result := IntToStr(Index);
 end;
 
-class function TJSArrayLike.ToNumber(const Value: TJSValue): Double;
-begin
-  Result := Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-end;
-
-class function TJSArrayLike.ToInteger(const Value: TJSValue): Double;
-begin
-  const Number = ToNumber(Value);
-  if System.Math.IsNaN(Number) then
-    Exit(0);
-
-  Result := Int(Number);
-end;
-
 class function TJSArrayLike.ToLength(const Target: IJSObject): Int64;
 begin
   var TargetArray: IJSArray;
@@ -106,8 +89,8 @@ begin
   if IsArray then
     Exit(TargetArray.LogicalLength);
 
-  const Number = ToInteger(Target.GetProperty(LENGTH_PROPERTY));
-  Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_LENGTH));
+  const Number = TJSConversions.ToIntegerOrInfinity(Target.GetProperty(LENGTH_PROPERTY));
+  Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_INTEGER));
 end;
 
 class function TJSArrayLike.RelativeIndex(const Value: TJSValue; const Count, DefaultIndex: Int64): Int64;
@@ -115,24 +98,64 @@ begin
   if Value.IsUndefined then
     Exit(DefaultIndex);
 
-  const Relative = ToInteger(Value);
-  if Relative < 0 then
+  const Relative = TJSConversions.ToIntegerOrInfinity(Value);
+
+  Result := ResolveRelative(Relative, Count);
+end;
+
+class function TJSArrayLike.RelativeIndexArgument(const Args: TArray<TJSValue>; const Position: Integer;
+                                                  const Count, DefaultIndex: Int64): Int64;
+begin
+  const Value = Argument(Args, Position);
+
+  Result := RelativeIndex(Value, Count, DefaultIndex);
+end;
+
+class function TJSArrayLike.ToIntegerArgument(const Args: TArray<TJSValue>; const Position: Integer): Double;
+begin
+  const Value = Argument(Args, Position);
+
+  Result := TJSConversions.ToIntegerOrInfinity(Value);
+end;
+
+class function TJSArrayLike.ResolveRelative(const Relative: Double; const Count: Int64): Int64;
+begin
+  const IsFromEnd = (Relative < 0);
+  if IsFromEnd then
     Result := Trunc(Max(Count + Relative, 0))
   else
     Result := Trunc(Min(Relative, Count));
 end;
 
-class function TJSArrayLike.TryGetElement(const Target: IJSObject; const Index: Int64;
-                                          out Element: TJSValue): Boolean;
+class function TJSArrayLike.TryGetOwnArrayElement(const Target: IJSObject; const Index: Int64;
+                                                  out Element: TJSValue): Boolean;
 begin
   var TargetArray: IJSArray;
   const IsArray = Supports(Target, IJSArray, TargetArray);
-  const IsOwnElement = IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index));
-  if IsOwnElement then
-  begin
+  Result := (IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index)));
+  if Result then
     Element := TargetArray[Integer(Index)];
+end;
+
+class function TJSArrayLike.SpliceDeleteCount(const Args: TArray<TJSValue>; const Count, Start: Int64): Int64;
+begin
+  const HasNoArguments = (Length(Args) = 0);
+  if HasNoArguments then
+    Exit(0);
+
+  const HasOnlyStart = (Length(Args) = 1);
+  if HasOnlyStart then
+    Exit(Count - Start);
+
+  const Requested = TJSConversions.ToIntegerOrInfinity(Args[1]);
+  Result := Trunc(Min(Max(Requested, 0), Count - Start));
+end;
+
+class function TJSArrayLike.TryGetElement(const Target: IJSObject; const Index: Int64;
+                                          out Element: TJSValue): Boolean;
+begin
+  if TryGetOwnArrayElement(Target, Index, Element) then
     Exit(True);
-  end;
 
   const Name = IndexName(Index);
   Result := Target.HasProperty(Name);
@@ -142,14 +165,8 @@ end;
 
 class function TJSArrayLike.GetElement(const Target: IJSObject; const Index: Int64): TJSValue;
 begin
-  var TargetArray: IJSArray;
-  const IsArray = Supports(Target, IJSArray, TargetArray);
-  const IsOwnElement = IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index));
-  if IsOwnElement then
-  begin
-    Result := TargetArray[Integer(Index)];
+  if TryGetOwnArrayElement(Target, Index, Result) then
     Exit;
-  end;
 
   Result := Target.GetProperty(IndexName(Index));
 end;
@@ -164,7 +181,10 @@ begin
   const Name = IndexName(Index);
   const IsLocked = Target.HasOwnProperty(Name) and (not Target.IsPropertyConfigurable(Name));
   if IsLocked then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_DELETE_PROPERTY, [Name]));
+  begin
+    const Message = Format(CANNOT_DELETE_PROPERTY, [Name]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   Target.DeleteProperty(Name);
 end;
@@ -185,13 +205,15 @@ end;
 
 class procedure TJSArrayLike.RequireArrayLength(const Count: Int64);
 begin
-  if Count > MAX_ARRAY_LENGTH then
+  const ExceedsArrayLength = (Count > MAX_ARRAY_LENGTH);
+  if ExceedsArrayLength then
     raise TJSErrorFactory.InvalidArrayLength;
 end;
 
 class procedure TJSArrayLike.RequireSafeLength(const Count: Int64);
 begin
-  if Count > MAX_SAFE_LENGTH_INTEGER then
+  const ExceedsSafeLength = (Count > MAX_SAFE_INTEGER_COUNT);
+  if ExceedsSafeLength then
     raise TJSErrorFactory.TypeError(LENGTH_EXCEEDS_SAFE_INTEGER);
 end;
 
@@ -203,23 +225,7 @@ begin
     raise TJSErrorFactory.TypeError(COMPARER_NOT_A_FUNCTION);
 end;
 
-class function TJSArrayLike.SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: TJSPropertyKey;
-                                      const IntrinsicSpeciesGetter: IJSFunction): TJSValue;
-begin
-  const ConstructorObject = ConstructorValue.ToObject;
-
-  var Descriptor: TJSPropertyDescriptor;
-  const IsIntrinsicGetter = Assigned(IntrinsicSpeciesGetter) and
-                            ConstructorObject.TryGetPropertyDescriptor(SpeciesKey, Descriptor) and
-                            Descriptor.IsAccessor and Descriptor.Getter.IsFunction and
-                            ((Descriptor.Getter.ToObject as IInterface) = (IntrinsicSpeciesGetter as IInterface));
-  if IsIntrinsicGetter then
-    Exit(ConstructorValue);
-
-  Result := ConstructorObject.GetProperty(SpeciesKey);
-end;
-
-class function TJSArrayLike.SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
+class function TJSArrayLike.CustomSpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
                                                const IntrinsicSpeciesGetter: IJSFunction): IJSFunction;
 begin
   Result := nil;
@@ -228,24 +234,7 @@ begin
   if not IsArray then
     Exit;
 
-  const ConstructorValue = Target.GetProperty(CONSTRUCTOR_PROPERTY);
-  if ConstructorValue.IsUndefined then
-    Exit;
-
-  if not ConstructorValue.IsObject then
-    raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
-
-  const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
-  const Species = SpeciesOf(ConstructorValue, SpeciesKey, IntrinsicSpeciesGetter);
-  if Species.IsNullOrUndefined then
-    Exit;
-
-  var Candidate: IJSFunction;
-  const IsConstructor = Species.IsFunction and Supports(Species.ToObject, IJSFunction, Candidate) and
-                        Candidate.IsConstructor;
-  if not IsConstructor then
-    raise TJSErrorFactory.TypeError(SPECIES_NOT_A_CONSTRUCTOR);
-
+  const Candidate = TJSConversions.SpeciesConstructor(Target, IntrinsicArray, IntrinsicSpeciesGetter);
   const IsIntrinsic = Assigned(IntrinsicArray) and ((Candidate as IInterface) = (IntrinsicArray as IInterface));
   if not IsIntrinsic then
     Result := Candidate;

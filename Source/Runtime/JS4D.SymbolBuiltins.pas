@@ -22,8 +22,6 @@ type
     const
       SYMBOL_NAME = 'Symbol';
       SYMBOL_DESCRIPTION_PREFIX = 'Symbol.';
-      METHOD_TO_STRING = 'toString';
-      METHOD_VALUE_OF = 'valueOf';
       METHOD_FOR = 'for';
       METHOD_KEY_FOR = 'keyFor';
       PROPERTY_DESCRIPTION = 'description';
@@ -119,7 +117,7 @@ begin
   const HasSymbolPrototype = ((This.Prototype as IInterface) = (Prototype as IInterface));
   const IsWrapper = Supports(This, IJSPrimitiveWrapper);
 
-  Result := HasSymbolPrototype and (not IsWrapper);
+  Result := (HasSymbolPrototype and (not IsWrapper));
 end;
 
 function TJSSymbolBuiltins.ConstructSymbol(const This: IJSObject; const Prototype: IJSObject;
@@ -206,18 +204,18 @@ end;
 
 procedure TJSSymbolBuiltins.DefinePrototypeMembers(const Prototype: IJSObject);
 begin
-  FSupport.DefineMethod(Prototype, METHOD_TO_STRING, 0,
+  FSupport.DefineMethod(Prototype, TO_STRING_METHOD, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const SymbolValue = ThisSymbolValue(This, METHOD_TO_STRING);
+      const SymbolValue = ThisSymbolValue(This, TO_STRING_METHOD);
 
       Result := TJSValue.CreateString(SymbolValue.SymbolDescriptiveString);
     end);
 
-  FSupport.DefineMethod(Prototype, METHOD_VALUE_OF, 0,
+  FSupport.DefineMethod(Prototype, VALUE_OF_METHOD, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := ThisSymbolValue(This, METHOD_VALUE_OF);
+      Result := ThisSymbolValue(This, VALUE_OF_METHOD);
     end);
 
   FSupport.DefineGetter(Prototype, PROPERTY_DESCRIPTION, GETTER_DESCRIPTION_NAME,

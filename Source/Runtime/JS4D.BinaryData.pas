@@ -138,6 +138,9 @@ type
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
     class function IsCanonicalNumber(const Name: string): Boolean; static;
     function ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
+    function KeyClassOf(const Key: TJSPropertyKey): TKeyClass;
+    function IsValidIndex(const Index: Integer): Boolean;
+    function ElementOffset(const Index: Integer): Integer;
     function IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
     function CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
     function GetKind: TJSElementKind;
@@ -178,10 +181,10 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
   JS4D.Errors;
 
 const
-  TWO_POWER_32 = 4294967296.0;
   BYTE_MAX = 255;
   HALF = 0.5;
   UNSUPPORTED_ELEMENT_KIND = 'Unsupported element kind: %d';
@@ -221,26 +224,30 @@ begin
     Exit(0);
 
   const Whole = Int(Value);
-  var Remainder := Whole - (Int(Whole / TWO_POWER_32) * TWO_POWER_32);
-  if Remainder < 0 then
-    Remainder := Remainder + TWO_POWER_32;
+  var Remainder := Whole - (Int(Whole / UINT32_RANGE) * UINT32_RANGE);
+  const IsNegativeRemainder = (Remainder < 0);
+  if IsNegativeRemainder then
+    Remainder := Remainder + UINT32_RANGE;
 
   Result := UInt32(Trunc(Remainder) and $FFFFFFFF);
 end;
 
 class function TJSElementCodec.ToClamped(const Value: Double): Byte;
 begin
-  if IsNaN(Value) or (Value <= 0) then
+  const IsNotPositive = (IsNaN(Value) or (Value <= 0));
+  if IsNotPositive then
     Exit(0);
 
-  if Value >= BYTE_MAX then
+  const IsAboveMaximum = (Value >= BYTE_MAX);
+  if IsAboveMaximum then
     Exit(BYTE_MAX);
 
   const Lower = Floor(Value);
   const Difference = Value - Lower;
   const IsLowerEven = (Trunc(Lower) mod 2) = 0;
 
-  if (Difference < HALF) or ((Difference = HALF) and IsLowerEven) then
+  const RoundsDown = (Difference < HALF) or ((Difference = HALF) and IsLowerEven);
+  if RoundsDown then
     Result := Byte(Trunc(Lower))
   else
     Result := Byte(Trunc(Lower) + 1);
@@ -338,7 +345,7 @@ class function TJSBinaryKeys.IsElementKey(const Target: IJSObject; const Name: T
 begin
   var TypedArray: IJSTypedArray;
 
-  Result := Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsElementKey(Name);
+  Result := (Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsElementKey(Name));
 end;
 
 { TJSArrayBufferObject }
@@ -348,7 +355,8 @@ begin
   inherited Create;
 
   SetLength(FData, ByteLength);
-  if ByteLength > 0 then
+  const HasBytes = (ByteLength > 0);
+  if HasBytes then
     FillChar(FData[0], ByteLength, 0);
 end;
 
@@ -464,28 +472,22 @@ end;
 
 function TJSTypedArrayObject.ReadElement(const Index: Integer): TJSValue;
 begin
-  const IsValid = (Index >= 0) and (Index < GetLength);
-  if not IsValid then
+  if not IsValidIndex(Index) then
   begin
     Result := TJSValue.CreateUndefined;
     Exit;
   end;
 
-  const Offset = FByteOffset + (Index * FKind.ElementSize);
-  const Number = TJSElementCodec.Read(FBuffer.Bytes, Offset, FKind);
+  const Number = TJSElementCodec.Read(FBuffer.Bytes, ElementOffset(Index), FKind);
   Result := TJSValue.CreateNumber(Number);
 end;
 
 procedure TJSTypedArrayObject.StoreConvertedValue(const Index: Integer; const Value: TJSValue);
 begin
-  const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
+  const Number = TJSConversions.ToNumber(Value);
 
-  const IsValid = (Index >= 0) and (Index < GetLength);
-  if not IsValid then
-    Exit;
-
-  const Offset = FByteOffset + (Index * FKind.ElementSize);
-  TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  if IsValidIndex(Index) then
+    TJSElementCodec.Write(FBuffer.Bytes, ElementOffset(Index), FKind, Number);
 end;
 
 class function TJSTypedArrayObject.TryParsePlainIndex(const Name: string; out Index: Int64): Boolean;
@@ -554,25 +556,36 @@ begin
   Result := TKeyClass.NotNumeric;
 end;
 
-function TJSTypedArrayObject.IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
+function TJSTypedArrayObject.KeyClassOf(const Key: TJSPropertyKey): TKeyClass;
 begin
   var Index: Integer;
 
-  Result := (ClassifyKey(Name, Index) = TKeyClass.InvalidIndex);
+  Result := ClassifyKey(Key, Index);
+end;
+
+function TJSTypedArrayObject.IsValidIndex(const Index: Integer): Boolean;
+begin
+  Result := (Index >= 0) and (Index < GetLength);
+end;
+
+function TJSTypedArrayObject.ElementOffset(const Index: Integer): Integer;
+begin
+  Result := FByteOffset + (Index * FKind.ElementSize);
+end;
+
+function TJSTypedArrayObject.IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
+begin
+  Result := (KeyClassOf(Name) = TKeyClass.InvalidIndex);
 end;
 
 function TJSTypedArrayObject.IsElementKey(const Name: TJSPropertyKey): Boolean;
 begin
-  var Index: Integer;
-
-  Result := (ClassifyKey(Name, Index) = TKeyClass.ValidIndex);
+  Result := (KeyClassOf(Name) = TKeyClass.ValidIndex);
 end;
 
 function TJSTypedArrayObject.IsNumericKey(const Name: TJSPropertyKey): Boolean;
 begin
-  var Index: Integer;
-
-  Result := (ClassifyKey(Name, Index) <> TKeyClass.NotNumeric);
+  Result := (KeyClassOf(Name) <> TKeyClass.NotNumeric);
 end;
 
 function TJSTypedArrayObject.CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
@@ -630,11 +643,11 @@ begin
     Exit;
   end;
 
-  const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
+  const Number = TJSConversions.ToNumber(Value);
   const KeyClassAfterConversion = ClassifyKey(Name, Index);
   const IsStillValid = (KeyClassAfterConversion = TKeyClass.ValidIndex);
   if IsStillValid then
-    TJSElementCodec.Write(FBuffer.Bytes, FByteOffset + (Index * FKind.ElementSize), FKind, Number);
+    TJSElementCodec.Write(FBuffer.Bytes, ElementOffset(Index), FKind, Number);
 end;
 
 procedure TJSTypedArrayObject.DeleteProperty(const Name: TJSPropertyKey);

@@ -35,8 +35,6 @@ type
       BUFFER_PROPERTY = 'buffer';
       BYTE_LENGTH_PROPERTY = 'byteLength';
       BYTE_OFFSET_PROPERTY = 'byteOffset';
-      LENGTH_PROPERTY = 'length';
-      DEFAULT_SEPARATOR = ',';
       SORT_ALLOCATION_FAILED = 'Typed array too large to sort';
       UNSUPPORTED_SCAN_MODE = 'Unsupported scan mode: %d';
       TAG_GETTER_NAME = 'get [Symbol.toStringTag]';
@@ -83,11 +81,22 @@ type
     class function CompareDefault(const Left: Double; const Right: Double): Double; static;
     class function IsNegativeZero(const Value: Double): Boolean; static;
     class function NotFound(const Mode: TSearchMode): TJSValue; static;
+    class function IsMatchAt(const View: IJSTypedArray; const Index: Int64; const Target: TJSValue;
+                             const Mode: TSearchMode): Boolean; static;
+    class function BackwardStart(const Args: TArray<TJSValue>; const ElementCount: Int64): Int64; static;
+    function ReduceFrom(const This: IJSObject; const View: IJSTypedArray; const Callback: IJSFunction;
+                        const InitialValue: TJSValue; const FirstIndex: Int64; const Step: Integer): TJSValue;
     class function FirstIndex(const Offset: Double; const Count: Int64): Int64; static;
 
     procedure DefineView(const Name: string; const ParameterCount: Integer; const Method: TViewMethod);
     procedure DefineGetters;
+    procedure DefineLayoutGetters;
+    procedure DefineByteGetters;
+    procedure DefineTagGetter;
     procedure DefineIterationMethods;
+    procedure DefineScanMethods;
+    procedure DefineReduceMethods;
+    procedure DefineIteratorMethods;
     procedure DefineSearchMethods;
     procedure DefineMutatingMethods;
     procedure DefineCopyingMethods;
@@ -120,6 +129,9 @@ type
     function Reverse(const This: IJSObject; const View: IJSTypedArray): TJSValue;
     function CopyWithin(const This: IJSObject; const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue;
     function SetElements(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+    class procedure ConvertElements(const Source: IJSTypedArray; const SourceBytes: TBytes;
+                                    const SourceStart: Integer; const Target: IJSTypedArray;
+                                    const TargetStart: Integer); static;
     procedure SetFromTypedArray(const Target: IJSTypedArray; const Offset: Double; const Source: IJSTypedArray);
     procedure SetFromArrayLike(const Target: IJSTypedArray; const Offset: Double; const Source: TJSValue);
     function Slice(const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue;
@@ -190,10 +202,12 @@ begin
     Exit(-1);
   end;
 
-  if Left < Right then
+  const IsLess = (Left < Right);
+  if IsLess then
     Exit(-1);
 
-  if Left > Right then
+  const IsGreater = (Left > Right);
+  if IsGreater then
     Exit(1);
 
   const OnlyLeftNegative = IsNegativeZero(Left) and (not IsNegativeZero(Right));
@@ -209,7 +223,8 @@ end;
 
 class function TJSTypedArrayMethods.NotFound(const Mode: TSearchMode): TJSValue;
 begin
-  if Mode = TSearchMode.Includes then
+  const IsIncludesMode = (Mode = TSearchMode.Includes);
+  if IsIncludesMode then
   begin
     Result := TJSValue.CreateBoolean(False);
     Exit;
@@ -220,7 +235,8 @@ end;
 
 class function TJSTypedArrayMethods.FirstIndex(const Offset: Double; const Count: Int64): Int64;
 begin
-  if Offset >= 0 then
+  const IsNonNegative = (Offset >= 0);
+  if IsNonNegative then
   begin
     Result := Trunc(Min(Offset, Count));
     Exit;
@@ -243,19 +259,45 @@ end;
 
 function TJSTypedArrayMethods.RequireCallback(const Value: TJSValue; const MethodName: string): IJSFunction;
 begin
-  if not TJSBuiltinSupport.TryGetFunction(Value, Result) then
+  if not Value.TryGetFunction(Result) then
     raise TJSErrorFactory.TypeError(Format(CALLBACK_NOT_CALLABLE, [MethodName]));
 end;
 
 procedure TJSTypedArrayMethods.DefineGetters;
 begin
-  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, Format(GETTER_NAME_FORMAT, [BUFFER_PROPERTY]),
+  DefineLayoutGetters;
+  DefineByteGetters;
+  DefineTagGetter;
+end;
+
+procedure TJSTypedArrayMethods.DefineLayoutGetters;
+begin
+  const BufferGetterName = Format(GETTER_NAME_FORMAT, [BUFFER_PROPERTY]);
+  const LengthGetterName = Format(GETTER_NAME_FORMAT, [LENGTH_PROPERTY]);
+
+  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, BufferGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSValue.CreateObject(FBuiltins.RequireTypedArray(This).Buffer);
+      const View = FBuiltins.RequireTypedArray(This);
+
+      Result := TJSValue.CreateObject(View.Buffer);
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, Format(GETTER_NAME_FORMAT, [BYTE_LENGTH_PROPERTY]),
+  FSupport.DefineGetter(FPrototype, LENGTH_PROPERTY, LengthGetterName,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      const View = FBuiltins.RequireTypedArray(This);
+
+      Result := TJSValue.CreateNumber(View.Length);
+    end);
+end;
+
+procedure TJSTypedArrayMethods.DefineByteGetters;
+begin
+  const ByteLengthGetterName = Format(GETTER_NAME_FORMAT, [BYTE_LENGTH_PROPERTY]);
+  const ByteOffsetGetterName = Format(GETTER_NAME_FORMAT, [BYTE_OFFSET_PROPERTY]);
+
+  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, ByteLengthGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const View = FBuiltins.RequireTypedArray(This);
@@ -263,18 +305,17 @@ begin
       Result := TJSValue.CreateNumber(View.Length * View.Kind.ElementSize);
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, Format(GETTER_NAME_FORMAT, [BYTE_OFFSET_PROPERTY]),
+  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, ByteOffsetGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSValue.CreateNumber(FBuiltins.RequireTypedArray(This).ByteOffset);
-    end);
+      const View = FBuiltins.RequireTypedArray(This);
 
-  FSupport.DefineGetter(FPrototype, LENGTH_PROPERTY, Format(GETTER_NAME_FORMAT, [LENGTH_PROPERTY]),
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := TJSValue.CreateNumber(FBuiltins.RequireTypedArray(This).Length);
+      Result := TJSValue.CreateNumber(View.ByteOffset);
     end);
+end;
 
+procedure TJSTypedArrayMethods.DefineTagGetter;
+begin
   const TagKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
   FSupport.DefineGetter(FPrototype, TagKey, TAG_GETTER_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -299,10 +340,11 @@ function TJSTypedArrayMethods.At(const This: IJSObject; const View: IJSTypedArra
                                  const Args: TArray<TJSValue>): TJSValue;
 begin
   const ElementCount = View.Length;
-  const Relative = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 0));
+  const Relative = TJSArrayLike.ToIntegerArgument(Args, 0);
 
   var Position := Relative;
-  if Relative < 0 then
+  const IsFromEnd = (Relative < 0);
+  if IsFromEnd then
     Position := ElementCount + Relative;
 
   const IsOutside = (Position < 0) or (Position >= ElementCount);
@@ -443,19 +485,42 @@ begin
   end;
 end;
 
+function TJSTypedArrayMethods.ReduceFrom(const This: IJSObject; const View: IJSTypedArray;
+                                         const Callback: IJSFunction; const InitialValue: TJSValue;
+                                         const FirstIndex: Int64; const Step: Integer): TJSValue;
+begin
+  const ElementCount = View.Length;
+  const Subject = TJSValue.CreateObject(This);
+  const ThisArgument = FInterpreter.ThisObjectFor(Callback, TJSValue.CreateUndefined);
+
+  Result := InitialValue;
+
+  var Index := FirstIndex;
+  while (Index >= 0) and (Index < ElementCount) do
+  begin
+    const Element = View.ReadElement(Integer(Index));
+    const IndexValue = TJSValue.CreateNumber(Index);
+    const CallbackArgs: TArray<TJSValue> = [Result, Element, IndexValue, Subject];
+    Result := FInterpreter.CallFunction(Callback, CallbackArgs, ThisArgument);
+    Inc(Index, Step);
+  end;
+end;
+
 function TJSTypedArrayMethods.Reduce(const This: IJSObject; const View: IJSTypedArray;
                                      const Args: TArray<TJSValue>; const FromEnd: Boolean;
                                      const MethodName: string): TJSValue;
 begin
   const ElementCount = View.Length;
-  const Callback = RequireCallback(TJSArrayLike.Argument(Args, 0), MethodName);
+  const CallbackArgument = TJSArrayLike.Argument(Args, 0);
+  const Callback = RequireCallback(CallbackArgument, MethodName);
 
   const HasInitialValue = Length(Args) >= 2;
-  if (ElementCount = 0) and (not HasInitialValue) then
+  const IsEmptyWithoutInitial = (ElementCount = 0) and (not HasInitialValue);
+  if IsEmptyWithoutInitial then
     raise TJSErrorFactory.TypeError(REDUCE_EMPTY);
 
   var Step := 1;
-  var Index := 0;
+  var Index: Int64 := 0;
   if FromEnd then
   begin
     Step := -1;
@@ -469,88 +534,95 @@ begin
   end
   else
   begin
-    Accumulator := View.ReadElement(Index);
+    Accumulator := View.ReadElement(Integer(Index));
     Inc(Index, Step);
   end;
 
-  const Subject = TJSValue.CreateObject(This);
-  const ThisArgument = FInterpreter.ThisObjectFor(Callback, TJSValue.CreateUndefined);
-  while (Index >= 0) and (Index < ElementCount) do
-  begin
-    const Element = View.ReadElement(Index);
-    Accumulator := FInterpreter.CallFunction(Callback, [Accumulator, Element, TJSValue.CreateNumber(Index), Subject],
-                                             ThisArgument);
-    Inc(Index, Step);
-  end;
+  Result := ReduceFrom(This, View, Callback, Accumulator, Index, Step);
+end;
 
-  Result := Accumulator;
+class function TJSTypedArrayMethods.IsMatchAt(const View: IJSTypedArray; const Index: Int64;
+                                              const Target: TJSValue; const Mode: TSearchMode): Boolean;
+begin
+  const IsPresent = (Index < View.Length);
+  const Element = View.ReadElement(Integer(Index));
+
+  const IsIncludesMode = (Mode = TSearchMode.Includes);
+  if IsIncludesMode then
+    Result := SameValueZero(Element, Target)
+  else
+    Result := (IsPresent and Element.StrictEquals(Target));
 end;
 
 function TJSTypedArrayMethods.SearchForward(const View: IJSTypedArray; const Args: TArray<TJSValue>;
                                             const Mode: TSearchMode): TJSValue;
 begin
   const ElementCount = View.Length;
-  if ElementCount = 0 then
+  const IsEmpty = (ElementCount = 0);
+  if IsEmpty then
   begin
     Result := NotFound(Mode);
     Exit;
   end;
 
   const Target = TJSArrayLike.Argument(Args, 0);
-  const Offset = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 1));
-  if Offset = Infinity then
+  const Offset = TJSArrayLike.ToIntegerArgument(Args, 1);
+  const IsInfiniteOffset = (Offset = Infinity);
+  if IsInfiniteOffset then
   begin
     Result := NotFound(Mode);
     Exit;
   end;
 
-  const IsIncludes = (Mode = TSearchMode.Includes);
+  const IsIncludesMode = (Mode = TSearchMode.Includes);
   for var Index := FirstIndex(Offset, ElementCount) to ElementCount - 1 do
   begin
-    const IsPresent = Index < View.Length;
-    const Element = View.ReadElement(Integer(Index));
+    if not IsMatchAt(View, Index, Target, Mode) then
+      Continue;
 
-    if IsIncludes and SameValueZero(Element, Target) then
-    begin
-      Result := TJSValue.CreateBoolean(True);
-      Exit;
-    end;
-
-    if (not IsIncludes) and IsPresent and Element.StrictEquals(Target) then
-    begin
+    if IsIncludesMode then
+      Result := TJSValue.CreateBoolean(True)
+    else
       Result := TJSValue.CreateNumber(Index);
-      Exit;
-    end;
+
+    Exit;
   end;
 
   Result := NotFound(Mode);
 end;
 
+class function TJSTypedArrayMethods.BackwardStart(const Args: TArray<TJSValue>; const ElementCount: Int64): Int64;
+begin
+  var Offset: Double := ElementCount - 1;
+  const HasStartArgument = (Length(Args) > 1);
+  if HasStartArgument then
+    Offset := TJSConversions.ToIntegerOrInfinity(Args[1]);
+
+  const IsBeforeStart = (Offset = NegInfinity);
+  if IsBeforeStart then
+    Exit(-1);
+
+  const IsNonNegativeOffset = (Offset >= 0);
+  if IsNonNegativeOffset then
+    Result := Trunc(Min(Offset, ElementCount - 1))
+  else
+    Result := Trunc(ElementCount + Offset);
+end;
+
 function TJSTypedArrayMethods.SearchBackward(const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue;
 begin
   const ElementCount = View.Length;
-  const NotFound = TJSValue.CreateNumber(-1);
-  if ElementCount = 0 then
-    Exit(NotFound);
+  Result := TJSValue.CreateNumber(-1);
+
+  const IsEmpty = (ElementCount = 0);
+  if IsEmpty then
+    Exit;
 
   const Target = TJSArrayLike.Argument(Args, 0);
-  var Offset: Double := ElementCount - 1;
-  if Length(Args) > 1 then
-    Offset := TJSConversions.ToIntegerOrInfinity(Args[1]);
-
-  if Offset = NegInfinity then
-    Exit(NotFound);
-
-  var Index: Int64;
-  if Offset >= 0 then
-    Index := Trunc(Min(Offset, ElementCount - 1))
-  else
-    Index := Trunc(ElementCount + Offset);
-
+  var Index := BackwardStart(Args, ElementCount);
   while Index >= 0 do
   begin
-    const IsPresent = Index < View.Length;
-    if IsPresent and View.ReadElement(Integer(Index)).StrictEquals(Target) then
+    if IsMatchAt(View, Index, Target, TSearchMode.LastIndexOf) then
     begin
       Result := TJSValue.CreateNumber(Index);
       Exit;
@@ -558,14 +630,13 @@ begin
 
     Dec(Index);
   end;
-
-  Result := NotFound;
 end;
 
 function TJSTypedArrayMethods.Search(const View: IJSTypedArray; const Args: TArray<TJSValue>;
                                      const Mode: TSearchMode): TJSValue;
 begin
-  if Mode = TSearchMode.LastIndexOf then
+  const IsLastIndexOf = (Mode = TSearchMode.LastIndexOf);
+  if IsLastIndexOf then
     Result := SearchBackward(View, Args)
   else
     Result := SearchForward(View, Args, Mode);
@@ -576,7 +647,7 @@ begin
   const ElementCount = View.Length;
   const SeparatorArgument = TJSArrayLike.Argument(Args, 0);
 
-  var Separator: string := DEFAULT_SEPARATOR;
+  var Separator: string := ARRAY_SEPARATOR;
   if not SeparatorArgument.IsUndefined then
   begin
     const SeparatorPrimitive = SeparatorArgument.ToPrimitiveWithHint(TJSPrimitiveHint.String_);
@@ -587,7 +658,8 @@ begin
   try
     for var Index := 0 to ElementCount - 1 do
     begin
-      if Index > 0 then
+      const HasSeparator = (Index > 0);
+      if HasSeparator then
         Builder.Append(Separator);
 
       const Element = View.ReadElement(Index);
@@ -611,8 +683,9 @@ begin
   try
     for var Index := 0 to ElementCount - 1 do
     begin
-      if Index > 0 then
-        Builder.Append(DEFAULT_SEPARATOR);
+      const HasSeparator = (Index > 0);
+      if HasSeparator then
+        Builder.Append(ARRAY_SEPARATOR);
 
       const Element = View.ReadElement(Index);
       if Element.IsNullOrUndefined then
@@ -621,7 +694,7 @@ begin
       const Wrapper = FSupport.ToObject(Element);
       const MethodValue = Wrapper.GetProperty(TO_LOCALE_STRING_NAME);
       var Method: IJSFunction;
-      if not TJSBuiltinSupport.TryGetFunction(MethodValue, Method) then
+      if not MethodValue.TryGetFunction(Method) then
         raise TJSErrorFactory.TypeError(LOCALE_METHOD_MISSING);
 
       const Text = FInterpreter.CallFunction(Method, nil, Wrapper);
@@ -640,8 +713,8 @@ function TJSTypedArrayMethods.Fill(const This: IJSObject; const View: IJSTypedAr
 begin
   const ElementCount = View.Length;
   const Number = TJSArrayLike.Argument(Args, 0).ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), ElementCount, 0);
-  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), ElementCount, ElementCount);
+  const StartIndex = TJSArrayLike.RelativeIndexArgument(Args, 1, ElementCount, 0);
+  const EndIndex = TJSArrayLike.RelativeIndexArgument(Args, 2, ElementCount, ElementCount);
 
   TJSBuiltinSupport.RequireNotDetached(View.IsDetached, FILL_NAME);
 
@@ -683,12 +756,13 @@ function TJSTypedArrayMethods.CopyWithin(const This: IJSObject; const View: IJST
                                          const Args: TArray<TJSValue>): TJSValue;
 begin
   const ElementCount = View.Length;
-  const TargetIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), ElementCount, 0);
-  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), ElementCount, 0);
-  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), ElementCount, ElementCount);
+  const TargetIndex = TJSArrayLike.RelativeIndexArgument(Args, 0, ElementCount, 0);
+  const StartIndex = TJSArrayLike.RelativeIndexArgument(Args, 1, ElementCount, 0);
+  const EndIndex = TJSArrayLike.RelativeIndexArgument(Args, 2, ElementCount, ElementCount);
   const Count = Min(EndIndex - StartIndex, ElementCount - TargetIndex);
 
-  if Count > 0 then
+  const HasElementsToMove = (Count > 0);
+  if HasElementsToMove then
   begin
     TJSBuiltinSupport.RequireNotDetached(View.IsDetached, COPY_WITHIN_NAME);
 
@@ -707,7 +781,8 @@ begin
   TJSBuiltinSupport.RequireNotDetached((Target.IsDetached or Source.IsDetached), SET_NAME);
 
   const SourceLength = Source.Length;
-  if (Offset = Infinity) or ((SourceLength + Offset) > Target.Length) then
+  const ExceedsTarget = (Offset = Infinity) or ((SourceLength + Offset) > Target.Length);
+  if ExceedsTarget then
     raise TJSErrorFactory.RangeError(SOURCE_TOO_LONG);
 
   const TargetBytes = Target.Buffer.Bytes;
@@ -725,18 +800,33 @@ begin
     SourceStart := 0;
   end;
 
-  if SourceKind = TargetKind then
+  const IsSameKind = (SourceKind = TargetKind);
+  if IsSameKind then
   begin
-    if SourceLength > 0 then
+    const HasElements = (SourceLength > 0);
+    if HasElements then
       Move(SourceBytes[SourceStart], TargetBytes[TargetStart], SourceLength * SourceSize);
 
     Exit;
   end;
 
-  for var Index := 0 to SourceLength - 1 do
+  ConvertElements(Source, SourceBytes, SourceStart, Target, TargetStart);
+end;
+
+class procedure TJSTypedArrayMethods.ConvertElements(const Source: IJSTypedArray; const SourceBytes: TBytes;
+                                                     const SourceStart: Integer; const Target: IJSTypedArray;
+                                                     const TargetStart: Integer);
+begin
+  const SourceKind = Source.Kind;
+  const TargetKind = Target.Kind;
+  const SourceSize = SourceKind.ElementSize;
+  const TargetSize = TargetKind.ElementSize;
+  const TargetBytes = Target.Buffer.Bytes;
+
+  for var Index := 0 to Source.Length - 1 do
   begin
     const Number = TJSElementCodec.Read(SourceBytes, SourceStart + (Index * SourceSize), SourceKind);
-    TJSElementCodec.Write(TargetBytes, TargetStart + (Index * TargetKind.ElementSize), TargetKind, Number);
+    TJSElementCodec.Write(TargetBytes, TargetStart + (Index * TargetSize), TargetKind, Number);
   end;
 end;
 
@@ -748,13 +838,14 @@ begin
   const TargetLength = Target.Length;
   const SourceObject = FSupport.ToObject(Source);
   const SourceLength = TJSArrayLike.ToLength(SourceObject);
-  if (Offset = Infinity) or ((SourceLength + Offset) > TargetLength) then
+  const ExceedsTargetLength = (Offset = Infinity) or ((SourceLength + Offset) > TargetLength);
+  if ExceedsTargetLength then
     raise TJSErrorFactory.RangeError(SOURCE_TOO_LONG);
 
   const TargetStart = Trunc(Offset);
   for var Index := 0 to SourceLength - 1 do
   begin
-    const Element = SourceObject.GetProperty(TJSArrayLike.IndexName(Index));
+    const Element = TJSArrayLike.GetElement(SourceObject, Index);
     Target.StoreConvertedValue(Integer(TargetStart + Index), Element);
   end;
 end;
@@ -762,8 +853,9 @@ end;
 function TJSTypedArrayMethods.SetElements(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Target = FBuiltins.RequireTypedArray(This);
-  const Offset = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 1));
-  if Offset < 0 then
+  const Offset = TJSArrayLike.ToIntegerArgument(Args, 1);
+  const IsNegativeOffset = (Offset < 0);
+  if IsNegativeOffset then
     raise TJSErrorFactory.RangeError(NEGATIVE_OFFSET);
 
   const Source = TJSArrayLike.Argument(Args, 0);
@@ -819,12 +911,13 @@ end;
 function TJSTypedArrayMethods.Slice(const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue;
 begin
   const ElementCount = View.Length;
-  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), ElementCount, 0);
-  var EndIndex := TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), ElementCount, ElementCount);
+  const StartIndex = TJSArrayLike.RelativeIndexArgument(Args, 0, ElementCount, 0);
+  var EndIndex := TJSArrayLike.RelativeIndexArgument(Args, 1, ElementCount, ElementCount);
   const Count = Max(EndIndex - StartIndex, 0);
 
   const Target = FBuiltins.SpeciesCreate(View, [TJSValue.CreateNumber(Count)], SLICE_NAME);
-  if Count > 0 then
+  const HasElementsToCopy = (Count > 0);
+  if HasElementsToCopy then
   begin
     TJSBuiltinSupport.RequireNotDetached(View.IsDetached, SLICE_NAME);
 
@@ -839,8 +932,8 @@ function TJSTypedArrayMethods.Subarray(const This: IJSObject; const Args: TArray
 begin
   const View = FBuiltins.RequireTypedArray(This);
   const SourceLength = View.Length;
-  const BeginIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), SourceLength, 0);
-  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), SourceLength, SourceLength);
+  const BeginIndex = TJSArrayLike.RelativeIndexArgument(Args, 0, SourceLength, 0);
+  const EndIndex = TJSArrayLike.RelativeIndexArgument(Args, 1, SourceLength, SourceLength);
   const NewLength = Max(EndIndex - BeginIndex, 0);
   const BeginByteOffset = View.RetainedByteOffset + (BeginIndex * View.Kind.ElementSize);
 
@@ -889,7 +982,7 @@ begin
   const ComparerArgument = TJSArrayLike.Argument(Args, 0);
   var Comparer: IJSFunction := nil;
   const HasComparer = not ComparerArgument.IsUndefined;
-  if HasComparer and (not TJSBuiltinSupport.TryGetFunction(ComparerArgument, Comparer)) then
+  if HasComparer and (not ComparerArgument.TryGetFunction(Comparer)) then
     raise TJSErrorFactory.TypeError(COMPARER_NOT_CALLABLE);
 
   const View = FBuiltins.ValidateTypedArray(This, SORT_NAME);
@@ -923,7 +1016,17 @@ end;
 procedure TJSTypedArrayMethods.DefineIterationMethods;
 begin
   DefineView(AT_NAME, 1, At);
+  DefineScanMethods;
 
+  DefineView(MAP_NAME, 1, MapElements);
+  DefineView(FILTER_NAME, 1, FilterElements);
+
+  DefineReduceMethods;
+  DefineIteratorMethods;
+end;
+
+procedure TJSTypedArrayMethods.DefineScanMethods;
+begin
   DefineView(EVERY_NAME, 1,
     function(const This: IJSObject; const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -949,10 +1052,10 @@ begin
     begin
       Result := Scan(This, View, Args, TScanMode.FindIndex, FIND_INDEX_NAME);
     end);
+end;
 
-  DefineView(MAP_NAME, 1, MapElements);
-  DefineView(FILTER_NAME, 1, FilterElements);
-
+procedure TJSTypedArrayMethods.DefineReduceMethods;
+begin
   DefineView(REDUCE_NAME, 1,
     function(const This: IJSObject; const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -963,7 +1066,10 @@ begin
     begin
       Result := Reduce(This, View, Args, True, REDUCE_RIGHT_NAME);
     end);
+end;
 
+procedure TJSTypedArrayMethods.DefineIteratorMethods;
+begin
   DefineView(ENTRIES_NAME, 0,
     function(const This: IJSObject; const View: IJSTypedArray; const Args: TArray<TJSValue>): TJSValue
     begin
@@ -982,10 +1088,11 @@ begin
 
       Result := CreateIterator(This, TJSArrayIteratorKind.Values);
     end);
-  FSupport.DefineMember(FPrototype, VALUES_NAME, TJSValue.CreateObject(ValuesMethod), True);
-
+  const ValuesValue = TJSValue.CreateObject(ValuesMethod);
   const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
-  FSupport.DefineMember(FPrototype, IteratorKey, TJSValue.CreateObject(ValuesMethod), True);
+
+  FSupport.DefineMember(FPrototype, VALUES_NAME, ValuesValue, True);
+  FSupport.DefineMember(FPrototype, IteratorKey, ValuesValue, True);
 end;
 
 procedure TJSTypedArrayMethods.DefineSearchMethods;

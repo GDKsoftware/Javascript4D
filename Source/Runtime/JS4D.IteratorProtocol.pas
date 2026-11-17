@@ -12,10 +12,6 @@ uses
   JS4D.ArrayObject,
   JS4D.Errors;
 
-const
-  DONE_PROPERTY = 'done';
-  VALUE_PROPERTY = 'value';
-
 type
   IJSIteratorRecord = interface
     ['{5E2B7A14-9C3D-4F86-B1A0-6D8E3F7C2A59}']
@@ -79,8 +75,7 @@ end;
 function TJSIteratorRecord.ReadResult: IJSObject;
 begin
   var NextFunction: IJSFunction;
-  const IsCallable = FNextMethod.IsFunction and Supports(FNextMethod.ToObject, IJSFunction, NextFunction);
-  if not IsCallable then
+  if not FNextMethod.TryGetFunction(NextFunction) then
     raise TJSErrorFactory.TypeError(NEXT_NOT_CALLABLE);
 
   const Outcome = FHandler.CallFunction(NextFunction, nil, FIterator);
@@ -150,8 +145,7 @@ begin
   if ReturnMethod.IsNullOrUndefined then
     Exit;
 
-  const IsCallable = ReturnMethod.IsFunction and Supports(ReturnMethod.ToObject, IJSFunction, Result);
-  if not IsCallable then
+  if not ReturnMethod.TryGetFunction(Result) then
     raise TJSErrorFactory.TypeError(RETURN_NOT_CALLABLE);
 end;
 

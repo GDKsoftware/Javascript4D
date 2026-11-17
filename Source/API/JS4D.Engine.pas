@@ -259,7 +259,6 @@ const
   INVALID_CODE_POINT = 'Invalid code point %s';
   CHAR_CODE_MASK = $FFFF;
   FUNCTION_KEYWORD = 'function';
-  LENGTH_PROPERTY = 'length';
   FUNCTION_CALL = 'call';
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
@@ -292,7 +291,6 @@ const
   ITERATOR_NEXT = 'next';
   ITERATOR_NOT_AN_ARRAY_ITERATOR = 'next method called on an object that is not an array iterator';
   DATE_NAME = 'Date';
-  MAX_ARRAY_LENGTH = 4294967295.0;
 
 { TJSEngine }
 
@@ -744,8 +742,8 @@ end;
 
 function TJSEngine.GlobalParseInt(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const TextArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const RadixArgument = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const TextArgument = TJSArrayLike.Argument(Args, 0);
+  const RadixArgument = TJSArrayLike.Argument(Args, 1);
   const Text = FInterpreter.ToStringCoerced(TextArgument);
   const Radix = TJSOperators.ToInt32(RadixArgument);
   const Parsed = TJSNumberParse.ParseInt(Text, Radix);
@@ -755,7 +753,7 @@ end;
 
 function TJSEngine.GlobalParseFloat(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const TextArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const TextArgument = TJSArrayLike.Argument(Args, 0);
   const Text = FInterpreter.ToStringCoerced(TextArgument);
   const Parsed = TJSNumberParse.ParseFloat(Text);
 
@@ -764,8 +762,8 @@ end;
 
 function TJSEngine.GlobalIsNaN(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const Number = TJSOperators.ToNumber(Argument);
+  const Argument = TJSArrayLike.Argument(Args, 0);
+  const Number = TJSConversions.ToNumber(Argument);
 
   const IsNotANumber = System.Math.IsNaN(Number);
 
@@ -774,8 +772,8 @@ end;
 
 function TJSEngine.GlobalIsFinite(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const Number = TJSOperators.ToNumber(Argument);
+  const Argument = TJSArrayLike.Argument(Args, 0);
+  const Number = TJSConversions.ToNumber(Argument);
 
   const IsFiniteValue = TJSMathFunctions.IsFiniteNumber(Number);
 
@@ -787,7 +785,7 @@ begin
   const UriFunction = CreateBuiltinFunction(Name,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
       const Text = FInterpreter.ToStringCoerced(Argument);
       const Transformed = Transform(Text);
 
@@ -879,7 +877,7 @@ begin
   const HasArgument = (Length(Args) > 0);
   if HasArgument then
   begin
-    const Converted = TJSOperators.ToNumber(Args[0]);
+    const Converted = TJSConversions.ToNumber(Args[0]);
     NumberValue := TJSValue.CreateNumber(Converted);
   end;
 
@@ -976,7 +974,7 @@ end;
 
 function TJSEngine.ConcatenateRawStrings(const Args: TArray<TJSValue>): string;
 begin
-  const CookedArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const CookedArgument = TJSArrayLike.Argument(Args, 0);
   const Cooked = FSupport.ToObject(CookedArgument);
   const RawValue = Cooked.GetProperty(RAW_PROPERTY);
   const Raw = FSupport.ToObject(RawValue);
@@ -1122,7 +1120,7 @@ end;
 
 function TJSEngine.ConstructObject(const Args: TArray<TJSValue>; const PrototypeObject: IJSObject): TJSValue;
 begin
-  const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const Argument = TJSArrayLike.Argument(Args, 0);
 
   if Argument.IsObject then
   begin
@@ -1155,23 +1153,23 @@ end;
 
 function TJSEngine.JsonParse(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const TextArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const ReviverArgument = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const TextArgument = TJSArrayLike.Argument(Args, 0);
+  const ReviverArgument = TJSArrayLike.Argument(Args, 1);
   const JsonText = FInterpreter.ToStringCoerced(TextArgument);
 
   Result := TJSJsonReader.Read(JsonText, FInterpreter.ObjectPrototype, FInterpreter.ArrayPrototype);
 
   var Reviver: IJSFunction;
-  const HasReviver = TJSBuiltinSupport.TryGetFunction(ReviverArgument, Reviver);
+  const HasReviver = ReviverArgument.TryGetFunction(Reviver);
   if HasReviver then
     Result := TJSJsonReviver.Revive(Result, Reviver, FInterpreter.ObjectPrototype, FInterpreter.Limits);
 end;
 
 function TJSEngine.JsonStringify(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Value = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const Replacer = TJSBuiltinSupport.ArgumentAt(Args, 1);
-  const Space = TJSBuiltinSupport.ArgumentAt(Args, 2);
+  const Value = TJSArrayLike.Argument(Args, 0);
+  const Replacer = TJSArrayLike.Argument(Args, 1);
+  const Space = TJSArrayLike.Argument(Args, 2);
 
   const Writer = TJSJsonWriter.Create(FInterpreter.Limits, FInterpreter.ObjectPrototype);
   try
@@ -1261,7 +1259,7 @@ end;
 
 function TJSEngine.ArrayIsArray(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Argument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const Argument = TJSArrayLike.Argument(Args, 0);
   const IsArray = TJSObjectOperations.IsArray(Argument);
 
   Result := TJSValue.CreateBoolean(IsArray);
@@ -1433,7 +1431,7 @@ end;
 function TJSEngine.ConstructError(const ErrorType: TJSErrorType; const PrototypeObject: IJSObject;
                                   const Args: TArray<TJSValue>): TJSValue;
 begin
-  const MessageArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
+  const MessageArgument = TJSArrayLike.Argument(Args, 0);
   const HasMessage = (not MessageArgument.IsUndefined);
 
   var MessageText := EMPTY_TEXT;
@@ -1469,8 +1467,8 @@ end;
 function TJSEngine.CallRegExp(const This: IJSObject; const Args: TArray<TJSValue>;
                               const PrototypeObject: IJSObject): TJSValue;
 begin
-  const PatternArgument = TJSBuiltinSupport.ArgumentAt(Args, 0);
-  const FlagsArgument = TJSBuiltinSupport.ArgumentAt(Args, 1);
+  const PatternArgument = TJSArrayLike.Argument(Args, 0);
+  const FlagsArgument = TJSArrayLike.Argument(Args, 1);
 
   const IsPlainCall = not TJSPrototypeMethods.IsConstructCall(This, PrototypeObject);
   const PatternIsRegExp = TJSConversions.IsRegExp(PatternArgument);

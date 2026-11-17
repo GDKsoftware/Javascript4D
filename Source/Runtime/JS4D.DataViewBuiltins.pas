@@ -24,7 +24,6 @@ type
       NOT_A_BUFFER = 'First argument to DataView constructor must be an ArrayBuffer';
       OFFSET_OUT_OF_BOUNDS = 'Start offset %d is outside the bounds of the buffer';
       LENGTH_OUT_OF_BOUNDS = 'Invalid DataView length %d';
-      INCOMPATIBLE_RECEIVER = 'Method DataView.prototype.%s called on an incompatible receiver';
       ACCESS_OUT_OF_BOUNDS = 'Offset is outside the bounds of the DataView';
 
     var
@@ -58,6 +57,7 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
   JS4D.PropertyNames,
   JS4D.ArrayLike,
   System.Math,
@@ -73,21 +73,24 @@ end;
 function TJSDataViewBuiltins.RequireView(const This: IJSObject; const MethodName: string): IJSDataView;
 begin
   if not Supports(This, IJSDataView, Result) then
-    raise TJSErrorFactory.TypeError(Format(INCOMPATIBLE_RECEIVER, [MethodName]));
+  begin
+    const Message = Format(INCOMPATIBLE_RECEIVER_FORMAT, [DATA_VIEW_NAME, MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSDataViewBuiltins.RequireBuffer(const Args: TArray<TJSValue>): IJSArrayBuffer;
 begin
   const BufferArgument = TJSArrayLike.Argument(Args, 0);
 
-  const IsBuffer = BufferArgument.IsObject and Supports(BufferArgument.ToObject, IJSArrayBuffer, Result);
-  if not IsBuffer then
+  if not Supports(BufferArgument.ToObject, IJSArrayBuffer, Result) then
     raise TJSErrorFactory.TypeError(NOT_A_BUFFER);
 end;
 
 procedure TJSDataViewBuiltins.RequireOffsetWithin(const Buffer: IJSArrayBuffer; const Offset: Int64);
 begin
-  if Offset > Buffer.ByteLength then
+  const IsPastEnd = (Offset > Buffer.ByteLength);
+  if IsPastEnd then
   begin
     const Message = Format(OFFSET_OUT_OF_BOUNDS, [Offset]);
     raise TJSErrorFactory.RangeError(Message);
@@ -145,7 +148,8 @@ begin
   TJSBuiltinSupport.RequireNotDetached(View.Buffer.IsDetached, MethodName);
 
   const EndIndex = RequestIndex + Kind.ElementSize;
-  if EndIndex > View.ByteLength then
+  const IsOutOfRange = (EndIndex > View.ByteLength);
+  if IsOutOfRange then
     raise TJSErrorFactory.RangeError(ACCESS_OUT_OF_BOUNDS);
 end;
 
@@ -153,8 +157,10 @@ function TJSDataViewBuiltins.ReadViewValue(const This: IJSObject; const Args: TA
                                            const MethodName: string; const Kind: TJSElementKind): TJSValue;
 begin
   const View = RequireView(This, MethodName);
-  const RequestIndex = TJSBuiltinSupport.ToIndex(TJSArrayLike.Argument(Args, 0));
-  const IsLittleEndian = TJSArrayLike.Argument(Args, 1).ToBoolean;
+  const IndexArgument = TJSArrayLike.Argument(Args, 0);
+  const EndiannessArgument = TJSArrayLike.Argument(Args, 1);
+  const RequestIndex = TJSBuiltinSupport.ToIndex(IndexArgument);
+  const IsLittleEndian = EndiannessArgument.ToBoolean;
 
   RequireRange(View, RequestIndex, Kind, MethodName);
 
@@ -166,9 +172,12 @@ function TJSDataViewBuiltins.WriteViewValue(const This: IJSObject; const Args: T
                                             const MethodName: string; const Kind: TJSElementKind): TJSValue;
 begin
   const View = RequireView(This, MethodName);
-  const RequestIndex = TJSBuiltinSupport.ToIndex(TJSArrayLike.Argument(Args, 0));
-  const Number = TJSArrayLike.Argument(Args, 1).ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-  const IsLittleEndian = TJSArrayLike.Argument(Args, 2).ToBoolean;
+  const IndexArgument = TJSArrayLike.Argument(Args, 0);
+  const ValueArgument = TJSArrayLike.Argument(Args, 1);
+  const EndiannessArgument = TJSArrayLike.Argument(Args, 2);
+  const RequestIndex = TJSBuiltinSupport.ToIndex(IndexArgument);
+  const Number = TJSConversions.ToNumber(ValueArgument);
+  const IsLittleEndian = EndiannessArgument.ToBoolean;
 
   RequireRange(View, RequestIndex, Kind, MethodName);
 
@@ -180,13 +189,19 @@ end;
 
 procedure TJSDataViewBuiltins.DefineAccessors;
 begin
-  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, Format(GETTER_NAME_FORMAT, [BUFFER_PROPERTY]),
+  const BufferGetterName = Format(GETTER_NAME_FORMAT, [BUFFER_PROPERTY]);
+  const ByteLengthGetterName = Format(GETTER_NAME_FORMAT, [BYTE_LENGTH_PROPERTY]);
+  const ByteOffsetGetterName = Format(GETTER_NAME_FORMAT, [BYTE_OFFSET_PROPERTY]);
+
+  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, BufferGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSValue.CreateObject(RequireView(This, BUFFER_PROPERTY).Buffer);
+      const View = RequireView(This, BUFFER_PROPERTY);
+
+      Result := TJSValue.CreateObject(View.Buffer);
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, Format(GETTER_NAME_FORMAT, [BYTE_LENGTH_PROPERTY]),
+  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, ByteLengthGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const View = RequireView(This, BYTE_LENGTH_PROPERTY);
@@ -195,7 +210,7 @@ begin
       Result := TJSValue.CreateNumber(IfThen(IsDetached, 0, View.ByteLength));
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, Format(GETTER_NAME_FORMAT, [BYTE_OFFSET_PROPERTY]),
+  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, ByteOffsetGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const View = RequireView(This, BYTE_OFFSET_PROPERTY);
@@ -242,7 +257,8 @@ begin
   FPrototype := TJSObject.Create;
   FPrototype.Prototype := Interpreter.ObjectPrototype;
 
-  FConstructor := FSupport.CreateConstructor(DATA_VIEW_NAME, 1, Format(CONSTRUCTOR_REQUIRES_NEW, [DATA_VIEW_NAME]), Construct);
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [DATA_VIEW_NAME]);
+  FConstructor := FSupport.CreateConstructor(DATA_VIEW_NAME, 1, RequiresNewMessage, Construct);
   FSupport.LinkConstructor(FConstructor, FPrototype);
 
   DefineAccessors;
