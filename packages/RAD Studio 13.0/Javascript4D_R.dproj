@@ -107,6 +107,12 @@
         <DCCReference Include="..\..\Source\API\JS4D.JsonReviver.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.JsonSyntax.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.BigNatural.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.AsciiDigits.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.Binary64.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.BuiltInLocaleData.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.JsWhiteSpace.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.NumberText.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.RegExpCharacters.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberParse.pas"/>

@@ -61,6 +61,14 @@ type
     [Test]
     [TestCase('FewNames', '3')]
     [TestCase('ManyNames', '40')]
+    procedure Names_AfterRemovingTheFirstName_KeepsTheRemainingOrder(const Count: Integer);
+
+    [Test]
+    procedure ValueAt_WithPosition_ReturnsTheStoredValue;
+
+    [Test]
+    [TestCase('FewNames', '3')]
+    [TestCase('ManyNames', '40')]
     procedure AddOrSetValue_WithKnownName_ReplacesValue(const Count: Integer);
 
     [Test]
@@ -131,6 +139,29 @@ begin
   Assert.IsFalse(FMap.TryGetValue(MISSING_NAME, Value));
   Assert.IsFalse(FMap.ContainsKey(EMPTY_PREFIX));
   Assert.IsFalse(FMap.ContainsKey(EMPTY_NAME));
+end;
+
+procedure TSlotMapTests.Names_AfterRemovingTheFirstName_KeepsTheRemainingOrder(const Count: Integer);
+begin
+  AddNames(Count);
+
+  FMap.Remove(FIRST_NAME);
+
+  const Names = FMap.Names;
+  const NameCount: Integer = Length(Names);
+  Assert.AreEqual(Count - 1, NameCount);
+  for var Position := 0 to Count - 2 do
+  begin
+    Assert.AreEqual(NameOf(Position + 1), Names[Position]);
+    AssertHolds(Names[Position], Position + 1);
+  end;
+end;
+
+procedure TSlotMapTests.ValueAt_WithPosition_ReturnsTheStoredValue;
+begin
+  AddNames(3);
+
+  Assert.AreEqual(2, FMap.ValueAt(2));
 end;
 
 procedure TSlotMapTests.Names_AfterAdding_KeepsInsertionOrder(const Count: Integer);

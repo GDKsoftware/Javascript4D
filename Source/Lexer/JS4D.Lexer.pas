@@ -185,7 +185,6 @@ const
   ESCAPE_X = 'x';
 
   BACKTICK = '`';
-  MAX_CODE_POINT = $10FFFF;
   MAX_BASIC_PLANE_CODE_POINT = $FFFF;
 
   SUnterminatedTemplate = 'Unterminated template literal';

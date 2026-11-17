@@ -80,7 +80,7 @@ procedure TJSScope.Clear;
 begin
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    const Value = FVariables.SlotAt(Position)^;
+    const Value = FVariables.ValueAt(Position);
     if Value.IsFunction then
     begin
       var Func: IJSFunction;
@@ -98,7 +98,7 @@ begin
   SetLength(Result, FVariables.Count);
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result[Position] := FVariables.SlotAt(Position)^;
+    Result[Position] := FVariables.ValueAt(Position);
   end;
 end;
 
@@ -215,7 +215,7 @@ begin
 
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result.FVariables.Add(FVariables.NameAt(Position), FVariables.SlotAt(Position)^);
+    Result.FVariables.Add(FVariables.NameAt(Position), FVariables.ValueAt(Position));
   end;
 
   if Assigned(FLexicalStates) then

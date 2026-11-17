@@ -1,54 +1,66 @@
 unit JS4D.NumberParse;
 
-{$SCOPEDENUMS ON}
-
 interface
 
 type
   TJSNumberParse = class
   private
+    type
+      TSignedText = record
+        IsNegative: Boolean;
+        Unsigned: string;
+      end;
+
+      TRadixRule = record
+        IsSupported: Boolean;
+        Radix: Integer;
+        StripsPrefix: Boolean;
+      end;
+
+      TIntegerBody = record
+        Digits: string;
+        Radix: Integer;
+      end;
+
     const
-      INFINITY_TEXT = 'Infinity';
       DECIMAL_POINT = '.';
-      MINUS_SIGN = '-';
       PLUS_SIGN = '+';
-      HEX_PREFIX_LENGTH = 2;
+      ZERO_DIGIT = '0';
+      EXPONENT_MARKS = ['e', 'E'];
+      HEX_PREFIX_MARKS = ['x', 'X'];
+      OCTAL_PREFIX_MARKS = ['o', 'O'];
+      BINARY_PREFIX_MARKS = ['b', 'B'];
+      RADIX_PREFIX_LENGTH = 2;
       HEX_RADIX = 16;
       OCTAL_RADIX = 8;
       BINARY_RADIX = 2;
       NOT_PREFIXED = 0;
+      RADIX_UNSPECIFIED = 0;
       DEFAULT_RADIX = 10;
       MIN_RADIX = 2;
       MAX_RADIX = 36;
-      NOT_A_DIGIT = -1;
-      LETTER_DIGIT_OFFSET = 10;
       MAX_EXPONENT_DIGITS = 9;
       HUGE_EXPONENT = 1000000000;
 
-    class function IsAsciiDigit(const Ch: Char): Boolean; static;
-    class function DigitValue(const Ch: Char): Integer; static;
-    class function IsDigitInRadix(const Ch: Char; const Radix: Integer): Boolean; static;
     class function IsSign(const Ch: Char): Boolean; static;
     class function IsExponentMark(const Ch: Char): Boolean; static;
     class function IsHexPrefix(const Text: string; const Position: Integer): Boolean; static;
+    class function SplitSign(const Text: string): TSignedText; static;
     class function CountDigits(const Text: string; const Position: Integer): Integer; static;
     class function CountDigitsInRadix(const Text: string; const Position: Integer;
                                       const Radix: Integer): Integer; static;
     class function ExponentLength(const Text: string; const Position: Integer): Integer; static;
     class function DecimalPrefixLength(const Text: string): Integer; static;
+    class function RadixOfPrefixMark(const Mark: Char): Integer; static;
     class function PrefixedLiteralRadix(const Text: string): Integer; static;
     class function ExponentMarkPosition(const Literal: string): Integer; static;
     class function ExponentOf(const Literal: string): Integer; static;
     class function ConvertSignedLiteral(const Literal: string): Double; static;
     class function AccumulateDigits(const Digits: string; const Radix: Integer): Double; static;
-    class function TryResolveRadix(const Radix: Integer; out EffectiveRadix: Integer;
-                                   out StripsPrefix: Boolean): Boolean; static;
+    class function ResolveRadix(const Radix: Integer): TRadixRule; static;
+    class function ReadIntegerBody(const Unsigned: string; const RadixRule: TRadixRule): TIntegerBody; static;
 
   public
-    class function IsWhiteSpace(const Ch: Char): Boolean; static;
-    class function TrimStart(const Text: string): string; static;
-    class function TrimEnd(const Text: string): string; static;
-    class function Trim(const Text: string): string; static;
     class function DecimalToDouble(const Literal: string): Double; static;
     class function StringToNumber(const Text: string): Double; static;
     class function ParseInt(const Text: string; const Radix: Integer): Double; static;
@@ -60,31 +72,10 @@ implementation
 uses
   System.SysUtils,
   System.Math,
-  JS4D.DecimalConversion;
-
-class function TJSNumberParse.IsAsciiDigit(const Ch: Char): Boolean;
-begin
-  Result := (Ch >= '0') and (Ch <= '9');
-end;
-
-class function TJSNumberParse.DigitValue(const Ch: Char): Integer;
-begin
-  Result := NOT_A_DIGIT;
-
-  if IsAsciiDigit(Ch) then
-    Result := Ord(Ch) - Ord('0')
-  else if (Ch >= 'a') and (Ch <= 'z') then
-    Result := Ord(Ch) - Ord('a') + LETTER_DIGIT_OFFSET
-  else if (Ch >= 'A') and (Ch <= 'Z') then
-    Result := Ord(Ch) - Ord('A') + LETTER_DIGIT_OFFSET;
-end;
-
-class function TJSNumberParse.IsDigitInRadix(const Ch: Char; const Radix: Integer): Boolean;
-begin
-  const Digit = DigitValue(Ch);
-
-  Result := (Digit >= 0) and (Digit < Radix);
-end;
+  JS4D.AsciiDigits,
+  JS4D.DecimalConversion,
+  JS4D.JsWhiteSpace,
+  JS4D.NumberText;
 
 class function TJSNumberParse.IsSign(const Ch: Char): Boolean;
 begin
@@ -93,7 +84,7 @@ end;
 
 class function TJSNumberParse.IsExponentMark(const Ch: Char): Boolean;
 begin
-  Result := (Ch = 'e') or (Ch = 'E');
+  Result := CharInSet(Ch, EXPONENT_MARKS);
 end;
 
 class function TJSNumberParse.IsHexPrefix(const Text: string; const Position: Integer): Boolean;
@@ -102,56 +93,26 @@ begin
   if not HasRoom then
     Exit(False);
 
-  const HasZero = (Text[Position] = '0');
-  const HasMark = (Text[Position + 1] = 'x') or (Text[Position + 1] = 'X');
+  const HasZero = (Text[Position] = ZERO_DIGIT);
+  const HasMark = CharInSet(Text[Position + 1], HEX_PREFIX_MARKS);
   Result := HasZero and HasMark;
 end;
 
-class function TJSNumberParse.IsWhiteSpace(const Ch: Char): Boolean;
+class function TJSNumberParse.SplitSign(const Text: string): TSignedText;
 begin
-  case Ch of
-    #$0009, #$000A, #$000B, #$000C, #$000D, #$0020, #$00A0, #$1680,
-    #$2000..#$200A, #$2028, #$2029, #$202F, #$205F, #$3000, #$FEFF:
-      Result := True;
-  else
-    Result := False;
-  end;
-end;
+  Result.IsNegative := Text.StartsWith(MINUS_SIGN);
+  Result.Unsigned := Text;
 
-class function TJSNumberParse.TrimStart(const Text: string): string;
-begin
-  var First := 1;
-  while (First <= Length(Text)) and IsWhiteSpace(Text[First]) do
-  begin
-    Inc(First);
-  end;
-
-  Result := Text.Substring(First - 1);
-end;
-
-class function TJSNumberParse.TrimEnd(const Text: string): string;
-begin
-  var Last := Length(Text);
-  while (Last >= 1) and IsWhiteSpace(Text[Last]) do
-  begin
-    Dec(Last);
-  end;
-
-  Result := Text.Substring(0, Last);
-end;
-
-class function TJSNumberParse.Trim(const Text: string): string;
-begin
-  const WithoutLeading = TrimStart(Text);
-
-  Result := TrimEnd(WithoutLeading);
+  const HasSign = (not Text.IsEmpty) and IsSign(Text[1]);
+  if HasSign then
+    Result.Unsigned := Text.Substring(1);
 end;
 
 class function TJSNumberParse.CountDigits(const Text: string; const Position: Integer): Integer;
 begin
   Result := 0;
 
-  while (Position + Result <= Length(Text)) and IsAsciiDigit(Text[Position + Result]) do
+  while (Position + Result <= Length(Text)) and TJSAsciiDigits.IsDigit(Text[Position + Result]) do
   begin
     Inc(Result);
   end;
@@ -162,7 +123,8 @@ class function TJSNumberParse.CountDigitsInRadix(const Text: string; const Posit
 begin
   Result := 0;
 
-  while (Position + Result <= Length(Text)) and IsDigitInRadix(Text[Position + Result], Radix) do
+  while (Position + Result <= Length(Text)) and
+        TJSAsciiDigits.IsDigitInRadix(Text[Position + Result], Radix) do
   begin
     Inc(Result);
   end;
@@ -218,7 +180,13 @@ end;
 
 class function TJSNumberParse.ExponentMarkPosition(const Literal: string): Integer;
 begin
-  Result := Literal.IndexOfAny(['e', 'E']);
+  for var Index := 0 to Length(Literal) - 1 do
+  begin
+    if IsExponentMark(Literal[Index + 1]) then
+      Exit(Index);
+  end;
+
+  Result := -1;
 end;
 
 class function TJSNumberParse.ExponentOf(const Literal: string): Integer;
@@ -226,22 +194,19 @@ begin
   Result := 0;
 
   const MarkPosition = ExponentMarkPosition(Literal);
-  if MarkPosition < 0 then
+  const HasExponent = (MarkPosition >= 0);
+  if not HasExponent then
     Exit;
 
-  var Digits := Literal.Substring(MarkPosition + 1);
-  const IsNegative = Digits.StartsWith(MINUS_SIGN);
-  if IsSign(Digits[1]) then
-    Digits := Digits.Substring(1);
-
-  Digits := Digits.TrimLeft(['0']);
+  const Signed = SplitSign(Literal.Substring(MarkPosition + 1));
+  const Digits = Signed.Unsigned.TrimLeft([ZERO_DIGIT]);
   const IsHuge = (Length(Digits) > MAX_EXPONENT_DIGITS);
   if IsHuge then
     Result := HUGE_EXPONENT
   else if not Digits.IsEmpty then
     Result := StrToInt(Digits);
 
-  if IsNegative then
+  if Signed.IsNegative then
     Result := -Result;
 end;
 
@@ -249,13 +214,15 @@ class function TJSNumberParse.DecimalToDouble(const Literal: string): Double;
 begin
   var Mantissa := Literal;
   const MarkPosition = ExponentMarkPosition(Literal);
-  if MarkPosition >= 0 then
+  const HasExponent = (MarkPosition >= 0);
+  if HasExponent then
     Mantissa := Mantissa.Substring(0, MarkPosition);
 
   var IntegerPart := Mantissa;
   var FractionPart := '';
   const PointPosition = Mantissa.IndexOf(DECIMAL_POINT);
-  if PointPosition >= 0 then
+  const HasPoint = (PointPosition >= 0);
+  if HasPoint then
   begin
     IntegerPart := Mantissa.Substring(0, PointPosition);
     FractionPart := Mantissa.Substring(PointPosition + 1);
@@ -268,17 +235,15 @@ end;
 
 class function TJSNumberParse.ConvertSignedLiteral(const Literal: string): Double;
 begin
-  var Unsigned := Literal;
-  const IsNegative = Literal.StartsWith(MINUS_SIGN);
-  if IsSign(Literal[1]) then
-    Unsigned := Literal.Substring(1);
+  const Signed = SplitSign(Literal);
 
-  if Unsigned = INFINITY_TEXT then
+  const IsInfinity = (Signed.Unsigned = INFINITY_TEXT);
+  if IsInfinity then
     Result := Infinity
   else
-    Result := DecimalToDouble(Unsigned);
+    Result := DecimalToDouble(Signed.Unsigned);
 
-  if IsNegative then
+  if Signed.IsNegative then
     Result := -Result;
 end;
 
@@ -288,42 +253,54 @@ begin
 
   for var Digit in Digits do
   begin
-    Result := Result * Radix + DigitValue(Digit);
+    Result := Result * Radix + TJSAsciiDigits.DigitValue(Digit);
   end;
+end;
+
+class function TJSNumberParse.RadixOfPrefixMark(const Mark: Char): Integer;
+begin
+  if CharInSet(Mark, HEX_PREFIX_MARKS) then
+    Result := HEX_RADIX
+  else if CharInSet(Mark, OCTAL_PREFIX_MARKS) then
+    Result := OCTAL_RADIX
+  else if CharInSet(Mark, BINARY_PREFIX_MARKS) then
+    Result := BINARY_RADIX
+  else
+    Result := NOT_PREFIXED;
 end;
 
 class function TJSNumberParse.PrefixedLiteralRadix(const Text: string): Integer;
 begin
-  Result := NOT_PREFIXED;
-
-  const HasDigits = (Length(Text) > HEX_PREFIX_LENGTH);
-  const HasZeroPrefix = HasDigits and (Text[1] = '0');
+  const HasDigits = (Length(Text) > RADIX_PREFIX_LENGTH);
+  const HasZeroPrefix = HasDigits and (Text[1] = ZERO_DIGIT);
   if not HasZeroPrefix then
+    Exit(NOT_PREFIXED);
+
+  Result := RadixOfPrefixMark(Text[2]);
+  const IsPrefixed = (Result <> NOT_PREFIXED);
+  if not IsPrefixed then
     Exit;
 
-  case Text[2] of
-    'x', 'X' : Result := HEX_RADIX;
-    'o', 'O' : Result := OCTAL_RADIX;
-    'b', 'B' : Result := BINARY_RADIX;
-  else
-    Exit;
-  end;
-
-  const DigitCount = CountDigitsInRadix(Text, HEX_PREFIX_LENGTH + 1, Result);
-  const IsWholeLiteral = (HEX_PREFIX_LENGTH + DigitCount = Length(Text));
+  const DigitCount = CountDigitsInRadix(Text, RADIX_PREFIX_LENGTH + 1, Result);
+  const IsWholeLiteral = (RADIX_PREFIX_LENGTH + DigitCount = Length(Text));
   if not IsWholeLiteral then
     Result := NOT_PREFIXED;
 end;
 
 class function TJSNumberParse.StringToNumber(const Text: string): Double;
 begin
-  const Trimmed = Trim(Text);
+  const Trimmed = TJSWhiteSpace.TrimBoth(Text);
   if Trimmed.IsEmpty then
     Exit(0);
 
   const PrefixedRadix = PrefixedLiteralRadix(Trimmed);
-  if PrefixedRadix <> NOT_PREFIXED then
-    Exit(AccumulateDigits(Trimmed.Substring(HEX_PREFIX_LENGTH), PrefixedRadix));
+  const IsPrefixed = (PrefixedRadix <> NOT_PREFIXED);
+  if IsPrefixed then
+  begin
+    const PrefixedDigits = Trimmed.Substring(RADIX_PREFIX_LENGTH);
+    Result := AccumulateDigits(PrefixedDigits, PrefixedRadix);
+    Exit;
+  end;
 
   const IsWholeLiteral = (DecimalPrefixLength(Trimmed) = Length(Trimmed));
   if IsWholeLiteral then
@@ -332,66 +309,68 @@ begin
     Result := NaN;
 end;
 
-class function TJSNumberParse.TryResolveRadix(const Radix: Integer; out EffectiveRadix: Integer;
-                                              out StripsPrefix: Boolean): Boolean;
+class function TJSNumberParse.ResolveRadix(const Radix: Integer): TRadixRule;
 begin
-  EffectiveRadix := Radix;
-  StripsPrefix := True;
+  Result.Radix := Radix;
+  Result.IsSupported := True;
+  Result.StripsPrefix := True;
 
-  const IsDefault = (Radix = 0);
-  if IsDefault then
+  const IsUnspecified = (Radix = RADIX_UNSPECIFIED);
+  if IsUnspecified then
   begin
-    EffectiveRadix := DEFAULT_RADIX;
-    Exit(True);
+    Result.Radix := DEFAULT_RADIX;
+    Exit;
   end;
 
-  Result := (Radix >= MIN_RADIX) and (Radix <= MAX_RADIX);
-  StripsPrefix := (Radix = HEX_RADIX);
+  Result.IsSupported := (Radix >= MIN_RADIX) and (Radix <= MAX_RADIX);
+  Result.StripsPrefix := (Radix = HEX_RADIX);
+end;
+
+class function TJSNumberParse.ReadIntegerBody(const Unsigned: string; const RadixRule: TRadixRule): TIntegerBody;
+begin
+  Result.Digits := Unsigned;
+  Result.Radix := RadixRule.Radix;
+
+  const HasHexPrefix = RadixRule.StripsPrefix and IsHexPrefix(Unsigned, 1);
+  if HasHexPrefix then
+  begin
+    Result.Digits := Unsigned.Substring(RADIX_PREFIX_LENGTH);
+    Result.Radix := HEX_RADIX;
+  end;
 end;
 
 class function TJSNumberParse.ParseInt(const Text: string; const Radix: Integer): Double;
 begin
-  var EffectiveRadix: Integer;
-  var StripsPrefix: Boolean;
-  const IsSupportedRadix = TryResolveRadix(Radix, EffectiveRadix, StripsPrefix);
-  if not IsSupportedRadix then
+  const RadixRule = ResolveRadix(Radix);
+  if not RadixRule.IsSupported then
     Exit(NaN);
 
-  const Trimmed = TrimStart(Text);
-  const IsNegative = Trimmed.StartsWith(MINUS_SIGN);
+  const Signed = SplitSign(TJSWhiteSpace.TrimStart(Text));
+  const Body = ReadIntegerBody(Signed.Unsigned, RadixRule);
 
-  var Position := 1;
-  const HasSign = (Position <= Length(Trimmed)) and IsSign(Trimmed[Position]);
-  if HasSign then
-    Inc(Position);
-
-  const HasHexPrefix = StripsPrefix and IsHexPrefix(Trimmed, Position);
-  if HasHexPrefix then
-  begin
-    Inc(Position, HEX_PREFIX_LENGTH);
-    EffectiveRadix := HEX_RADIX;
-  end;
-
-  const DigitCount = CountDigitsInRadix(Trimmed, Position, EffectiveRadix);
-  if DigitCount = 0 then
+  const DigitCount = CountDigitsInRadix(Body.Digits, 1, Body.Radix);
+  const HasDigits = (DigitCount > 0);
+  if not HasDigits then
     Exit(NaN);
 
-  const Digits = Trimmed.Substring(Position - 1, DigitCount);
-  if EffectiveRadix = DEFAULT_RADIX then
+  const Digits = Body.Digits.Substring(0, DigitCount);
+  const IsDecimal = (Body.Radix = DEFAULT_RADIX);
+  if IsDecimal then
     Result := DecimalToDouble(Digits)
   else
-    Result := AccumulateDigits(Digits, EffectiveRadix);
+    Result := AccumulateDigits(Digits, Body.Radix);
 
-  if IsNegative then
+  if Signed.IsNegative then
     Result := -Result;
 end;
 
 class function TJSNumberParse.ParseFloat(const Text: string): Double;
 begin
-  const Trimmed = TrimStart(Text);
+  const Trimmed = TJSWhiteSpace.TrimStart(Text);
 
   const PrefixLength = DecimalPrefixLength(Trimmed);
-  if PrefixLength = 0 then
+  const HasNumber = (PrefixLength > 0);
+  if not HasNumber then
     Exit(NaN);
 
   const Prefix = Trimmed.Substring(0, PrefixLength);

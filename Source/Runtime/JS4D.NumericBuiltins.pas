@@ -27,7 +27,6 @@ type
       MAX_DOUBLE_NAME = 'MAX_VALUE';
       MIN_DOUBLE_NAME = 'MIN_VALUE';
       MIN_DOUBLE_VALUE = 5e-324;
-      NAN_NAME = 'NaN';
       POSITIVE_INFINITY_NAME = 'POSITIVE_INFINITY';
       NEGATIVE_INFINITY_NAME = 'NEGATIVE_INFINITY';
       MATH_POW_NAME = 'pow';
@@ -85,6 +84,7 @@ uses
   System.Diagnostics,
   JS4D.BuiltinSupport,
   JS4D.MathFunctions,
+  JS4D.NumberText,
   JS4D.Operators;
 
 class function TJSNumericBuiltins.NumberOf(const Value: TJSValue): Double;
@@ -349,7 +349,7 @@ class procedure TJSNumericBuiltins.RegisterNumberConstants(const NumberObject: I
 begin
   DefineConstant(NumberObject, MAX_DOUBLE_NAME, MaxDouble);
   DefineConstant(NumberObject, MIN_DOUBLE_NAME, MIN_DOUBLE_VALUE);
-  DefineConstant(NumberObject, NAN_NAME, NaN);
+  DefineConstant(NumberObject, NAN_TEXT, NaN);
   DefineConstant(NumberObject, POSITIVE_INFINITY_NAME, Infinity);
   DefineConstant(NumberObject, NEGATIVE_INFINITY_NAME, NegInfinity);
 end;

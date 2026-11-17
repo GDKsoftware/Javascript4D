@@ -98,6 +98,12 @@
         <DCCReference Include="..\Source\Core\JS4D.UriCoding.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.SlotMap.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.BigNatural.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.AsciiDigits.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.Binary64.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.BuiltInLocaleData.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.JsWhiteSpace.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.NumberText.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.RegExpCharacters.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.NumberParse.pas"/>
@@ -150,6 +156,12 @@
         <DCCReference Include="JS4D.Tests.ForOf.pas"/>
         <DCCReference Include="JS4D.Tests.ForIn.pas"/>
         <DCCReference Include="JS4D.Tests.SlotMap.pas"/>
+        <DCCReference Include="JS4D.Tests.AsciiDigits.pas"/>
+        <DCCReference Include="JS4D.Tests.BigNatural.pas"/>
+        <DCCReference Include="JS4D.Tests.BuiltInLocales.pas"/>
+        <DCCReference Include="JS4D.Tests.JsWhiteSpace.pas"/>
+        <DCCReference Include="JS4D.Tests.NumberHelpers.pas"/>
+        <DCCReference Include="JS4D.Tests.RegExpEngineLimits.pas"/>
         <DCCReference Include="JS4D.Tests.ErrorNames.pas"/>
         <DCCReference Include="JS4D.Tests.WithStatement.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>

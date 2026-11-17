@@ -4,6 +4,9 @@ unit JS4D.MathFunctions;
 
 interface
 
+uses
+  JS4D.Binary64;
+
 type
   TJSMathFunctions = class
   private
@@ -18,15 +21,7 @@ type
       LARGEST_SAFE_INTEGER = 9007199254740991.0;
       SMALLEST_NORMAL_SINGLE = 1.1754943508222875e-38;
       SMALLEST_SINGLE_STEP = 1.401298464324817e-45;
-      DROPPED_MANTISSA_BITS = 29;
-      NEGATIVE_ZERO_BITS = UInt64($8000000000000000);
-
-    type
-      TDoubleBits = record
-        case Boolean of
-          False: (AsDouble: Double);
-          True: (AsBits: UInt64);
-      end;
+      DROPPED_MANTISSA_BITS = MANTISSA_BITS - SINGLE_MANTISSA_BITS;
 
     class function IsWholeOrSpecial(const Value: Double): Boolean; static;
     class function IsOddInteger(const Value: Double): Boolean; static;
@@ -88,10 +83,10 @@ uses
 
 class function TJSMathFunctions.NegativeZero: Double;
 begin
-  var Bits: TDoubleBits;
-  Bits.AsBits := NEGATIVE_ZERO_BITS;
+  var Bits: TJSDoubleBits;
+  Bits.Bits := NEGATIVE_ZERO_BITS;
 
-  Result := Bits.AsDouble;
+  Result := Bits.Value;
 end;
 
 class function TJSMathFunctions.KeepZeroSign(const Magnitude, SignSource: Double): Double;
@@ -675,21 +670,21 @@ begin
   const KeptUnit = UInt64(1) shl DroppedBitsCount;
   const HalfUnit = KeptUnit shr 1;
 
-  var Source: TDoubleBits;
-  Source.AsDouble := Value;
+  var Source: TJSDoubleBits;
+  Source.Value := Value;
 
-  const Remainder = Source.AsBits and (KeptUnit - 1);
-  var Rounded: UInt64 := Source.AsBits - Remainder;
+  const Remainder = Source.Bits and (KeptUnit - 1);
+  var Rounded: UInt64 := Source.Bits - Remainder;
 
   const IsKeptOdd = (((Rounded shr DroppedBitsCount) and 1) = 1);
   const IsAboveHalf = ((Remainder > HalfUnit) or ((Remainder = HalfUnit) and IsKeptOdd));
   if IsAboveHalf then
     Rounded := Rounded + KeptUnit;
 
-  var Target: TDoubleBits;
-  Target.AsBits := Rounded;
+  var Target: TJSDoubleBits;
+  Target.Bits := Rounded;
 
-  Result := Target.AsDouble;
+  Result := Target.Value;
 end;
 
 class function TJSMathFunctions.RoundToSubnormalSingle(const Value: Double): Double;

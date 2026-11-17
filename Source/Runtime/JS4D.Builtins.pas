@@ -116,7 +116,8 @@ uses
   JS4D.CaseMapping,
   JS4D.ObjectOperations,
   JS4D.NumberFormat,
-  JS4D.NumberParse;
+  JS4D.NumberText,
+  JS4D.JsWhiteSpace;
 
 const
   DIGIT_COUNT_LIMIT = 1000;
@@ -804,17 +805,17 @@ end;
 
 class function TJSBuiltins.StringTrim(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(TJSNumberParse.Trim(Str));
+  Result := TJSValue.CreateString(TJSWhiteSpace.TrimBoth(Str));
 end;
 
 class function TJSBuiltins.StringTrimStart(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(TJSNumberParse.TrimStart(Str));
+  Result := TJSValue.CreateString(TJSWhiteSpace.TrimStart(Str));
 end;
 
 class function TJSBuiltins.StringTrimEnd(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSValue.CreateString(TJSNumberParse.TrimEnd(Str));
+  Result := TJSValue.CreateString(TJSWhiteSpace.TrimEnd(Str));
 end;
 
 class function TJSBuiltins.BuildPadding(const PadStr: string; const PadLength: Integer): string;
@@ -1042,7 +1043,7 @@ begin
 
   if IsNaN(Num) then
   begin
-    Result := TJSValue.CreateString('NaN');
+    Result := TJSValue.CreateString(NAN_TEXT);
     Exit;
   end;
 
@@ -1050,12 +1051,12 @@ begin
   begin
     if Num < 0 then
     begin
-      Result := TJSValue.CreateString('-Infinity');
+      Result := TJSValue.CreateString(NEGATIVE_INFINITY_TEXT);
       Exit;
     end
     else
     begin
-      Result := TJSValue.CreateString('Infinity');
+      Result := TJSValue.CreateString(INFINITY_TEXT);
       Exit;
     end;
   end;

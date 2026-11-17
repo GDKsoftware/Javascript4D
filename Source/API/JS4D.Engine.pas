@@ -235,6 +235,7 @@ uses
   JS4D.Utf16,
   JS4D.NumericBuiltins,
   JS4D.NumberParse,
+  JS4D.NumberText,
   JS4D.Errors;
 
 const
@@ -253,7 +254,6 @@ const
   FROM_CHAR_CODE_NAME = 'fromCharCode';
   FROM_CODE_POINT_NAME = 'fromCodePoint';
   INVALID_CODE_POINT = 'Invalid code point %s';
-  MAX_CODE_POINT = $10FFFF;
   CHAR_CODE_MASK = $FFFF;
   FUNCTION_KEYWORD = 'function';
   LENGTH_PROPERTY = 'length';
@@ -274,14 +274,12 @@ const
   BOOLEAN_NAME = 'Boolean';
   PARSE_INT_NAME = 'parseInt';
   PARSE_FLOAT_NAME = 'parseFloat';
-  IS_NAN_NAME = 'isNaN';
+  IS_NAN_TEXT = 'isNaN';
   IS_FINITE_NAME = 'isFinite';
   ENCODE_URI_NAME = 'encodeURI';
   DECODE_URI_NAME = 'decodeURI';
   ENCODE_URI_COMPONENT_NAME = 'encodeURIComponent';
   DECODE_URI_COMPONENT_NAME = 'decodeURIComponent';
-  NAN_NAME = 'NaN';
-  INFINITY_NAME = 'Infinity';
   UNDEFINED_NAME = 'undefined';
   GLOBAL_THIS_NAME = 'globalThis';
   ARRAY_IS_ARRAY = 'isArray';
@@ -589,8 +587,8 @@ begin
   const PositiveInfinity = TJSValue.CreateInfinity;
   const UndefinedValue = TJSValue.CreateUndefined;
 
-  FInterpreter.SetGlobalConstant(NAN_NAME, NotANumber);
-  FInterpreter.SetGlobalConstant(INFINITY_NAME, PositiveInfinity);
+  FInterpreter.SetGlobalConstant(NAN_TEXT, NotANumber);
+  FInterpreter.SetGlobalConstant(INFINITY_TEXT, PositiveInfinity);
   FInterpreter.SetGlobalConstant(UNDEFINED_NAME, UndefinedValue);
 end;
 
@@ -598,7 +596,7 @@ procedure TJSEngine.RegisterGlobalFunctions;
 begin
   FInterpreter.RegisterNativeFunction(PARSE_INT_NAME, GlobalParseInt);
   FInterpreter.RegisterNativeFunction(PARSE_FLOAT_NAME, GlobalParseFloat);
-  FInterpreter.RegisterNativeFunction(IS_NAN_NAME, GlobalIsNaN);
+  FInterpreter.RegisterNativeFunction(IS_NAN_TEXT, GlobalIsNaN);
   FInterpreter.RegisterNativeFunction(IS_FINITE_NAME, GlobalIsFinite);
 end;
 

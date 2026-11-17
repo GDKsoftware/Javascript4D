@@ -9,45 +9,35 @@ uses
   JS4D.SymbolRegistry;
 
 type
-  // The well-known symbols are shared by every engine, like the key strings that name them.
   TJSWellKnownSymbols = class
   private
     class var FSymbols: array[TJSWellKnownSymbol] of IJSSymbol;
 
     class constructor Create;
-    class destructor Destroy;
 
   public
-    class function Get(const Which: TJSWellKnownSymbol): IJSSymbol; static;
-    class function Value(const Which: TJSWellKnownSymbol): TJSValue; static;
+    class function SymbolOf(const Kind: TJSWellKnownSymbol): IJSSymbol; static;
+    class function ValueOf(const Kind: TJSWellKnownSymbol): TJSValue; static;
   end;
 
 implementation
 
 class constructor TJSWellKnownSymbols.Create;
 begin
-  for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
+  for var Kind := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
-    FSymbols[Which] := TJSSymbolImpl.CreateWellKnown(Which);
+    FSymbols[Kind] := TJSSymbolImpl.CreateWellKnown(Kind);
   end;
 end;
 
-class destructor TJSWellKnownSymbols.Destroy;
+class function TJSWellKnownSymbols.SymbolOf(const Kind: TJSWellKnownSymbol): IJSSymbol;
 begin
-  for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
-  begin
-    FSymbols[Which] := nil;
-  end;
+  Result := FSymbols[Kind];
 end;
 
-class function TJSWellKnownSymbols.Get(const Which: TJSWellKnownSymbol): IJSSymbol;
+class function TJSWellKnownSymbols.ValueOf(const Kind: TJSWellKnownSymbol): TJSValue;
 begin
-  Result := FSymbols[Which];
-end;
-
-class function TJSWellKnownSymbols.Value(const Which: TJSWellKnownSymbol): TJSValue;
-begin
-  Result := TJSValue.CreateSymbol(FSymbols[Which]);
+  Result := TJSValue.CreateSymbol(FSymbols[Kind]);
 end;
 
 end.

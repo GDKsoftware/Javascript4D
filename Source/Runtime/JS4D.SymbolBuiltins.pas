@@ -187,7 +187,7 @@ begin
   for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
     const PropertyName = WellKnownPropertyName(Which);
-    FSupport.DefineConstant(Constructor_, PropertyName, TJSWellKnownSymbols.Value(Which));
+    FSupport.DefineConstant(Constructor_, PropertyName, TJSWellKnownSymbols.ValueOf(Which));
   end;
 
   FSupport.DefineMethod(Constructor_, METHOD_FOR, 1,

@@ -1,7 +1,5 @@
 unit JS4D.UriCoding;
 
-{$SCOPEDENUMS ON}
-
 interface
 
 uses
@@ -15,9 +13,8 @@ type
       UNRESERVED_MARKS = ['-', '_', '.', '!', '~', '*', '''', '(', ')'];
       ALPHANUMERIC = ['A'..'Z', 'a'..'z', '0'..'9'];
       RESERVED = [';', '/', '?', ':', '@', '&', '=', '+', '$', ',', '#'];
-      ESCAPE_LENGTH = 3;
+      PERCENT_ESCAPE_LENGTH = 3;
       MAX_CONTINUATION_BYTES = 3;
-      LAST_CODE_POINT = $10FFFF;
       MIN_CODE_POINT_BY_CONTINUATIONS: array[1..MAX_CONTINUATION_BYTES] of Integer = ($80, $800, $10000);
 
     var
@@ -41,10 +38,8 @@ type
     function ReadContinuedCodePoint(const LeadByte: Integer): Integer;
     procedure AppendCodePoint(const Builder: TStringBuilder; const CodePoint: Integer);
 
-    class function HexValue(const Digit: Char): Integer; static;
     class function IsHighSurrogate(const Value: Integer): Boolean; static;
     class function IsLowSurrogate(const Value: Integer): Boolean; static;
-    class function Malformed: EJSURIError; static;
 
   public
     class function EncodeURI(const Text: string): string; static;
@@ -56,11 +51,8 @@ type
 implementation
 
 uses
+  JS4D.AsciiDigits,
   JS4D.Utf16;
-
-const
-  URIErrorPrefix = 'URIError: ';
-  MalformedMessage = 'URI malformed';
 
 { TJSUriCoding }
 
@@ -104,17 +96,6 @@ begin
   end;
 end;
 
-class function TJSUriCoding.HexValue(const Digit: Char): Integer;
-begin
-  case Digit of
-    '0'..'9': Result := Ord(Digit) - Ord('0');
-    'A'..'F': Result := Ord(Digit) - Ord('A') + 10;
-    'a'..'f': Result := Ord(Digit) - Ord('a') + 10;
-  else
-    Result := -1;
-  end;
-end;
-
 class function TJSUriCoding.IsHighSurrogate(const Value: Integer): Boolean;
 begin
   Result := ((Value >= HIGH_SURROGATE_FIRST) and (Value <= HIGH_SURROGATE_LAST));
@@ -123,11 +104,6 @@ end;
 class function TJSUriCoding.IsLowSurrogate(const Value: Integer): Boolean;
 begin
   Result := ((Value >= LOW_SURROGATE_FIRST) and (Value <= LOW_SURROGATE_LAST));
-end;
-
-class function TJSUriCoding.Malformed: EJSURIError;
-begin
-  Result := EJSURIError.Create(URIErrorPrefix + MalformedMessage);
 end;
 
 constructor TJSUriCoding.Create(const Text: string; const CharSet: TSysCharSet);
@@ -175,17 +151,17 @@ begin
   Inc(FPosition);
 
   if IsLowSurrogate(Result) then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 
   if not IsHighSurrogate(Result) then
     Exit;
 
   if AtEnd then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 
   const LowSurrogate = Ord(FText[FPosition]);
   if not IsLowSurrogate(LowSurrogate) then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 
   Inc(FPosition);
   Result := (Result - HIGH_SURROGATE_FIRST) * $400 + (LowSurrogate - LOW_SURROGATE_FIRST) +
@@ -265,26 +241,26 @@ begin
   const Decoded = Char(LeadByte);
   const IsReserved = CharInSet(Decoded, FCharSet);
   if IsReserved then
-    Builder.Append(FText, Start - 1, ESCAPE_LENGTH)
+    Builder.Append(FText, Start - 1, PERCENT_ESCAPE_LENGTH)
   else
     Builder.Append(Decoded);
 end;
 
 function TJSUriCoding.ReadEscapedByte: Integer;
 begin
-  const HasRoomForEscape = (FPosition + ESCAPE_LENGTH - 1 <= Length(FText));
+  const HasRoomForEscape = (FPosition + PERCENT_ESCAPE_LENGTH - 1 <= Length(FText));
   if not HasRoomForEscape then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 
   const IsEscape = (FText[FPosition] = '%');
-  const HighDigit = HexValue(FText[FPosition + 1]);
-  const LowDigit = HexValue(FText[FPosition + 2]);
+  const HighDigit = TJSAsciiDigits.HexValue(FText[FPosition + 1]);
+  const LowDigit = TJSAsciiDigits.HexValue(FText[FPosition + 2]);
   const IsValid = (IsEscape and (HighDigit >= 0) and (LowDigit >= 0));
   if not IsValid then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 
   Result := HighDigit * 16 + LowDigit;
-  Inc(FPosition, ESCAPE_LENGTH);
+  Inc(FPosition, PERCENT_ESCAPE_LENGTH);
 end;
 
 function TJSUriCoding.ContinuationCount(const LeadByte: Integer): Integer;
@@ -296,7 +272,7 @@ begin
   else if (LeadByte and $F8) = $F0 then
     Result := 3
   else
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 end;
 
 function TJSUriCoding.ReadContinuedCodePoint(const LeadByte: Integer): Integer;
@@ -309,16 +285,16 @@ begin
     const ContinuationByte = ReadEscapedByte;
     const IsContinuation = ((ContinuationByte and $C0) = $80);
     if not IsContinuation then
-      raise Malformed;
+      raise TJSErrorFactory.MalformedUri;
 
     Result := (Result shl 6) or (ContinuationByte and $3F);
   end;
 
   const IsOverlong = (Result < MIN_CODE_POINT_BY_CONTINUATIONS[Count]);
   const IsSurrogate = (IsHighSurrogate(Result) or IsLowSurrogate(Result));
-  const IsOutOfRange = (Result > LAST_CODE_POINT);
+  const IsOutOfRange = (Result > MAX_CODE_POINT);
   if IsOverlong or IsSurrogate or IsOutOfRange then
-    raise Malformed;
+    raise TJSErrorFactory.MalformedUri;
 end;
 
 procedure TJSUriCoding.AppendCodePoint(const Builder: TStringBuilder; const CodePoint: Integer);

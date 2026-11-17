@@ -2748,8 +2748,9 @@ begin
         const Column = CurrentToken.Column;
         Advance;
 
-        TJSRegExpSyntax.ValidateFlags(Flags, Line, Column);
-        TJSRegExpSyntax.ValidatePattern(Pattern, Flags, Line, Column);
+        const Position = TJSSourcePosition.At(Line, Column);
+        TJSRegExpSyntax.ValidateFlags(Flags, Position);
+        TJSRegExpSyntax.ValidatePattern(Pattern, Flags, Position);
 
         Exit(TJSLiteral.CreateRegExp(Pattern, Flags));
       end;

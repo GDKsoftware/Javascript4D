@@ -497,7 +497,6 @@ type
   TJSObjectImpl = class(TJSHeapObject, IJSObject)
   private
     FProperties: TJSPropertyMap;
-    FOrderedKeys: TList<string>;
     FSymbols: TDictionary<string, IJSSymbol>;
     FHasEscapedKeys: Boolean;
     FHasImmutablePrototype: Boolean;
@@ -916,6 +915,7 @@ uses
   JS4D.Errors,
   JS4D.NumberFormat,
   JS4D.NumberParse,
+  JS4D.NumberText,
   JS4D.RegExpSyntax,
   JS4D.RegExpTranslator;
 
@@ -978,7 +978,6 @@ const
   NULL_STRING = 'null';
   TRUE_STRING = 'true';
   FALSE_STRING = 'false';
-  NAN_STRING = 'NaN';
   CANNOT_CONVERT_TO_PRIMITIVE = 'Cannot convert object to primitive value';
   SYMBOL_TO_NUMBER = 'Cannot convert a Symbol value to a number';
   SYMBOL_TO_STRING = 'Cannot convert a Symbol value to a string';
@@ -988,8 +987,6 @@ const
   HINT_DEFAULT = 'default';
   HINT_NUMBER = 'number';
   HINT_STRING = 'string';
-  INFINITY_STRING = 'Infinity';
-  NEGATIVE_INFINITY_STRING = '-Infinity';
   OBJECT_STRING = '[object Object]';
   FUNCTION_STRING = '[object Function]';
   ARRAY_SEPARATOR = ',';
@@ -1369,14 +1366,14 @@ begin
     TJSValueType.Number:
       begin
         if System.Math.IsNaN(FNumberValue) then
-          Exit(NAN_STRING);
+          Exit(NAN_TEXT);
 
         if System.Math.IsInfinite(FNumberValue) then
         begin
           if FNumberValue < 0 then
-            Exit(NEGATIVE_INFINITY_STRING)
+            Exit(NEGATIVE_INFINITY_TEXT)
           else
-            Exit(INFINITY_STRING);
+            Exit(INFINITY_TEXT);
         end;
 
         Result := TJSNumberFormat.ToDecimalString(FNumberValue);
@@ -1783,7 +1780,6 @@ constructor TJSObjectImpl.Create;
 begin
   inherited Create;
   FProperties := TJSPropertyMap.Create;
-  FOrderedKeys := TList<string>.Create;
   FLooksUpOwnPropertiesInMap := True;
   FFrozen := False;
   FSealed := False;
@@ -1830,7 +1826,6 @@ begin
   end;
 
   FProperties.Clear;
-  FOrderedKeys.Clear;
 
   if Assigned(FSymbols) then
     FSymbols.Clear;
@@ -1876,7 +1871,6 @@ begin
   ReleasePrototypeAndNested;
 
   FProperties.Clear;
-  FOrderedKeys.Clear;
 
   if Assigned(FSymbols) then
     FSymbols.Clear;
@@ -1909,7 +1903,6 @@ begin
 
   FProperties.Clear;
   FProperties.Free;
-  FOrderedKeys.Free;
   FSymbols.Free;
   inherited;
 end;
@@ -1930,7 +1923,6 @@ end;
 procedure TJSObjectImpl.AppendProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor);
 begin
   FProperties.Add(Name.Stored, Descriptor);
-  FOrderedKeys.Add(Name.Stored);
 
   if Name.IsSymbol then
     RememberSymbol(Name)
@@ -1941,7 +1933,6 @@ end;
 procedure TJSObjectImpl.RemoveProperty(const Name: TJSPropertyKey);
 begin
   FProperties.Remove(Name.Stored);
-  FOrderedKeys.Remove(Name.Stored);
 
   if Assigned(FSymbols) then
     FSymbols.Remove(Name.Stored);
@@ -2494,12 +2485,13 @@ function TJSObjectImpl.OrderedStringKeys: TArray<string>;
 begin
   const HasSymbols = Assigned(FSymbols) and (FSymbols.Count > 0);
   if (not HasSymbols) and (not FHasEscapedKeys) then
-    Exit(FOrderedKeys.ToArray);
+    Exit(FProperties.Names);
 
   const Keys = TList<string>.Create;
   try
-    for var Stored in FOrderedKeys do
+    for var Position := 0 to FProperties.Count - 1 do
     begin
+      const Stored = FProperties.NameInInsertionOrder(Position);
       const IsSymbolKey = HasSymbols and FSymbols.ContainsKey(Stored);
       if not IsSymbolKey then
       begin
@@ -2522,8 +2514,9 @@ begin
 
   const Keys = TList<TJSPropertyKey>.Create;
   try
-    for var Stored in FOrderedKeys do
+    for var Position := 0 to FProperties.Count - 1 do
     begin
+      const Stored = FProperties.NameInInsertionOrder(Position);
       if FSymbols.ContainsKey(Stored) then
         Keys.Add(TJSPropertyKey.FromStored(Stored));
     end;
@@ -3072,8 +3065,9 @@ function TJSArrayImpl.SparseElementIndexes: TList<Int64>;
 begin
   Result := TList<Int64>.Create;
 
-  for var Name in FOrderedKeys do
+  for var Position := 0 to FProperties.Count - 1 do
   begin
+    const Name = FProperties.NameInInsertionOrder(Position);
     var Index: Int64;
     const IsSparseElement = TryParseArrayIndex(Name, Index) and (Index >= FElements.Count);
     if IsSparseElement then
@@ -3160,7 +3154,6 @@ begin
   if FProperties.ContainsKey(Name) then
   begin
     FProperties.Remove(Name);
-    FOrderedKeys.Remove(Name);
   end;
 end;
 
@@ -3455,7 +3448,6 @@ begin
   if WasAddedAsDataProperty then
   begin
     FProperties.Remove(Name.Stored);
-    FOrderedKeys.Remove(Name.Stored);
     SetElement(Index, Value);
   end;
 end;
@@ -3790,8 +3782,8 @@ end;
 constructor TJSRegExpImpl.Create(const Pattern: string; const Flags: string);
 begin
   inherited Create;
-  TJSRegExpSyntax.ValidateFlags(Flags);
-  TJSRegExpSyntax.ValidatePattern(Pattern, Flags);
+  TJSRegExpSyntax.ValidateFlags(Flags, TJSSourcePosition.Unknown);
+  TJSRegExpSyntax.ValidatePattern(Pattern, Flags, TJSSourcePosition.Unknown);
 
   FPattern := Pattern;
   FFlags := Flags;
@@ -4056,7 +4048,7 @@ begin
   FKey := TJSPropertyKey.ForSymbol(FId);
   FDescription := Description;
   FHasDescription := HasDescription;
-  TJSSymbolRegistry.Add(FId, Self);
+  TJSSymbolRegistry.RegisterSymbol(FId, Self);
 end;
 
 constructor TJSSymbolImpl.CreateWellKnown(const Which: TJSWellKnownSymbol);
@@ -4066,12 +4058,12 @@ begin
   FKey := TJSSymbolRegistry.WellKnownKey(Which);
   FDescription := TJSSymbolRegistry.WellKnownDescription(Which);
   FHasDescription := True;
-  TJSSymbolRegistry.Add(FId, Self);
+  TJSSymbolRegistry.RegisterSymbol(FId, Self);
 end;
 
 destructor TJSSymbolImpl.Destroy;
 begin
-  TJSSymbolRegistry.Remove(FId);
+  TJSSymbolRegistry.UnregisterSymbol(FId);
   inherited;
 end;
 

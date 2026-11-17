@@ -1,16 +1,32 @@
 unit JS4D.RegExpTranslator;
 
-{$SCOPEDENUMS ON}
-
 interface
-
-uses
-  System.SysUtils,
-  System.Character;
 
 type
   TJSRegExpTranslator = class
+  public
+    class function Translate(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean): string; static;
+    class function HasSurrogateEscape(const Pattern: string): Boolean; static;
+  end;
+
+implementation
+
+uses
+  System.SysUtils,
+  System.Character,
+  JS4D.AsciiDigits,
+  JS4D.RegExpCharacters,
+  JS4D.Utf16;
+
+type
+  TJSRegExpTranslation = class
   private
+    type
+      TUnicodeEscape = record
+        CodePoint: Integer;
+        EscapeLength: Integer;
+      end;
+
     const
       WHITE_SPACE_SET = '\t\n\u000b\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff';
       NON_WHITE_SPACE_SET = '\u0000-\u0008\u000e-\u001f\u0021-\u009f\u00a1-\u167f\u1681-\u1fff' +
@@ -18,16 +34,17 @@ type
       NON_WHITE_SPACE_UTF_END = #$DBFF#$DFFF;
       NON_WHITE_SPACE_UNIT_END = '\uffff';
       NEVER_MATCHES = '(?!)';
-      CLASS_BRACKET_ESCAPE = '\[';
-      HEX_DIGITS_PER_UNIT = 4;
-      MAX_CODE_POINT = $10FFFF;
-      ESCAPE_LENGTH = 2;
-      CONTROL_ESCAPE_LENGTH = 3;
-      CONTROL_CODE_MODULUS = 32;
+      CLASS_BRACKET_ESCAPE = BACKSLASH + CLASS_OPEN;
+      UNIT_ESCAPE_FORMAT = '\u%.4x';
       LITERAL_BACKSLASH_CONTROL = '\\c';
-      BACKSLASH = '\';
-      CLASS_OPEN = '[';
-      CLASS_CLOSE = ']';
+      HEX_DIGITS_PER_UNIT = 4;
+      UNIT_ESCAPE_LENGTH = ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT;
+      SURROGATE_PAIR_ESCAPE_LENGTH = 2 * UNIT_ESCAPE_LENGTH;
+      CONTROL_ESCAPE_LENGTH = 3;
+      BRACED_ESCAPE_DELIMITER_LENGTH = 2;
+      WHITE_SPACE_MARK = 's';
+      NON_WHITE_SPACE_MARK = 'S';
+      CLASS_OPENING_LOOKALIKES = ['.', ':', '='];
 
     var
       FPattern: string;
@@ -37,45 +54,41 @@ type
       FUtfMode: Boolean;
       FOutput: TStringBuilder;
 
-    constructor Create(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean);
+    class function UnitEscape(const Value: Integer): string; static;
 
-    function Run: string;
     function HasLetterAfterControlMarker: Boolean;
-    function TryReadUnicodeEscape(const Position: Integer; out CodePoint: Integer; out EscapeLength: Integer): Boolean;
-    function TryReadSurrogatePair(const HighSurrogate: Integer; out CodePoint: Integer;
-                                  out EscapeLength: Integer): Boolean;
-    function ParseHexDigits(const Start: Integer; const Count: Integer): Integer;
+    function TryReadBracedEscape(const Position: Integer; out Escape: TUnicodeEscape): Boolean;
+    function TryReadUnicodeEscape(const Position: Integer; out Escape: TUnicodeEscape): Boolean;
+    function TryReadSurrogatePair(const Position: Integer; const HighSurrogate: Integer;
+                                  out Escape: TUnicodeEscape): Boolean;
 
-    procedure TranslateEscape;
-    procedure TranslateUnicodeEscape;
     procedure AppendCodePoint(const CodePoint: Integer);
-    procedure EscapePosixLookalike;
-    procedure AppendWhiteSpaceEscape(const Negated: Boolean);
+    procedure TranslateUnicodeEscape;
+    procedure AppendCharacterSet(const CharacterSet: string);
+    procedure AppendWhiteSpaceSet;
+    procedure AppendNonWhiteSpaceSet;
     procedure AppendControlEscape;
+    procedure EscapeClassOpeningLookalike;
     procedure AppendPlainCharacter;
+    procedure TranslateEscape;
 
   public
-    class function Translate(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean): string; static;
-    class function HasSurrogateEscape(const Pattern: string): Boolean; static;
-
+    constructor Create(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean);
     destructor Destroy; override;
+
+    function Run: string;
   end;
-
-implementation
-
-uses
-  JS4D.Utf16;
 
 { TJSRegExpTranslator }
 
 class function TJSRegExpTranslator.Translate(const Pattern: string; const Unicode: Boolean;
                                              const UtfMode: Boolean): string;
 begin
-  const Translator = TJSRegExpTranslator.Create(Pattern, Unicode, UtfMode);
+  const Translation = TJSRegExpTranslation.Create(Pattern, Unicode, UtfMode);
   try
-    Result := Translator.Run;
+    Result := Translation.Run;
   finally
-    Translator.Free;
+    Translation.Free;
   end;
 end;
 
@@ -83,7 +96,7 @@ class function TJSRegExpTranslator.HasSurrogateEscape(const Pattern: string): Bo
 begin
   var Position := 1;
 
-  while Position + HEX_DIGITS_PER_UNIT < Length(Pattern) do
+  while Position + TJSRegExpTranslation.HEX_DIGITS_PER_UNIT < Length(Pattern) do
   begin
     const IsEscape = (Pattern[Position] = BACKSLASH);
     if not IsEscape then
@@ -92,14 +105,13 @@ begin
       Continue;
     end;
 
-    const IsUnicodeEscape = (Pattern[Position + 1] = 'u');
-    if IsUnicodeEscape then
-    begin
-      const Value = StrToIntDef('$' + Copy(Pattern, Position + ESCAPE_LENGTH, HEX_DIGITS_PER_UNIT), -1);
-      const IsSurrogate = (Value >= HIGH_SURROGATE_FIRST) and (Value <= LOW_SURROGATE_LAST);
-      if IsSurrogate then
-        Exit(True);
-    end;
+    const IsUnicodeEscape = (Pattern[Position + 1] = UNICODE_ESCAPE_MARK);
+    var Value: Integer;
+    const HasUnitDigits = TJSAsciiDigits.TryParseHex(Pattern, Position + ESCAPE_LENGTH,
+                                                    TJSRegExpTranslation.HEX_DIGITS_PER_UNIT, Value);
+    const IsSurrogate = HasUnitDigits and (Value >= HIGH_SURROGATE_FIRST) and (Value <= LOW_SURROGATE_LAST);
+    if IsUnicodeEscape and IsSurrogate then
+      Exit(True);
 
     Inc(Position, ESCAPE_LENGTH);
   end;
@@ -107,7 +119,9 @@ begin
   Result := False;
 end;
 
-constructor TJSRegExpTranslator.Create(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean);
+{ TJSRegExpTranslation }
+
+constructor TJSRegExpTranslation.Create(const Pattern: string; const Unicode: Boolean; const UtfMode: Boolean);
 begin
   inherited Create;
   FPattern := Pattern;
@@ -117,152 +131,85 @@ begin
   FOutput := TStringBuilder.Create;
 end;
 
-destructor TJSRegExpTranslator.Destroy;
+destructor TJSRegExpTranslation.Destroy;
 begin
   FOutput.Free;
   inherited Destroy;
 end;
 
-function TJSRegExpTranslator.Run: string;
+class function TJSRegExpTranslation.UnitEscape(const Value: Integer): string;
 begin
-  while FPosition <= Length(FPattern) do
-  begin
-    const IsEscape = (FPattern[FPosition] = BACKSLASH);
-    if IsEscape then
-    begin
-      TranslateEscape;
-    end
-    else
-    begin
-      AppendPlainCharacter;
-    end;
-  end;
-
-  Result := FOutput.ToString;
+  Result := Format(UNIT_ESCAPE_FORMAT, [Value]);
 end;
 
-procedure TJSRegExpTranslator.AppendPlainCharacter;
+function TJSRegExpTranslation.HasLetterAfterControlMarker: Boolean;
 begin
-  const Character = FPattern[FPosition];
+  const HasNextCharacter = (FPosition + ESCAPE_LENGTH <= Length(FPattern));
+  if not HasNextCharacter then
+    Exit(False);
 
-  const IsNestedBracket = (Character = CLASS_OPEN) and FInsideClass;
-  if IsNestedBracket then
-  begin
-    FOutput.Append(CLASS_BRACKET_ESCAPE);
-    Inc(FPosition);
-    Exit;
-  end;
-
-  if (Character = CLASS_OPEN) and not FInsideClass then
-  begin
-    FInsideClass := True;
-    FOutput.Append(Character);
-    Inc(FPosition);
-    EscapePosixLookalike;
-    Exit;
-  end
-  else if (Character = CLASS_CLOSE) and FInsideClass then
-  begin
-    FInsideClass := False;
-  end
-  else if Character = CLASS_CLOSE then
-  begin
-    FOutput.Append(BACKSLASH);
-  end;
-
-  FOutput.Append(Character);
-  Inc(FPosition);
+  Result := CharInSet(FPattern[FPosition + ESCAPE_LENGTH], ASCII_LETTERS);
 end;
 
-procedure TJSRegExpTranslator.EscapePosixLookalike;
+function TJSRegExpTranslation.TryReadBracedEscape(const Position: Integer; out Escape: TUnicodeEscape): Boolean;
 begin
-  const HasNextCharacter = (FPosition <= Length(FPattern));
-  if HasNextCharacter and CharInSet(FPattern[FPosition], ['.', ':', '=']) then
-    FOutput.Append(BACKSLASH);
-end;
+  Escape.CodePoint := 0;
+  Escape.EscapeLength := 0;
 
-procedure TJSRegExpTranslator.TranslateEscape;
-begin
-  const HasEscapedCharacter = (FPosition < Length(FPattern));
-  if not HasEscapedCharacter then
-  begin
-    FOutput.Append(BACKSLASH);
-    Inc(FPosition);
-    Exit;
-  end;
-
-  const Escaped = FPattern[FPosition + 1];
-  case Escaped of
-    's' : AppendWhiteSpaceEscape(False);
-    'S' : AppendWhiteSpaceEscape(True);
-    'c' : AppendControlEscape;
-    'u' : TranslateUnicodeEscape;
-  else
-    FOutput.Append(Copy(FPattern, FPosition, ESCAPE_LENGTH));
-    Inc(FPosition, ESCAPE_LENGTH);
-  end;
-end;
-
-function TJSRegExpTranslator.ParseHexDigits(const Start: Integer; const Count: Integer): Integer;
-begin
-  Result := -1;
-
-  const HasAllDigits = (Start + Count - 1 <= Length(FPattern));
-  if not HasAllDigits then
-    Exit;
-
-  for var Offset := 0 to Count - 1 do
-  begin
-    if not CharInSet(FPattern[Start + Offset], ['0'..'9', 'a'..'f', 'A'..'F']) then
-      Exit;
-  end;
-
-  Result := StrToInt('$' + Copy(FPattern, Start, Count));
-end;
-
-function TJSRegExpTranslator.TryReadUnicodeEscape(const Position: Integer; out CodePoint: Integer;
-                                                  out EscapeLength: Integer): Boolean;
-begin
-  CodePoint := ParseHexDigits(Position + ESCAPE_LENGTH, HEX_DIGITS_PER_UNIT);
-  EscapeLength := ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT;
-  if CodePoint >= 0 then
-    Exit(True);
-
-  const IsBraced = (Position + ESCAPE_LENGTH <= Length(FPattern)) and (FPattern[Position + ESCAPE_LENGTH] = '{');
+  const BraceIndex = Position + ESCAPE_LENGTH;
+  const IsBraced = (BraceIndex <= Length(FPattern)) and (FPattern[BraceIndex] = QUANTIFIER_OPEN);
   if not IsBraced then
     Exit(False);
 
-  const CloseIndex = Pos('}', FPattern, Position + ESCAPE_LENGTH);
-  const DigitCount = CloseIndex - Position - ESCAPE_LENGTH - 1;
-  if (CloseIndex = 0) or (DigitCount < 1) then
+  const CloseIndex = Pos(QUANTIFIER_CLOSE, FPattern, BraceIndex);
+  const DigitCount = CloseIndex - BraceIndex - 1;
+  const HasDigits = (CloseIndex > 0) and (DigitCount >= 1);
+  if not HasDigits then
     Exit(False);
 
-  CodePoint := ParseHexDigits(Position + ESCAPE_LENGTH + 1, DigitCount);
-  EscapeLength := ESCAPE_LENGTH + DigitCount + 2;
-  Result := (CodePoint >= 0) and (CodePoint <= MAX_CODE_POINT);
+  const HasHexDigits = TJSAsciiDigits.TryParseHex(FPattern, BraceIndex + 1, DigitCount, Escape.CodePoint);
+  Escape.EscapeLength := ESCAPE_LENGTH + DigitCount + BRACED_ESCAPE_DELIMITER_LENGTH;
+  Result := HasHexDigits and (Escape.CodePoint <= MAX_CODE_POINT);
 end;
 
-function TJSRegExpTranslator.TryReadSurrogatePair(const HighSurrogate: Integer; out CodePoint: Integer;
-                                                  out EscapeLength: Integer): Boolean;
+function TJSRegExpTranslation.TryReadUnicodeEscape(const Position: Integer; out Escape: TUnicodeEscape): Boolean;
 begin
-  const LowPosition = FPosition + ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT;
+  const HasUnitDigits = TJSAsciiDigits.TryParseHex(FPattern, Position + ESCAPE_LENGTH, HEX_DIGITS_PER_UNIT,
+                                                   Escape.CodePoint);
+  if HasUnitDigits then
+  begin
+    Escape.EscapeLength := UNIT_ESCAPE_LENGTH;
+    Exit(True);
+  end;
+
+  Result := TryReadBracedEscape(Position, Escape);
+end;
+
+function TJSRegExpTranslation.TryReadSurrogatePair(const Position: Integer; const HighSurrogate: Integer;
+                                                   out Escape: TUnicodeEscape): Boolean;
+begin
+  Escape.CodePoint := 0;
+  Escape.EscapeLength := 0;
+
+  const LowPosition = Position + UNIT_ESCAPE_LENGTH;
   const HasLowEscape = (LowPosition + 1 <= Length(FPattern)) and (FPattern[LowPosition] = BACKSLASH) and
-                       (FPattern[LowPosition + 1] = 'u');
+                       (FPattern[LowPosition + 1] = UNICODE_ESCAPE_MARK);
   if not HasLowEscape then
     Exit(False);
 
-  const Low = ParseHexDigits(LowPosition + ESCAPE_LENGTH, HEX_DIGITS_PER_UNIT);
-  const IsLowSurrogate = (Low >= LOW_SURROGATE_FIRST) and (Low <= LOW_SURROGATE_LAST);
+  var Low: Integer;
+  const HasLowDigits = TJSAsciiDigits.TryParseHex(FPattern, LowPosition + ESCAPE_LENGTH, HEX_DIGITS_PER_UNIT, Low);
+  const IsLowSurrogate = HasLowDigits and (Low >= LOW_SURROGATE_FIRST) and (Low <= LOW_SURROGATE_LAST);
   if not IsLowSurrogate then
     Exit(False);
 
-  CodePoint := FIRST_SUPPLEMENTARY_CODE_POINT + ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS) +
-               (Low - LOW_SURROGATE_FIRST);
-  EscapeLength := 2 * (ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT);
+  Escape.CodePoint := FIRST_SUPPLEMENTARY_CODE_POINT + ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS) +
+                      (Low - LOW_SURROGATE_FIRST);
+  Escape.EscapeLength := SURROGATE_PAIR_ESCAPE_LENGTH;
   Result := True;
 end;
 
-procedure TJSRegExpTranslator.AppendCodePoint(const CodePoint: Integer);
+procedure TJSRegExpTranslation.AppendCodePoint(const CodePoint: Integer);
 begin
   const IsSurrogate = (CodePoint >= HIGH_SURROGATE_FIRST) and (CodePoint <= LOW_SURROGATE_LAST);
   const IsAstral = (CodePoint >= FIRST_SUPPLEMENTARY_CODE_POINT);
@@ -274,7 +221,8 @@ begin
 
   if not IsSurrogate then
   begin
-    FOutput.Append(Format('\u%.4x', [CodePoint]));
+    const Escape = UnitEscape(CodePoint);
+    FOutput.Append(Escape);
     Exit;
   end;
 
@@ -282,12 +230,11 @@ begin
     FOutput.Append(NEVER_MATCHES);
 end;
 
-procedure TJSRegExpTranslator.TranslateUnicodeEscape;
+procedure TJSRegExpTranslation.TranslateUnicodeEscape;
 begin
-  var CodePoint: Integer;
-  var EscapeLength: Integer;
+  var Escape: TUnicodeEscape;
 
-  const IsEscape = FUnicode and TryReadUnicodeEscape(FPosition, CodePoint, EscapeLength);
+  const IsEscape = FUnicode and TryReadUnicodeEscape(FPosition, Escape);
   if not IsEscape then
   begin
     FOutput.Append(Copy(FPattern, FPosition, ESCAPE_LENGTH));
@@ -295,32 +242,22 @@ begin
     Exit;
   end;
 
-  const IsHighSurrogate = (EscapeLength = ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT) and
-                          (CodePoint >= HIGH_SURROGATE_FIRST) and (CodePoint <= HIGH_SURROGATE_LAST);
-  var PairLength: Integer;
-  var PairCodePoint: Integer;
-  if IsHighSurrogate and TryReadSurrogatePair(CodePoint, PairCodePoint, PairLength) then
+  const IsHighSurrogate = (Escape.EscapeLength = UNIT_ESCAPE_LENGTH) and
+                          (Escape.CodePoint >= HIGH_SURROGATE_FIRST) and
+                          (Escape.CodePoint <= HIGH_SURROGATE_LAST);
+  if IsHighSurrogate then
   begin
-    CodePoint := PairCodePoint;
-    EscapeLength := PairLength;
+    var Pair: TUnicodeEscape;
+    if TryReadSurrogatePair(FPosition, Escape.CodePoint, Pair) then
+      Escape := Pair;
   end;
 
-  AppendCodePoint(CodePoint);
-  Inc(FPosition, EscapeLength);
+  AppendCodePoint(Escape.CodePoint);
+  Inc(FPosition, Escape.EscapeLength);
 end;
 
-procedure TJSRegExpTranslator.AppendWhiteSpaceEscape(const Negated: Boolean);
+procedure TJSRegExpTranslation.AppendCharacterSet(const CharacterSet: string);
 begin
-  var CharacterSet := WHITE_SPACE_SET;
-  if Negated then
-  begin
-    CharacterSet := NON_WHITE_SPACE_SET;
-    if FUtfMode then
-      CharacterSet := CharacterSet + NON_WHITE_SPACE_UTF_END
-    else
-      CharacterSet := CharacterSet + NON_WHITE_SPACE_UNIT_END;
-  end;
-
   if FInsideClass then
   begin
     FOutput.Append(CharacterSet);
@@ -335,7 +272,20 @@ begin
   Inc(FPosition, ESCAPE_LENGTH);
 end;
 
-procedure TJSRegExpTranslator.AppendControlEscape;
+procedure TJSRegExpTranslation.AppendWhiteSpaceSet;
+begin
+  AppendCharacterSet(WHITE_SPACE_SET);
+end;
+
+procedure TJSRegExpTranslation.AppendNonWhiteSpaceSet;
+begin
+  if FUtfMode then
+    AppendCharacterSet(NON_WHITE_SPACE_SET + NON_WHITE_SPACE_UTF_END)
+  else
+    AppendCharacterSet(NON_WHITE_SPACE_SET + NON_WHITE_SPACE_UNIT_END);
+end;
+
+procedure TJSRegExpTranslation.AppendControlEscape;
 begin
   if not HasLetterAfterControlMarker then
   begin
@@ -345,17 +295,86 @@ begin
   end;
 
   const ControlCode = Ord(FPattern[FPosition + ESCAPE_LENGTH]) mod CONTROL_CODE_MODULUS;
-  FOutput.Append(Format('\u%.4x', [ControlCode]));
+  const Escape = UnitEscape(ControlCode);
+  FOutput.Append(Escape);
   Inc(FPosition, CONTROL_ESCAPE_LENGTH);
 end;
 
-function TJSRegExpTranslator.HasLetterAfterControlMarker: Boolean;
+procedure TJSRegExpTranslation.EscapeClassOpeningLookalike;
 begin
-  const HasNextCharacter = (FPosition + ESCAPE_LENGTH <= Length(FPattern));
-  if not HasNextCharacter then
-    Exit(False);
+  const HasNextCharacter = (FPosition <= Length(FPattern));
+  const IsLookalike = HasNextCharacter and CharInSet(FPattern[FPosition], CLASS_OPENING_LOOKALIKES);
+  if IsLookalike then
+    FOutput.Append(BACKSLASH);
+end;
 
-  Result := CharInSet(FPattern[FPosition + ESCAPE_LENGTH], ['A'..'Z', 'a'..'z']);
+procedure TJSRegExpTranslation.AppendPlainCharacter;
+begin
+  const Character = FPattern[FPosition];
+  const IsClassOpener = (Character = CLASS_OPEN) and (not FInsideClass);
+  const IsNestedBracket = (Character = CLASS_OPEN) and FInsideClass;
+  const IsClassCloser = (Character = CLASS_CLOSE) and FInsideClass;
+  const IsStrayCloser = (Character = CLASS_CLOSE) and (not FInsideClass);
+
+  if IsNestedBracket then
+  begin
+    FOutput.Append(CLASS_BRACKET_ESCAPE);
+    Inc(FPosition);
+  end
+  else if IsClassOpener then
+  begin
+    FInsideClass := True;
+    FOutput.Append(Character);
+    Inc(FPosition);
+    EscapeClassOpeningLookalike;
+  end
+  else
+  begin
+    if IsClassCloser then
+      FInsideClass := False;
+
+    if IsStrayCloser then
+      FOutput.Append(BACKSLASH);
+
+    FOutput.Append(Character);
+    Inc(FPosition);
+  end;
+end;
+
+procedure TJSRegExpTranslation.TranslateEscape;
+begin
+  const HasEscapedCharacter = (FPosition < Length(FPattern));
+  if not HasEscapedCharacter then
+  begin
+    FOutput.Append(BACKSLASH);
+    Inc(FPosition);
+    Exit;
+  end;
+
+  const Escaped = FPattern[FPosition + 1];
+  case Escaped of
+    WHITE_SPACE_MARK     : AppendWhiteSpaceSet;
+    NON_WHITE_SPACE_MARK : AppendNonWhiteSpaceSet;
+    CONTROL_ESCAPE_MARK  : AppendControlEscape;
+    UNICODE_ESCAPE_MARK  : TranslateUnicodeEscape;
+  else
+    FOutput.Append(Copy(FPattern, FPosition, ESCAPE_LENGTH));
+    Inc(FPosition, ESCAPE_LENGTH);
+  end;
+end;
+
+function TJSRegExpTranslation.Run: string;
+begin
+  while FPosition <= Length(FPattern) do
+  begin
+    const IsEscape = (FPattern[FPosition] = BACKSLASH);
+    if IsEscape then
+      TranslateEscape
+    else
+      AppendPlainCharacter;
+  end;
+
+  Result := FOutput.ToString;
 end;
 
 end.

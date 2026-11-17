@@ -1,7 +1,5 @@
 unit JS4D.NumberFormat;
 
-{$SCOPEDENUMS ON}
-
 interface
 
 type
@@ -18,10 +16,15 @@ type
         PointPosition: Integer;
       end;
 
+      TDigitBuffer = record
+        Digits: TArray<Byte>;
+        Count: Integer;
+        procedure Append(const Digit: Byte);
+        procedure MultiplyBy(const Factor: Integer);
+        procedure ScaleByBinaryExponent(const Exponent: Integer);
+      end;
+
     const
-      INFINITY_TEXT = 'Infinity';
-      NEGATIVE_INFINITY_TEXT = '-Infinity';
-      NAN_TEXT = 'NaN';
       MAX_ROUND_TRIP_PRECISION = 17;
       MAX_PLAIN_POINT = 21;
       MIN_PLAIN_POINT = -6;
@@ -30,20 +33,23 @@ type
       MAX_FRACTION_DIGITS = 100;
       MAX_PRECISION = 100;
       DECIMAL_BASE = 10;
-      EXPONENT_BIAS = 1075;
-      DENORMAL_EXPONENT = -1074;
-      IMPLICIT_BIT = UInt64(1) shl 52;
+      BINARY_FACTOR = 2;
+      DECIMAL_FACTOR = 5;
+      INITIAL_DIGIT_CAPACITY = 64;
 
+    class function MantissaDigits(const Mantissa: UInt64): TDigitBuffer; static;
+    class function DigitsToText(const Number: TDigitBuffer): string; static;
     class function ExactDigits(const Value: Double): TDecimalDigits; static;
-    class function MultiplyDigits(const Number: TArray<Byte>; const Factor: Integer): TArray<Byte>; static;
+    class function DigitsOf(const Magnitude: Double; const Count: Integer): TDecimalDigits; static;
     class function ShortestDigits(const Value: Double): TDecimalDigits; static;
     class function RoundToCount(const Source: TDecimalDigits; const Count: Integer): TDecimalDigits; static;
     class function RoundTrips(const Digits: TDecimalDigits; const Value: Double): Boolean; static;
     class function ZeroDigits(const Count: Integer): TDecimalDigits; static;
-    class function PadDigits(const Digits: string; const Count: Integer): string; static;
     class function ExponentSuffix(const Exponent: Integer): string; static;
     class function PositionalText(const Digits: TDecimalDigits): string; static;
     class function ExponentialText(const Digits: TDecimalDigits): string; static;
+    class function FixedText(const Magnitude: Double; const FractionDigits: Integer): string; static;
+    class function SignedText(const Value: Double; const MagnitudeText: string): string; static;
     class function TryGetSpecialText(const Value: Double; out Text: string): Boolean; static;
 
   public
@@ -65,7 +71,50 @@ uses
   System.SysUtils,
   System.StrUtils,
   System.Math,
-  JS4D.DecimalConversion;
+  JS4D.Binary64,
+  JS4D.DecimalConversion,
+  JS4D.NumberText;
+
+{ TJSNumberFormat.TDigitBuffer }
+
+procedure TJSNumberFormat.TDigitBuffer.Append(const Digit: Byte);
+begin
+  const IsFull = (Count = Length(Digits));
+  if IsFull then
+    SetLength(Digits, Length(Digits) * 2);
+
+  Digits[Count] := Digit;
+  Inc(Count);
+end;
+
+procedure TJSNumberFormat.TDigitBuffer.MultiplyBy(const Factor: Integer);
+begin
+  var Carry := 0;
+
+  for var Position := 0 to Count - 1 do
+  begin
+    const Product = (Digits[Position] * Factor) + Carry;
+    Digits[Position] := Product mod DECIMAL_BASE;
+    Carry := Product div DECIMAL_BASE;
+  end;
+
+  while Carry > 0 do
+  begin
+    Append(Carry mod DECIMAL_BASE);
+    Carry := Carry div DECIMAL_BASE;
+  end;
+end;
+
+procedure TJSNumberFormat.TDigitBuffer.ScaleByBinaryExponent(const Exponent: Integer);
+begin
+  const IsMultiplyingByTwo = (Exponent >= 0);
+  const Factor = IfThen(IsMultiplyingByTwo, BINARY_FACTOR, DECIMAL_FACTOR);
+
+  for var Step := 1 to Abs(Exponent) do
+  begin
+    MultiplyBy(Factor);
+  end;
+end;
 
 { TJSNumberFormat }
 
@@ -91,22 +140,35 @@ begin
     Result := False;
 end;
 
-class function TJSNumberFormat.MultiplyDigits(const Number: TArray<Byte>; const Factor: Integer): TArray<Byte>;
+class function TJSNumberFormat.SignedText(const Value: Double; const MagnitudeText: string): string;
 begin
-  var Carry := 0;
-  Result := Copy(Number);
+  const IsNegative = (Value < 0);
+  if IsNegative then
+    Result := Format('%s%s', [MINUS_SIGN, MagnitudeText])
+  else
+    Result := MagnitudeText;
+end;
 
-  for var Position := 0 to High(Result) do
+class function TJSNumberFormat.MantissaDigits(const Mantissa: UInt64): TDigitBuffer;
+begin
+  Result.Count := 0;
+  SetLength(Result.Digits, INITIAL_DIGIT_CAPACITY);
+
+  var Remaining := Mantissa;
+  while Remaining > 0 do
   begin
-    const Product = (Result[Position] * Factor) + Carry;
-    Result[Position] := Product mod DECIMAL_BASE;
-    Carry := Product div DECIMAL_BASE;
+    Result.Append(Remaining mod DECIMAL_BASE);
+    Remaining := Remaining div DECIMAL_BASE;
   end;
+end;
 
-  while Carry > 0 do
+class function TJSNumberFormat.DigitsToText(const Number: TDigitBuffer): string;
+begin
+  SetLength(Result, Number.Count);
+
+  for var Position := 0 to Number.Count - 1 do
   begin
-    Result := Result + [Byte(Carry mod DECIMAL_BASE)];
-    Carry := Carry div DECIMAL_BASE;
+    Result[Number.Count - Position] := Chr(Ord('0') + Number.Digits[Position]);
   end;
 end;
 
@@ -116,31 +178,18 @@ begin
   const IsDenormal = (BiasedExponent = 0);
   var Mantissa: UInt64 := Value.Frac;
   if not IsDenormal then
-    Mantissa := Mantissa or IMPLICIT_BIT;
+    Mantissa := Mantissa or HIDDEN_BIT;
 
   const Exponent = IfThen(IsDenormal, DENORMAL_EXPONENT, BiasedExponent - EXPONENT_BIAS);
 
-  var Number: TArray<Byte> := [];
-  while Mantissa > 0 do
-  begin
-    Number := Number + [Byte(Mantissa mod DECIMAL_BASE)];
-    Mantissa := Mantissa div DECIMAL_BASE;
-  end;
+  var Number := MantissaDigits(Mantissa);
+  Number.ScaleByBinaryExponent(Exponent);
 
-  const Factor = IfThen(Exponent >= 0, 2, 5);
-  for var Step := 1 to Abs(Exponent) do
-  begin
-    Number := MultiplyDigits(Number, Factor);
-  end;
+  const Text = DigitsToText(Number);
+  const IsFractional = (Exponent < 0);
+  const DecimalShift = IfThen(IsFractional, -Exponent, 0);
 
-  var Text := '';
-  SetLength(Text, Length(Number));
-  for var Position := 0 to High(Number) do
-  begin
-    Text[Length(Number) - Position] := Chr(Ord('0') + Number[Position]);
-  end;
-
-  Result.PointPosition := Length(Text) - IfThen(Exponent < 0, -Exponent, 0);
+  Result.PointPosition := Length(Text) - DecimalShift;
   Result.Digits := Text.TrimRight(['0']);
 end;
 
@@ -150,22 +199,32 @@ begin
   Result.PointPosition := 1;
 end;
 
-class function TJSNumberFormat.PadDigits(const Digits: string; const Count: Integer): string;
+class function TJSNumberFormat.DigitsOf(const Magnitude: Double; const Count: Integer): TDecimalDigits;
 begin
-  Result := Digits + StringOfChar('0', Max(0, Count - Length(Digits)));
+  const IsZero = (Magnitude = 0);
+  if IsZero then
+  begin
+    Result := ZeroDigits(Count);
+    Exit;
+  end;
+
+  const Exact = ExactDigits(Magnitude);
+  Result := RoundToCount(Exact, Count);
 end;
 
 class function TJSNumberFormat.RoundToCount(const Source: TDecimalDigits; const Count: Integer): TDecimalDigits;
 begin
   Result.PointPosition := Source.PointPosition;
 
-  if Count >= Length(Source.Digits) then
+  const KeepsAllDigits = (Count >= Length(Source.Digits));
+  if KeepsAllDigits then
   begin
-    Result.Digits := PadDigits(Source.Digits, Count);
+    Result.Digits := TJSNumberText.PadRight(Source.Digits, Count);
     Exit;
   end;
 
-  if Count < 0 then
+  const KeepsNoDigits = (Count < 0);
+  if KeepsNoDigits then
   begin
     Result.Digits := '';
     Exit;
@@ -186,7 +245,8 @@ begin
     Dec(Position);
   end;
 
-  if Position >= 1 then
+  const HasDigitToIncrement = (Position >= 1);
+  if HasDigitToIncrement then
   begin
     Kept[Position] := Chr(Ord(Kept[Position]) + 1);
     Result.Digits := Kept;
@@ -212,7 +272,8 @@ begin
   var Lowest := 1;
   var Highest := MAX_ROUND_TRIP_PRECISION;
 
-  while Lowest < Highest do
+  var HasRangeLeft := (Lowest < Highest);
+  while HasRangeLeft do
   begin
     const Middle = (Lowest + Highest) div 2;
     const Candidate = RoundToCount(Exact, Middle);
@@ -220,6 +281,8 @@ begin
       Highest := Middle
     else
       Lowest := Middle + 1;
+
+    HasRangeLeft := (Lowest < Highest);
   end;
 
   Result := RoundToCount(Exact, Lowest);
@@ -236,9 +299,11 @@ begin
   const Count = Length(Digits.Digits);
   const Point = Digits.PointPosition;
 
-  if Point >= Count then
+  const IsWholeNumber = (Point >= Count);
+  const HasIntegerPart = (Point > 0);
+  if IsWholeNumber then
     Result := Digits.Digits + StringOfChar('0', Point - Count)
-  else if Point > 0 then
+  else if HasIntegerPart then
     Result := Format('%s.%s', [Copy(Digits.Digits, 1, Point), Copy(Digits.Digits, Point + 1, Count)])
   else
     Result := Format('0.%s%s', [StringOfChar('0', -Point), Digits.Digits]);
@@ -255,6 +320,28 @@ begin
   Result := Mantissa + Suffix;
 end;
 
+class function TJSNumberFormat.FixedText(const Magnitude: Double; const FractionDigits: Integer): string;
+begin
+  var Scaled := '';
+  const HasMagnitude = (Magnitude > 0);
+  if HasMagnitude then
+  begin
+    const Exact = ExactDigits(Magnitude);
+    const Rounded = RoundToCount(Exact, Exact.PointPosition + FractionDigits);
+    Scaled := TJSNumberText.PadRight(Rounded.Digits, Rounded.PointPosition + FractionDigits);
+  end;
+
+  const MinimumLength = FractionDigits + 1;
+  Scaled := TJSNumberText.PadLeft(Scaled, MinimumLength);
+
+  const SplitAt = Length(Scaled) - FractionDigits;
+  Result := Copy(Scaled, 1, SplitAt);
+
+  const HasFraction = (FractionDigits > 0);
+  if HasFraction then
+    Result := Format('%s.%s', [Result, Copy(Scaled, SplitAt + 1, FractionDigits)]);
+end;
+
 class function TJSNumberFormat.ToDecimalString(const Value: Double): string;
 begin
   if TryGetSpecialText(Value, Result) then
@@ -262,17 +349,21 @@ begin
 
   const IsShortInteger = (Frac(Value) = 0) and (Abs(Value) < MAX_EXACT_INTEGER_TEXT);
   if IsShortInteger then
-    Exit(IntToStr(Trunc(Value)));
+  begin
+    const Whole = Trunc(Value);
+    Result := IntToStr(Whole);
+    Exit;
+  end;
 
-  if Value < 0 then
-    Exit(Format('-%s', [ToDecimalString(-Value)]));
-
-  const Digits = ShortestDigits(Value);
+  const Digits = ShortestDigits(Abs(Value));
   const IsPlain = (Digits.PointPosition > MIN_PLAIN_POINT) and (Digits.PointPosition <= MAX_PLAIN_POINT);
+  var Text: string;
   if IsPlain then
-    Result := PositionalText(Digits)
+    Text := PositionalText(Digits)
   else
-    Result := ExponentialText(Digits);
+    Text := ExponentialText(Digits);
+
+  Result := SignedText(Value, Text);
 end;
 
 class function TJSNumberFormat.ToFixed(const Value: Double; const FractionDigits: Integer): string;
@@ -280,27 +371,16 @@ begin
   if TryGetSpecialText(Value, Result) then
     Exit;
 
-  if Value < 0 then
-    Exit(Format('-%s', [ToFixed(-Value, FractionDigits)]));
-
-  if Value >= MAX_FIXED_VALUE then
-    Exit(ToDecimalString(Value));
-
-  var Scaled := '';
-  if Value > 0 then
+  const Magnitude = Abs(Value);
+  const IsTooLargeForFixed = (Magnitude >= MAX_FIXED_VALUE);
+  if IsTooLargeForFixed then
   begin
-    const Exact = ExactDigits(Value);
-    const Rounded = RoundToCount(Exact, Exact.PointPosition + FractionDigits);
-    Scaled := PadDigits(Rounded.Digits, Rounded.PointPosition + FractionDigits);
+    Result := ToDecimalString(Value);
+    Exit;
   end;
 
-  const MinimumLength = FractionDigits + 1;
-  Scaled := StringOfChar('0', Max(0, MinimumLength - Length(Scaled))) + Scaled;
-
-  const SplitAt = Length(Scaled) - FractionDigits;
-  Result := Copy(Scaled, 1, SplitAt);
-  if FractionDigits > 0 then
-    Result := Format('%s.%s', [Result, Copy(Scaled, SplitAt + 1, FractionDigits)]);
+  const Fixed = FixedText(Magnitude, FractionDigits);
+  Result := SignedText(Value, Fixed);
 end;
 
 class function TJSNumberFormat.ToExponential(const Value: Double; const FractionDigits: Integer): string;
@@ -308,17 +388,10 @@ begin
   if TryGetSpecialText(Value, Result) then
     Exit;
 
-  if Value < 0 then
-    Exit(Format('-%s', [ToExponential(-Value, FractionDigits)]));
+  const Digits = DigitsOf(Abs(Value), FractionDigits + 1);
+  const Text = ExponentialText(Digits);
 
-  var Digits := ZeroDigits(FractionDigits + 1);
-  if Value > 0 then
-  begin
-    const Exact = ExactDigits(Value);
-    Digits := RoundToCount(Exact, FractionDigits + 1);
-  end;
-
-  Result := ExponentialText(Digits);
+  Result := SignedText(Value, Text);
 end;
 
 class function TJSNumberFormat.ToShortestExponential(const Value: Double): string;
@@ -326,14 +399,15 @@ begin
   if TryGetSpecialText(Value, Result) then
     Exit;
 
-  if Value < 0 then
-    Exit(Format('-%s', [ToShortestExponential(-Value)]));
-
+  const Magnitude = Abs(Value);
   var Digits := ZeroDigits(1);
-  if Value > 0 then
-    Digits := ShortestDigits(Value);
+  const HasMagnitude = (Magnitude > 0);
+  if HasMagnitude then
+    Digits := ShortestDigits(Magnitude);
 
-  Result := ExponentialText(Digits);
+  const Text = ExponentialText(Digits);
+
+  Result := SignedText(Value, Text);
 end;
 
 class function TJSNumberFormat.ToPrecision(const Value: Double; const Precision: Integer): string;
@@ -341,24 +415,17 @@ begin
   if TryGetSpecialText(Value, Result) then
     Exit;
 
-  if Value < 0 then
-    Exit(Format('-%s', [ToPrecision(-Value, Precision)]));
-
-  var Digits := ZeroDigits(Precision);
-  if Value > 0 then
-  begin
-    const Exact = ExactDigits(Value);
-    Digits := RoundToCount(Exact, Precision);
-  end;
-
+  const Digits = DigitsOf(Abs(Value), Precision);
   const Exponent = Digits.PointPosition - 1;
   const NeedsExponent = (Exponent < MIN_PLAIN_POINT) or (Exponent >= Precision);
+  var Text: string;
   if NeedsExponent then
-    Result := ExponentialText(Digits)
+    Text := ExponentialText(Digits)
   else
-    Result := PositionalText(Digits);
-end;
+    Text := PositionalText(Digits);
 
+  Result := SignedText(Value, Text);
+end;
 
 class function TJSNumberFormat.ToRoundedDecimal(const Magnitude: Double; const FractionDigits: Integer;
                                                  const PointShift: Integer): TJSRoundedDecimal;
@@ -382,7 +449,7 @@ begin
   const HasIntegerDigits = (Rounded.PointPosition > 0);
   if HasIntegerDigits then
   begin
-    const Padded = PadDigits(Rounded.Digits, Rounded.PointPosition);
+    const Padded = TJSNumberText.PadRight(Rounded.Digits, Rounded.PointPosition);
     const Fraction = Copy(Padded, Rounded.PointPosition + 1, Length(Padded));
 
     Result.IntegerDigits := Copy(Padded, 1, Rounded.PointPosition);

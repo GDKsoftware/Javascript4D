@@ -13,7 +13,7 @@ uses
 
 type
   TJSLocaleRequest = record
-    Locale: TJSLocaleDefinition;
+    Locale: PJSLocaleDefinition;
     Options: TJSValue;
   end;
 
@@ -78,8 +78,8 @@ type
       CURRENCY_DISPLAYS: array[0..3] of string = (NAME_CODE, NAME_SYMBOL, NAME_NARROW_SYMBOL, NAME_NAME);
       HOUR_CYCLES: array[0..3] of string = (NAME_HOUR_CYCLE_H11, NAME_HOUR_CYCLE_H12, NAME_HOUR_CYCLE_H23, NAME_HOUR_CYCLE_H24);
 
-    class function TryResolveLocale(const Locales: TJSValue; out Locale: TJSLocaleDefinition): Boolean; static;
-    class function TryResolveLocaleList(const Locales: TJSValue; out Locale: TJSLocaleDefinition): Boolean; static;
+    class function TryResolveLocale(const Locales: TJSValue; out Locale: PJSLocaleDefinition): Boolean; static;
+    class function TryResolveLocaleList(const Locales: TJSValue; out Locale: PJSLocaleDefinition): Boolean; static;
     class function OptionValue(const Request: TJSLocaleRequest; const Name: string): TJSValue; static;
     class function ChoiceOption(const Request: TJSLocaleRequest; const Name: string; const Choices: array of string;
                                 const Scope: string): string; static;
@@ -113,7 +113,7 @@ uses
   JS4D.ArrayLike;
 
 class function TJSLocaleArguments.TryResolveLocaleList(const Locales: TJSValue;
-                                                       out Locale: TJSLocaleDefinition): Boolean;
+                                                       out Locale: PJSLocaleDefinition): Boolean;
 begin
   const ListObject = Locales.ToObject;
   const ListLength = Min(TJSArrayLike.ToLength(ListObject), MAX_LOCALE_LIST_LENGTH);
@@ -129,7 +129,7 @@ begin
   Result := False;
 end;
 
-class function TJSLocaleArguments.TryResolveLocale(const Locales: TJSValue; out Locale: TJSLocaleDefinition): Boolean;
+class function TJSLocaleArguments.TryResolveLocale(const Locales: TJSValue; out Locale: PJSLocaleDefinition): Boolean;
 begin
   Result := False;
 

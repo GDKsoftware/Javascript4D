@@ -82,7 +82,7 @@ type
 
     class function HasDateFields(const Options: TJSDateFormatOptions): Boolean; static;
     class function HasTimeFields(const Options: TJSDateFormatOptions): Boolean; static;
-    class function IsTwelveHour(const Locale: TJSLocaleDefinition;
+    class function IsTwelveHour(const Locale: PJSLocaleDefinition;
                                 const Options: TJSDateFormatOptions): Boolean; static;
     class function PartsOf(const Moment: Double): TDateParts; static;
     class function WeekdayKey(const Style: TJSDateFieldStyle): string; static;
@@ -90,33 +90,33 @@ type
     class function DatePatternKey(const Options: TJSDateFormatOptions): string; static;
     class function TimePatternKey(const Options: TJSDateFormatOptions): string; static;
     class function NumberText(const Value: Integer; const Width: Integer): string; static;
-    class function WeekdayText(const Locale: TJSLocaleDefinition; const Weekday: Integer;
+    class function WeekdayText(const Locale: PJSLocaleDefinition; const Weekday: Integer;
                                const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string; static;
-    class function MonthText(const Locale: TJSLocaleDefinition; const Month: Integer;
+    class function MonthText(const Locale: PJSLocaleDefinition; const Month: Integer;
                              const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string; static;
     class function YearText(const Year: Integer; const Style: TJSDateFieldStyle): string; static;
     class function HourText(const Hour: Integer; const IsTwelveHour: Boolean; const Width: Integer): string; static;
-    class function DayPeriodText(const Locale: TJSLocaleDefinition; const Hour: Integer): string; static;
+    class function DayPeriodText(const Locale: PJSLocaleDefinition; const Hour: Integer): string; static;
     class function RenderToken(const Token: Char; const Width: Integer; const Parts: TDateParts;
-                               const Locale: TJSLocaleDefinition; const Options: TJSDateFormatOptions): string; static;
+                               const Locale: PJSLocaleDefinition; const Options: TJSDateFormatOptions): string; static;
     class function LiteralSegmentAt(const Pattern: string; const Position: Integer): TPatternSegment; static;
     class function TokenSegmentAt(const Pattern: string; const Position: Integer; const Parts: TDateParts;
-                                  const Locale: TJSLocaleDefinition;
+                                  const Locale: PJSLocaleDefinition;
                                   const Options: TJSDateFormatOptions): TPatternSegment; static;
     class function SegmentAt(const Pattern: string; const Position: Integer; const Parts: TDateParts;
-                             const Locale: TJSLocaleDefinition;
+                             const Locale: PJSLocaleDefinition;
                              const Options: TJSDateFormatOptions): TPatternSegment; static;
-    class function RenderPattern(const Pattern: string; const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+    class function RenderPattern(const Pattern: string; const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                  const Options: TJSDateFormatOptions): string; static;
-    class function DateText(const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+    class function DateText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                             const Options: TJSDateFormatOptions): string; static;
-    class function TimeText(const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+    class function TimeText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                             const Options: TJSDateFormatOptions): string; static;
-    class function DateTimeGlue(const Locale: TJSLocaleDefinition; const Options: TJSDateFormatOptions): string; static;
+    class function DateTimeGlue(const Locale: PJSLocaleDefinition; const Options: TJSDateFormatOptions): string; static;
   public
     class function WithDefaults(const Options: TJSDateFormatOptions;
                                 const Scope: TJSDateFormatScope): TJSDateFormatOptions; static;
-    class function FormatMoment(const Moment: Double; const Locale: TJSLocaleDefinition;
+    class function FormatMoment(const Moment: Double; const Locale: PJSLocaleDefinition;
                                 const Options: TJSDateFormatOptions): string; static;
   end;
 
@@ -177,7 +177,7 @@ begin
   end;
 end;
 
-class function TJSLocaleDateFormatter.IsTwelveHour(const Locale: TJSLocaleDefinition;
+class function TJSLocaleDateFormatter.IsTwelveHour(const Locale: PJSLocaleDefinition;
                                                    const Options: TJSDateFormatOptions): Boolean;
 begin
   case Options.HourCycle of
@@ -278,7 +278,7 @@ begin
   Result := StringOfChar('0', MissingZeros) + Digits;
 end;
 
-class function TJSLocaleDateFormatter.WeekdayText(const Locale: TJSLocaleDefinition; const Weekday: Integer;
+class function TJSLocaleDateFormatter.WeekdayText(const Locale: PJSLocaleDefinition; const Weekday: Integer;
                                                   const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string;
 begin
   case Style of
@@ -290,7 +290,7 @@ begin
   end;
 end;
 
-class function TJSLocaleDateFormatter.MonthText(const Locale: TJSLocaleDefinition; const Month: Integer;
+class function TJSLocaleDateFormatter.MonthText(const Locale: PJSLocaleDefinition; const Month: Integer;
                                                 const Style: TJSDateFieldStyle; const IsStandalone: Boolean): string;
 begin
   case Style of
@@ -332,7 +332,7 @@ begin
   Result := NumberText(DisplayHour, Width);
 end;
 
-class function TJSLocaleDateFormatter.DayPeriodText(const Locale: TJSLocaleDefinition; const Hour: Integer): string;
+class function TJSLocaleDateFormatter.DayPeriodText(const Locale: PJSLocaleDefinition; const Hour: Integer): string;
 begin
   const IsMorning = (Hour < HOURS_PER_HALF_DAY);
 
@@ -340,7 +340,7 @@ begin
 end;
 
 class function TJSLocaleDateFormatter.RenderToken(const Token: Char; const Width: Integer; const Parts: TDateParts;
-                                                  const Locale: TJSLocaleDefinition;
+                                                  const Locale: PJSLocaleDefinition;
                                                   const Options: TJSDateFormatOptions): string;
 begin
   const IsNameWidth = (Width >= MIN_NAME_TOKEN_LENGTH);
@@ -371,7 +371,7 @@ begin
 end;
 
 class function TJSLocaleDateFormatter.RenderPattern(const Pattern: string; const Parts: TDateParts;
-                                                    const Locale: TJSLocaleDefinition;
+                                                    const Locale: PJSLocaleDefinition;
                                                     const Options: TJSDateFormatOptions): string;
 begin
   const Builder = TStringBuilder.Create;
@@ -407,7 +407,7 @@ begin
 end;
 
 class function TJSLocaleDateFormatter.TokenSegmentAt(const Pattern: string; const Position: Integer;
-                                                     const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+                                                     const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                                      const Options: TJSDateFormatOptions): TPatternSegment;
 begin
   const Token = Pattern[Position];
@@ -423,7 +423,7 @@ begin
 end;
 
 class function TJSLocaleDateFormatter.SegmentAt(const Pattern: string; const Position: Integer;
-                                                const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+                                                const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                                 const Options: TJSDateFormatOptions): TPatternSegment;
 begin
   const Current = Pattern[Position];
@@ -442,7 +442,7 @@ begin
   end;
 end;
 
-class function TJSLocaleDateFormatter.DateText(const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+class function TJSLocaleDateFormatter.DateText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                                const Options: TJSDateFormatOptions): string;
 begin
   Result := '';
@@ -452,14 +452,14 @@ begin
     Exit;
 
   var Pattern: string;
-  const IsFound = TJSBuiltInLocaleTable.FindPattern(Locale.DatePatterns, Key, Pattern);
+  const IsFound = Locale.DatePatternMap.TryGetValue(Key, Pattern);
   if not IsFound then
     Exit;
 
   Result := RenderPattern(Pattern, Parts, Locale, Options);
 end;
 
-class function TJSLocaleDateFormatter.TimeText(const Parts: TDateParts; const Locale: TJSLocaleDefinition;
+class function TJSLocaleDateFormatter.TimeText(const Parts: TDateParts; const Locale: PJSLocaleDefinition;
                                                const Options: TJSDateFormatOptions): string;
 begin
   Result := '';
@@ -469,17 +469,20 @@ begin
     Exit;
 
   const UsesTwelveHour = IsTwelveHour(Locale, Options);
-  const Patterns = IfThen(UsesTwelveHour, Locale.TimePatterns12, Locale.TimePatterns24);
 
   var Pattern: string;
-  const IsFound = TJSBuiltInLocaleTable.FindPattern(Patterns, Key, Pattern);
+  var IsFound: Boolean;
+  if UsesTwelveHour then
+    IsFound := Locale.TimePatterns12Map.TryGetValue(Key, Pattern)
+  else
+    IsFound := Locale.TimePatterns24Map.TryGetValue(Key, Pattern);
   if not IsFound then
     Exit;
 
   Result := RenderPattern(Pattern, Parts, Locale, Options);
 end;
 
-class function TJSLocaleDateFormatter.DateTimeGlue(const Locale: TJSLocaleDefinition;
+class function TJSLocaleDateFormatter.DateTimeGlue(const Locale: PJSLocaleDefinition;
                                                    const Options: TJSDateFormatOptions): string;
 begin
   case Options.Month of
@@ -490,7 +493,7 @@ begin
   end;
 end;
 
-class function TJSLocaleDateFormatter.FormatMoment(const Moment: Double; const Locale: TJSLocaleDefinition;
+class function TJSLocaleDateFormatter.FormatMoment(const Moment: Double; const Locale: PJSLocaleDefinition;
                                                    const Options: TJSDateFormatOptions): string;
 begin
   const Parts = PartsOf(Moment);
