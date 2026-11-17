@@ -10,11 +10,11 @@ uses
   JS4D.Errors,
   JS4D.JsonSyntax,
   JS4D.JsonReader,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TJsonParseTests = class
+  TJsonParseTests = class(TJSEngineTestCase)
   public
     [Test]
     [TestCase('Object', '{"a": [1]}')]
@@ -41,13 +41,9 @@ type
     [TestCase('UnclosedArray', '[1')]
     [TestCase('TrailingCommaInArray', '[1,]')]
     [TestCase('TrailingCommaInObject', '{"a":1,}')]
+    [TestCase('ControlCharacterInString', '"a' + #1 + 'b"')]
+    [TestCase('UnicodeWhitespaceAroundValue', #$1680 + '1')]
     procedure IsValid_InvalidText_ReturnsFalse(const Text: string);
-
-    [Test]
-    procedure IsValid_ControlCharacterInString_ReturnsFalse;
-
-    [Test]
-    procedure IsValid_UnicodeWhitespaceAroundValue_ReturnsFalse;
 
     [Test]
     procedure IsValid_ExcessiveNesting_ReturnsFalse;
@@ -65,6 +61,9 @@ type
 
 implementation
 
+uses
+  JS4D.Tests.ErrorNames;
+
 const
   NESTING_DEPTH = 5000;
 
@@ -77,24 +76,6 @@ end;
 
 procedure TJsonParseTests.IsValid_InvalidText_ReturnsFalse(const Text: string);
 begin
-  const IsValid = TJSJsonSyntax.IsValid(Text);
-
-  Assert.IsFalse(IsValid);
-end;
-
-procedure TJsonParseTests.IsValid_ControlCharacterInString_ReturnsFalse;
-begin
-  const Text = '"a' + #1 + 'b"';
-
-  const IsValid = TJSJsonSyntax.IsValid(Text);
-
-  Assert.IsFalse(IsValid);
-end;
-
-procedure TJsonParseTests.IsValid_UnicodeWhitespaceAroundValue_ReturnsFalse;
-begin
-  const Text = #$1680 + '1';
-
   const IsValid = TJSJsonSyntax.IsValid(Text);
 
   Assert.IsFalse(IsValid);
@@ -121,20 +102,9 @@ end;
 
 procedure TJsonParseTests.Parse_InvalidText_ThrowsSyntaxError;
 begin
-  const Engine = TJSEngine.Create;
-  try
-    const Script =
-      'var thrown = false;' + sLineBreak +
-      'try { JSON.parse(''{"a": tru}''); }' +
-      ' catch (e) { thrown = (e instanceof SyntaxError); }' + sLineBreak +
-      'thrown';
+  const Actual = ErrorNameOf('JSON.parse(''{"a": tru}'');');
 
-    const Thrown = Engine.Evaluate(Script);
-
-    Assert.IsTrue(Thrown.AsBoolean);
-  finally
-    Engine.Free;
-  end;
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

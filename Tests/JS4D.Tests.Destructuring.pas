@@ -7,23 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TDestructuringTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TDestructuringTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Basic', 'var [a, b] = [1, 2]; a + "," + b|1,2', '|')]
     [TestCase('Hole', 'var [, b] = [1, 2]; b|2', '|')]
@@ -159,10 +148,10 @@ type
     procedure Destructuring_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
-    procedure Assignment_TargetIsResolvedBeforeValueIsRead;
+    procedure Assignment_MemberTarget_IsResolvedBeforeValueIsRead;
 
     [Test]
-    procedure Assignment_ElementsAreEvaluatedLeftToRight;
+    procedure Assignment_ArrayElements_AreEvaluatedLeftToRight;
 
     [Test]
     procedure Assignment_ToConstant_IsTypeError;
@@ -186,7 +175,7 @@ type
     [TestCase('UndefinedInParameter', 'function f([a]) {} f();', '|')]
     [TestCase('NullInEmptyObjectPattern', 'var {} = null;', '|')]
     [TestCase('ThrowingGetter', 'var {a} = { get a() { throw new TypeError(); } };', '|')]
-    procedure Pattern_RaisesTypeError(const Source: string);
+    procedure Pattern_NullishValue_RaisesTypeError(const Source: string);
 
     [Test]
     [TestCase('TemporalDeadZone', 'let [a = b, b] = [];', '|')]
@@ -194,7 +183,7 @@ type
     [TestCase('ParameterDeadZone', 'function f([a = b], b) {} f([]);', '|')]
     [TestCase('ParameterOwnDeadZone', 'function f([a = a]) {} f([]);', '|')]
     [TestCase('ParameterObjectDeadZone', 'function f({a = b, b}) {} f({});', '|')]
-    procedure Pattern_RaisesReferenceError(const Source: string);
+    procedure Pattern_DeadZoneAccess_RaisesReferenceError(const Source: string);
 
     [Test]
     procedure Const_Pattern_AssignmentIsTypeError;
@@ -203,16 +192,16 @@ type
     procedure Rest_Element_CopiesRemainingElementsAtThatPoint;
 
     [Test]
-    procedure Array_ElementsAreReadLazily;
+    procedure Array_Pattern_ElementsAreReadLazily;
 
     [Test]
-    procedure Default_IsEvaluatedOnlyWhenNeeded;
+    procedure Default_Initializer_IsEvaluatedOnlyWhenNeeded;
 
     [Test]
-    procedure Default_IsEvaluatedInOrder;
+    procedure Default_Initializers_AreEvaluatedInOrder;
 
     [Test]
-    procedure ComputedKey_IsEvaluatedBeforeTarget;
+    procedure ComputedKey_ObjectPattern_IsEvaluatedBeforeTarget;
 
     [Test]
     procedure Statement_AtBlockStart_IsNotAnObjectPattern;
@@ -332,7 +321,7 @@ type
     [TestCase('ParameterShadowedByVarInBody', 'function f([a]) { var a; }', '|')]
     [TestCase('LexicalFromOtherBlock', 'function f([a]) { { let a; } }', '|')]
     [TestCase('LetPatternDeclaration', 'let [a] = [], {b} = {};', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure Pattern_ValidSource_RaisesNoError(const Source: string);
 
     [Test]
     procedure ObjectLiteral_ShorthandAndAccessors_AreAccepted;
@@ -346,26 +335,8 @@ type
 
 implementation
 
-procedure TDestructuringTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TDestructuringTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TDestructuringTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TDestructuringTests.Destructuring_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
@@ -374,108 +345,140 @@ begin
   Assert.AreEqual(Expected, Actual.ToString);
 end;
 
-procedure TDestructuringTests.Assignment_TargetIsResolvedBeforeValueIsRead;
+procedure TDestructuringTests.Assignment_MemberTarget_IsResolvedBeforeValueIsRead;
 begin
   const Script = 'var log = ""; var o = { get a() { log += "get;"; return 1; } }; ' +
                  'function target() { log += "target;"; return {}; } ' +
                  '({a: target().x} = o); log';
 
-  Assert.AreEqual('target;get;', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('target;get;', Actual);
 end;
 
-procedure TDestructuringTests.Assignment_ElementsAreEvaluatedLeftToRight;
+procedure TDestructuringTests.Assignment_ArrayElements_AreEvaluatedLeftToRight;
 begin
   const Script = 'var log = ""; function t(n) { log += n; return {}; } ' +
                  '[t(1).a, t(2).b, t(3).c] = [1, 2, 3]; log';
 
-  Assert.AreEqual('123', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('123', Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToConstant_IsTypeError;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('const a = 1; [a] = [2];'));
+  const Actual = ErrorNameOf('const a = 1; [a] = [2];');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToUndeclaredInStrictMode_IsReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('"use strict"; [undeclaredTarget] = [1];'));
+  const Actual = ErrorNameOf('"use strict"; [undeclaredTarget] = [1];');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToUndeclaredInSloppyMode_CreatesGlobal;
 begin
   FEngine.Execute('[createdByPattern] = [3];');
 
-  Assert.AreEqual('3', FEngine.Evaluate('createdByPattern').ToString);
+  const Actual = EvaluateText('createdByPattern');
+
+  Assert.AreEqual('3', Actual);
 end;
 
-procedure TDestructuringTests.Pattern_RaisesTypeError(const Source: string);
+procedure TDestructuringTests.Pattern_NullishValue_RaisesTypeError(const Source: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TDestructuringTests.Pattern_RaisesReferenceError(const Source: string);
+procedure TDestructuringTests.Pattern_DeadZoneAccess_RaisesReferenceError(const Source: string);
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Const_Pattern_AssignmentIsTypeError;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('const [a] = [1]; a = 2;'));
+  const Actual = ErrorNameOf('const [a] = [1]; a = 2;');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Rest_Element_CopiesRemainingElementsAtThatPoint;
 begin
   const Script = 'var a = [1, 2, 3]; var [x, ...r] = a; a.push(4); r.join()';
 
-  Assert.AreEqual('2,3', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('2,3', Actual);
 end;
 
-procedure TDestructuringTests.Array_ElementsAreReadLazily;
+procedure TDestructuringTests.Array_Pattern_ElementsAreReadLazily;
 begin
   const Script = 'var a = [1, undefined, 3]; var [x, y = (a[2] = 9), z] = a; x + "," + y + "," + z';
 
-  Assert.AreEqual('1,9,9', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1,9,9', Actual);
 end;
 
-procedure TDestructuringTests.Default_IsEvaluatedOnlyWhenNeeded;
+procedure TDestructuringTests.Default_Initializer_IsEvaluatedOnlyWhenNeeded;
 begin
   const Script = 'var n = 0; function d() { n++; return 1; } var [a = d(), b = d()] = [5]; n';
 
-  Assert.AreEqual('1', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1', Actual);
 end;
 
-procedure TDestructuringTests.Default_IsEvaluatedInOrder;
+procedure TDestructuringTests.Default_Initializers_AreEvaluatedInOrder;
 begin
   const Script = 'var log = ""; function d(n) { log += n; return n; } ' +
                  'var {a = d(1), b = d(2), c: [e = d(3)] = []} = {}; log';
 
-  Assert.AreEqual('123', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('123', Actual);
 end;
 
-procedure TDestructuringTests.ComputedKey_IsEvaluatedBeforeTarget;
+procedure TDestructuringTests.ComputedKey_ObjectPattern_IsEvaluatedBeforeTarget;
 begin
   const Script = 'var log = ""; function k() { log += "k;"; return "a"; } ' +
                  'function t() { log += "t;"; return {}; } ' +
                  '({[k()]: t().x} = {a: 1}); log';
 
-  Assert.AreEqual('k;t;', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('k;t;', Actual);
 end;
 
 procedure TDestructuringTests.Statement_AtBlockStart_IsNotAnObjectPattern;
 begin
   const Script = 'var a = 1; { a } a';
 
-  Assert.AreEqual('1', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1', Actual);
 end;
 
 procedure TDestructuringTests.Pattern_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TDestructuringTests.Source_IsAccepted(const Source: string);
+procedure TDestructuringTests.Pattern_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TDestructuringTests.ObjectLiteral_ShorthandAndAccessors_AreAccepted;
@@ -483,21 +486,27 @@ begin
   const Script = 'var a = 1, get = 2, set = 3; var o = {a, get, set, get g() { return 4; }, set s(v) {}, m() {}}; ' +
                  'o.a + o.get + o.set + o.g';
 
-  Assert.AreEqual('10', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('10', Actual);
 end;
 
 procedure TDestructuringTests.Hoisting_VarPatternNames_AreDeclaredAtTheTop;
 begin
   const Script = 'var before = typeof a + typeof b; var [a, {b}] = [1, {b: 2}]; before + "," + a + b';
 
-  Assert.AreEqual('undefinedundefined,12', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('undefinedundefined,12', Actual);
 end;
 
 procedure TDestructuringTests.Hoisting_VarPatternNames_InNestedBlocksAreFunctionScoped;
 begin
   const Script = 'function f() { if (true) { var [a] = [3]; } return a; } f()';
 
-  Assert.AreEqual('3', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('3', Actual);
 end;
 
 end.

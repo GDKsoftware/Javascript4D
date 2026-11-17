@@ -6,25 +6,16 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TArgumentsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TArgumentsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
-    procedure Arguments_ReportsPassedCount;
+    [TestCase('ThreeArguments', 'count(1, 2, 3)#3', '#')]
+    [TestCase('NoArguments', 'count()#0', '#')]
+    procedure Arguments_CountCall_LengthIsNumberOfPassedValues(const Call: string; const Expected: Double);
 
     [Test]
     procedure Arguments_ExposesValuesByIndex;
@@ -33,10 +24,9 @@ type
     procedure Arguments_ExtraArgumentsBeyondParameters_AreAvailable;
 
     [Test]
-    procedure Arguments_NoArguments_HasZeroLength;
-
-    [Test]
-    procedure Arguments_EachCallGetsItsOwnObject;
+    [TestCase('FirstCall', 'a[0],1')]
+    [TestCase('SecondCall', 'b[0],2')]
+    procedure Arguments_TwoCalls_EachCallGetsItsOwnObject(const Read: string; const Expected: Double);
 
     [Test]
     procedure Arguments_ClosureCalledRepeatedly_KeepsCapturedState;
@@ -56,50 +46,44 @@ type
 
 implementation
 
-procedure TArgumentsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+const
+  COUNT_ARGUMENTS_SCRIPT = 'function count() { return arguments.length; }';
 
-procedure TArgumentsTests.TearDown;
+procedure TArgumentsTests.Arguments_CountCall_LengthIsNumberOfPassedValues(const Call: string;
+                                                                           const Expected: Double);
 begin
-  FEngine.Free;
-end;
+  FEngine.Execute(COUNT_ARGUMENTS_SCRIPT);
 
-procedure TArgumentsTests.Arguments_ReportsPassedCount;
-begin
-  FEngine.Execute('function count() { return arguments.length; }');
+  const Actual = EvaluateNumber(Call);
 
-  Assert.AreEqual(3.0, FEngine.Evaluate('count(1, 2, 3)').AsNumber);
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_ExposesValuesByIndex;
 begin
   FEngine.Execute('function second() { return arguments[1]; }');
 
-  Assert.AreEqual('b', FEngine.Evaluate('second("a", "b")').AsString);
+  const Actual = EvaluateText('second("a", "b")');
+
+  Assert.AreEqual('b', Actual);
 end;
 
 procedure TArgumentsTests.Arguments_ExtraArgumentsBeyondParameters_AreAvailable;
 begin
   FEngine.Execute('function first(a) { return arguments[2]; }');
 
-  Assert.AreEqual(9.0, FEngine.Evaluate('first(1, 2, 9)').AsNumber);
+  const Actual = EvaluateNumber('first(1, 2, 9)');
+
+  Assert.AreEqual(9.0, Actual);
 end;
 
-procedure TArgumentsTests.Arguments_NoArguments_HasZeroLength;
-begin
-  FEngine.Execute('function count() { return arguments.length; }');
-
-  Assert.AreEqual(0.0, FEngine.Evaluate('count()').AsNumber);
-end;
-
-procedure TArgumentsTests.Arguments_EachCallGetsItsOwnObject;
+procedure TArgumentsTests.Arguments_TwoCalls_EachCallGetsItsOwnObject(const Read: string; const Expected: Double);
 begin
   FEngine.Execute('function grab() { return arguments; } var a = grab(1); var b = grab(2);');
 
-  Assert.AreEqual(1.0, FEngine.Evaluate('a[0]').AsNumber);
-  Assert.AreEqual(2.0, FEngine.Evaluate('b[0]').AsNumber);
+  const Actual = EvaluateNumber(Read);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_ClosureCalledRepeatedly_KeepsCapturedState;
@@ -107,14 +91,18 @@ begin
   FEngine.Execute('var next = (function() { var n = 0; return function() { n = n + 1; return n; }; })();');
   FEngine.Execute('next();');
 
-  Assert.AreEqual(2.0, FEngine.Evaluate('next()').AsNumber);
+  const Actual = EvaluateNumber('next()');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_ParameterNamedArguments_ShadowsObject;
 begin
   FEngine.Execute('function shadow(arguments) { return arguments; }');
 
-  Assert.AreEqual(5.0, FEngine.Evaluate('shadow(5)').AsNumber);
+  const Actual = EvaluateNumber('shadow(5)');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_InsideNestedFunction_RefersToInnerCall;
@@ -122,19 +110,25 @@ begin
   FEngine.Execute(
     'function outer() { function inner() { return arguments.length; } return inner(1, 2); }');
 
-  Assert.AreEqual(2.0, FEngine.Evaluate('outer(1, 2, 3, 4)').AsNumber);
+  const Actual = EvaluateNumber('outer(1, 2, 3, 4)');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_ReadThroughEval_SeesCallArguments;
 begin
   FEngine.Execute('function viaEval() { return eval(''arguments.length''); }');
 
-  Assert.AreEqual(3.0, FEngine.Evaluate('viaEval(1, 2, 3)').AsNumber);
+  const Actual = EvaluateNumber('viaEval(1, 2, 3)');
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TArgumentsTests.Arguments_TypeOfGlobalArguments_IsUndefined;
 begin
-  Assert.AreEqual('undefined', FEngine.Evaluate('typeof arguments').AsString);
+  const Actual = EvaluateText('typeof arguments');
+
+  Assert.AreEqual('undefined', Actual);
 end;
 
 end.

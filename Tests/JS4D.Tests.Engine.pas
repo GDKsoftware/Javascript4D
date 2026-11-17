@@ -7,24 +7,13 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TEngineTests = class
-  private
-    FEngine: TJSEngine;
-    function AllocatedBytes: NativeInt;
-
+  TEngineTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Execute_SimpleAddition_ReturnsCorrectResult;
 
@@ -149,261 +138,285 @@ type
 
     [Test]
     procedure Execute_DateTimesNumber_ProducesNumericProduct;
+
     [Test]
     procedure Execute_RepeatedInSameEngine_DoesNotLeakMemory;
 
     [Test]
     procedure CollectGarbage_ClosureInGlobal_SurvivesAndWorks;
+
     [Test]
     procedure CollectGarbage_GlobalState_Persists;
+
     [Test]
     procedure CollectGarbage_Builtins_ReturnResultsAfterCollection;
-
   end;
 
 implementation
 
-procedure TEngineTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TEngineTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TEngineTests.Execute_SimpleAddition_ReturnsCorrectResult;
 begin
-  const Result = FEngine.Evaluate('1 + 2');
+  const Actual = FEngine.Evaluate('1 + 2');
 
-  Assert.AreEqual(Double(3), Result.ToNumber);
+  Assert.AreEqual(Double(3), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_Multiplication_ReturnsCorrectResult;
 begin
-  const Result = FEngine.Evaluate('3 * 4');
+  const Actual = FEngine.Evaluate('3 * 4');
 
-  Assert.AreEqual(Double(12), Result.ToNumber);
+  Assert.AreEqual(Double(12), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_OperatorPrecedence_ReturnsCorrectResult;
 begin
-  const Result = FEngine.Evaluate('1 + 2 * 3');
+  const Actual = FEngine.Evaluate('1 + 2 * 3');
 
-  Assert.AreEqual(Double(7), Result.ToNumber);
+  Assert.AreEqual(Double(7), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_VariableDeclaration_StoresValue;
 begin
   FEngine.Execute('var x = 42;');
-  const Result = FEngine.GetVariable('x');
+  const Actual = FEngine.GetVariable('x');
 
-  Assert.AreEqual(Double(42), Result.ToNumber);
+  Assert.AreEqual(Double(42), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_VariableAssignment_UpdatesValue;
 begin
   FEngine.Execute('var x = 10; x = 20;');
-  const Result = FEngine.GetVariable('x');
+  const Actual = FEngine.GetVariable('x');
 
-  Assert.AreEqual(Double(20), Result.ToNumber);
+  Assert.AreEqual(Double(20), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_FunctionDeclaration_CanBeCalled;
 begin
   FEngine.Execute('function greet() { return "hello"; }');
-  const Result = FEngine.Evaluate('greet()');
+  const Actual = FEngine.Evaluate('greet()');
 
-  Assert.AreEqual('hello', Result.ToString);
+  Assert.AreEqual('hello', Actual.ToString);
 end;
 
 procedure TEngineTests.Execute_FunctionWithReturn_ReturnsValue;
 begin
   FEngine.Execute('function add(a, b) { return a + b; }');
-  const Result = FEngine.Evaluate('add(3, 4)');
+  const Actual = FEngine.Evaluate('add(3, 4)');
 
-  Assert.AreEqual(Double(7), Result.ToNumber);
+  Assert.AreEqual(Double(7), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_ObjectLiteral_CreatesObject;
 begin
   FEngine.Execute('var obj = { x: 1, y: 2 };');
-  const Result = FEngine.Evaluate('obj.x + obj.y');
+  const Actual = FEngine.Evaluate('obj.x + obj.y');
 
-  Assert.AreEqual(Double(3), Result.ToNumber);
+  Assert.AreEqual(Double(3), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_ArrayLiteral_CreatesArray;
 begin
   FEngine.Execute('var arr = [1, 2, 3];');
-  const Result = FEngine.GetVariable('arr');
+  const Actual = FEngine.GetVariable('arr');
 
-  Assert.IsTrue(Result.IsArray);
+  Assert.IsTrue(Actual.IsArray);
 end;
 
 procedure TEngineTests.Execute_ArrayAccess_ReturnsElement;
 begin
   FEngine.Execute('var arr = [10, 20, 30];');
-  const Result = FEngine.Evaluate('arr[1]');
+  const Actual = FEngine.Evaluate('arr[1]');
 
-  Assert.AreEqual(Double(20), Result.ToNumber);
+  Assert.AreEqual(Double(20), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_IfStatement_ExecutesCorrectBranch;
 begin
   FEngine.Execute('var result = 0; if (true) { result = 1; } else { result = 2; }');
-  const Result = FEngine.GetVariable('result');
+  const Actual = FEngine.GetVariable('result');
 
-  Assert.AreEqual(Double(1), Result.ToNumber);
+  Assert.AreEqual(Double(1), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_WhileLoop_IteratesCorrectly;
 begin
   FEngine.Execute('var i = 0; var sum = 0; while (i < 5) { sum += i; i++; }');
-  const Result = FEngine.GetVariable('sum');
+  const Actual = FEngine.GetVariable('sum');
 
-  Assert.AreEqual(Double(10), Result.ToNumber);
+  Assert.AreEqual(Double(10), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_ForLoop_IteratesCorrectly;
 begin
   FEngine.Execute('var sum = 0; for (var i = 1; i <= 5; i++) { sum += i; }');
-  const Result = FEngine.GetVariable('sum');
+  const Actual = FEngine.GetVariable('sum');
 
-  Assert.AreEqual(Double(15), Result.ToNumber);
+  Assert.AreEqual(Double(15), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_StringConcatenation_JoinsStrings;
 begin
-  const Result = FEngine.Evaluate('"Hello, " + "World!"');
+  const Actual = FEngine.Evaluate('"Hello, " + "World!"');
 
-  Assert.AreEqual('Hello, World!', Result.ToString);
+  Assert.AreEqual('Hello, World!', Actual.ToString);
 end;
 
 procedure TEngineTests.Execute_ComparisonOperators_ReturnsBoolean;
 begin
-  Assert.IsTrue(FEngine.Evaluate('5 > 3').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('5 >= 5').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('3 < 5').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('3 <= 3').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('5 == 5').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('5 != 3').ToBoolean);
+  const FirstActual = EvaluateBoolean('5 > 3');
+  const SecondActual = EvaluateBoolean('5 >= 5');
+  const ThirdActual = EvaluateBoolean('3 < 5');
+  const FourthActual = EvaluateBoolean('3 <= 3');
+  const FifthActual = EvaluateBoolean('5 == 5');
+  const SixthActual = EvaluateBoolean('5 != 3');
+
+  Assert.IsTrue(FirstActual);
+  Assert.IsTrue(SecondActual);
+  Assert.IsTrue(ThirdActual);
+  Assert.IsTrue(FourthActual);
+  Assert.IsTrue(FifthActual);
+  Assert.IsTrue(SixthActual);
 end;
 
 procedure TEngineTests.Execute_LogicalOperators_ReturnsCorrectResult;
 begin
-  Assert.IsTrue(FEngine.Evaluate('true && true').ToBoolean);
-  Assert.IsFalse(FEngine.Evaluate('true && false').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('true || false').ToBoolean);
-  Assert.IsFalse(FEngine.Evaluate('false || false').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('!false').ToBoolean);
+  const FirstActual = EvaluateBoolean('true && true');
+  const SecondActual = EvaluateBoolean('true && false');
+  const ThirdActual = EvaluateBoolean('true || false');
+  const FourthActual = EvaluateBoolean('false || false');
+  const FifthActual = EvaluateBoolean('!false');
+
+  Assert.IsTrue(FirstActual);
+  Assert.IsFalse(SecondActual);
+  Assert.IsTrue(ThirdActual);
+  Assert.IsFalse(FourthActual);
+  Assert.IsTrue(FifthActual);
 end;
 
 procedure TEngineTests.Execute_MathSqrt_ReturnsCorrectResult;
 begin
-  const Result = FEngine.Evaluate('Math.sqrt(16)');
+  const Actual = FEngine.Evaluate('Math.sqrt(16)');
 
-  Assert.AreEqual(Double(4), Result.ToNumber);
+  Assert.AreEqual(Double(4), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_MathPow_ReturnsCorrectResult;
 begin
-  const Result = FEngine.Evaluate('Math.pow(2, 8)');
+  const Actual = FEngine.Evaluate('Math.pow(2, 8)');
 
-  Assert.AreEqual(Double(256), Result.ToNumber);
+  Assert.AreEqual(Double(256), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_MathFloorCeil_ReturnsCorrectResult;
 begin
-  Assert.AreEqual(Double(3), FEngine.Evaluate('Math.floor(3.7)').ToNumber);
-  Assert.AreEqual(Double(4), FEngine.Evaluate('Math.ceil(3.2)').ToNumber);
+  const FirstActual = EvaluateNumber('Math.floor(3.7)');
+  const SecondActual = EvaluateNumber('Math.ceil(3.2)');
+
+  Assert.AreEqual(Double(3), FirstActual);
+  Assert.AreEqual(Double(4), SecondActual);
 end;
 
 procedure TEngineTests.Execute_TernaryOperator_ReturnsCorrectValue;
 begin
-  Assert.AreEqual('yes', FEngine.Evaluate('true ? "yes" : "no"').ToString);
-  Assert.AreEqual('no', FEngine.Evaluate('false ? "yes" : "no"').ToString);
+  const FirstActual = EvaluateText('true ? "yes" : "no"');
+  const SecondActual = EvaluateText('false ? "yes" : "no"');
+
+  Assert.AreEqual('yes', FirstActual);
+  Assert.AreEqual('no', SecondActual);
 end;
 
 procedure TEngineTests.Execute_IncrementOperator_IncrementsValue;
 begin
   FEngine.Execute('var x = 5; x++;');
-  const Result = FEngine.GetVariable('x');
+  const Actual = FEngine.GetVariable('x');
 
-  Assert.AreEqual(Double(6), Result.ToNumber);
+  Assert.AreEqual(Double(6), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_DecrementOperator_DecrementsValue;
 begin
   FEngine.Execute('var x = 5; x--;');
-  const Result = FEngine.GetVariable('x');
+  const Actual = FEngine.GetVariable('x');
 
-  Assert.AreEqual(Double(4), Result.ToNumber);
+  Assert.AreEqual(Double(4), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_NestedFunction_WorksCorrectly;
 begin
   FEngine.Execute('function outer(x) { function inner(y) { return y * 2; } return inner(x) + 1; }');
-  const Result = FEngine.Evaluate('outer(5)');
+  const Actual = FEngine.Evaluate('outer(5)');
 
-  Assert.AreEqual(Double(11), Result.ToNumber);
+  Assert.AreEqual(Double(11), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_Recursion_WorksCorrectly;
 begin
   FEngine.Execute('function factorial(n) { if (n <= 1) { return 1; } return n * factorial(n - 1); }');
-  const Result = FEngine.Evaluate('factorial(5)');
+  const Actual = FEngine.Evaluate('factorial(5)');
 
-  Assert.AreEqual(Double(120), Result.ToNumber);
+  Assert.AreEqual(Double(120), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_ObjectPropertyAccess_ReturnsValue;
 begin
   FEngine.Execute('var obj = { name: "test", value: 42 };');
 
-  Assert.AreEqual('test', FEngine.Evaluate('obj.name').ToString);
-  Assert.AreEqual(Double(42), FEngine.Evaluate('obj.value').ToNumber);
+  const FirstActual = EvaluateText('obj.name');
+  const SecondActual = EvaluateNumber('obj.value');
+
+  Assert.AreEqual('test', FirstActual);
+  Assert.AreEqual(Double(42), SecondActual);
 end;
 
 procedure TEngineTests.Execute_ObjectPropertyAssignment_UpdatesValue;
 begin
   FEngine.Execute('var obj = { x: 1 }; obj.x = 10; obj.y = 20;');
 
-  Assert.AreEqual(Double(10), FEngine.Evaluate('obj.x').ToNumber);
-  Assert.AreEqual(Double(20), FEngine.Evaluate('obj.y').ToNumber);
+  const FirstActual = EvaluateNumber('obj.x');
+  const SecondActual = EvaluateNumber('obj.y');
+
+  Assert.AreEqual(Double(10), FirstActual);
+  Assert.AreEqual(Double(20), SecondActual);
 end;
 
 procedure TEngineTests.Execute_ArrayLength_ReturnsCount;
 begin
   FEngine.Execute('var arr = [1, 2, 3, 4, 5];');
-  const Result = FEngine.Evaluate('arr.length');
+  const Actual = FEngine.Evaluate('arr.length');
 
-  Assert.AreEqual(Double(5), Result.ToNumber);
+  Assert.AreEqual(Double(5), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_StringLength_ReturnsCount;
 begin
-  const Result = FEngine.Evaluate('"Hello".length');
+  const Actual = FEngine.Evaluate('"Hello".length');
 
-  Assert.AreEqual(Double(5), Result.ToNumber);
+  Assert.AreEqual(Double(5), Actual.ToNumber);
 end;
 
 procedure TEngineTests.Execute_TypeofOperator_ReturnsType;
 begin
-  Assert.AreEqual('number', FEngine.Evaluate('typeof 42').ToString);
-  Assert.AreEqual('string', FEngine.Evaluate('typeof "hello"').ToString);
-  Assert.AreEqual('boolean', FEngine.Evaluate('typeof true').ToString);
-  Assert.AreEqual('object', FEngine.Evaluate('typeof {}').ToString);
-  Assert.AreEqual('function', FEngine.Evaluate('typeof function() {}').ToString);
-  Assert.AreEqual('undefined', FEngine.Evaluate('typeof undefined').ToString);
+  const FirstActual = EvaluateText('typeof 42');
+  const SecondActual = EvaluateText('typeof "hello"');
+  const ThirdActual = EvaluateText('typeof true');
+  const FourthActual = EvaluateText('typeof {}');
+  const FifthActual = EvaluateText('typeof function() {}');
+  const SixthActual = EvaluateText('typeof undefined');
+
+  Assert.AreEqual('number', FirstActual);
+  Assert.AreEqual('string', SecondActual);
+  Assert.AreEqual('boolean', ThirdActual);
+  Assert.AreEqual('object', FourthActual);
+  Assert.AreEqual('function', FifthActual);
+  Assert.AreEqual('undefined', SixthActual);
 end;
 
 procedure TEngineTests.Execute_Script_ReturnsExpectedText(const Script: string; const Expected: string);
 begin
-  const Result = FEngine.Evaluate(Script);
+  const Actual = FEngine.Evaluate(Script);
 
-  Assert.AreEqual(Expected, Result.ToString);
+  Assert.AreEqual(Expected, Actual.ToString);
 end;
 
 procedure TEngineTests.Execute_UndeclaredIdentifier_RaisesReferenceError;
@@ -478,17 +491,6 @@ begin
   Assert.AreEqual(Double(2000), Product.ToNumber);
 end;
 
-{$WARN SYMBOL_PLATFORM OFF}
-function TEngineTests.AllocatedBytes: NativeInt;
-begin
-  var State: TMemoryManagerState;
-  GetMemoryManagerState(State);
-  Result := State.TotalAllocatedMediumBlockSize + State.TotalAllocatedLargeBlockSize;
-  for var SmallState in State.SmallBlockTypeStates do
-    Result := Result + NativeInt(SmallState.UseableBlockSize) * NativeInt(SmallState.AllocatedBlockCount);
-end;
-{$WARN SYMBOL_PLATFORM DEFAULT}
-
 procedure TEngineTests.Execute_RepeatedInSameEngine_DoesNotLeakMemory;
 begin
   const Script = 'function make(n) { var f = function() { return n * 2; }; return f(); } make(21);';
@@ -496,13 +498,13 @@ begin
   for var I := 1 to 200 do
     FEngine.Execute(Script);
 
-  const Before = AllocatedBytes;
+  const Before = TJSTestSupport.AllocatedBytes;
   for var I := 1 to 4000 do
   begin
     FEngine.Execute(Script);
     FEngine.CollectGarbage;
   end;
-  const Growth = AllocatedBytes - Before;
+  const Growth = TJSTestSupport.AllocatedBytes - Before;
 
   Assert.IsTrue(Growth < 512 * 1024,
     Format('Heap grew by %d bytes over 4000 executions in one engine (expected < 512 KB): scopes/functions are retained for the engine lifetime', [Growth]));
@@ -514,9 +516,9 @@ begin
   FEngine.Execute('counter();');
   FEngine.CollectGarbage;
 
-  const Result = FEngine.Evaluate('counter()');
+  const Actual = FEngine.Evaluate('counter()');
 
-  Assert.AreEqual(Double(2), Result.ToNumber, 'Closure stored in a global must survive collection with its captured state');
+  Assert.AreEqual(Double(2), Actual.ToNumber, 'Closure stored in a global must survive collection with its captured state');
 end;
 
 procedure TEngineTests.CollectGarbage_GlobalState_Persists;
@@ -524,18 +526,18 @@ begin
   FEngine.Execute('var data = { total: 42 };');
   FEngine.CollectGarbage;
 
-  const Result = FEngine.Evaluate('data.total');
+  const Actual = FEngine.Evaluate('data.total');
 
-  Assert.AreEqual(Double(42), Result.ToNumber);
+  Assert.AreEqual(Double(42), Actual.ToNumber);
 end;
 
 procedure TEngineTests.CollectGarbage_Builtins_ReturnResultsAfterCollection;
 begin
   FEngine.CollectGarbage;
 
-  const Result = FEngine.Evaluate('Math.max(3, 7)');
+  const Actual = FEngine.Evaluate('Math.max(3, 7)');
 
-  Assert.AreEqual(Double(7), Result.ToNumber);
+  Assert.AreEqual(Double(7), Actual.ToNumber);
 end;
 
 end.

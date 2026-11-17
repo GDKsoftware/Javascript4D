@@ -2,8 +2,6 @@ unit JS4D.Tests.EngineLifetime;
 
 {$SCOPEDENUMS ON}
 
-{$WARN SYMBOL_PLATFORM OFF}
-
 interface
 
 uses
@@ -13,7 +11,8 @@ uses
   JS4D.Errors,
   JS4D.ControlFlow,
   JS4D.Types,
-  JS4D.Engine;
+  JS4D.Engine,
+  JS4D.Tests.Support;
 
 const
   SCRIPT_SEPARATOR = '#';
@@ -26,8 +25,6 @@ type
   [TestFixture]
   TEngineLifetimeTests = class
   private
-    function SmallBlockBytes(const State: TMemoryManagerState): Int64;
-    function AllocatedBytes: Int64;
     procedure RunScript(const Script: string);
     procedure RunFailingScript(const Script: string);
     function BytesLeaked(const RunOnce: TProc): Int64;
@@ -400,26 +397,6 @@ const
                                              'constructor', 'prototype', NEXT_PROPERTY, 'then', 'toString',
                                              'valueOf', '0', SECOND_ELEMENT];
 
-function TEngineLifetimeTests.SmallBlockBytes(const State: TMemoryManagerState): Int64;
-begin
-  Result := 0;
-  for var SmallBlockState in State.SmallBlockTypeStates do
-  begin
-    const BlockBytes = Int64(SmallBlockState.UseableBlockSize) * Int64(SmallBlockState.AllocatedBlockCount);
-    Inc(Result, BlockBytes);
-  end;
-end;
-
-function TEngineLifetimeTests.AllocatedBytes: Int64;
-begin
-  var State: TMemoryManagerState;
-  GetMemoryManagerState(State);
-
-  const LargerBlockBytes = Int64(State.TotalAllocatedMediumBlockSize) + Int64(State.TotalAllocatedLargeBlockSize);
-
-  Result := LargerBlockBytes + SmallBlockBytes(State);
-end;
-
 procedure TEngineLifetimeTests.RunScript(const Script: string);
 begin
   const Engine = TJSEngine.Create;
@@ -456,14 +433,14 @@ begin
     RunOnce();
   end;
 
-  const Before = AllocatedBytes;
+  const Before = TJSTestSupport.AllocatedBytes;
 
   for var Run := 1 to MEASURED_RUNS do
   begin
     RunOnce();
   end;
 
-  Result := AllocatedBytes - Before;
+  Result := TJSTestSupport.AllocatedBytes - Before;
 end;
 
 procedure TEngineLifetimeTests.AssertNothingLeaked(const LeakedBytes: Int64);

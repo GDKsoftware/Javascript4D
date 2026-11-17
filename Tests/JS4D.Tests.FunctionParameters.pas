@@ -7,23 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TFunctionParameterTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TFunctionParameterTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('UsedWhenMissing', 'function f(a, b = 5) { return b; } f(1)|5', '|')]
     [TestCase('UsedWhenUndefined', 'function f(a = 7) { return a; } f(undefined)|7', '|')]
@@ -89,10 +78,10 @@ type
     procedure Parameters_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
-    procedure Default_IsEvaluatedAtEachCall;
+    procedure Default_Initializer_IsEvaluatedAtEachCall;
 
     [Test]
-    procedure Default_IsNotEvaluatedWhenArgumentIsPassed;
+    procedure Default_ArgumentPassed_InitializerIsNotEvaluated;
 
     [Test]
     procedure Default_ReferencingLaterParameter_IsReferenceError;
@@ -101,7 +90,7 @@ type
     procedure Default_ReferencingOwnParameter_IsReferenceError;
 
     [Test]
-    procedure Default_ClosureSeesParameterNotBodyVariable;
+    procedure Default_ClosureInInitializer_SeesParameterNotBodyVariable;
 
     [Test]
     procedure Body_VarWithParameterName_StartsWithParameterValue;
@@ -119,7 +108,7 @@ type
     procedure Arguments_InDefault_RefersToCallArguments;
 
     [Test]
-    procedure New_EvaluatesArgumentsBeforeCheckingConstructor;
+    procedure New_NonConstructor_EvaluatesArgumentsBeforeCheckingConstructor;
 
     [Test]
     [TestCase('Number', 'f(...1);', '|')]
@@ -132,7 +121,7 @@ type
 
     [Test]
     [TestCase('DefaultSeesLaterParameter', 'function f(a = b, b) {} f();', '|')]
-    procedure Default_RaisesReferenceError(const Source: string);
+    procedure Default_DeadZoneReference_RaisesReferenceError(const Source: string);
 
     [Test]
     [TestCase('RestNotLast', 'function f(...a, b) {}', '|')]
@@ -160,7 +149,7 @@ type
     [TestCase('DoubleCommaInParameters', 'function f(a,,) {}', '|')]
     [TestCase('SpreadInNewWithoutOperand', 'new f(...);', '|')]
     [TestCase('SpreadInParenthesizedExpression', 'var a = (...b);', '|')]
-    procedure Source_IsSyntaxError(const Source: string);
+    procedure Parameters_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('DefaultWithComma', 'function f(a = 1, b = 2) {}', '|')]
@@ -178,31 +167,13 @@ type
     [TestCase('SpreadAsOnlyArgument', 'function g() {} g(...[1]);', '|')]
     [TestCase('SpreadOfCallResult', 'function g() { return []; } g(...g());', '|')]
     [TestCase('SpreadAfterNewline', 'function g() {} g('#10'...[1]);', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure Parameters_ValidSource_RaisesNoError(const Source: string);
   end;
 
 implementation
 
-procedure TFunctionParameterTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TFunctionParameterTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TFunctionParameterTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TFunctionParameterTests.Parameters_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
@@ -211,100 +182,130 @@ begin
   Assert.AreEqual(Expected, Actual.ToString);
 end;
 
-procedure TFunctionParameterTests.Default_IsEvaluatedAtEachCall;
+procedure TFunctionParameterTests.Default_Initializer_IsEvaluatedAtEachCall;
 begin
   const Script = 'var n = 0; function f(a = ++n) { return a; } f(); f(); f()';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
-procedure TFunctionParameterTests.Default_IsNotEvaluatedWhenArgumentIsPassed;
+procedure TFunctionParameterTests.Default_ArgumentPassed_InitializerIsNotEvaluated;
 begin
   const Script = 'var n = 0; function f(a = ++n) { return a; } f(1); f(2); n';
 
-  Assert.AreEqual(0.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(0.0, Actual);
 end;
 
 procedure TFunctionParameterTests.Default_ReferencingLaterParameter_IsReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('function f(a = b, b) {} f();'));
+  const Actual = ErrorNameOf('function f(a = b, b) {} f();');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TFunctionParameterTests.Default_ReferencingOwnParameter_IsReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('function f(a = a) {} f();'));
+  const Actual = ErrorNameOf('function f(a = a) {} f();');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TFunctionParameterTests.Default_ClosureSeesParameterNotBodyVariable;
+procedure TFunctionParameterTests.Default_ClosureInInitializer_SeesParameterNotBodyVariable;
 begin
   const Script = 'var x = "outer"; function f(g = () => x) { var x = "body"; return g(); } f()';
 
-  Assert.AreEqual('outer', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('outer', Actual);
 end;
 
 procedure TFunctionParameterTests.Body_VarWithParameterName_StartsWithParameterValue;
 begin
   const Script = 'function f(a = 1) { var a; return a; } f(5)';
 
-  Assert.AreEqual(5.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TFunctionParameterTests.Body_VarWithParameterName_IsSeparateBinding;
 begin
   const Script = 'function f(a = 1, g = () => a) { var a = 2; return g() + "," + a; } f()';
 
-  Assert.AreEqual('1,2', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1,2', Actual);
 end;
 
 procedure TFunctionParameterTests.Body_FunctionWithParameterName_ReplacesParameterInBody;
 begin
   const Script = 'function f(a = 1) { function a() {} return typeof a; } f()';
 
-  Assert.AreEqual('function', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('function', Actual);
 end;
 
 procedure TFunctionParameterTests.Arguments_WithDefaults_IsNotMappedToParameters;
 begin
   const Script = 'function f(a, b = 2) { arguments[0] = 9; return a; } f(1)';
 
-  Assert.AreEqual(1.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TFunctionParameterTests.Arguments_InDefault_RefersToCallArguments;
 begin
   const Script = 'function f(a = arguments.length) { return a; } f(undefined, 2, 3)';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
-procedure TFunctionParameterTests.New_EvaluatesArgumentsBeforeCheckingConstructor;
+procedure TFunctionParameterTests.New_NonConstructor_EvaluatesArgumentsBeforeCheckingConstructor;
 begin
   const Script = 'var x = {}; var caught = ""; try { new x(x = Array); } catch (e) { caught = e.name; } ' +
                  'caught + "," + (x === Array)';
 
-  Assert.AreEqual('TypeError,true', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('TypeError,true', Actual);
 end;
 
 procedure TFunctionParameterTests.Spread_OfNonIterable_RaisesTypeError(const Source: string);
 begin
   const Script = Format('function f() {} %s', [Source]);
 
-  Assert.AreEqual('TypeError', ErrorNameOf(Script));
+  const Actual = ErrorNameOf(Script);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TFunctionParameterTests.Default_RaisesReferenceError(const Source: string);
+procedure TFunctionParameterTests.Default_DeadZoneReference_RaisesReferenceError(const Source: string);
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TFunctionParameterTests.Source_IsSyntaxError(const Source: string);
+procedure TFunctionParameterTests.Parameters_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TFunctionParameterTests.Source_IsAccepted(const Source: string);
+procedure TFunctionParameterTests.Parameters_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
 end.

@@ -7,24 +7,16 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
+
+const
+  LOGGING_GET_PROXY = 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); ';
+  LOGGING_HAS_PROXY = 'var log = []; var p = new Proxy([1, 2], { has: function (t, k) { log.push(String(k)); return k in t; } }); ';
 
 type
   [TestFixture]
-  TArrayPrototypeSemanticsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateText(const Script: string): string;
-
+  TArrayPrototypeSemanticsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Skips null and undefined', '[1, null, undefined, 2].toLocaleString()#1,,,2', '#')]
     [TestCase('Invokes the element method', '[{ toLocaleString: function () { return "x"; } }, 3].toLocaleString()#x,3', '#')]
@@ -33,9 +25,9 @@ type
     [TestCase('Own method of the prototype', 'String(Array.prototype.hasOwnProperty("toLocaleString"))#true', '#')]
     [TestCase('Method is not a constructor', 'try { new Array.prototype.toLocaleString(); } catch (e) { e.name; }#TypeError', '#')]
     [TestCase('Missing element method', 'try { [{ toLocaleString: 1 }].toLocaleString(); } catch (e) { e.name; }#TypeError', '#')]
-    [TestCase('Missing elements are read', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 42); log.join()#length,0,1,2,3', '#')]
-    [TestCase('Stops at the match', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 10); log.join()#length,0,1', '#')]
-    [TestCase('Does not test for presence', 'var log = []; var p = new Proxy([1, 2], { has: function (t, k) { log.push(String(k)); return k in t; } }); [].includes.call(p, 2); log.join()#', '#')]
+    [TestCase('Missing elements are read', LOGGING_GET_PROXY + '[].includes.call(p, 42); log.join()#length,0,1,2,3', '#')]
+    [TestCase('Stops at the match', LOGGING_GET_PROXY + '[].includes.call(p, 10); log.join()#length,0,1', '#')]
+    [TestCase('Does not test for presence', LOGGING_HAS_PROXY + '[].includes.call(p, 2); log.join()#', '#')]
     [TestCase('Array.isArray', 'Array.isArray(Array.prototype)#true', '#')]
     [TestCase('Initial length', 'String(Array.prototype.length)#0', '#')]
     [TestCase('Class tag', 'Object.prototype.toString.call(Array.prototype)#[object Array]', '#')]
@@ -43,7 +35,7 @@ type
     [TestCase('Length truncates', 'Array.prototype[1] = 1; Array.prototype.length = 0; String(Array.prototype[1])#undefined', '#')]
     [TestCase('Instances do not share its length', 'String([].length)#0', '#')]
     [TestCase('Has an own length', 'String(Object.getOwnPropertyNames(Array.prototype).indexOf("length") >= 0)#true', '#')]
-    procedure ArrayPrototype_Script_EvaluatesToTrue(const Script: string; const Expected: string);
+    procedure ArrayPrototype_Script_ReturnsExpectedText(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Null', 'null')]
@@ -89,25 +81,15 @@ type
 
 implementation
 
-procedure TArrayPrototypeSemanticsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TArrayPrototypeSemanticsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TArrayPrototypeSemanticsTests.EvaluateText(const Script: string): string;
-begin
-  Result := FEngine.Evaluate(Script).ToString;
-end;
-
-procedure TArrayPrototypeSemanticsTests.ArrayPrototype_Script_EvaluatesToTrue(const Script: string;
+procedure TArrayPrototypeSemanticsTests.ArrayPrototype_Script_ReturnsExpectedText(const Script: string;
                                                                             const Expected: string);
 begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Sort_ComparerIsNotCallable_ThrowsBeforeReadingLength(const Comparer: string);
@@ -120,12 +102,16 @@ begin
     'names.join()',
     [Comparer]);
 
-  Assert.AreEqual('TypeError,TypeError', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('TypeError,TypeError', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Sort_ComparerIsUndefined_SortsByText;
 begin
-  Assert.AreEqual('1,10,2', EvaluateText('[10, 2, 1].sort(undefined).join()'));
+  const Actual = EvaluateText('[10, 2, 1].sort(undefined).join()');
+
+  Assert.AreEqual('1,10,2', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_ReceiverIsProxyOfArray_UsesTheSpeciesConstructor(
@@ -141,7 +127,9 @@ begin
     'String(Object.getPrototypeOf(result) === Ctor.prototype)',
     [MethodName]);
 
-  Assert.AreEqual('true', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('true', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_ReceiverIsRevokedProxy_ThrowsTypeError;
@@ -150,7 +138,9 @@ begin
     'var r = Proxy.revocable([], {}); r.revoke();' +
     'try { Array.prototype.map.call(r.proxy, function () {}); "none"; } catch (e) { e.name; }';
 
-  Assert.AreEqual('TypeError', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_ReceiverIsProxyOfObject_CreatesPlainArray;
@@ -159,7 +149,9 @@ begin
     'var proxy = new Proxy({ length: 1, 0: "a", constructor: { [Symbol.species]: function () { throw 1; } } }, {});' +
     'String(Array.isArray(Array.prototype.slice.call(proxy)))';
 
-  Assert.AreEqual('true', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('true', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Flatten_ProxyReceiver_ReadsConstructorAfterLength(const MethodName: string);
@@ -171,7 +163,9 @@ begin
     'gets.slice(0, 2).join()',
     [MethodName]);
 
-  Assert.AreEqual('length,constructor', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('length,constructor', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_PrototypeSetterLocksTheLength_ThrowsTypeError(const MethodName: string);
@@ -187,7 +181,9 @@ begin
     '[outcome, array.hasOwnProperty(0), array.length, setterCalls].join()',
     [MethodName]);
 
-  Assert.AreEqual('TypeError,false,0,1', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('TypeError,false,0,1', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Push_PrototypeSetterFreezesTheArray_ThrowsTypeError;
@@ -200,12 +196,16 @@ begin
     'delete Array.prototype[0];' +
     '[outcome, array.length].join()';
 
-  Assert.AreEqual('TypeError,0', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('TypeError,0', Actual);
 end;
 
 procedure TArrayPrototypeSemanticsTests.Push_NoIndexedPrototypeProperty_AppendsDirectly;
 begin
-  Assert.AreEqual('3,a,c', EvaluateText('var a = ["a"]; a.push("b", "c"); [a.length, a[0], a[2]].join()'));
+  const Actual = EvaluateText('var a = ["a"]; a.push("b", "c"); [a.length, a[0], a[2]].join()');
+
+  Assert.AreEqual('3,a,c', Actual);
 end;
 
 end.

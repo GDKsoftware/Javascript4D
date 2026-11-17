@@ -10,22 +10,12 @@ uses
   DUnitX.TestFramework,
   JS4D.ControlFlow,
   JS4D.Interpreter,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TArrayMethodsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TArrayMethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Array_Push_AddsElement;
 
@@ -148,17 +138,8 @@ type
   end;
 
   [TestFixture]
-  TStringMethodsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TStringMethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure String_CharAt_ReturnsCharacter;
 
@@ -203,17 +184,8 @@ type
   end;
 
   [TestFixture]
-  TObjectMethodsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TObjectMethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Object_Keys_ReturnsPropertyNames;
 
@@ -246,17 +218,8 @@ type
   end;
 
   [TestFixture]
-  TJSONTests = class
-  private
-    FEngine: TJSEngine;
-
+  TJSONTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure JSON_Parse_ParsesObject;
 
@@ -286,17 +249,8 @@ type
   end;
 
   [TestFixture]
-  TGlobalFunctionsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TGlobalFunctionsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure ParseInt_ParsesInteger;
 
@@ -338,17 +292,8 @@ type
   end;
 
   [TestFixture]
-  TRegExpTests = class
-  private
-    FEngine: TJSEngine;
-
+  TRegExpTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure RegExp_Test_MatchesPattern;
 
@@ -399,17 +344,8 @@ type
   end;
 
   [TestFixture]
-  TDateMethodsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TDateMethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Date_Now_ReturnsTimestamp;
 
@@ -490,17 +426,8 @@ type
   end;
 
   [TestFixture]
-  TErrorConstructorTests = class
-  private
-    FEngine: TJSEngine;
-
+  TErrorConstructorTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Error_Constructor_CreatesError;
 
@@ -548,17 +475,8 @@ type
   end;
 
   [TestFixture]
-  TStrictModeTests = class
-  private
-    FEngine: TJSEngine;
-
+  TStrictModeTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure StrictMode_UndeclaredVariable_ThrowsError;
 
@@ -594,17 +512,8 @@ type
   end;
 
   [TestFixture]
-  TFunctionMethodsTests = class
-  private
-    FEngine: TJSEngine;
-
+  TFunctionMethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Function_Call_SetsThisContext;
 
@@ -635,15 +544,8 @@ type
 
 implementation
 
-procedure TArrayMethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TArrayMethodsTests.TearDown;
-begin
-  FEngine.Free;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TArrayMethodsTests.Array_Push_AddsElement;
 begin
@@ -691,59 +593,68 @@ end;
 
 procedure TArrayMethodsTests.Array_IndexOf_FindsElement;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 2].indexOf(2)');
-  Assert.AreEqual(Double(1), Result.AsNumber);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 2].indexOf(2)');
+
+  Assert.AreEqual(Double(1), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_IndexOf_ReturnsMinusOneWhenNotFound;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].indexOf(5)');
-  Assert.AreEqual(Double(-1), Result.AsNumber);
+  const Actual = FEngine.Evaluate('[1, 2, 3].indexOf(5)');
+
+  Assert.AreEqual(Double(-1), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_Join_ConcatenatesElements;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].join("-")');
-  Assert.AreEqual('1-2-3', Result.AsString);
+  const Actual = FEngine.Evaluate('[1, 2, 3].join("-")');
+
+  Assert.AreEqual('1-2-3', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Slice_ReturnsSubarray;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 4, 5].slice(1, 4).join(",")');
-  Assert.AreEqual('2,3,4', Result.AsString);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 4, 5].slice(1, 4).join(",")');
+
+  Assert.AreEqual('2,3,4', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Concat_MergesArrays;
 begin
-  const Result = FEngine.Evaluate('[1, 2].concat([3, 4]).join(",")');
-  Assert.AreEqual('1,2,3,4', Result.AsString);
+  const Actual = FEngine.Evaluate('[1, 2].concat([3, 4]).join(",")');
+
+  Assert.AreEqual('1,2,3,4', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Reverse_ReversesInPlace;
 begin
   FEngine.Execute('var arr = [1, 2, 3]; arr.reverse();');
-  const Result = FEngine.Evaluate('arr.join(",")');
-  Assert.AreEqual('3,2,1', Result.AsString);
+  const Actual = FEngine.Evaluate('arr.join(",")');
+
+  Assert.AreEqual('3,2,1', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Reverse_ChainedWithJoin;
 begin
-  const Result = FEngine.Evaluate('[3, 1, 2].reverse().join(",")');
-  Assert.AreEqual('2,1,3', Result.AsString);
+  const Actual = FEngine.Evaluate('[3, 1, 2].reverse().join(",")');
+
+  Assert.AreEqual('2,1,3', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_SortThenReverse_Statements;
 begin
   FEngine.Execute('var arr = [3, 1, 2]; arr.sort(); arr.reverse();');
-  const Result = FEngine.Evaluate('arr.join(",")');
-  Assert.AreEqual('3,2,1', Result.AsString);
+  const Actual = FEngine.Evaluate('arr.join(",")');
+
+  Assert.AreEqual('3,2,1', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_SortThenReverse_Chained;
 begin
   FEngine.Execute('var arr = [3, 1, 2]; arr.sort();');
-  const Result = FEngine.Evaluate('arr.reverse().join(",")');
-  Assert.AreEqual('3,2,1', Result.AsString);
+  const Actual = FEngine.Evaluate('arr.reverse().join(",")');
+
+  Assert.AreEqual('3,2,1', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_SortThenReverse_InStringConcat;
@@ -786,92 +697,106 @@ end;
 
 procedure TArrayMethodsTests.Array_Includes_ReturnsTrue;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].includes(2)');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('[1, 2, 3].includes(2)');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TArrayMethodsTests.Array_Map_TransformsElements;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].map(function(x) { return x * 2; }).join(",")');
-  Assert.AreEqual('2,4,6', Result.AsString);
+  const Actual = FEngine.Evaluate('[1, 2, 3].map(function(x) { return x * 2; }).join(",")');
+
+  Assert.AreEqual('2,4,6', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Filter_SelectsElements;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 4, 5].filter(function(x) { return x > 2; }).join(",")');
-  Assert.AreEqual('3,4,5', Result.AsString);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 4, 5].filter(function(x) { return x > 2; }).join(",")');
+
+  Assert.AreEqual('3,4,5', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Reduce_AccumulatesValue;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 4].reduce(function(acc, x) { return acc + x; }, 0)');
-  Assert.AreEqual(Double(10), Result.AsNumber);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 4].reduce(function(acc, x) { return acc + x; }, 0)');
+
+  Assert.AreEqual(Double(10), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_ForEach_IteratesElements;
 begin
   FEngine.Execute('var sum = 0; [1, 2, 3].forEach(function(x) { sum += x; });');
-  const Result = FEngine.GetVariable('sum');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.GetVariable('sum');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_Some_ReturnsTrueWhenMatches;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].some(function(x) { return x > 2; })');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('[1, 2, 3].some(function(x) { return x > 2; })');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TArrayMethodsTests.Array_Every_ReturnsTrueWhenAllMatch;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3].every(function(x) { return x > 0; })');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('[1, 2, 3].every(function(x) { return x > 0; })');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TArrayMethodsTests.Array_Find_ReturnsFirstMatch;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 4].find(function(x) { return x > 2; })');
-  Assert.AreEqual(Double(3), Result.AsNumber);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 4].find(function(x) { return x > 2; })');
+
+  Assert.AreEqual(Double(3), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_FindIndex_ReturnsIndex;
 begin
-  const Result = FEngine.Evaluate('[1, 2, 3, 4].findIndex(function(x) { return x > 2; })');
-  Assert.AreEqual(Double(2), Result.AsNumber);
+  const Actual = FEngine.Evaluate('[1, 2, 3, 4].findIndex(function(x) { return x > 2; })');
+
+  Assert.AreEqual(Double(2), Actual.AsNumber);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_SortsStrings;
 begin
-  const Result = FEngine.Evaluate('["c", "a", "b"].sort().join(",")');
-  Assert.AreEqual('a,b,c', Result.AsString);
+  const Actual = FEngine.Evaluate('["c", "a", "b"].sort().join(",")');
+
+  Assert.AreEqual('a,b,c', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithComparer;
 begin
-  const Result = FEngine.Evaluate('[3, 1, 2].sort(function(a, b) { return a - b; }).join(",")');
-  Assert.AreEqual('1,2,3', Result.AsString);
+  const Actual = FEngine.Evaluate('[3, 1, 2].sort(function(a, b) { return a - b; }).join(",")');
+
+  Assert.AreEqual('1,2,3', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithNumericComparerDescending;
 begin
   FEngine.Execute('var arr = [3, 1, 4, 1, 5, 9, 2, 6]; var sorted = arr.sort(function(a, b) { return b - a; });');
-  const Result = FEngine.Evaluate('sorted.join(",")');
-  Assert.AreEqual('9,6,5,4,3,2,1,1', Result.AsString);
+  const Actual = FEngine.Evaluate('sorted.join(",")');
+
+  Assert.AreEqual('9,6,5,4,3,2,1,1', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithObjectPropertyComparer;
 begin
   FEngine.Execute('var items = [{name: "B", val: 20}, {name: "A", val: 10}, {name: "C", val: 30}];');
   FEngine.Execute('items.sort(function(a, b) { return a.val - b.val; });');
-  const Result = FEngine.Evaluate('items.map(function(x) { return x.name; }).join(",")');
-  Assert.AreEqual('A,B,C', Result.AsString);
+  const Actual = FEngine.Evaluate('items.map(function(x) { return x.name; }).join(",")');
+
+  Assert.AreEqual('A,B,C', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithExternalLookup;
 begin
   FEngine.Execute('var keys = ["x", "y", "z"]; var vals = { x: 300, y: 100, z: 200 };');
   FEngine.Execute('keys.sort(function(a, b) { return vals[a] - vals[b]; });');
-  const Result = FEngine.Evaluate('keys.join(",")');
-  Assert.AreEqual('y,z,x', Result.AsString);
+  const Actual = FEngine.Evaluate('keys.join(",")');
+
+  Assert.AreEqual('y,z,x', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithExternalLookupDescending;
@@ -879,8 +804,9 @@ begin
   FEngine.Execute('var arr = ["Jan", "Lisa", "Kees"];');
   FEngine.Execute('var scores = { "Jan": 6146.79, "Lisa": 8964.78, "Kees": 5297.63 };');
   FEngine.Execute('var sorted = arr.sort(function(a, b) { return scores[b] - scores[a]; });');
-  const Result = FEngine.Evaluate('sorted.join(", ")');
-  Assert.AreEqual('Lisa, Jan, Kees', Result.AsString);
+  const Actual = FEngine.Evaluate('sorted.join(", ")');
+
+  Assert.AreEqual('Lisa, Jan, Kees', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_ObjectKeysWithLookup;
@@ -919,8 +845,9 @@ begin
   Assert.AreEqual(8964.78, Lisa.AsNumber, 0.01, 'Lisa totaal');
   Assert.AreEqual(5297.63, Kees.AsNumber, 0.01, 'Kees totaal');
 
-  const Result = FEngine.Evaluate('verkopers.join(", ")');
-  Assert.AreEqual('Lisa, Jan, Kees', Result.AsString);
+  const Actual = FEngine.Evaluate('verkopers.join(", ")');
+
+  Assert.AreEqual('Lisa, Jan, Kees', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_WithStringValuesFromCSV;
@@ -959,14 +886,16 @@ begin
   Assert.AreEqual(8964.78, Lisa.AsNumber, 0.01, 'Lisa totaal');
   Assert.AreEqual(5297.63, Kees.AsNumber, 0.01, 'Kees totaal');
 
-  const Result = FEngine.Evaluate('verkopers.join(", ")');
-  Assert.AreEqual('Lisa, Jan, Kees', Result.AsString);
+  const Actual = FEngine.Evaluate('verkopers.join(", ")');
+
+  Assert.AreEqual('Lisa, Jan, Kees', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Flat_FlattensNestedArrays;
 begin
-  const Result = FEngine.Evaluate('[[1, 2], [3, 4]].flat().join(",")');
-  Assert.AreEqual('1,2,3,4', Result.AsString);
+  const Actual = FEngine.Evaluate('[[1, 2], [3, 4]].flat().join(",")');
+
+  Assert.AreEqual('1,2,3,4', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_TwoStepObjectKeys;
@@ -978,8 +907,9 @@ const
 begin
   FEngine.Execute(Script);
 
-  const Result = FEngine.Evaluate('keys.join(", ")');
-  Assert.AreEqual('Bug Fixes, Support', Result.AsString);
+  const Actual = FEngine.Evaluate('keys.join(", ")');
+
+  Assert.AreEqual('Bug Fixes, Support', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_TwoStepWithVariable;
@@ -990,8 +920,9 @@ const
 begin
   FEngine.Execute(Script);
 
-  const Result = FEngine.Evaluate('arr.join(",")');
-  Assert.AreEqual('1,2,3', Result.AsString);
+  const Actual = FEngine.Evaluate('arr.join(",")');
+
+  Assert.AreEqual('1,2,3', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_LargeArrayWithComparer_UsesLogLinearComparisons;
@@ -1020,8 +951,9 @@ const
 begin
   FEngine.Execute(Script);
 
-  const Result = FEngine.Evaluate('items.map(function(x) { return x.n; }).join(",")');
-  Assert.AreEqual('b,d,a,c,e', Result.AsString);
+  const Actual = FEngine.Evaluate('items.map(function(x) { return x.n; }).join(",")');
+
+  Assert.AreEqual('b,d,a,c,e', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_UndefinedValues_AreSortedLastWithoutComparerCall;
@@ -1043,9 +975,9 @@ end;
 
 procedure TArrayMethodsTests.Array_Sort_WithoutComparer_ComparesAsStrings;
 begin
-  const Result = FEngine.Evaluate('[10, 9, 1].sort().join(",")');
+  const Actual = FEngine.Evaluate('[10, 9, 1].sort().join(",")');
 
-  Assert.AreEqual('1,10,9', Result.AsString);
+  Assert.AreEqual('1,10,9', Actual.AsString);
 end;
 
 procedure TArrayMethodsTests.Array_Sort_ThrowingComparer_PropagatesException;
@@ -1058,174 +990,174 @@ begin
     TJSThrowSignal);
 end;
 
-procedure TStringMethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStringMethodsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TStringMethodsTests.String_CharAt_ReturnsCharacter;
 begin
-  const Result = FEngine.Evaluate('"hello".charAt(1)');
-  Assert.AreEqual('e', Result.AsString);
+  const Actual = FEngine.Evaluate('"hello".charAt(1)');
+
+  Assert.AreEqual('e', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_IndexOf_FindsSubstring;
 begin
-  const Result = FEngine.Evaluate('"hello world".indexOf("world")');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.Evaluate('"hello world".indexOf("world")');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 procedure TStringMethodsTests.String_Substring_ReturnsSubstring;
 begin
-  const Result = FEngine.Evaluate('"hello".substring(1, 4)');
-  Assert.AreEqual('ell', Result.AsString);
+  const Actual = FEngine.Evaluate('"hello".substring(1, 4)');
+
+  Assert.AreEqual('ell', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_Split_SplitsString;
 begin
-  const Result = FEngine.Evaluate('"a,b,c".split(",").join("-")');
-  Assert.AreEqual('a-b-c', Result.AsString);
+  const Actual = FEngine.Evaluate('"a,b,c".split(",").join("-")');
+
+  Assert.AreEqual('a-b-c', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_ToLowerCase_ConvertsToLower;
 begin
-  const Result = FEngine.Evaluate('"HELLO".toLowerCase()');
-  Assert.AreEqual('hello', Result.AsString);
+  const Actual = FEngine.Evaluate('"HELLO".toLowerCase()');
+
+  Assert.AreEqual('hello', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_ToUpperCase_ConvertsToUpper;
 begin
-  const Result = FEngine.Evaluate('"hello".toUpperCase()');
-  Assert.AreEqual('HELLO', Result.AsString);
+  const Actual = FEngine.Evaluate('"hello".toUpperCase()');
+
+  Assert.AreEqual('HELLO', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_Trim_RemovesWhitespace;
 begin
-  const Result = FEngine.Evaluate('"  hello  ".trim()');
-  Assert.AreEqual('hello', Result.AsString);
+  const Actual = FEngine.Evaluate('"  hello  ".trim()');
+
+  Assert.AreEqual('hello', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_Replace_ReplacesFirst;
 begin
-  const Result = FEngine.Evaluate('"hello hello".replace("hello", "hi")');
-  Assert.AreEqual('hi hello', Result.AsString);
+  const Actual = FEngine.Evaluate('"hello hello".replace("hello", "hi")');
+
+  Assert.AreEqual('hi hello', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_StartsWith_ChecksPrefix;
 begin
-  const Result = FEngine.Evaluate('"hello".startsWith("hel")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('"hello".startsWith("hel")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TStringMethodsTests.String_EndsWith_ChecksSuffix;
 begin
-  const Result = FEngine.Evaluate('"hello".endsWith("lo")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('"hello".endsWith("lo")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TStringMethodsTests.String_Includes_ChecksContains;
 begin
-  const Result = FEngine.Evaluate('"hello".includes("ell")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('"hello".includes("ell")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TStringMethodsTests.String_Repeat_RepeatsString;
 begin
-  const Result = FEngine.Evaluate('"ab".repeat(3)');
-  Assert.AreEqual('ababab', Result.AsString);
+  const Actual = FEngine.Evaluate('"ab".repeat(3)');
+
+  Assert.AreEqual('ababab', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_PadStart_PadsBeginning;
 begin
-  const Result = FEngine.Evaluate('"5".padStart(3, "0")');
-  Assert.AreEqual('005', Result.AsString);
+  const Actual = FEngine.Evaluate('"5".padStart(3, "0")');
+
+  Assert.AreEqual('005', Actual.AsString);
 end;
 
 procedure TStringMethodsTests.String_PadEnd_PadsEnd;
 begin
-  const Result = FEngine.Evaluate('"5".padEnd(3, "0")');
-  Assert.AreEqual('500', Result.AsString);
-end;
+  const Actual = FEngine.Evaluate('"5".padEnd(3, "0")');
 
-procedure TObjectMethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TObjectMethodsTests.TearDown;
-begin
-  FEngine.Free;
+  Assert.AreEqual('500', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Keys_ReturnsPropertyNames;
 begin
   FEngine.Execute('var obj = { a: 1, b: 2 };');
-  const Result = FEngine.Evaluate('Object.keys(obj).sort().join(",")');
-  Assert.AreEqual('a,b', Result.AsString);
+  const Actual = FEngine.Evaluate('Object.keys(obj).sort().join(",")');
+
+  Assert.AreEqual('a,b', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Values_ReturnsPropertyValues;
 begin
   FEngine.Execute('var obj = { a: 1, b: 2 };');
-  const Result = FEngine.Evaluate('Object.values(obj).sort().join(",")');
-  Assert.AreEqual('1,2', Result.AsString);
+  const Actual = FEngine.Evaluate('Object.values(obj).sort().join(",")');
+
+  Assert.AreEqual('1,2', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Entries_ReturnsKeyValuePairs;
 begin
   FEngine.Execute('var obj = { a: 1 };');
-  const Result = FEngine.Evaluate('Object.entries(obj)[0].join(":")');
-  Assert.AreEqual('a:1', Result.AsString);
+  const Actual = FEngine.Evaluate('Object.entries(obj)[0].join(":")');
+
+  Assert.AreEqual('a:1', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Assign_CopiesProperties;
 begin
   FEngine.Execute('var target = { a: 1 }; Object.assign(target, { b: 2 });');
-  const Result = FEngine.Evaluate('target.a + target.b');
-  Assert.AreEqual(Double(3), Result.AsNumber);
+  const Actual = FEngine.Evaluate('target.a + target.b');
+
+  Assert.AreEqual(Double(3), Actual.AsNumber);
 end;
 
 procedure TObjectMethodsTests.Object_HasOwnProperty_ReturnsTrue;
 begin
   FEngine.Execute('var obj = { name: "test", value: 42 };');
-  const Result = FEngine.Evaluate('obj.hasOwnProperty("name")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('obj.hasOwnProperty("name")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TObjectMethodsTests.Object_HasOwnProperty_ReturnsFalse;
 begin
   FEngine.Execute('var obj = { name: "test" };');
-  const Result = FEngine.Evaluate('obj.hasOwnProperty("unknown")');
-  Assert.IsFalse(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('obj.hasOwnProperty("unknown")');
+
+  Assert.IsFalse(Actual.AsBoolean);
 end;
 
 procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrder;
 begin
   FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
-  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
-  Assert.AreEqual('b,a,c', Result.AsString);
+  const Actual = FEngine.Evaluate('Object.keys(obj).join(",")');
+
+  Assert.AreEqual('b,a,c', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrderAfterReassign;
 begin
-  FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
-  FEngine.Execute('obj.b = 99;');
-  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
-  Assert.AreEqual('b,a,c', Result.AsString);
+  FEngine.Execute('var obj = { b: 1, a: 2, c: 3 }; obj.b = 99;');
+  const Actual = FEngine.Evaluate('Object.keys(obj).join(",")');
+
+  Assert.AreEqual('b,a,c', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Keys_PreservesInsertionOrderAfterDeleteAndReadd;
 begin
-  FEngine.Execute('var obj = { a: 1, b: 2, c: 3 };');
-  FEngine.Execute('delete obj.b;');
-  FEngine.Execute('obj.b = 20;');
-  const Result = FEngine.Evaluate('Object.keys(obj).join(",")');
-  Assert.AreEqual('a,c,b', Result.AsString);
+  FEngine.Execute('var obj = { a: 1, b: 2, c: 3 }; delete obj.b; obj.b = 20;');
+  const Actual = FEngine.Evaluate('Object.keys(obj).join(",")');
+
+  Assert.AreEqual('a,c,b', Actual.AsString);
 end;
 
 procedure TObjectMethodsTests.Object_Keys_IntegerLikeKeys_AreAscending;
@@ -1237,49 +1169,42 @@ begin
   Assert.AreEqual('1,2,3', JoinedKeys.AsString);
 end;
 
-procedure TJSONTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TJSONTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TJSONTests.JSON_Parse_ParsesObject;
 begin
   FEngine.Execute('var obj = JSON.parse(''{"a":1,"b":2}'');');
-  const Result = FEngine.Evaluate('obj.a + obj.b');
-  Assert.AreEqual(Double(3), Result.AsNumber);
+  const Actual = FEngine.Evaluate('obj.a + obj.b');
+
+  Assert.AreEqual(Double(3), Actual.AsNumber);
 end;
 
 procedure TJSONTests.JSON_Parse_ParsesArray;
 begin
-  const Result = FEngine.Evaluate('JSON.parse("[1,2,3]").join(",")');
-  Assert.AreEqual('1,2,3', Result.AsString);
+  const Actual = FEngine.Evaluate('JSON.parse("[1,2,3]").join(",")');
+
+  Assert.AreEqual('1,2,3', Actual.AsString);
 end;
 
 procedure TJSONTests.JSON_Parse_ParsesNestedStructure;
 begin
   FEngine.Execute('var obj = JSON.parse(''{"arr":[1,2],"nested":{"x":10}}'');');
-  const Result = FEngine.Evaluate('obj.arr[1] + obj.nested.x');
-  Assert.AreEqual(Double(12), Result.AsNumber);
+  const Actual = FEngine.Evaluate('obj.arr[1] + obj.nested.x');
+
+  Assert.AreEqual(Double(12), Actual.AsNumber);
 end;
 
 procedure TJSONTests.JSON_Stringify_StringifiesObject;
 begin
   FEngine.Execute('var obj = { a: 1 };');
-  const Result = FEngine.Evaluate('JSON.stringify(obj)');
-  const JsonStr = Result.AsString;
+  const Actual = FEngine.Evaluate('JSON.stringify(obj)');
+  const JsonStr = Actual.AsString;
   Assert.IsTrue(Pos('"a"', JsonStr) > 0);
   Assert.IsTrue(Pos('1', JsonStr) > 0);
 end;
 
 procedure TJSONTests.JSON_Stringify_StringifiesArray;
 begin
-  const Result = FEngine.Evaluate('JSON.stringify([1,2,3])');
-  const JsonStr = Result.AsString;
+  const Actual = FEngine.Evaluate('JSON.stringify([1,2,3])');
+  const JsonStr = Actual.AsString;
   Assert.IsTrue((JsonStr = '[1,2,3]') or (JsonStr = '[1.0,2.0,3.0]'));
 end;
 
@@ -1298,8 +1223,8 @@ procedure TJSONTests.JSON_Stringify_PreservesInsertionOrderOfKeys;
 begin
   // Assert key positions (not numeric formatting — engine emits "1" or "1.0").
   FEngine.Execute('var obj = { b: 1, a: 2, c: 3 };');
-  const Result = FEngine.Evaluate('JSON.stringify(obj)');
-  const JsonStr = Result.AsString;
+  const Actual = FEngine.Evaluate('JSON.stringify(obj)');
+  const JsonStr = Actual.AsString;
   Assert.IsTrue(Pos('"b"', JsonStr) < Pos('"a"', JsonStr),
     Format('"b" should precede "a" in: %s', [JsonStr]));
   Assert.IsTrue(Pos('"a"', JsonStr) < Pos('"c"', JsonStr),
@@ -1310,8 +1235,8 @@ procedure TJSONTests.JSON_Stringify_PreservesOrderAfterReassign;
 begin
   FEngine.Execute('var obj = { first: 1, second: 2, third: 3 };');
   FEngine.Execute('obj.first = 99;');
-  const Result = FEngine.Evaluate('JSON.stringify(obj)');
-  const JsonStr = Result.AsString;
+  const Actual = FEngine.Evaluate('JSON.stringify(obj)');
+  const JsonStr = Actual.AsString;
   Assert.IsTrue(Pos('"first"', JsonStr) < Pos('"second"', JsonStr),
     Format('"first" should still precede "second" after reassign in: %s', [JsonStr]));
   Assert.IsTrue(Pos('"second"', JsonStr) < Pos('"third"', JsonStr),
@@ -1329,8 +1254,8 @@ begin
     'maanden.forEach(function(m, i) { rij[m] = i + 1; });' +
     'rij.totaal = 99;'
   );
-  const Result = FEngine.Evaluate('JSON.stringify(rij)');
-  const JsonStr = Result.AsString;
+  const Actual = FEngine.Evaluate('JSON.stringify(rij)');
+  const JsonStr = Actual.AsString;
 
   // materiaal must come first, totaal last, months in chronological order.
   Assert.IsTrue(Pos('"materiaal"', JsonStr) < Pos('"2025-01"', JsonStr),
@@ -1347,38 +1272,32 @@ begin
   end;
 end;
 
-procedure TGlobalFunctionsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TGlobalFunctionsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TGlobalFunctionsTests.ParseInt_ParsesInteger;
 begin
-  const Result = FEngine.Evaluate('parseInt("42")');
-  Assert.AreEqual(Double(42), Result.AsNumber);
+  const Actual = FEngine.Evaluate('parseInt("42")');
+
+  Assert.AreEqual(Double(42), Actual.AsNumber);
 end;
 
 procedure TGlobalFunctionsTests.ParseInt_ParsesHex;
 begin
-  const Result = FEngine.Evaluate('parseInt("0xFF", 16)');
-  Assert.AreEqual(Double(255), Result.AsNumber);
+  const Actual = FEngine.Evaluate('parseInt("0xFF", 16)');
+
+  Assert.AreEqual(Double(255), Actual.AsNumber);
 end;
 
 procedure TGlobalFunctionsTests.ParseFloat_ParsesFloat;
 begin
-  const Result = FEngine.Evaluate('parseFloat("3.14")');
-  Assert.AreEqual(3.14, Result.AsNumber, 0.001);
+  const Actual = FEngine.Evaluate('parseFloat("3.14")');
+
+  Assert.AreEqual(3.14, Actual.AsNumber, 0.001);
 end;
 
 procedure TGlobalFunctionsTests.IsNaN_DetectsNaN;
 begin
-  const Result = FEngine.Evaluate('isNaN(NaN)');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('isNaN(NaN)');
+
+  Assert.IsTrue(Actual.AsBoolean);
 
   const Result2 = FEngine.Evaluate('isNaN(42)');
   Assert.IsFalse(Result2.AsBoolean);
@@ -1386,8 +1305,9 @@ end;
 
 procedure TGlobalFunctionsTests.IsFinite_DetectsFinite;
 begin
-  const Result = FEngine.Evaluate('isFinite(42)');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('isFinite(42)');
+
+  Assert.IsTrue(Actual.AsBoolean);
 
   const Result2 = FEngine.Evaluate('isFinite(Infinity)');
   Assert.IsFalse(Result2.AsBoolean);
@@ -1395,8 +1315,9 @@ end;
 
 procedure TGlobalFunctionsTests.Array_IsArray_DetectsArray;
 begin
-  const Result = FEngine.Evaluate('Array.isArray([1,2,3])');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('Array.isArray([1,2,3])');
+
+  Assert.IsTrue(Actual.AsBoolean);
 
   const Result2 = FEngine.Evaluate('Array.isArray("hello")');
   Assert.IsFalse(Result2.AsBoolean);
@@ -1404,66 +1325,65 @@ end;
 
 procedure TGlobalFunctionsTests.GlobalNumber_ConvertsStringToNumber;
 begin
-  const Result = FEngine.Evaluate('Number("123.45")');
-  Assert.AreEqual(Double(123.45), Result.AsNumber, 0.001);
+  const Actual = FEngine.Evaluate('Number("123.45")');
+
+  Assert.AreEqual(Double(123.45), Actual.AsNumber, 0.001);
 end;
 
 procedure TGlobalFunctionsTests.GlobalNumber_ConvertsBooleanTrue;
 begin
-  const Result = FEngine.Evaluate('Number(true)');
-  Assert.AreEqual(Double(1), Result.AsNumber);
+  const Actual = FEngine.Evaluate('Number(true)');
+
+  Assert.AreEqual(Double(1), Actual.AsNumber);
 end;
 
 procedure TGlobalFunctionsTests.GlobalNumber_ConvertsBooleanFalse;
 begin
-  const Result = FEngine.Evaluate('Number(false)');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('Number(false)');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TGlobalFunctionsTests.GlobalNumber_ConvertsNull;
 begin
-  const Result = FEngine.Evaluate('Number(null)');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('Number(null)');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TGlobalFunctionsTests.GlobalNumber_ConvertsUndefined;
 begin
-  const Result = FEngine.Evaluate('Number(undefined)');
-  Assert.IsTrue(System.Math.IsNaN(Result.AsNumber));
+  const Actual = FEngine.Evaluate('Number(undefined)');
+
+  Assert.IsTrue(System.Math.IsNaN(Actual.AsNumber));
 end;
 
 procedure TGlobalFunctionsTests.UnaryPlus_ConvertsStringToNumber;
 begin
-  const Result = FEngine.Evaluate('+"123.45"');
-  Assert.AreEqual(Double(123.45), Result.AsNumber, 0.001);
+  const Actual = FEngine.Evaluate('+"123.45"');
+
+  Assert.AreEqual(Double(123.45), Actual.AsNumber, 0.001);
 end;
 
 procedure TGlobalFunctionsTests.Number_ToString_UsesDotDecimalSeparator;
 begin
-  const Result = FEngine.Evaluate('(3.14159).toString()');
-  Assert.AreEqual('3.14159', Result.AsString);
-end;
+  const Actual = FEngine.Evaluate('(3.14159).toString()');
 
-procedure TRegExpTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TRegExpTests.TearDown;
-begin
-  FEngine.Free;
+  Assert.AreEqual('3.14159', Actual.AsString);
 end;
 
 procedure TRegExpTests.RegExp_Test_MatchesPattern;
 begin
-  const Result = FEngine.Evaluate('/hello/.test("hello world")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('/hello/.test("hello world")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TRegExpTests.RegExp_Test_NoMatch;
 begin
-  const Result = FEngine.Evaluate('/xyz/.test("hello world")');
-  Assert.IsFalse(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('/xyz/.test("hello world")');
+
+  Assert.IsFalse(Actual.AsBoolean);
 end;
 
 procedure TRegExpTests.RegExp_Exec_ReturnsMatchArray;
@@ -1481,22 +1401,25 @@ end;
 
 procedure TRegExpTests.RegExp_Exec_NoMatch_ReturnsNull;
 begin
-  const Result = FEngine.Evaluate('/xyz/.exec("hello")');
-  Assert.IsTrue(Result.IsNull);
+  const Actual = FEngine.Evaluate('/xyz/.exec("hello")');
+
+  Assert.IsTrue(Actual.IsNull);
 end;
 
 procedure TRegExpTests.RegExp_CaseInsensitive_Flag;
 begin
-  const Result = FEngine.Evaluate('/HELLO/i.test("hello")');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('/HELLO/i.test("hello")');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TRegExpTests.RegExp_Global_Flag;
 begin
   FEngine.Execute('var str = "cat bat rat"; var re = /at/g; var count = 0;');
   FEngine.Execute('while (re.exec(str) !== null) { count++; }');
-  const Result = FEngine.GetVariable('count');
-  Assert.AreEqual(Double(3), Result.AsNumber);
+  const Actual = FEngine.GetVariable('count');
+
+  Assert.AreEqual(Double(3), Actual.AsNumber);
 end;
 
 procedure TRegExpTests.String_Match_ReturnsMatches;
@@ -1511,44 +1434,51 @@ end;
 
 procedure TRegExpTests.String_Match_NoMatch_ReturnsNull;
 begin
-  const Result = FEngine.Evaluate('"hello".match(/xyz/)');
-  Assert.IsTrue(Result.IsNull);
+  const Actual = FEngine.Evaluate('"hello".match(/xyz/)');
+
+  Assert.IsTrue(Actual.IsNull);
 end;
 
 procedure TRegExpTests.String_Replace_WithRegExp;
 begin
-  const Result = FEngine.Evaluate('"hello world".replace(/world/, "there")');
-  Assert.AreEqual('hello there', Result.AsString);
+  const Actual = FEngine.Evaluate('"hello world".replace(/world/, "there")');
+
+  Assert.AreEqual('hello there', Actual.AsString);
 end;
 
 procedure TRegExpTests.String_Replace_GlobalRegExp;
 begin
-  const Result = FEngine.Evaluate('"cat bat rat".replace(/at/g, "ot")');
-  Assert.AreEqual('cot bot rot', Result.AsString);
+  const Actual = FEngine.Evaluate('"cat bat rat".replace(/at/g, "ot")');
+
+  Assert.AreEqual('cot bot rot', Actual.AsString);
 end;
 
 procedure TRegExpTests.String_Search_ReturnsIndex;
 begin
-  const Result = FEngine.Evaluate('"hello world".search(/world/)');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.Evaluate('"hello world".search(/world/)');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 procedure TRegExpTests.String_Search_NoMatch_ReturnsMinusOne;
 begin
-  const Result = FEngine.Evaluate('"hello".search(/xyz/)');
-  Assert.AreEqual(Double(-1), Result.AsNumber);
+  const Actual = FEngine.Evaluate('"hello".search(/xyz/)');
+
+  Assert.AreEqual(Double(-1), Actual.AsNumber);
 end;
 
 procedure TRegExpTests.String_Split_WithRegExp;
 begin
-  const Result = FEngine.Evaluate('"a1b2c3".split(/\d/).join(",")');
-  Assert.AreEqual('a,b,c,', Result.AsString);
+  const Actual = FEngine.Evaluate('"a1b2c3".split(/\d/).join(",")');
+
+  Assert.AreEqual('a,b,c,', Actual.AsString);
 end;
 
 procedure TRegExpTests.RegExp_Source_Property;
 begin
-  const Result = FEngine.Evaluate('/hello/.source');
-  Assert.AreEqual('hello', Result.AsString);
+  const Actual = FEngine.Evaluate('/hello/.source');
+
+  Assert.AreEqual('hello', Actual.AsString);
 end;
 
 procedure TRegExpTests.RegExp_Flags_Properties;
@@ -1568,45 +1498,40 @@ end;
 procedure TRegExpTests.RegExp_Literal_Syntax;
 begin
   FEngine.Execute('var re = /[a-z]+/;');
-  const Result = FEngine.Evaluate('re.test("hello")');
-  Assert.IsTrue(Result.AsBoolean);
-end;
+  const Actual = FEngine.Evaluate('re.test("hello")');
 
-procedure TDateMethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TDateMethodsTests.TearDown;
-begin
-  FEngine.Free;
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TDateMethodsTests.Date_Now_ReturnsTimestamp;
 begin
-  const Result = FEngine.Evaluate('Date.now()');
-  Assert.IsTrue(Result.AsNumber > 0);
+  const Actual = FEngine.Evaluate('Date.now()');
+
+  Assert.IsTrue(Actual.AsNumber > 0);
 end;
 
 procedure TDateMethodsTests.Date_Constructor_NoArgs;
 begin
   FEngine.Execute('var d = new Date();');
-  const Result = FEngine.Evaluate('d.getTime()');
-  Assert.IsTrue(Result.AsNumber > 0);
+  const Actual = FEngine.Evaluate('d.getTime()');
+
+  Assert.IsTrue(Actual.AsNumber > 0);
 end;
 
 procedure TDateMethodsTests.Date_Constructor_WithTimestamp;
 begin
   FEngine.Execute('var d = new Date(0);');
-  const Result = FEngine.Evaluate('d.getTime()');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getTime()');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetTime_ReturnsTimestamp;
 begin
   FEngine.Execute('var d = new Date(0);');
-  const Result = FEngine.Evaluate('d.getTime()');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getTime()');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_Constructor_WithComponents;
@@ -1625,177 +1550,191 @@ end;
 procedure TDateMethodsTests.Date_GetFullYear_ReturnsYear;
 begin
   FEngine.Execute('var d = new Date(2024, 5, 15);');
-  const Result = FEngine.Evaluate('d.getFullYear()');
-  Assert.AreEqual(Double(2024), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getFullYear()');
+
+  Assert.AreEqual(Double(2024), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetMonth_ReturnsMonth;
 begin
   FEngine.Execute('var d = new Date(2024, 5, 15);');
-  const Result = FEngine.Evaluate('d.getMonth()');
-  Assert.AreEqual(Double(5), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getMonth()');
+
+  Assert.AreEqual(Double(5), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetDate_ReturnsDay;
 begin
   FEngine.Execute('var d = new Date(2024, 5, 15);');
-  const Result = FEngine.Evaluate('d.getDate()');
-  Assert.AreEqual(Double(15), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getDate()');
+
+  Assert.AreEqual(Double(15), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetDay_ReturnsDayOfWeek;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1);');
-  const Result = FEngine.Evaluate('d.getDay()');
-  Assert.IsTrue((Result.AsNumber >= 0) and (Result.AsNumber <= 6));
+  const Actual = FEngine.Evaluate('d.getDay()');
+
+  Assert.IsTrue((Actual.AsNumber >= 0) and (Actual.AsNumber <= 6));
 end;
 
 procedure TDateMethodsTests.Date_GetHours_ReturnsHours;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 14, 30, 0);');
-  const Result = FEngine.Evaluate('d.getHours()');
-  Assert.AreEqual(Double(14), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getHours()');
+
+  Assert.AreEqual(Double(14), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetMinutes_ReturnsMinutes;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 14, 30, 0);');
-  const Result = FEngine.Evaluate('d.getMinutes()');
-  Assert.AreEqual(Double(30), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getMinutes()');
+
+  Assert.AreEqual(Double(30), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetSeconds_ReturnsSeconds;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 14, 30, 45);');
-  const Result = FEngine.Evaluate('d.getSeconds()');
-  Assert.AreEqual(Double(45), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getSeconds()');
+
+  Assert.AreEqual(Double(45), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetMilliseconds_ReturnsMs;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 14, 30, 45, 123);');
-  const Result = FEngine.Evaluate('d.getMilliseconds()');
-  Assert.AreEqual(Double(123), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getMilliseconds()');
+
+  Assert.AreEqual(Double(123), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetFullYear_SetsYear;
 begin
   FEngine.Execute('var d = new Date(2020, 0, 1); d.setFullYear(2025);');
-  const Result = FEngine.Evaluate('d.getFullYear()');
-  Assert.AreEqual(Double(2025), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getFullYear()');
+
+  Assert.AreEqual(Double(2025), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetMonth_SetsMonth;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1); d.setMonth(6);');
-  const Result = FEngine.Evaluate('d.getMonth()');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getMonth()');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetDate_SetsDay;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1); d.setDate(20);');
-  const Result = FEngine.Evaluate('d.getDate()');
-  Assert.AreEqual(Double(20), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getDate()');
+
+  Assert.AreEqual(Double(20), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetHours_SetsHours;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 0, 0, 0); d.setHours(15);');
-  const Result = FEngine.Evaluate('d.getHours()');
-  Assert.AreEqual(Double(15), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getHours()');
+
+  Assert.AreEqual(Double(15), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetMinutes_SetsMinutes;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 0, 0, 0); d.setMinutes(45);');
-  const Result = FEngine.Evaluate('d.getMinutes()');
-  Assert.AreEqual(Double(45), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getMinutes()');
+
+  Assert.AreEqual(Double(45), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_SetSeconds_SetsSeconds;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 1, 0, 0, 0); d.setSeconds(30);');
-  const Result = FEngine.Evaluate('d.getSeconds()');
-  Assert.AreEqual(Double(30), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getSeconds()');
+
+  Assert.AreEqual(Double(30), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_ToISOString_FormatsCorrectly;
 begin
   FEngine.Execute('var d = new Date(0);');
-  const Result = FEngine.Evaluate('d.toISOString()');
-  Assert.AreEqual('1970-01-01T00:00:00.000Z', Result.AsString);
+  const Actual = FEngine.Evaluate('d.toISOString()');
+
+  Assert.AreEqual('1970-01-01T00:00:00.000Z', Actual.AsString);
 end;
 
 procedure TDateMethodsTests.Date_ToDateString_FormatsCorrectly;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 15);');
-  const Result = FEngine.Evaluate('d.toDateString()');
-  Assert.IsTrue(Length(Result.AsString) > 0);
+  const Actual = FEngine.Evaluate('d.toDateString()');
+
+  Assert.IsTrue(Length(Actual.AsString) > 0);
 end;
 
 procedure TDateMethodsTests.Date_ToTimeString_FormatsCorrectly;
 begin
   FEngine.Execute('var d = new Date(2024, 0, 15, 14, 30, 45);');
-  const Result = FEngine.Evaluate('d.toTimeString()');
-  Assert.IsTrue(Length(Result.AsString) > 0);
+  const Actual = FEngine.Evaluate('d.toTimeString()');
+
+  Assert.IsTrue(Length(Actual.AsString) > 0);
 end;
 
 procedure TDateMethodsTests.Date_Parse_ParsesISOString;
 begin
-  const Result = FEngine.Evaluate('Date.parse("1970-01-01T00:00:00.000Z")');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('Date.parse("1970-01-01T00:00:00.000Z")');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_UTC_ReturnsTimestamp;
 begin
-  const Result = FEngine.Evaluate('Date.UTC(1970, 0, 1, 0, 0, 0, 0)');
-  Assert.AreEqual(Double(0), Result.AsNumber);
+  const Actual = FEngine.Evaluate('Date.UTC(1970, 0, 1, 0, 0, 0, 0)');
+
+  Assert.AreEqual(Double(0), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetUTCFullYear_ReturnsUTCYear;
 begin
   FEngine.Execute('var d = new Date(Date.UTC(2024, 5, 15));');
-  const Result = FEngine.Evaluate('d.getUTCFullYear()');
-  Assert.AreEqual(Double(2024), Result.AsNumber);
+  const Actual = FEngine.Evaluate('d.getUTCFullYear()');
+
+  Assert.AreEqual(Double(2024), Actual.AsNumber);
 end;
 
 procedure TDateMethodsTests.Date_GetTimezoneOffset_ReturnsOffset;
 begin
   FEngine.Execute('var d = new Date();');
-  const Result = FEngine.Evaluate('d.getTimezoneOffset()');
-  Assert.IsTrue(Result.IsNumber);
-end;
+  const Actual = FEngine.Evaluate('d.getTimezoneOffset()');
 
-procedure TErrorConstructorTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TErrorConstructorTests.TearDown;
-begin
-  FEngine.Free;
+  Assert.IsTrue(Actual.IsNumber);
 end;
 
 procedure TErrorConstructorTests.Error_Constructor_CreatesError;
 begin
   FEngine.Execute('var e = new Error("test message");');
-  const Result = FEngine.Evaluate('e instanceof Error');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('e instanceof Error');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TErrorConstructorTests.Error_Message_Property;
 begin
   FEngine.Execute('var e = new Error("test message");');
-  const Result = FEngine.Evaluate('e.message');
-  Assert.AreEqual('test message', Result.AsString);
+  const Actual = FEngine.Evaluate('e.message');
+
+  Assert.AreEqual('test message', Actual.AsString);
 end;
 
 procedure TErrorConstructorTests.Error_Name_Property;
 begin
   FEngine.Execute('var e = new Error("test");');
-  const Result = FEngine.Evaluate('e.name');
-  Assert.AreEqual('Error', Result.AsString);
+  const Actual = FEngine.Evaluate('e.name');
+
+  Assert.AreEqual('Error', Actual.AsString);
 end;
 
 procedure TErrorConstructorTests.TypeError_Constructor;
@@ -1803,7 +1742,7 @@ begin
   FEngine.Execute('var e = new TypeError("type error");');
 
   const Name = FEngine.Evaluate('e.name');
-  Assert.AreEqual('TypeError', Name.AsString);
+  Assert.AreEqual(TYPE_ERROR_NAME, Name.AsString);
 
   const Msg = FEngine.Evaluate('e.message');
   Assert.AreEqual('type error', Msg.AsString);
@@ -1814,7 +1753,7 @@ begin
   FEngine.Execute('var e = new RangeError("range error");');
 
   const Name = FEngine.Evaluate('e.name');
-  Assert.AreEqual('RangeError', Name.AsString);
+  Assert.AreEqual(RANGE_ERROR_NAME, Name.AsString);
 end;
 
 procedure TErrorConstructorTests.ReferenceError_Constructor;
@@ -1822,7 +1761,7 @@ begin
   FEngine.Execute('var e = new ReferenceError("ref error");');
 
   const Name = FEngine.Evaluate('e.name');
-  Assert.AreEqual('ReferenceError', Name.AsString);
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Name.AsString);
 end;
 
 procedure TErrorConstructorTests.SyntaxError_Constructor;
@@ -1830,7 +1769,7 @@ begin
   FEngine.Execute('var e = new SyntaxError("syntax error");');
 
   const Name = FEngine.Evaluate('e.name');
-  Assert.AreEqual('SyntaxError', Name.AsString);
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Name.AsString);
 end;
 
 procedure TErrorConstructorTests.URIError_Constructor;
@@ -1838,7 +1777,7 @@ begin
   FEngine.Execute('var e = new URIError("uri error");');
 
   const Name = FEngine.Evaluate('e.name');
-  Assert.AreEqual('URIError', Name.AsString);
+  Assert.AreEqual(URI_ERROR_NAME, Name.AsString);
 end;
 
 procedure TErrorConstructorTests.EvalError_Constructor;
@@ -1852,51 +1791,47 @@ end;
 procedure TErrorConstructorTests.Error_ToString_FormatsCorrectly;
 begin
   FEngine.Execute('var e = new Error("test");');
-  const Result = FEngine.Evaluate('e.toString()');
-  Assert.AreEqual('Error: test', Result.AsString);
+  const Actual = FEngine.Evaluate('e.toString()');
+
+  Assert.AreEqual('Error: test', Actual.AsString);
 end;
 
 procedure TErrorConstructorTests.Throw_Error_CanBeCaught;
 begin
   FEngine.Execute('var caught = null; try { throw new Error("caught!"); } catch (e) { caught = e.message; }');
-  const Result = FEngine.GetVariable('caught');
-  Assert.AreEqual('caught!', Result.AsString);
+  const Actual = FEngine.GetVariable('caught');
+
+  Assert.AreEqual('caught!', Actual.AsString);
 end;
 
 procedure TErrorConstructorTests.Throw_TypeError_CanBeCaught;
 begin
   FEngine.Execute('var errName = null; try { throw new TypeError("type!"); } catch (e) { errName = e.name; }');
-  const Result = FEngine.GetVariable('errName');
-  Assert.AreEqual('TypeError', Result.AsString);
+  const Actual = FEngine.GetVariable('errName');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual.AsString);
 end;
 
 procedure TErrorConstructorTests.Error_InstanceOf_Error;
 begin
-  const Result = FEngine.Evaluate('(new Error()) instanceof Error');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('(new Error()) instanceof Error');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TErrorConstructorTests.TypeError_InstanceOf_Error;
 begin
-  const Result = FEngine.Evaluate('(new TypeError()) instanceof Error');
-  Assert.IsTrue(Result.AsBoolean);
+  const Actual = FEngine.Evaluate('(new TypeError()) instanceof Error');
+
+  Assert.IsTrue(Actual.AsBoolean);
 end;
 
 procedure TErrorConstructorTests.Error_Stack_Property;
 begin
   FEngine.Execute('var e = new Error("test");');
-  const Result = FEngine.Evaluate('typeof e.stack');
-  Assert.AreEqual('string', Result.AsString);
-end;
+  const Actual = FEngine.Evaluate('typeof e.stack');
 
-procedure TStrictModeTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStrictModeTests.TearDown;
-begin
-  FEngine.Free;
+  Assert.AreEqual('string', Actual.AsString);
 end;
 
 procedure TStrictModeTests.StrictMode_UndeclaredVariable_ThrowsError;
@@ -1968,8 +1903,9 @@ end;
 procedure TStrictModeTests.StrictMode_ThisInFunction_IsUndefined;
 begin
   FEngine.Execute('"use strict"; function f() { return this; } var result = f();');
-  const Result = FEngine.GetVariable('result');
-  Assert.IsTrue(Result.IsUndefined);
+  const Actual = FEngine.GetVariable('result');
+
+  Assert.IsTrue(Actual.IsUndefined);
 end;
 
 procedure TStrictModeTests.StrictMode_FunctionScoped;
@@ -1990,8 +1926,8 @@ begin
   var ErrorThrown := False;
   try
     FEngine.Execute('y = 20;');
-    const Result = FEngine.GetVariable('y');
-    Assert.AreEqual(Double(20), Result.AsNumber);
+    const Actual = FEngine.GetVariable('y');
+    Assert.AreEqual(Double(20), Actual.AsNumber);
   except
     ErrorThrown := True;
   end;
@@ -2020,77 +1956,76 @@ begin
   Assert.IsTrue(ErrorThrown);
 end;
 
-procedure TFunctionMethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TFunctionMethodsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TFunctionMethodsTests.Function_Call_SetsThisContext;
 begin
   FEngine.Execute('var obj = { value: 42 }; function f() { return this.value; }');
-  const Result = FEngine.Evaluate('f.call(obj)');
-  Assert.AreEqual(Double(42), Result.AsNumber);
+  const Actual = FEngine.Evaluate('f.call(obj)');
+
+  Assert.AreEqual(Double(42), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Call_PassesArguments;
 begin
   FEngine.Execute('function add(a, b) { return this.x + a + b; }');
-  const Result = FEngine.Evaluate('add.call({x: 10}, 20, 30)');
-  Assert.AreEqual(Double(60), Result.AsNumber);
+  const Actual = FEngine.Evaluate('add.call({x: 10}, 20, 30)');
+
+  Assert.AreEqual(Double(60), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Call_NullThis_UsesGlobal;
 begin
   FEngine.Execute('"use strict"; function f() { return this; }');
-  const Result = FEngine.Evaluate('f.call(null)');
-  Assert.IsTrue(Result.IsNull or Result.IsUndefined);
+  const Actual = FEngine.Evaluate('f.call(null)');
+
+  Assert.IsTrue(Actual.IsNull or Actual.IsUndefined);
 end;
 
 procedure TFunctionMethodsTests.Function_Apply_SetsThisContext;
 begin
   FEngine.Execute('var obj = { value: 100 }; function f() { return this.value; }');
-  const Result = FEngine.Evaluate('f.apply(obj)');
-  Assert.AreEqual(Double(100), Result.AsNumber);
+  const Actual = FEngine.Evaluate('f.apply(obj)');
+
+  Assert.AreEqual(Double(100), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Apply_PassesArrayAsArguments;
 begin
   FEngine.Execute('function sum(a, b, c) { return a + b + c; }');
-  const Result = FEngine.Evaluate('sum.apply(null, [1, 2, 3])');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.Evaluate('sum.apply(null, [1, 2, 3])');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Apply_EmptyArray;
 begin
   FEngine.Execute('function f() { return 42; }');
-  const Result = FEngine.Evaluate('f.apply(null, [])');
-  Assert.AreEqual(Double(42), Result.AsNumber);
+  const Actual = FEngine.Evaluate('f.apply(null, [])');
+
+  Assert.AreEqual(Double(42), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Bind_ReturnsNewFunction;
 begin
   FEngine.Execute('var obj = { x: 5 }; function f() { return this.x; } var g = f.bind(obj);');
-  const Result = FEngine.Evaluate('g()');
-  Assert.AreEqual(Double(5), Result.AsNumber);
+  const Actual = FEngine.Evaluate('g()');
+
+  Assert.AreEqual(Double(5), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Bind_PartialApplication;
 begin
   FEngine.Execute('function add(a, b) { return a + b; } var add10 = add.bind(null, 10);');
-  const Result = FEngine.Evaluate('add10(5)');
-  Assert.AreEqual(Double(15), Result.AsNumber);
+  const Actual = FEngine.Evaluate('add10(5)');
+
+  Assert.AreEqual(Double(15), Actual.AsNumber);
 end;
 
 procedure TFunctionMethodsTests.Function_Bind_ChainedBind;
 begin
   FEngine.Execute('function f(a, b, c) { return a + b + c; } var g = f.bind(null, 1).bind(null, 2);');
-  const Result = FEngine.Evaluate('g(3)');
-  Assert.AreEqual(Double(6), Result.AsNumber);
+  const Actual = FEngine.Evaluate('g(3)');
+
+  Assert.AreEqual(Double(6), Actual.AsNumber);
 end;
 
 end.

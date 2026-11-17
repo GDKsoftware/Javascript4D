@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TArrayIteratorsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-    function ErrorNameOf(const Statements: string): string;
-
+  TArrayIteratorsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('KeysNext', 'var it = ["a", "b"].keys(); var r = it.next(); r.value + "," + r.done#0,false', '#')]
     [TestCase('ValuesNext', 'var it = ["a", "b"].values(); it.next(); var r = it.next(); r.value + "," + r.done#b,false', '#')]
@@ -56,42 +43,23 @@ type
     [TestCase('NextOnObject', 'Array.prototype.keys.call([]).next.call({})#TypeError', '#')]
     [TestCase('KeysOnNull', 'Array.prototype.keys.call(null)#TypeError', '#')]
     [TestCase('ValuesOnUndefined', 'Array.prototype.values.call(undefined)#TypeError', '#')]
-    procedure Iterator_RaisesError(const Statements: string; const Expected: string);
+    procedure Iterator_Statements_RaiseExpectedError(const Statements: string; const Expected: string);
   end;
 
 implementation
 
-procedure TArrayIteratorsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TArrayIteratorsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TArrayIteratorsTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Expression).ToString;
-end;
-
-function TArrayIteratorsTests.ErrorNameOf(const Statements: string): string;
-begin
-  const Wrapper = Format('var caught = "none"; try { %s } catch (e) { caught = e.name; }', [Statements]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
 procedure TArrayIteratorsTests.Iterator_Script_ReturnsExpected(const Expression: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = EvaluateText(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TArrayIteratorsTests.Iterator_RaisesError(const Statements: string; const Expected: string);
+procedure TArrayIteratorsTests.Iterator_Statements_RaiseExpectedError(const Statements: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, ErrorNameOf(Statements));
+  const Actual = ThrownErrorNameOf(Statements);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

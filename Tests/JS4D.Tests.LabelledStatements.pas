@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TLabelledStatementTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOfEval(const Source: string): string;
-
+  TLabelledStatementTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Break_WithLabel_LeavesOuterLoop;
 
@@ -77,7 +65,8 @@ type
     [TestCase('ReservedWordAsLabel', 'if: ;')]
     [TestCase('FunctionDeclarationAsBodyInStrictMode', '''use strict''; a: function f() {}')]
     [TestCase('FunctionDeclarationAsLoopBodyLabel', 'while (false) a: function f() {}')]
-    [TestCase('ConstDeclarationAsBody', 'a: const x = 1;')]    procedure Eval_InvalidLabelUsage_IsSyntaxError(const Source: string);
+    [TestCase('ConstDeclarationAsBody', 'a: const x = 1;')]
+    procedure Eval_InvalidLabelUsage_IsSyntaxError(const Source: string);
   end;
 
 implementation
@@ -85,104 +74,107 @@ implementation
 uses
   JS4D.Tests.ErrorNames;
 
-procedure TLabelledStatementTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TLabelledStatementTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TLabelledStatementTests.ErrorNameOfEval(const Source: string): string;
-begin
-  const Script = Format('var name = "none"; try { eval("%s"); } catch (e) { name = e.name; } name', [Source]);
-
-  Result := FEngine.Evaluate(Script).AsString;
-end;
+const
+  RESULT_ZERO = 'var r = 0;';
+  OUTER_LOOP_HEAD = 'outer: for (var i = 0; i < 3; i++) {';
+  RESULT_EMPTY_TEXT = 'var r = "";';
+  COUNTER_ZERO = 'var n = 0;';
+  COUNT_ZERO = 'var count = 0;';
+  INNER_LOOP_HEAD = '  for (var j = 0; j < 3; j++) {';
 
 procedure TLabelledStatementTests.Break_WithLabel_LeavesOuterLoop;
 begin
   const Script =
-    'var count = 0;' + sLineBreak +
-    'outer: for (var i = 0; i < 3; i++) {' + sLineBreak +
-    '  for (var j = 0; j < 3; j++) {' + sLineBreak +
+    COUNT_ZERO + sLineBreak +
+    OUTER_LOOP_HEAD + sLineBreak +
+    INNER_LOOP_HEAD + sLineBreak +
     '    if (j === 1) break outer;' + sLineBreak +
     '    count++;' + sLineBreak +
     '  }' + sLineBreak +
     '}' + sLineBreak +
     'count * 10 + i';
 
-  Assert.AreEqual(10.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(10.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Continue_WithLabel_ContinuesOuterLoop;
 begin
   const Script =
-    'var count = 0;' + sLineBreak +
-    'outer: for (var i = 0; i < 3; i++) {' + sLineBreak +
-    '  for (var j = 0; j < 3; j++) {' + sLineBreak +
+    COUNT_ZERO + sLineBreak +
+    OUTER_LOOP_HEAD + sLineBreak +
+    INNER_LOOP_HEAD + sLineBreak +
     '    if (j === 1) continue outer;' + sLineBreak +
     '    count++;' + sLineBreak +
     '  }' + sLineBreak +
     '}' + sLineBreak +
     'count';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Continue_WithLabelInForLoop_RunsUpdateOfOuterLoop;
 begin
   const Script =
     'var visited = "";' + sLineBreak +
-    'outer: for (var i = 0; i < 3; i++) {' + sLineBreak +
+    OUTER_LOOP_HEAD + sLineBreak +
     '  visited += i;' + sLineBreak +
     '  while (true) { continue outer; }' + sLineBreak +
     '}' + sLineBreak +
     'visited';
 
-  Assert.AreEqual('012', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('012', Actual);
 end;
 
 procedure TLabelledStatementTests.Continue_WithLabelOnWhileDoWhileAndForIn_ContinuesLabelledLoop;
 begin
   const Script =
     'var log = "";' + sLineBreak +
-    'var n = 0;' + sLineBreak +
+    COUNTER_ZERO + sLineBreak +
     'w: while (n < 2) { n++; for (;;) { log += "w"; continue w; } }' + sLineBreak +
     'var m = 0;' + sLineBreak +
     'd: do { m++; for (;;) { log += "d"; continue d; } } while (m < 2);' + sLineBreak +
     'f: for (var k in {a: 1, b: 2}) { for (;;) { log += "f"; continue f; } }' + sLineBreak +
     'log';
 
-  Assert.AreEqual('wwddff', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('wwddff', Actual);
 end;
 
 procedure TLabelledStatementTests.Break_WithLabelOnBlock_LeavesBlock;
 begin
   const Script =
-    'var r = 0;' + sLineBreak +
+    RESULT_ZERO + sLineBreak +
     'blk: { r = 1; break blk; r = 2; }' + sLineBreak +
     'r';
 
-  Assert.AreEqual(1.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Break_WithLabelOnIfStatement_LeavesStatement;
 begin
   const Script =
-    'var r = 0;' + sLineBreak +
+    RESULT_ZERO + sLineBreak +
     'cond: if (true) { r = 1; break cond; }' + sLineBreak +
     'r + 10';
 
-  Assert.AreEqual(11.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(11.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Break_WithLabelInsideSwitch_LeavesLabelledLoop;
 begin
   const Script =
-    'var r = "";' + sLineBreak +
+    RESULT_EMPTY_TEXT + sLineBreak +
     'loop: for (var i = 0; i < 5; i++) {' + sLineBreak +
     '  switch (i) {' + sLineBreak +
     '    case 0: r += "a"; break;' + sLineBreak +
@@ -193,29 +185,35 @@ begin
     '}' + sLineBreak +
     'r';
 
-  Assert.AreEqual('a-bc', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('a-bc', Actual);
 end;
 
 procedure TLabelledStatementTests.Label_StackedOnOneLoop_EachLabelCanContinueIt;
 begin
   const Script =
-    'var n = 0;' + sLineBreak +
+    COUNTER_ZERO + sLineBreak +
     'first: second: for (var i = 0; i < 4; i++) {' + sLineBreak +
     '  for (;;) { if (i % 2) continue first; n++; continue second; }' + sLineBreak +
     '}' + sLineBreak +
     'n';
 
-  Assert.AreEqual(2.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Break_WithLabelThroughTryFinally_RunsFinally;
 begin
   const Script =
-    'var r = "";' + sLineBreak +
+    RESULT_EMPTY_TEXT + sLineBreak +
     'lbl: try { r += "t"; break lbl; } finally { r += "f"; }' + sLineBreak +
     'r';
 
-  Assert.AreEqual('tf', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('tf', Actual);
 end;
 
 procedure TLabelledStatementTests.Label_SameNameInSeparateFunctions_IsAllowed;
@@ -226,12 +224,16 @@ begin
     'a: for (;;) { break a; }' + sLineBreak +
     'f() + g()';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Label_SameNameSequentially_IsAllowed;
 begin
-  Assert.AreEqual('none', ErrorNameOfEval('a: ; a: ;'));
+  const Actual = ErrorNameOf('a: ; a: ;');
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TLabelledStatementTests.Label_NameSharedWithVariable_DoesNotClash;
@@ -241,24 +243,30 @@ begin
     'a: while (true) { a++; break a; }' + sLineBreak +
     'a';
 
-  Assert.AreEqual(6.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(6.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Break_LabelFollowedByLineTerminator_IsPlainBreak;
 begin
   const Script =
-    'var r = 0;' + sLineBreak +
+    RESULT_ZERO + sLineBreak +
     'var a = 7;' + sLineBreak +
     'a: while (true) { break' + sLineBreak +
     'a; }' + sLineBreak +
     'r = 1; r';
 
-  Assert.AreEqual(1.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TLabelledStatementTests.Eval_InvalidLabelUsage_IsSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

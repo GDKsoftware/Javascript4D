@@ -7,26 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TGenericArrayMethodTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateNumber(const Script: string): Double;
-    function EvaluateBoolean(const Script: string): Boolean;
-    function ThrowsTypeError(const Statement: string): Boolean;
-
+  TGenericArrayMethodTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Reduce_OnArrayLikeObject_SumsElements;
 
@@ -82,10 +68,16 @@ type
     procedure LastIndexOf_FromIndex_LimitsSearch;
 
     [Test]
-    procedure Methods_NonCallableCallback_ThrowTypeError;
-
-    [Test]
-    procedure Methods_NullThis_ThrowTypeError;
+    [TestCase('ForEachNonCallableCallback', '[1].forEach(1);', '#')]
+    [TestCase('MapNonCallableCallback', '[1].map({});', '#')]
+    [TestCase('FilterNonCallableCallback', '[1].filter(undefined);', '#')]
+    [TestCase('SomeNonCallableCallback', '[1].some("x");', '#')]
+    [TestCase('EveryNonCallableCallback', '[1].every(null);', '#')]
+    [TestCase('ReduceNonCallableCallback', '[1].reduce(1, 0);', '#')]
+    [TestCase('ReduceRightNonCallableCallback', '[1].reduceRight(1, 0);', '#')]
+    [TestCase('ForEachNullThis', 'Array.prototype.forEach.call(null, function () {});', '#')]
+    [TestCase('IndexOfUndefinedThis', 'Array.prototype.indexOf.call(undefined, 1);', '#')]
+    procedure Method_NonCallableCallbackOrNullishThis_ThrowsTypeError(const Statement: string);
 
     [Test]
     procedure ForEach_ThisArgIsPassedToCallback;
@@ -122,57 +114,41 @@ type
 
 implementation
 
-procedure TGenericArrayMethodTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TGenericArrayMethodTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TGenericArrayMethodTests.EvaluateNumber(const Script: string): Double;
-begin
-  Result := FEngine.Evaluate(Script).AsNumber;
-end;
-
-function TGenericArrayMethodTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TGenericArrayMethodTests.ThrowsTypeError(const Statement: string): Boolean;
-begin
-  const Script =
-    'var thrown = false;' + sLineBreak +
-    'try { ' + Statement + ' } catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
-    'thrown';
-
-  Result := EvaluateBoolean(Script);
-end;
+const
+  ARRAY_LIKE_OF_THREE_NUMBERS = 'var o = { 0: 1, 1: 2, 2: 3, length: 3 };';
+  DELETE_SECOND_ELEMENT = 'delete a[1];';
+  COUNT_START = 'var count = 0;';
+  COUNT_VISITS_OF_OBJECT = 'Array.prototype.forEach.call(o, function () { count++; });';
+  COUNT_VISITS_OF_ARRAY = 'a.forEach(function () { count++; });';
+  ARRAY_LIKE_OF_TWO = 'var o = { 0: 1, 1: 2, length: 2 };';
 
 procedure TGenericArrayMethodTests.Reduce_OnArrayLikeObject_SumsElements;
 begin
   const Script =
-    'var o = { 0: 1, 1: 2, 2: 3, length: 3 };' + sLineBreak +
+    ARRAY_LIKE_OF_THREE_NUMBERS + sLineBreak +
     'Array.prototype.reduce.call(o, function (a, b) { return a + b; })';
 
-  Assert.AreEqual(6.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(6.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.Reduce_OnArrayLikeObject_WithInitialValue;
 begin
   const Script =
-    'var o = { 0: 1, 1: 2, length: 2 };' + sLineBreak +
+    ARRAY_LIKE_OF_TWO + sLineBreak +
     'Array.prototype.reduce.call(o, function (a, b) { return a + b; }, 10)';
 
-  Assert.AreEqual(13.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(13.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.Reduce_EmptyWithoutInitialValue_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Array.prototype.reduce.call({ length: 0 }, function () {});'));
+  const Actual = ThrowsTypeError('Array.prototype.reduce.call({ length: 0 }, function () {});');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Reduce_SkipsMissingIndices;
@@ -181,7 +157,9 @@ begin
     'var o = { 1: 5, 3: 7, length: 4 };' + sLineBreak +
     'Array.prototype.reduce.call(o, function (a, b) { return a + b; })';
 
-  Assert.AreEqual(12.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(12.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ReduceRight_OnArrayLikeObject_VisitsFromTheEnd;
@@ -190,7 +168,9 @@ begin
     'var o = { 0: "a", 1: "b", 2: "c", length: 3 };' + sLineBreak +
     'Array.prototype.reduceRight.call(o, function (a, b) { return a + b; }) === "cba"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ReceivesOriginalObjectAsThirdArgument;
@@ -201,40 +181,48 @@ begin
     'Array.prototype.forEach.call(o, function (v, i, obj) { same = (obj === o); });' + sLineBreak +
     'same';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ReadsLengthFromStringValue;
 begin
   const Script =
     'var o = { 0: 1, 1: 1, 2: 1, length: "2" };' + sLineBreak +
-    'var count = 0;' + sLineBreak +
-    'Array.prototype.forEach.call(o, function () { count++; });' + sLineBreak +
+    COUNT_START + sLineBreak +
+    COUNT_VISITS_OF_OBJECT + sLineBreak +
     'count';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_SkipsMissingIndices;
 begin
   const Script =
     'var o = { 0: 1, 2: 1, length: 3 };' + sLineBreak +
-    'var count = 0;' + sLineBreak +
-    'Array.prototype.forEach.call(o, function () { count++; });' + sLineBreak +
+    COUNT_START + sLineBreak +
+    COUNT_VISITS_OF_OBJECT + sLineBreak +
     'count';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ElementsRemovedDuringIteration_AreNotVisited;
 begin
   const Script =
     'var a = [1, 2, 3, 4];' + sLineBreak +
-    'var count = 0;' + sLineBreak +
+    COUNT_START + sLineBreak +
     'a.forEach(function () { count++; a.pop(); });' + sLineBreak +
     'count';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.Map_OnArrayLikeObject_ReturnsArrayOfSameLength;
@@ -244,26 +232,32 @@ begin
     'var r = Array.prototype.map.call(o, function (v) { return v * 2; });' + sLineBreak +
     'r.length === 3 && r[0] === 2 && r[1] === 4';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Filter_OnArrayLikeObject_KeepsMatching;
 begin
   const Script =
-    'var o = { 0: 1, 1: 2, 2: 3, length: 3 };' + sLineBreak +
+    ARRAY_LIKE_OF_THREE_NUMBERS + sLineBreak +
     'var r = Array.prototype.filter.call(o, function (v) { return v > 1; });' + sLineBreak +
     'r.length === 2 && r[0] === 2 && r[1] === 3';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Some_OnArrayLikeObject_FindsMatch;
 begin
   const Script =
-    'var o = { 0: 1, 1: 2, length: 2 };' + sLineBreak +
+    ARRAY_LIKE_OF_TWO + sLineBreak +
     'Array.prototype.some.call(o, function (v) { return v === 2; })';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Every_OnArrayLikeObject_ChecksAllPresent;
@@ -272,7 +266,9 @@ begin
     'var o = { 0: 2, 2: 4, length: 3 };' + sLineBreak +
     'Array.prototype.every.call(o, function (v) { return v % 2 === 0; })';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.IndexOf_OnArrayLikeObject_FindsElement;
@@ -281,7 +277,9 @@ begin
     'var o = { 0: "a", 1: "b", length: 2 };' + sLineBreak +
     'Array.prototype.indexOf.call(o, "b")';
 
-  Assert.AreEqual(1.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.IndexOf_NegativeFromIndex_CountsFromTheEnd;
@@ -290,12 +288,16 @@ begin
     'var a = [1, 2, 1, 2];' + sLineBreak +
     'a.indexOf(1, -2)';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.IndexOf_UsesStrictEquality;
 begin
-  Assert.AreEqual(-1.0, EvaluateNumber('[1, 2, 3].indexOf("2")'));
+  const Actual = EvaluateNumber('[1, 2, 3].indexOf("2")');
+
+  Assert.AreEqual(-1.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.LastIndexOf_OnArrayLikeObject_FindsLastElement;
@@ -304,29 +306,23 @@ begin
     'var o = { 0: 1, 1: 2, 2: 1, length: 3 };' + sLineBreak +
     'Array.prototype.lastIndexOf.call(o, 1)';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.LastIndexOf_FromIndex_LimitsSearch;
 begin
-  Assert.AreEqual(0.0, EvaluateNumber('[1, 2, 1].lastIndexOf(1, 1)'));
+  const Actual = EvaluateNumber('[1, 2, 1].lastIndexOf(1, 1)');
+
+  Assert.AreEqual(0.0, Actual);
 end;
 
-procedure TGenericArrayMethodTests.Methods_NonCallableCallback_ThrowTypeError;
+procedure TGenericArrayMethodTests.Method_NonCallableCallbackOrNullishThis_ThrowsTypeError(const Statement: string);
 begin
-  Assert.IsTrue(ThrowsTypeError('[1].forEach(1);'), 'forEach');
-  Assert.IsTrue(ThrowsTypeError('[1].map({});'), 'map');
-  Assert.IsTrue(ThrowsTypeError('[1].filter(undefined);'), 'filter');
-  Assert.IsTrue(ThrowsTypeError('[1].some("x");'), 'some');
-  Assert.IsTrue(ThrowsTypeError('[1].every(null);'), 'every');
-  Assert.IsTrue(ThrowsTypeError('[1].reduce(1, 0);'), 'reduce');
-  Assert.IsTrue(ThrowsTypeError('[1].reduceRight(1, 0);'), 'reduceRight');
-end;
+  const Actual = ThrowsTypeError(Statement);
 
-procedure TGenericArrayMethodTests.Methods_NullThis_ThrowTypeError;
-begin
-  Assert.IsTrue(ThrowsTypeError('Array.prototype.forEach.call(null, function () {});'), 'forEach');
-  Assert.IsTrue(ThrowsTypeError('Array.prototype.indexOf.call(undefined, 1);'), 'indexOf');
+  Assert.IsTrue(Actual, Statement);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ThisArgIsPassedToCallback;
@@ -337,7 +333,9 @@ begin
     'Array.prototype.forEach.call({ 0: 1, length: 1 }, function () { seen = this.n; }, ctx);' + sLineBreak +
     'seen';
 
-  Assert.AreEqual(5.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.Callback_PrimitiveThisArgInSloppyCode_IsBoxed(const MethodName: string);
@@ -347,7 +345,9 @@ begin
     '[1].%s(function () { boxed = (typeof this === "object") && (this.valueOf() === false); }, false);' + sLineBreak +
     'boxed', [MethodName]);
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Callback_UndefinedThisArgInSloppyCode_IsGlobalObject;
@@ -357,7 +357,9 @@ begin
     '[1].forEach(function () { seenGlobal = (this === (function () { return this; })()); });' + sLineBreak +
     'seenGlobal';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.Delete_ArrayElement_ReadsAsUndefined;
@@ -367,19 +369,23 @@ begin
     'delete a[0];' + sLineBreak +
     'a[0] === undefined && a.length === 2 && a.indexOf("x") === -1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_DeletedArrayElement_IsSkipped;
 begin
   const Script =
     'var a = [1, 2, 3];' + sLineBreak +
-    'delete a[1];' + sLineBreak +
-    'var count = 0;' + sLineBreak +
-    'a.forEach(function () { count++; });' + sLineBreak +
+    DELETE_SECOND_ELEMENT + sLineBreak +
+    COUNT_START + sLineBreak +
+    COUNT_VISITS_OF_ARRAY + sLineBreak +
     'count';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ArrayWithGap_SkipsTheGap;
@@ -387,11 +393,13 @@ begin
   const Script =
     'var a = [];' + sLineBreak +
     'a[3] = "x";' + sLineBreak +
-    'var count = 0;' + sLineBreak +
-    'a.forEach(function () { count++; });' + sLineBreak +
+    COUNT_START + sLineBreak +
+    COUNT_VISITS_OF_ARRAY + sLineBreak +
     'count * 10 + a.length';
 
-  Assert.AreEqual(14.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(14.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.IndexOf_DeletedArrayElement_FallsBackToPrototype;
@@ -399,23 +407,27 @@ begin
   const Script =
     'Array.prototype[1] = "inherited";' + sLineBreak +
     'var a = ["a", "b"];' + sLineBreak +
-    'delete a[1];' + sLineBreak +
+    DELETE_SECOND_ELEMENT + sLineBreak +
     'var seen = a.indexOf("inherited");' + sLineBreak +
     'delete Array.prototype[1];' + sLineBreak +
     'seen';
 
-  Assert.AreEqual(1.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_ObjectLength_IsConvertedWithValueOf;
 begin
   const Script =
     'var o = { 0: 1, 1: 1, 2: 1, length: { valueOf: function () { return 2; } } };' + sLineBreak +
-    'var count = 0;' + sLineBreak +
-    'Array.prototype.forEach.call(o, function () { count++; });' + sLineBreak +
+    COUNT_START + sLineBreak +
+    COUNT_VISITS_OF_OBJECT + sLineBreak +
     'count';
 
-  Assert.AreEqual(2.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TGenericArrayMethodTests.ForEach_UnconvertibleLength_ThrowsTypeError;
@@ -424,7 +436,9 @@ begin
     'var o = { length: { valueOf: function () { return {}; }, toString: function () { return {}; } } };' +
     'Array.prototype.forEach.call(o, function () {});';
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Actual = ThrowsTypeError(Statement);
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

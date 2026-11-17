@@ -7,25 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TBuiltinAttributeTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-    function EvaluateNumber(const Script: string): Double;
-
+  TBuiltinAttributeTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure FunctionLength_DeclaredFunction_CountsFormalParameters;
 
@@ -33,10 +20,10 @@ type
     procedure FunctionLength_FunctionExpression_CountsFormalParameters;
 
     [Test]
-    procedure FunctionLength_IsOwnReadOnlyNonEnumerableProperty;
+    procedure FunctionLength_Descriptor_IsOwnReadOnlyNonEnumerable;
 
     [Test]
-    procedure FunctionLength_AssignmentIsIgnored;
+    procedure FunctionLength_Assignment_IsIgnored;
 
     [Test]
     procedure FunctionLength_FunctionConstructor_CountsParametersOfAllArguments;
@@ -54,16 +41,16 @@ type
     procedure FunctionName_AnonymousFunctionExpression_IsEmptyString;
 
     [Test]
-    procedure FunctionName_IsOwnReadOnlyNonEnumerableProperty;
+    procedure FunctionName_Descriptor_IsOwnReadOnlyNonEnumerable;
 
     [Test]
-    procedure FunctionName_AssignmentIsIgnored;
+    procedure FunctionName_Assignment_IsIgnored;
 
     [Test]
     procedure NativeName_MethodsAndConstructors_MatchPropertyKey;
 
     [Test]
-    procedure NativeName_IsOwnReadOnlyNonEnumerableProperty;
+    procedure NativeName_Descriptor_IsOwnReadOnlyNonEnumerable;
 
     [Test]
     procedure NativeLength_ArrayPrototypeMethods_MatchSpecification;
@@ -84,113 +71,123 @@ type
     procedure NativeLength_GlobalFunctions_MatchSpecification;
 
     [Test]
-    procedure NativeLength_IsNonEnumerableAndNotWritable;
+    procedure NativeLength_Descriptor_IsNonEnumerableAndNotWritable;
 
     [Test]
-    procedure PrototypeMethods_AreNonEnumerable;
+    procedure PrototypeMethods_Descriptor_AreNonEnumerable;
 
     [Test]
-    procedure ConstructorProperties_AreNonEnumerable;
+    procedure ConstructorProperties_Descriptor_AreNonEnumerable;
 
     [Test]
-    procedure MathAndJson_PropertiesAreNonEnumerable;
+    procedure MathAndJson_Properties_AreNonEnumerable;
 
     [Test]
     [TestCase('MathMethod', 'Math.cos')]
     [TestCase('ArrayStatic', 'Array.isArray')]
     [TestCase('PrototypeMethod', 'Array.prototype.join')]
     [TestCase('ObjectStatic', 'Object.keys')]
-    procedure BuiltinMethods_AreNotConstructors(const Method: string);
+    procedure BuiltinMethods_NewOnMethod_IsNotAConstructor(const Method: string);
 
     [Test]
-    procedure PrototypeMethods_AreWritableAndConfigurable;
+    procedure PrototypeMethods_Descriptor_AreWritableAndConfigurable;
   end;
 
 implementation
 
-procedure TBuiltinAttributeTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TBuiltinAttributeTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TBuiltinAttributeTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TBuiltinAttributeTests.EvaluateNumber(const Script: string): Double;
-begin
-  Result := FEngine.Evaluate(Script).AsNumber;
-end;
+const
+  OK_DECLARATION = 'var ok = true;';
+  CONSTRUCTOR_LIST_DECLARATION = 'var constructors = [Array, Object, Function, String, Number, Boolean, Date, RegExp, Error];';
+  CONSTRUCTOR_LOOP_HEAD = 'for (var i = 0; i < constructors.length; i++) {';
 
 procedure TBuiltinAttributeTests.FunctionLength_DeclaredFunction_CountsFormalParameters;
 begin
-  Assert.AreEqual(3.0, EvaluateNumber('function f(a, b, c) {} f.length'));
+  const Actual = EvaluateNumber('function f(a, b, c) {} f.length');
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionLength_FunctionExpression_CountsFormalParameters;
 begin
-  Assert.AreEqual(2.0, EvaluateNumber('(function (a, b) {}).length'));
+  const Actual = EvaluateNumber('(function (a, b) {}).length');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
-procedure TBuiltinAttributeTests.FunctionLength_IsOwnReadOnlyNonEnumerableProperty;
+procedure TBuiltinAttributeTests.FunctionLength_Descriptor_IsOwnReadOnlyNonEnumerable;
 begin
   const Script =
     'function f(a) {}' + sLineBreak +
     'var d = Object.getOwnPropertyDescriptor(f, "length");' + sLineBreak +
     'f.hasOwnProperty("length") && d.value === 1 && !d.writable && !d.enumerable && d.configurable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.FunctionLength_AssignmentIsIgnored;
+procedure TBuiltinAttributeTests.FunctionLength_Assignment_IsIgnored;
 begin
-  Assert.AreEqual(2.0, EvaluateNumber('function f(a, b) {} f.length = 9; f.length'));
+  const Actual = EvaluateNumber('function f(a, b) {} f.length = 9; f.length');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionLength_FunctionConstructor_CountsParametersOfAllArguments;
 begin
-  Assert.AreEqual(5.0, EvaluateNumber('new Function("a,b,c", "d,e", "").length'));
+  const Actual = EvaluateNumber('new Function("a,b,c", "d,e", "").length');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionLength_BoundFunction_SubtractsBoundArguments;
 begin
-  Assert.AreEqual(1.0, EvaluateNumber('(function (a, b, c) {}).bind(null, 1, 2).length'));
+  const Actual = EvaluateNumber('(function (a, b, c) {}).bind(null, 1, 2).length');
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionLength_BoundFunction_NeverNegative;
 begin
-  Assert.AreEqual(0.0, EvaluateNumber('(function (a) {}).bind(null, 1, 2, 3).length'));
+  const Actual = EvaluateNumber('(function (a) {}).bind(null, 1, 2, 3).length');
+
+  Assert.AreEqual(0.0, Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionName_DeclaredFunction_IsDeclaredName;
 begin
-  Assert.IsTrue(EvaluateBoolean('function foo() {} foo.name === "foo"'));
+  const Actual = EvaluateBoolean('function foo() {} foo.name === "foo"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.FunctionName_AnonymousFunctionExpression_IsEmptyString;
 begin
-  Assert.IsTrue(EvaluateBoolean('(function () {}).hasOwnProperty("name") && (function () {}).name === ""'));
+  const Actual = EvaluateBoolean('(function () {}).hasOwnProperty("name") && (function () {}).name === ""');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.FunctionName_IsOwnReadOnlyNonEnumerableProperty;
+procedure TBuiltinAttributeTests.FunctionName_Descriptor_IsOwnReadOnlyNonEnumerable;
 begin
   const Script =
     'function foo() {}' + sLineBreak +
     'var d = Object.getOwnPropertyDescriptor(foo, "name");' + sLineBreak +
     'foo.hasOwnProperty("name") && d.value === "foo" && !d.writable && !d.enumerable && d.configurable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.FunctionName_AssignmentIsIgnored;
+procedure TBuiltinAttributeTests.FunctionName_Assignment_IsIgnored;
 begin
-  Assert.IsTrue(EvaluateBoolean('function foo() {} foo.name = "bar"; foo.name === "foo"'));
+  const Actual = EvaluateBoolean('function foo() {} foo.name = "bar"; foo.name === "foo"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeName_MethodsAndConstructors_MatchPropertyKey;
@@ -200,16 +197,20 @@ begin
     ' parseInt.name === "parseInt" && TypeError.name === "TypeError" && Date.UTC.name === "UTC" &&' +
     ' String.prototype.split.name === "split" && Object.defineProperty.name === "defineProperty"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.NativeName_IsOwnReadOnlyNonEnumerableProperty;
+procedure TBuiltinAttributeTests.NativeName_Descriptor_IsOwnReadOnlyNonEnumerable;
 begin
   const Script =
     'var d = Object.getOwnPropertyDescriptor(Array.prototype.join, "name");' + sLineBreak +
     'd.value === "join" && !d.writable && !d.enumerable && d.configurable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_ArrayPrototypeMethods_MatchSpecification;
@@ -218,11 +219,13 @@ begin
     'var expected = { concat: 1, join: 1, pop: 0, push: 1, reverse: 0, shift: 0, slice: 2, sort: 1,' +
     ' splice: 2, unshift: 1, indexOf: 1, lastIndexOf: 1, every: 1, some: 1, forEach: 1, map: 1,' +
     ' filter: 1, reduce: 1, reduceRight: 1, toString: 0, toLocaleString: 0 };' + sLineBreak +
-    'var ok = true;' + sLineBreak +
+    OK_DECLARATION + sLineBreak +
     'for (var name in expected) { if (Array.prototype[name].length !== expected[name]) ok = false; }' + sLineBreak +
     'ok';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_ObjectAndFunctionMethods_MatchSpecification;
@@ -234,7 +237,9 @@ begin
     ' Object.prototype.toString.length === 0 && Function.prototype.call.length === 1 &&' +
     ' Function.prototype.apply.length === 2 && Function.prototype.bind.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_MathFunctions_MatchSpecification;
@@ -243,7 +248,9 @@ begin
     'Math.abs.length === 1 && Math.atan2.length === 2 && Math.max.length === 2 &&' +
     ' Math.min.length === 2 && Math.pow.length === 2 && Math.random.length === 0 && Math.floor.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_StringAndNumberMethods_MatchSpecification;
@@ -255,7 +262,9 @@ begin
     ' Number.prototype.toString.length === 1 && Number.prototype.toFixed.length === 1 &&' +
     ' Number.prototype.valueOf.length === 0 && Boolean.prototype.toString.length === 0';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_Constructors_MatchSpecification;
@@ -265,7 +274,9 @@ begin
     ' Number.length === 1 && Boolean.length === 1 && Date.length === 7 && RegExp.length === 2 &&' +
     ' Error.length === 1 && TypeError.length === 1 && Date.UTC.length === 7 && Date.parse.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TBuiltinAttributeTests.NativeLength_GlobalFunctions_MatchSpecification;
@@ -274,70 +285,84 @@ begin
     'parseInt.length === 2 && parseFloat.length === 1 && isNaN.length === 1 && isFinite.length === 1 &&' +
     ' eval.length === 1 && decodeURI.length === 1 && encodeURIComponent.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.NativeLength_IsNonEnumerableAndNotWritable;
+procedure TBuiltinAttributeTests.NativeLength_Descriptor_IsNonEnumerableAndNotWritable;
 begin
   const Script =
     'var d = Object.getOwnPropertyDescriptor(Array.prototype.join, "length");' + sLineBreak +
     'd.value === 1 && !d.writable && !d.enumerable && d.configurable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.PrototypeMethods_AreNonEnumerable;
+procedure TBuiltinAttributeTests.PrototypeMethods_Descriptor_AreNonEnumerable;
 begin
   const Script =
-    'var constructors = [Array, Object, Function, String, Number, Boolean, Date, RegExp, Error];' + sLineBreak +
-    'var ok = true;' + sLineBreak +
-    'for (var i = 0; i < constructors.length; i++) {' + sLineBreak +
+    CONSTRUCTOR_LIST_DECLARATION + sLineBreak +
+    OK_DECLARATION + sLineBreak +
+    CONSTRUCTOR_LOOP_HEAD + sLineBreak +
     '  var proto = constructors[i].prototype;' + sLineBreak +
     '  for (var key in proto) { ok = false; }' + sLineBreak +
     '}' + sLineBreak +
     'ok';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.ConstructorProperties_AreNonEnumerable;
+procedure TBuiltinAttributeTests.ConstructorProperties_Descriptor_AreNonEnumerable;
 begin
   const Script =
-    'var constructors = [Array, Object, Function, String, Number, Boolean, Date, RegExp, Error];' + sLineBreak +
-    'var ok = true;' + sLineBreak +
-    'for (var i = 0; i < constructors.length; i++) {' + sLineBreak +
+    CONSTRUCTOR_LIST_DECLARATION + sLineBreak +
+    OK_DECLARATION + sLineBreak +
+    CONSTRUCTOR_LOOP_HEAD + sLineBreak +
     '  for (var key in constructors[i]) { ok = false; }' + sLineBreak +
     '}' + sLineBreak +
     'ok';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.MathAndJson_PropertiesAreNonEnumerable;
+procedure TBuiltinAttributeTests.MathAndJson_Properties_AreNonEnumerable;
 begin
   const Script =
-    'var ok = true;' + sLineBreak +
+    OK_DECLARATION + sLineBreak +
     'for (var key in Math) { ok = false; }' + sLineBreak +
     'for (var key in JSON) { ok = false; }' + sLineBreak +
     'ok';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.PrototypeMethods_AreWritableAndConfigurable;
+procedure TBuiltinAttributeTests.PrototypeMethods_Descriptor_AreWritableAndConfigurable;
 begin
   const Script =
     'var d = Object.getOwnPropertyDescriptor(Array.prototype, "join");' + sLineBreak +
     'd.writable && d.configurable && !d.enumerable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TBuiltinAttributeTests.BuiltinMethods_AreNotConstructors(const Method: string);
+procedure TBuiltinAttributeTests.BuiltinMethods_NewOnMethod_IsNotAConstructor(const Method: string);
 begin
   const Script = Format('var caught = ""; try { new %s(); } catch (e) { caught = e.name; } caught', [Method]);
 
-  Assert.AreEqual('TypeError', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 end.

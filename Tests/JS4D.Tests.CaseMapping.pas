@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TCaseMappingTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TCaseMappingTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('AsciiUpper', '"abc".toUpperCase() === "ABC"#true', '#')]
     [TestCase('AsciiLower', '"ABC".toLowerCase() === "abc"#true', '#')]
@@ -57,24 +44,11 @@ type
 
 implementation
 
-procedure TCaseMappingTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TCaseMappingTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TCaseMappingTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
 procedure TCaseMappingTests.CaseMapping_OnScript_ReturnsExpected(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TextOf(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

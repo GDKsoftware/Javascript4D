@@ -6,25 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TForOfTests = class
+  TForOfTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
     procedure AssertEvaluatesTo(const Expected: string; const Source: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('ArrayVar', 'var r = ""; for (var x of [1, 2, 3]) r += x; r|123', '|')]
     [TestCase('ArrayLet', 'var r = ""; for (let x of [1, 2, 3]) r += x; r|123', '|')]
@@ -51,8 +41,12 @@ type
     [TestCase('Break', 'var r = ""; for (var x of [1, 2, 3]) { if (x == 2) break; r += x; } r|1', '|')]
     [TestCase('Continue', 'var r = ""; for (var x of [1, 2, 3]) { if (x == 2) continue; r += x; } r|13', '|')]
     [TestCase('BreakLabel', 'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) break a; r += x + "" + y; } } r|11', '|')]
-    [TestCase('ContinueLabel', 'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; } } r|1121', '|')]
-    [TestCase('ContinueLabelWithLetHead', 'var r = ""; a: for (let x of [1, 2]) { for (let y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; } } r|1121', '|')]
+    [TestCase('ContinueLabel',
+      'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; ' +
+      '} } r|1121', '|')]
+    [TestCase('ContinueLabelWithLetHead',
+      'var r = ""; a: for (let x of [1, 2]) { for (let y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; ' +
+      '} } r|1121', '|')]
     [TestCase('BreakFromLabeledBlock', 'var r = ""; a: { for (var x of [1, 2]) { r += x; break a; } r += "no"; } r|1', '|')]
     [TestCase('Return', 'function f() { for (var x of [1, 2, 3]) { if (x == 2) return x; } return 0; } f()|2', '|')]
     [TestCase('ReturnFromLetHead', 'function f() { for (let x of [1, 2, 3]) { if (x == 2) return x; } return 0; } f()|2', '|')]
@@ -99,13 +93,13 @@ type
     [TestCase('ConstAssignment', 'for (const x of [1]) { x = 2; }', '|')]
     [TestCase('PatternOfNull', 'for (var [a] of [null]) {}', '|')]
     [TestCase('PatternOfUndefinedObject', 'for (let {a} of [undefined]) {}', '|')]
-    procedure Runtime_RaisesTypeError(const Source: string);
+    procedure ForOf_RuntimeSource_RaisesTypeError(const Source: string);
 
     [Test]
     [TestCase('TemporalDeadZone', 'for (let x of [x]) {}', '|')]
     [TestCase('TemporalDeadZoneInPatternRight', 'for (let [x] of [[x]]) {}', '|')]
     [TestCase('StrictUndeclaredTarget', '"use strict"; for (undeclaredTarget of [1]) {}', '|')]
-    procedure Runtime_RaisesReferenceError(const Source: string);
+    procedure ForOf_RuntimeSource_RaisesReferenceError(const Source: string);
 
     [Test]
     [TestCase('Initializer', 'for (var x = 1 of []) {}', '|')]
@@ -128,45 +122,28 @@ type
     [TestCase('StrictArgumentsBinding', '"use strict"; for (var arguments of []) {}', '|')]
     [TestCase('BreakOutsideLoop', 'for (var x of []) {} break;', '|')]
     [TestCase('AsyncOf', 'for (async of [1]) {}', '|')]
-    procedure Source_IsSyntaxError(const Source: string);
+    procedure ForOf_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [Test]
     [TestCase('AsyncAsVarLoopVariable', 'for (var async of []) {}', '|')]
     [TestCase('AsyncMemberTarget', 'var async = {}; for (async.x of []) {}', '|')]
     [TestCase('AsyncAsForInTarget', 'var async; for (async in {}) {}', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure ForOf_ValidSource_RaisesNoError(const Source: string);
 
     procedure ForIn_VarAndLetBindings_VisitKeysInOrder;
-
   end;
 
 implementation
 
-procedure TForOfTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TForOfTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TForOfTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TForOfTests.AssertEvaluatesTo(const Expected: string; const Source: string);
 begin
-  Assert.AreEqual(Expected, FEngine.Evaluate(Source).ToString);
+  const Actual = EvaluateText(Source);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TForOfTests.ForOf_Script_ReturnsExpected(const Source: string; const Expected: string);
@@ -174,24 +151,32 @@ begin
   AssertEvaluatesTo(Expected, Source);
 end;
 
-procedure TForOfTests.Runtime_RaisesTypeError(const Source: string);
+procedure TForOfTests.ForOf_RuntimeSource_RaisesTypeError(const Source: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.Runtime_RaisesReferenceError(const Source: string);
+procedure TForOfTests.ForOf_RuntimeSource_RaisesReferenceError(const Source: string);
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.Source_IsSyntaxError(const Source: string);
+procedure TForOfTests.ForOf_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.Source_IsAccepted(const Source: string);
+procedure TForOfTests.ForOf_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TForOfTests.ForIn_VarAndLetBindings_VisitKeysInOrder;

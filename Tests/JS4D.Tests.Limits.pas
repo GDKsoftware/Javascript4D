@@ -7,25 +7,16 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TCallDepthLimitTests = class
+  TCallDepthLimitTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
     procedure AssertRecursionStopped(const Script: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure MaxCallDepth_ByDefault_IsOneHundred;
 
@@ -78,19 +69,11 @@ type
   end;
 
   [TestFixture]
-  TAllocationLimitTests = class
+  TAllocationLimitTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
     procedure AssertExceedsLimit(const Script: string; const Message: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Limits_ByDefault_AreSixteenMiCharsAndOneMiElements;
 
@@ -255,19 +238,11 @@ type
   end;
 
   [TestFixture]
-  TDeepStructureTests = class
+  TDeepStructureTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
     procedure AssertDeepArrayRejected(const Usage: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure IndexOf_WithDeepArray_RaisesCallDepthExceeded;
 
@@ -315,17 +290,8 @@ type
   end;
 
   [TestFixture]
-  TBuiltInLimitTests = class
-  private
-    FEngine: TJSEngine;
-
+  TBuiltInLimitTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure JsonParse_ReviverMakingCycle_RaisesCallDepthExceeded;
 
@@ -453,16 +419,6 @@ const
   OneBillionElementsMessage = 'An array far beyond the element limit must be refused before it is allocated';
 
 { TCallDepthLimitTests }
-
-procedure TCallDepthLimitTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TCallDepthLimitTests.TearDown;
-begin
-  FEngine.Free;
-end;
 
 procedure TCallDepthLimitTests.MaxCallDepth_ByDefault_IsOneHundred;
 begin
@@ -617,16 +573,6 @@ begin
 end;
 
 { TAllocationLimitTests }
-
-procedure TAllocationLimitTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TAllocationLimitTests.TearDown;
-begin
-  FEngine.Free;
-end;
 
 procedure TAllocationLimitTests.AssertExceedsLimit(const Script: string; const Message: string);
 begin
@@ -821,12 +767,16 @@ procedure TAllocationLimitTests.Execute_AssigningLengthWithinLimit_ResizesArray;
 begin
   FEngine.MaxArrayLength := SmallArrayLength;
 
-  Assert.AreEqual(5.0, FEngine.Evaluate('var a = []; a.length = 5; a.length').AsNumber);
+  const Actual = EvaluateNumber('var a = []; a.length = 5; a.length');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TAllocationLimitTests.Execute_AssigningSmallerLength_TruncatesArray;
 begin
-  Assert.AreEqual('1,2', FEngine.Evaluate('var a = [1, 2, 3, 4]; a.length = 2; a.join()').AsString);
+  const Actual = EvaluateText('var a = [1, 2, 3, 4]; a.length = 2; a.join()');
+
+  Assert.AreEqual('1,2', Actual);
 end;
 
 procedure TAllocationLimitTests.Execute_FlatOverLimit_Raises;
@@ -961,8 +911,12 @@ begin
   const Padded = FEngine.Evaluate(LargePadScript);
   const Outcome = Padded.ToString;
 
-  Assert.AreEqual(LargePadLength, Length(Outcome), 'padStart must reach the requested length');
-  Assert.IsTrue(Outcome.StartsWith(PadStartBeginning), 'padStart must repeat the pad string');
+  const Actual = Length(Outcome);
+
+  const FirstActual = Outcome.StartsWith(PadStartBeginning);
+
+  Assert.AreEqual(LargePadLength, Actual, 'padStart must reach the requested length');
+  Assert.IsTrue(FirstActual, 'padStart must repeat the pad string');
 end;
 
 procedure TAllocationLimitTests.Execute_PadEndLargePadding_ProducesRepeatedPad;
@@ -970,8 +924,12 @@ begin
   const Padded = FEngine.Evaluate(LargePadEndScript);
   const Outcome = Padded.ToString;
 
-  Assert.AreEqual(LargePadLength, Length(Outcome), 'padEnd must reach the requested length');
-  Assert.IsTrue(Outcome.StartsWith(PadEndBeginning), 'padEnd must repeat the pad string');
+  const Actual = Length(Outcome);
+
+  const FirstActual = Outcome.StartsWith(PadEndBeginning);
+
+  Assert.AreEqual(LargePadLength, Actual, 'padEnd must reach the requested length');
+  Assert.IsTrue(FirstActual, 'padEnd must repeat the pad string');
 end;
 
 procedure TAllocationLimitTests.Execute_CompoundAssignmentWithBigArray_RaisesAllocationLimit;
@@ -1064,16 +1022,6 @@ begin
 end;
 
 { TDeepStructureTests }
-
-procedure TDeepStructureTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TDeepStructureTests.TearDown;
-begin
-  FreeAndNil(FEngine);
-end;
 
 procedure TDeepStructureTests.AssertDeepArrayRejected(const Usage: string);
 begin
@@ -1174,16 +1122,6 @@ end;
 procedure TDeepStructureTests.Throw_OfDeepArray_RaisesCallDepthExceeded;
 begin
   AssertDeepArrayRejected(DeepThrowScript);
-end;
-
-procedure TBuiltInLimitTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TBuiltInLimitTests.TearDown;
-begin
-  FEngine.Free;
 end;
 
 procedure TBuiltInLimitTests.JsonParse_ReviverMakingCycle_RaisesCallDepthExceeded;

@@ -7,24 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TEs2015LibraryTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TEs2015LibraryTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Cbrt', 'Math.cbrt(8)#2', '#')]
     [TestCase('CbrtNegative', 'Math.cbrt(-27)#-3', '#')]
@@ -124,7 +112,9 @@ type
     [TestCase('MissingArguments', 'Object.is()#true', '#')]
     [TestCase('SameObject', '(function () { var o = {}; return Object.is(o, o); })()#true', '#')]
     [TestCase('DifferentObjects', 'Object.is({}, {})#false', '#')]
-    [TestCase('DataProperty', 'JSON.stringify(Object.getOwnPropertyDescriptors({a: 1}).a)#{"value":1,"writable":true,"enumerable":true,"configurable":true}', '#')]
+    [TestCase('DataProperty',
+      'JSON.stringify(Object.getOwnPropertyDescriptors({a: ' +
+      '1}).a)#{"value":1,"writable":true,"enumerable":true,"configurable":true}', '#')]
     [TestCase('IncludesNonEnumerable', 'Object.keys(Object.getOwnPropertyDescriptors(Object.defineProperty({}, "h", {value: 1})))[0]#h', '#')]
     [TestCase('IgnoresInherited', 'Object.keys(Object.getOwnPropertyDescriptors(Object.create({inherited: 1}))).length#0', '#')]
     [TestCase('Accessor', 'typeof Object.getOwnPropertyDescriptors({get a() { return 1; }}).a.get#function', '#')]
@@ -166,7 +156,9 @@ type
     [TestCase('InvokesSourceGetter', 'Object.assign({}, {get a() { return 7; }}).a#7', '#')]
     [TestCase('IsGlobalObject', 'globalThis === this#true', '#')]
     [TestCase('ExposesGlobalVariable', '(function () { var scoped = 1; return typeof globalThis.Math; })()#object', '#')]
-    [TestCase('GlobalThis NotEnumerable', '(function () { for (var key in this) { if (key === "globalThis") { return "enumerable"; } } return "hidden"; })()#hidden', '#')]
+    [TestCase('GlobalThis NotEnumerable',
+      '(function () { for (var key in this) { if (key === "globalThis") { return "enumerable"; } } return ' +
+      '"hidden"; })()#hidden', '#')]
     [TestCase('IsWritable', '(function () { globalThis = 1; var result = globalThis; return result; })()#1', '#')]
     procedure Library_Script_ReturnsExpected(const Expression, Expected: string);
 
@@ -188,43 +180,34 @@ type
     [TestCase('AssignReadOnlyTarget', 'Object.assign(Object.defineProperty({}, "a", {value: 1}), {a: 2})#TypeError', '#')]
     [TestCase('AssignNewKeyOnNonExtensibleTarget', 'Object.assign(Object.preventExtensions({}), {a: 2})#TypeError', '#')]
     procedure ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
-
   end;
 
 implementation
 
-procedure TEs2015LibraryTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TEs2015LibraryTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TEs2015LibraryTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TEs2015LibraryTests.Library_Script_ReturnsExpected(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TextOf(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TEs2015LibraryTests.ObjectGetOwnPropertyDescriptors_Undefined_RaisesTypeError;
 begin
-  const ErrorName = Evaluate('(function () { try { Object.getOwnPropertyDescriptors(undefined); } catch (e) { return e.name; } })()');
+  const ErrorName = TextOf('(function () { try { Object.getOwnPropertyDescriptors(undefined); } catch (e) { return e.name; } })()');
 
-  Assert.AreEqual('TypeError', ErrorName);
+  Assert.AreEqual(TYPE_ERROR_NAME, ErrorName);
 end;
 
 procedure TEs2015LibraryTests.ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
 begin
   const Guarded = Format('(function () { try { %s; } catch (e) { return e.name; } return "no error"; })()', [Expression]);
 
-  Assert.AreEqual(Expected, Evaluate(Guarded));
+  const Actual = TextOf(Guarded);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

@@ -7,23 +7,15 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TJsonStringifyTests = class
+  TJsonStringifyTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Script: string): string;
+    function ThrownValueOf(const Statement: string): string;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Integer', 'JSON.stringify(123)@123', '@')]
     [TestCase('Fraction', 'JSON.stringify({"a":1.5})@{"a":1.5}', '@')]
@@ -101,83 +93,89 @@ type
     procedure Stringify_SpaceConversionThrows_PropagatesError;
 
     [Test]
-    procedure Stringify_SkipsNonEnumerableMembers;
+    procedure Stringify_NonEnumerableMember_IsSkipped;
 
     [Test]
-    procedure Stringify_KeepsPropertyOrder;
+    procedure Stringify_MembersAddedOutOfOrder_KeepsInsertionOrder;
   end;
 
 implementation
 
-procedure TJsonStringifyTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TJsonStringifyTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TJsonStringifyTests.Evaluate(const Script: string): string;
-begin
-  Result := FEngine.Evaluate(Script).ToString;
-end;
+const
+  THROWN_VALUE = 'boom';
+  CATCH_THROWN_VALUE_FORMAT = '(function () { try { %s return "none"; } catch (e) { return e; } })()';
 
 procedure TJsonStringifyTests.Stringify_Script_ReturnsExpectedText(const Script, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual);
+end;
+
+function TJsonStringifyTests.ThrownValueOf(const Statement: string): string;
+begin
+  const Script = Format(CATCH_THROWN_VALUE_FORMAT, [Statement]);
+
+  Result := EvaluateText(Script);
 end;
 
 procedure TJsonStringifyTests.Stringify_Circular_ThrowsTypeError(const Script: string);
 begin
-  const Guarded = Format('(function () { try { %s; return "no error"; } catch (e) { return (e instanceof TypeError) ? "TypeError" : "other"; } })()', [Script]);
+  const Actual = ThrowsTypeError(Script);
 
-  Assert.AreEqual('TypeError', Evaluate(Guarded));
+  Assert.IsTrue(Actual, Script);
 end;
 
 procedure TJsonStringifyTests.Stringify_ToJsonThrows_PropagatesError;
 begin
-  const Script = '(function () { try { JSON.stringify({"toJSON": function () { throw "boom"; }}); return "none"; } catch (e) { return e; } })()';
+  const Actual = ThrownValueOf('JSON.stringify({"toJSON": function () { throw "boom"; }});');
 
-  Assert.AreEqual('boom', Evaluate(Script));
+  Assert.AreEqual(THROWN_VALUE, Actual);
 end;
 
 procedure TJsonStringifyTests.Stringify_ReplacerFunctionThrows_PropagatesError;
 begin
-  const Script = '(function () { try { JSON.stringify({}, function () { throw "boom"; }); return "none"; } catch (e) { return e; } })()';
+  const Actual = ThrownValueOf('JSON.stringify({}, function () { throw "boom"; });');
 
-  Assert.AreEqual('boom', Evaluate(Script));
+  Assert.AreEqual(THROWN_VALUE, Actual);
 end;
 
 procedure TJsonStringifyTests.Stringify_ReplacerArrayElementThrows_PropagatesError;
 begin
-  const Script = 'var bad = new String("a"); bad.toString = function () { throw "boom"; }; ' +
-                 '(function () { try { JSON.stringify({}, [bad]); return "none"; } catch (e) { return e; } })()';
+  const Statement = 'var bad = new String("a"); bad.toString = function () { throw "boom"; }; ' +
+                    'JSON.stringify({}, [bad]);';
 
-  Assert.AreEqual('boom', Evaluate(Script));
+  const Actual = ThrownValueOf(Statement);
+
+  Assert.AreEqual(THROWN_VALUE, Actual);
 end;
 
 procedure TJsonStringifyTests.Stringify_SpaceConversionThrows_PropagatesError;
 begin
-  const Script = 'var bad = new Number(1); bad.valueOf = function () { throw "boom"; }; ' +
-                 '(function () { try { JSON.stringify({}, null, bad); return "none"; } catch (e) { return e; } })()';
+  const Statement = 'var bad = new Number(1); bad.valueOf = function () { throw "boom"; }; ' +
+                    'JSON.stringify({}, null, bad);';
 
-  Assert.AreEqual('boom', Evaluate(Script));
+  const Actual = ThrownValueOf(Statement);
+
+  Assert.AreEqual(THROWN_VALUE, Actual);
 end;
 
-procedure TJsonStringifyTests.Stringify_SkipsNonEnumerableMembers;
+procedure TJsonStringifyTests.Stringify_NonEnumerableMember_IsSkipped;
 begin
   const Script = 'var o = {"a":1}; Object.defineProperty(o, "hidden", {"value": 2, "enumerable": false}); JSON.stringify(o)';
 
-  Assert.AreEqual('{"a":1}', Evaluate(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('{"a":1}', Actual);
 end;
 
-procedure TJsonStringifyTests.Stringify_KeepsPropertyOrder;
+procedure TJsonStringifyTests.Stringify_MembersAddedOutOfOrder_KeepsInsertionOrder;
 begin
   const Script = 'var o = {}; o.b = 1; o.a = 2; JSON.stringify(o)';
 
-  Assert.AreEqual('{"b":1,"a":2}', Evaluate(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('{"b":1,"a":2}', Actual);
 end;
 
 end.

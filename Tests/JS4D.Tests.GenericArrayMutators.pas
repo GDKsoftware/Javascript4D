@@ -7,26 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TGenericArrayMutatorTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-    function EvaluateString(const Script: string): string;
-    function ThrowsTypeError(const Statement: string): Boolean;
-
+  TGenericArrayMutatorTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Push_OnObject_AppendsAndUpdatesLength;
 
@@ -211,35 +197,11 @@ type
 
 implementation
 
-procedure TGenericArrayMutatorTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TGenericArrayMutatorTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TGenericArrayMutatorTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TGenericArrayMutatorTests.EvaluateString(const Script: string): string;
-begin
-  Result := FEngine.Evaluate(Script).AsString;
-end;
-
-function TGenericArrayMutatorTests.ThrowsTypeError(const Statement: string): Boolean;
-begin
-  const Script =
-    'var thrown = false;' + sLineBreak +
-    'try { ' + Statement + ' } catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
-    'thrown';
-
-  Result := EvaluateBoolean(Script);
-end;
+const
+  INHERITED_ELEMENT_SETUP = 'Array.prototype[1] = 1; var x = [0]; x.length = 2;';
+  STOPPED_DECLARATION = 'var stopped = false;';
+  POP_ON_ARRAY_LIKE = 'var r = Array.prototype.pop.call(o);';
+  ARRAY_LIKE_OF_THREE = 'var o = { 0: "a", 1: "b", 2: "c", length: 3 };';
 
 procedure TGenericArrayMutatorTests.Push_OnObject_AppendsAndUpdatesLength;
 begin
@@ -248,7 +210,9 @@ begin
     'var r = Array.prototype.push.call(o, "b", "c");' + sLineBreak +
     'r === 3 && o.length === 3 && o[1] === "b" && o[2] === "c"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Push_LengthBeyondUint32_KeepsCounting;
@@ -259,7 +223,9 @@ begin
     'r === 4294967298 && o.length === 4294967298 && o[4294967296] === "x" && ' +
     'o[4294967297] === "y" && o[0] === undefined';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Push_InheritedLength_IsReadFromPrototype;
@@ -270,47 +236,57 @@ begin
     'Array.prototype.push.call(o, 7);' + sLineBreak +
     'o[1] === 7 && o.length === 2 && proto.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_OnObject_RemovesLastElement;
 begin
   const Script =
     'var o = { 0: "a", 1: "b", length: 2 };' + sLineBreak +
-    'var r = Array.prototype.pop.call(o);' + sLineBreak +
+    POP_ON_ARRAY_LIKE + sLineBreak +
     'r === "b" && o.length === 1 && !o.hasOwnProperty("1") && o[0] === "a"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_EmptyObject_SetsLengthToZero;
 begin
   const Script =
     'var o = {};' + sLineBreak +
-    'var r = Array.prototype.pop.call(o);' + sLineBreak +
+    POP_ON_ARRAY_LIKE + sLineBreak +
     'r === undefined && o.length === 0';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_LengthBeyondUint32_RemovesTheElementAtThatIndex;
 begin
   const Script =
     'var o = { length: 4294967296, 4294967295: "y" };' + sLineBreak +
-    'var r = Array.prototype.pop.call(o);' + sLineBreak +
+    POP_ON_ARRAY_LIKE + sLineBreak +
     'r === "y" && o.length === 4294967295 && o[4294967295] === undefined';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Shift_OnObject_MovesElementsDown;
 begin
   const Script =
-    'var o = { 0: "a", 1: "b", 2: "c", length: 3 };' + sLineBreak +
+    ARRAY_LIKE_OF_THREE + sLineBreak +
     'var r = Array.prototype.shift.call(o);' + sLineBreak +
     'r === "a" && o.length === 2 && o[0] === "b" && o[1] === "c" && !o.hasOwnProperty("2")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Shift_MissingElement_IsDeleted;
@@ -320,7 +296,9 @@ begin
     'Array.prototype.shift.call(o);' + sLineBreak +
     '!o.hasOwnProperty("0") && o[1] === "c" && o.length === 2';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Unshift_OnObject_MovesElementsUp;
@@ -330,7 +308,9 @@ begin
     'var r = Array.prototype.unshift.call(o, "a", "b");' + sLineBreak +
     'r === 3 && o.length === 3 && o[0] === "a" && o[1] === "b" && o[2] === "c"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Splice_OnObject_RemovesAndInserts;
@@ -341,7 +321,9 @@ begin
     'Array.isArray(r) && r.length === 2 && r[0] === 2 && r[1] === 3 && ' +
     'o.length === 3 && o[0] === 1 && o[1] === "x" && o[2] === 4 && !o.hasOwnProperty("3")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Splice_WithoutArguments_SetsLength;
@@ -351,17 +333,21 @@ begin
     'var r = Array.prototype.splice.call(o);' + sLineBreak +
     'r.length === 0 && o.length === 0 && o[0] === "a"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Slice_OnObject_CopiesRange;
 begin
   const Script =
-    'var o = { 0: "a", 1: "b", 2: "c", length: 3 };' + sLineBreak +
+    ARRAY_LIKE_OF_THREE + sLineBreak +
     'var r = Array.prototype.slice.call(o, 1);' + sLineBreak +
     'Array.isArray(r) && r.length === 2 && r[0] === "b" && r[1] === "c"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Slice_NegativeLength_ReturnsEmptyArray;
@@ -371,7 +357,9 @@ begin
     'var r = Array.prototype.slice.call(o, 4294967294, 4294967295);' + sLineBreak +
     'r.length === 0 && r[0] === undefined';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Reverse_OnObject_SwapsElementsAndKeepsHoles;
@@ -381,7 +369,9 @@ begin
     'var r = Array.prototype.reverse.call(o);' + sLineBreak +
     'r === o && o[0] === "d" && o[1] === "c" && !o.hasOwnProperty("2") && o[3] === "a"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Reverse_NegativeLength_ChangesNothing;
@@ -391,19 +381,25 @@ begin
     'Array.prototype.reverse.call(o);' + sLineBreak +
     'o[0] === "x" && o[1] === "y" && o.length === -4294967294';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Join_OnObject_UsesSeparator;
 begin
   const Script = 'Array.prototype.join.call({ 0: "a", 1: null, 2: "c", length: 3 }, "-")';
 
-  Assert.AreEqual('a--c', EvaluateString(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('a--c', Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Join_OnBooleanPrimitive_ReturnsEmptyString;
 begin
-  Assert.AreEqual('', EvaluateString('Array.prototype.join.call(true)'));
+  const Actual = EvaluateText('Array.prototype.join.call(true)');
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Concat_OnObject_PrependsTheObjectItself;
@@ -413,7 +409,9 @@ begin
     'var r = Array.prototype.concat.call(x, [1, 2], 3);' + sLineBreak +
     'Array.isArray(r) && r.length === 4 && r[0] === x && r[1] === 1 && r[2] === 2 && r[3] === 3';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Concat_OnNumberPrimitive_PrependsWrapper;
@@ -422,7 +420,9 @@ begin
     'var r = Array.prototype.concat.call(101);' + sLineBreak +
     'r.length === 1 && (r[0] instanceof Number)';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Sort_OnObject_SortsInPlaceAndReturnsTheObject;
@@ -432,7 +432,9 @@ begin
     'var r = Array.prototype.sort.call(o);' + sLineBreak +
     'r === o && o[0] === "a" && o[1] === "b" && o[2] === "c"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Sort_OnObjectWithComparator_UsesComparator;
@@ -442,7 +444,9 @@ begin
     'Array.prototype.sort.call(o, function (a, b) { return b - a; });' + sLineBreak +
     'o[0] === 3 && o[1] === 2 && o[2] === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Sort_OnObject_MovesUndefinedToTheEndAndKeepsHolesAtTheEnd;
@@ -452,29 +456,39 @@ begin
     'Array.prototype.sort.call(o);' + sLineBreak +
     'o[0] === "a" && o[1] === "b" && o.hasOwnProperty("2") && o[2] === undefined && !o.hasOwnProperty("3")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.ToString_OnBooleanPrimitive_UsesObjectToString;
 begin
-  Assert.AreEqual('[object Boolean]', EvaluateString('Array.prototype.toString.call(true)'));
+  const Actual = EvaluateText('Array.prototype.toString.call(true)');
+
+  Assert.AreEqual('[object Boolean]', Actual);
 end;
 
 procedure TGenericArrayMutatorTests.ToString_OnObjectWithJoin_CallsJoin;
 begin
   const Script = 'Array.prototype.toString.call({ join: function () { return "joined"; } })';
 
-  Assert.AreEqual('joined', EvaluateString(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('joined', Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Unshift_GetterOnlyElement_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Array.prototype.unshift.call({ get 0() { return 1; } }, 0);'));
+  const Actual = ThrowsTypeError('Array.prototype.unshift.call({ get 0() { return 1; } }, 0);');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Splice_GetterOnlyLength_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Array.prototype.splice.call({ get length() { return 0; } }, 1, 2, 4);'));
+  const Actual = ThrowsTypeError('Array.prototype.splice.call({ get length() { return 0; } }, 1, 2, 4);');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_NonConfigurableElement_ThrowsTypeError;
@@ -484,7 +498,9 @@ begin
     'Object.defineProperty(o, "0", { value: "x", configurable: false });' +
     'Array.prototype.pop.call(o);';
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Actual = ThrowsTypeError(Statement);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Method_NullThis_ThrowsTypeError(const MethodName: string);
@@ -494,17 +510,23 @@ begin
     'try { Array.prototype.%s.call(null); } catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
     'thrown', [MethodName]);
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Mutator_OnFrozenArray_ThrowsTypeError(const Call: string);
 begin
-  Assert.IsTrue(ThrowsTypeError(Format('Object.freeze([1, 2]).%s;', [Call])));
+  const Actual = ThrowsTypeError(Format('Object.freeze([1, 2]).%s;', [Call]));
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Mutator_OnEmptyFrozenArray_ThrowsTypeError(const Call: string);
 begin
-  Assert.IsTrue(ThrowsTypeError(Format('Object.freeze([]).%s;', [Call])));
+  const Actual = ThrowsTypeError(Format('Object.freeze([]).%s;', [Call]));
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Mutator_OnArrayWithNonWritableLength_ThrowsTypeError(const Call: string);
@@ -514,7 +536,9 @@ begin
     'Object.defineProperty(a, "length", { writable: false });' +
     Format('a.%s;', [Call]);
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Actual = ThrowsTypeError(Statement);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_GetterFreezesArrayWithHole_ThrowsTypeError;
@@ -524,25 +548,31 @@ begin
     'Object.defineProperty(Array.prototype, "0", { get: function () { Object.freeze(a); }, configurable: true });' +
     'a.pop();';
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Actual = ThrowsTypeError(Statement);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Pop_HoleInheritedFromPrototype_ReturnsInheritedElement;
 begin
   const Script =
-    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    INHERITED_ELEMENT_SETUP + sLineBreak +
     'x.pop() === 1 && x.length === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Shift_HoleInheritedFromPrototype_MovesInheritedElement;
 begin
   const Script =
-    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    INHERITED_ELEMENT_SETUP + sLineBreak +
     'x.shift(); x[0] === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Unshift_HoleInheritedFromPrototype_MovesInheritedElement;
@@ -551,25 +581,31 @@ begin
     'Array.prototype[0] = 1; var x = []; x.length = 1;' + sLineBreak +
     'x.unshift(0); x[1] === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Reverse_HoleInheritedFromPrototype_SwapsInheritedElement;
 begin
   const Script =
-    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    INHERITED_ELEMENT_SETUP + sLineBreak +
     'x.reverse(); x[0] === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Slice_HoleInheritedFromPrototype_CopiesInheritedElement;
 begin
   const Script =
-    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    INHERITED_ELEMENT_SETUP + sLineBreak +
     'var copy = x.slice(); copy[1] === 1 && copy.hasOwnProperty("1")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Splice_HoleInheritedFromPrototype_RemovesInheritedElement;
@@ -578,21 +614,27 @@ begin
     'Array.prototype[0] = -1; var x = []; x.length = 1;' + sLineBreak +
     'x.splice(0, 1)[0] === -1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Join_HoleInheritedFromPrototype_UsesInheritedElement;
 begin
   const Script =
-    'Array.prototype[1] = 1; var x = [0]; x.length = 2;' + sLineBreak +
+    INHERITED_ELEMENT_SETUP + sLineBreak +
     'x.join() === "0,1" && x.toString() === "0,1"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Push_PlainArray_AppendsElement;
 begin
-  Assert.IsTrue(EvaluateBoolean('var a = [1]; a.push(2, 3) === 3 && a.join() === "1,2,3"'));
+  const Actual = EvaluateBoolean('var a = [1]; a.push(2, 3) === 3 && a.join() === "1,2,3"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.SliceAndSplice_WithIrregularArguments_ConvertLikeToInteger(const Expression: string;
@@ -600,7 +642,9 @@ procedure TGenericArrayMutatorTests.SliceAndSplice_WithIrregularArguments_Conver
 begin
   const Script = Format('var x = [0, 1, 2, 3, 4]; %s', [Expression]);
 
-  Assert.AreEqual(Double(Expected), FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(Double(Expected), Actual);
 end;
 
 procedure TGenericArrayMutatorTests.ArrayLikeAtSafeIntegerLimit_GrowingMethod_ThrowsTypeError(const Statement: string);
@@ -609,7 +653,9 @@ begin
     'var o = { length: Math.pow(2, 53) - 1 };' +
     'var s = {}; s[Symbol.isConcatSpreadable] = true;';
 
-  Assert.IsTrue(ThrowsTypeError(Preamble + Statement + ';'));
+  const Actual = ThrowsTypeError(Preamble + Statement + ';');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Push_LengthAtSafeIntegerLimitWithoutItems_KeepsLength;
@@ -618,7 +664,9 @@ begin
     'var o = { length: Math.pow(2, 53) - 1 };' + sLineBreak +
     'Array.prototype.push.call(o) === Math.pow(2, 53) - 1 && o.length === Math.pow(2, 53) - 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Splice_NoArgumentsOnHugeLength_ClampsLengthWithoutMovingElements;
@@ -628,41 +676,49 @@ begin
     'Array.prototype.splice.call(o);' + sLineBreak +
     'o.length === Math.pow(2, 53) - 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Unshift_HugeLength_ReadsTheTopElementFirst;
 begin
   const Script =
-    'var stopped = false;' + sLineBreak +
+    STOPPED_DECLARATION + sLineBreak +
     'var o = { length: Math.pow(2, 53) - 2, get "9007199254740989"() { throw 1; } };' + sLineBreak +
     'try { Array.prototype.unshift.call(o, null); } catch (e) { stopped = (e === 1); }' + sLineBreak +
     'stopped && o.length === Math.pow(2, 53) - 2';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Reverse_HugeLength_SwapsTheOutermostElementsFirst;
 begin
   const Script =
-    'var stopped = false;' + sLineBreak +
+    STOPPED_DECLARATION + sLineBreak +
     'var o = { length: Math.pow(2, 53) + 2, get "9007199254740990"() { throw 1; } };' + sLineBreak +
     'try { Array.prototype.reverse.call(o); } catch (e) { stopped = (e === 1); }' + sLineBreak +
     'stopped';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGenericArrayMutatorTests.Concat_HugeSpreadableLength_ReadsIndexZeroFirst;
 begin
   const Script =
-    'var stopped = false;' + sLineBreak +
+    STOPPED_DECLARATION + sLineBreak +
     'var s = { length: Math.pow(2, 53) - 1, get 0() { throw 1; } };' + sLineBreak +
     's[Symbol.isConcatSpreadable] = true;' + sLineBreak +
     'try { [].concat(s); } catch (e) { stopped = (e === 1); }' + sLineBreak +
     'stopped';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

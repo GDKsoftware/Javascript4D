@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TArrowFunctionTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TArrowFunctionTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('SingleIdentifier', 'var f = x => x + 1; f(1)|2', '|')]
     [TestCase('EmptyParameters', 'var f = () => 7; f()|7', '|')]
@@ -40,13 +28,13 @@ type
     [TestCase('CommaEndsConciseBody', 'var f = [x => 1, x => 2]; f.length|2', '|')]
     [TestCase('RegularExpressionBody', 'var f = s => /a+/.test(s); f("caat")|true', '|')]
     [TestCase('InsideTernaryAlternate', 'var f = true ? 1 : x => 2; f|1', '|')]
-    procedure Call_Result(const Source: string; const Expected: string);
+    procedure Call_Source_ReturnsExpectedText(const Source: string; const Expected: string);
 
     [Test]
-    procedure This_IsInheritedFromEnclosingFunction;
+    procedure This_ArrowInMethod_IsInheritedFromEnclosingFunction;
 
     [Test]
-    procedure This_IgnoresCallAndApplyAndBind;
+    procedure This_CallApplyAndBind_AreIgnored;
 
     [Test]
     procedure This_InNestedArrow_IsInheritedFromOuterFunction;
@@ -61,7 +49,7 @@ type
     procedure This_InStrictGlobalCode_IsGlobalObject;
 
     [Test]
-    procedure Arguments_AreTakenFromEnclosingFunction;
+    procedure Arguments_ArrowInFunction_AreTakenFromEnclosingFunction;
 
     [Test]
     procedure Arguments_InNestedArrow_AreTakenFromEnclosingFunction;
@@ -70,27 +58,27 @@ type
     procedure Arguments_AtGlobalLevel_IsReferenceError;
 
     [Test]
-    procedure Prototype_IsNotDefined;
+    procedure Prototype_OfArrowFunction_IsNotDefined;
 
     [Test]
-    procedure Length_IsParameterCount;
+    procedure Length_OfArrowFunction_IsParameterCount;
 
     [Test]
     procedure Length_WithTrailingComma_IgnoresComma;
 
     [Test]
-    procedure TypeOf_IsFunction;
+    procedure TypeOf_ArrowFunction_IsFunction;
 
     [Test]
-    procedure Closure_CapturesEnclosingBindings;
+    procedure Closure_ArrowFunction_CapturesEnclosingBindings;
 
     [Test]
-    procedure Parameters_ShadowOuterBindings;
+    procedure Parameters_SameNameAsOuterBinding_ShadowOuterBindings;
 
     [Test]
     [TestCase('New', 'var f = () => 1; new f();', '|')]
     [TestCase('NewWithArguments', 'var f = (a) => a; new f(1);', '|')]
-    procedure New_RaisesTypeError(const Source: string);
+    procedure New_ArrowFunction_RaisesTypeError(const Source: string);
 
     [Test]
     [TestCase('LineBreakBeforeArrow', 'var f = x'#10'=> x;', '|')]
@@ -112,7 +100,7 @@ type
     [TestCase('BreakInsideBody', 'while (true) { var f = () => { break; }; }', '|')]
     [TestCase('OnlyComma', 'var f = (,) => 1;', '|')]
     [TestCase('DoubleTrailingComma', 'var f = (a,,) => 1;', '|')]
-    procedure Source_IsSyntaxError(const Source: string);
+    procedure Source_InvalidArrow_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('NewlineAfterArrow', 'var f = x =>'#10' x;', '|')]
@@ -122,7 +110,7 @@ type
     [TestCase('ArrowBodyIsVarScoped', 'var f = () => { var a; var a; };', '|')]
     [TestCase('ShadowedParameterInBody', 'var f = (a) => { var a; };', '|')]
     [TestCase('ArrowAfterNewlineWithoutSemicolon', 'var f = () => {}'#10'(1)', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure Source_ValidArrow_RaisesNoError(const Source: string);
 
     [Test]
     procedure ConciseBody_InForInitializer_IsParsed;
@@ -130,153 +118,173 @@ type
 
 implementation
 
-procedure TArrowFunctionTests.Setup;
+uses
+  JS4D.Tests.ErrorNames;
+
+procedure TArrowFunctionTests.Call_Source_ReturnsExpectedText(const Source: string; const Expected: string);
 begin
-  FEngine := TJSEngine.Create;
+  const Actual = EvaluateText(Source);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TArrowFunctionTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TArrowFunctionTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
-procedure TArrowFunctionTests.Call_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TArrowFunctionTests.This_IsInheritedFromEnclosingFunction;
+procedure TArrowFunctionTests.This_ArrowInMethod_IsInheritedFromEnclosingFunction;
 begin
   const Script = 'var o = { v: 3, make: function () { return () => this.v; } }; o.make()()';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
-procedure TArrowFunctionTests.This_IgnoresCallAndApplyAndBind;
+procedure TArrowFunctionTests.This_CallApplyAndBind_AreIgnored;
 begin
   const Script = 'var o = { v: 1, make: function () { return () => this.v; } };' +
                  'var f = o.make(); var other = { v: 2 };' +
                  'f.call(other) + "," + f.apply(other) + "," + f.bind(other)()';
 
-  Assert.AreEqual('1,1,1', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1,1,1', Actual);
 end;
 
 procedure TArrowFunctionTests.This_InNestedArrow_IsInheritedFromOuterFunction;
 begin
   const Script = 'var o = { v: 4, make: function () { return () => () => this.v; } }; o.make()()()';
 
-  Assert.AreEqual(4.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(4.0, Actual);
 end;
 
 procedure TArrowFunctionTests.This_AtGlobalLevel_IsGlobalObject;
 begin
   const Script = 'var g = this; var f = () => this; f() === g';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TArrowFunctionTests.This_InStrictFunctionWithoutReceiver_IsUndefined;
 begin
   const Script = 'function outer() { "use strict"; return () => typeof this; } outer()()';
 
-  Assert.AreEqual('undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('undefined', Actual);
 end;
 
 procedure TArrowFunctionTests.This_InStrictGlobalCode_IsGlobalObject;
 begin
   const Script = '"use strict"; var g = this; var f = () => this; f() === g';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TArrowFunctionTests.Arguments_AreTakenFromEnclosingFunction;
+procedure TArrowFunctionTests.Arguments_ArrowInFunction_AreTakenFromEnclosingFunction;
 begin
   const Script = 'function outer() { return (() => arguments[0] + arguments.length)(99); } outer(10, 20)';
 
-  Assert.AreEqual(12.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(12.0, Actual);
 end;
 
 procedure TArrowFunctionTests.Arguments_InNestedArrow_AreTakenFromEnclosingFunction;
 begin
   const Script = 'function outer() { return (() => () => arguments[1])()(); } outer(1, 2)';
 
-  Assert.AreEqual(2.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TArrowFunctionTests.Arguments_AtGlobalLevel_IsReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('(() => arguments)()'));
+  const Actual = ErrorNameOf('(() => arguments)()');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TArrowFunctionTests.Prototype_IsNotDefined;
+procedure TArrowFunctionTests.Prototype_OfArrowFunction_IsNotDefined;
 begin
   const Script = 'var f = () => 1; f.hasOwnProperty("prototype") + "," + typeof f.prototype';
 
-  Assert.AreEqual('false,undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('false,undefined', Actual);
 end;
 
-procedure TArrowFunctionTests.Length_IsParameterCount;
+procedure TArrowFunctionTests.Length_OfArrowFunction_IsParameterCount;
 begin
-  Assert.AreEqual(3.0, FEngine.Evaluate('((a, b, c) => 1).length').AsNumber);
+  const Actual = EvaluateNumber('((a, b, c) => 1).length');
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TArrowFunctionTests.Length_WithTrailingComma_IgnoresComma;
 begin
-  Assert.AreEqual(2.0, FEngine.Evaluate('((a, b,) => 1).length').AsNumber);
+  const Actual = EvaluateNumber('((a, b,) => 1).length');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
-procedure TArrowFunctionTests.TypeOf_IsFunction;
+procedure TArrowFunctionTests.TypeOf_ArrowFunction_IsFunction;
 begin
-  Assert.AreEqual('function', FEngine.Evaluate('typeof (() => 1)').AsString);
+  const Actual = EvaluateText('typeof (() => 1)');
+
+  Assert.AreEqual('function', Actual);
 end;
 
-procedure TArrowFunctionTests.Closure_CapturesEnclosingBindings;
+procedure TArrowFunctionTests.Closure_ArrowFunction_CapturesEnclosingBindings;
 begin
   const Script = 'function counter() { var n = 0; return () => ++n; } var c = counter(); c(); c(); c()';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
-procedure TArrowFunctionTests.Parameters_ShadowOuterBindings;
+procedure TArrowFunctionTests.Parameters_SameNameAsOuterBinding_ShadowOuterBindings;
 begin
   const Script = 'var x = 1; var f = x => x + 1; f(10) + x';
 
-  Assert.AreEqual(12.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(12.0, Actual);
 end;
 
-procedure TArrowFunctionTests.New_RaisesTypeError(const Source: string);
+procedure TArrowFunctionTests.New_ArrowFunction_RaisesTypeError(const Source: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TArrowFunctionTests.Source_IsSyntaxError(const Source: string);
+procedure TArrowFunctionTests.Source_InvalidArrow_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TArrowFunctionTests.Source_IsAccepted(const Source: string);
+procedure TArrowFunctionTests.Source_ValidArrow_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TArrowFunctionTests.ConciseBody_InForInitializer_IsParsed;
 begin
   const Script = 'var r = 0; for (var f = x => x; r < 1; r++) { } r';
 
-  Assert.AreEqual(1.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 end.

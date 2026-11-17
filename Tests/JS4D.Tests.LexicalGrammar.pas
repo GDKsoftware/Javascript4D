@@ -7,24 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TLexicalGrammarTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EscapeForStringLiteral(const Source: string): string;
-    function ErrorNameOfEval(const Source: string): string;
-
+  TLexicalGrammarTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Tab', '9')]
     [TestCase('Vertical tab', '11')]
@@ -52,7 +40,7 @@ type
     [TestCase('Carriage return', '13')]
     [TestCase('Line separator', '8232')]
     [TestCase('Paragraph separator', '8233')]
-    procedure SingleLineComment_EndsAtAnyLineTerminator(const CodeUnit: Integer);
+    procedure SingleLineComment_AnyLineTerminator_EndsComment(const CodeUnit: Integer);
 
     [Test]
     [TestCase('Line feed', '10')]
@@ -139,7 +127,6 @@ type
 
     [Test]
     procedure DirectivePrologue_UseStrictAfterOtherDirective_StartsStrictMode;
-
   end;
 
 implementation
@@ -147,41 +134,14 @@ implementation
 uses
   JS4D.Tests.ErrorNames;
 
-procedure TLexicalGrammarTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TLexicalGrammarTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TLexicalGrammarTests.EscapeForStringLiteral(const Source: string): string;
-begin
-  var Escaped := '';
-  for var Character in Source do
-  begin
-    Escaped := Escaped + Format('\u%.4x', [Ord(Character)]);
-  end;
-
-  Result := Escaped;
-end;
-
-function TLexicalGrammarTests.ErrorNameOfEval(const Source: string): string;
-begin
-  const Script = Format('var name = "%s"; try { eval("%s"); } catch (e) { name = e.name; } name',
-                        [NO_ERROR_NAME, EscapeForStringLiteral(Source)]);
-
-  Result := FEngine.Evaluate(Script).AsString;
-end;
-
 procedure TLexicalGrammarTests.WhiteSpace_BetweenTokens_IsSkipped(const CodeUnit: Integer);
 begin
   const Gap = Char(CodeUnit);
   const Source = Format('1%s+%s2', [Gap, Gap]);
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Source).AsNumber);
+  const Actual = EvaluateNumber(Source);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TLexicalGrammarTests.WhiteSpace_AfterRegExpLiteral_IsSkipped(const CodeUnit: Integer);
@@ -189,15 +149,19 @@ begin
   const Gap = Char(CodeUnit);
   const Source = Format('/a/%s.test("a")', [Gap]);
 
-  Assert.IsTrue(FEngine.Evaluate(Source).AsBoolean);
+  const Actual = EvaluateBoolean(Source);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TLexicalGrammarTests.SingleLineComment_EndsAtAnyLineTerminator(const CodeUnit: Integer);
+procedure TLexicalGrammarTests.SingleLineComment_AnyLineTerminator_EndsComment(const CodeUnit: Integer);
 begin
   const Terminator = Char(CodeUnit);
   const Source = Format('var x = 1; // comment%sx = 2; x', [Terminator]);
 
-  Assert.AreEqual(2.0, FEngine.Evaluate(Source).AsNumber);
+  const Actual = EvaluateNumber(Source);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_WithRawLineTerminator_IsSyntaxError(const CodeUnit: Integer);
@@ -205,7 +169,9 @@ begin
   const Terminator = Char(CodeUnit);
   const Source = Format('"a%sb"', [Terminator]);
 
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TLexicalGrammarTests.LineContinuation_InStringLiteral_ContributesNothing(const CodeUnit: Integer);
@@ -213,71 +179,98 @@ begin
   const Terminator = Char(CodeUnit);
   const Source = Format('"a\%sb"', [Terminator]);
 
-  Assert.AreEqual('ab', FEngine.Evaluate(Source).AsString);
+  const Actual = EvaluateText(Source);
+
+  Assert.AreEqual('ab', Actual);
 end;
 
 procedure TLexicalGrammarTests.LineContinuation_CarriageReturnLineFeed_IsOneTerminator;
 begin
   const Source = '"a\' + #13#10 + 'b"';
 
-  Assert.AreEqual('ab', FEngine.Evaluate(Source).AsString);
+  const Actual = EvaluateText(Source);
+
+  Assert.AreEqual('ab', Actual);
 end;
 
 procedure TLexicalGrammarTests.NumericLiteral_Source_HasExpectedValue(const Source: string;
                                                                           const Expected: Double);
 begin
-  Assert.AreEqual(Expected, FEngine.Evaluate(Source).AsNumber);
+  const Actual = EvaluateNumber(Source);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TLexicalGrammarTests.NumericLiteral_TrailingDotBeforeMember_ReadsMemberOfNumber;
 begin
-  Assert.AreEqual('1', FEngine.Evaluate('1..toString()').AsString);
+  const Actual = EvaluateText('1..toString()');
+
+  Assert.AreEqual('1', Actual);
 end;
 
 procedure TLexicalGrammarTests.Literal_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_LegacyOctalEscape_ProducesCodeUnit(const Escape: string;
                                                                                 const Expected: Integer);
 begin
   const Literal = Format('"%s".charCodeAt(0)', [Escape]);
-  const Script = Format('eval("%s")', [EscapeForStringLiteral(Literal)]);
+  const Script = Format('eval("%s")', [TJSTestSupport.EscapeForStringLiteral(Literal)]);
 
-  Assert.AreEqual(Double(Expected), FEngine.Evaluate(Script).AsNumber, Literal);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(Double(Expected), Actual, Literal);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_OctalEscapeFollowedByNonOctalDigit_KeepsTheDigit;
 begin
-  Assert.AreEqual(2.0, FEngine.Evaluate('"\08".length').AsNumber);
-  Assert.AreEqual(0.0, FEngine.Evaluate('"\08".charCodeAt(0)').AsNumber);
-  Assert.AreEqual(56.0, FEngine.Evaluate('"\08".charCodeAt(1)').AsNumber);
-  Assert.AreEqual(56.0, FEngine.Evaluate('"\18".charCodeAt(1)').AsNumber);
+  const FirstActual = EvaluateNumber('"\08".length');
+  const SecondActual = EvaluateNumber('"\08".charCodeAt(0)');
+  const ThirdActual = EvaluateNumber('"\08".charCodeAt(1)');
+  const FourthActual = EvaluateNumber('"\18".charCodeAt(1)');
+
+  Assert.AreEqual(2.0, FirstActual);
+  Assert.AreEqual(0.0, SecondActual);
+  Assert.AreEqual(56.0, ThirdActual);
+  Assert.AreEqual(56.0, FourthActual);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_ZeroEscapeNotFollowedByDigit_IsNull;
 begin
-  Assert.AreEqual(0.0, FEngine.Evaluate('"\0".charCodeAt(0)').AsNumber);
-  Assert.AreEqual(2.0, FEngine.Evaluate('"\0a".length').AsNumber);
+  const FirstActual = EvaluateNumber('"\0".charCodeAt(0)');
+  const SecondActual = EvaluateNumber('"\0a".length');
+
+  Assert.AreEqual(0.0, FirstActual);
+  Assert.AreEqual(2.0, SecondActual);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_NonOctalEscapeInSloppyCode_IsTheDigit;
 begin
-  Assert.AreEqual('8', FEngine.Evaluate('"\8"').AsString);
-  Assert.AreEqual('9', FEngine.Evaluate('"\9"').AsString);
+  const FirstActual = EvaluateText('"\8"');
+  const SecondActual = EvaluateText('"\9"');
+
+  Assert.AreEqual('8', FirstActual);
+  Assert.AreEqual('9', SecondActual);
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TLexicalGrammarTests.DirectivePrologue_UseStrictAfterOtherDirective_StartsStrictMode;
 begin
   const Source = 'function f() { "other"; "use strict"; with ({}) {} }';
 
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

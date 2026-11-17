@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TArrayStaticsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-    function ErrorNameOf(const Statements: string): string;
-
+  TArrayStaticsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Items', 'Array.of(1, 2, 3).join()#1,2,3', '#')]
     [TestCase('Empty', 'Array.of().length#0', '#')]
@@ -80,42 +67,23 @@ type
       'function C() { this.length = 0; Object.preventExtensions(this); } Array.from.call(C, {length: 1})#TypeError', '#')]
     [TestCase('From_NonConfigurableIndex',
       'function C() { Object.defineProperty(this, "0", {writable: true, configurable: false}); } Array.from.call(C, {length: 1})#TypeError', '#')]
-    procedure Statics_RaiseError(const Statements: string; const Expected: string);
+    procedure ArrayStatic_Statements_RaiseExpectedError(const Statements: string; const Expected: string);
   end;
 
 implementation
 
-procedure TArrayStaticsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TArrayStaticsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TArrayStaticsTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Expression).ToString;
-end;
-
-function TArrayStaticsTests.ErrorNameOf(const Statements: string): string;
-begin
-  const Wrapper = Format('var caught = "none"; try { %s } catch (e) { caught = e.name; }', [Statements]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
 procedure TArrayStaticsTests.ArrayStatic_Script_ReturnsExpected(const Expression: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = EvaluateText(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TArrayStaticsTests.Statics_RaiseError(const Statements: string; const Expected: string);
+procedure TArrayStaticsTests.ArrayStatic_Statements_RaiseExpectedError(const Statements: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, ErrorNameOf(Statements));
+  const Actual = ThrownErrorNameOf(Statements);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

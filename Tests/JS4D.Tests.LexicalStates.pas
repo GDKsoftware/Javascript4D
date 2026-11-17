@@ -16,6 +16,7 @@ type
   private
     FStates: TJSLexicalStates;
 
+    function ManyName(const Index: Integer): string;
     procedure DeclareMany(const Count: Integer);
 
   public
@@ -53,19 +54,21 @@ type
     procedure Declare_SameNameTwice_ResetsToUninitialized;
 
     [Test]
-    procedure CopyFrom_CopiesStatesIntoEmptyInstance;
+    procedure CopyFrom_EmptyTarget_CopiesStates;
 
     [Test]
-    procedure Clear_RemovesAllNames;
+    procedure Clear_DeclaredNames_RemovesAll;
 
     [Test]
-    procedure ManyNames_AreFoundAndTrackedIndependently;
+    procedure Declare_ManyNames_TracksEachIndependently;
   end;
 
 implementation
 
 const
   MANY_NAMES = 40;
+  NAME_X = 'x';
+  NAME_Y = 'y';
 
 procedure TLexicalStatesTests.Setup;
 begin
@@ -77,24 +80,33 @@ begin
   FStates.Free;
 end;
 
+function TLexicalStatesTests.ManyName(const Index: Integer): string;
+begin
+  Result := Format('name%d', [Index]);
+end;
+
 procedure TLexicalStatesTests.DeclareMany(const Count: Integer);
 begin
   for var Index := 1 to Count do
   begin
-    FStates.Declare(Format('name%d', [Index]), False);
+    FStates.Declare(ManyName(Index), False);
   end;
 end;
 
 procedure TLexicalStatesTests.Contains_UndeclaredName_ReturnsFalse;
 begin
-  Assert.IsFalse(FStates.Contains('x'));
+  const Actual = FStates.Contains(NAME_X);
+
+  Assert.IsFalse(Actual);
 end;
 
 procedure TLexicalStatesTests.Contains_DeclaredName_ReturnsTrue;
 begin
-  FStates.Declare('x', False);
+  FStates.Declare(NAME_X, False);
 
-  Assert.IsTrue(FStates.Contains('x'));
+  const Actual = FStates.Contains(NAME_X);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TLexicalStatesTests.EnsureInitialized_UndeclaredName_DoesNotRaise;
@@ -102,142 +114,156 @@ begin
   Assert.WillNotRaise(
     procedure
     begin
-      FStates.EnsureInitialized('x');
+      FStates.EnsureInitialized(NAME_X);
     end);
 end;
 
 procedure TLexicalStatesTests.EnsureInitialized_BeforeInitialization_RaisesReferenceError;
 begin
-  FStates.Declare('x', False);
+  FStates.Declare(NAME_X, False);
 
   Assert.WillRaise(
     procedure
     begin
-      FStates.EnsureInitialized('x');
+      FStates.EnsureInitialized(NAME_X);
     end,
     EJSReferenceError);
 end;
 
 procedure TLexicalStatesTests.EnsureInitialized_AfterInitialization_DoesNotRaise;
 begin
-  FStates.Declare('x', True);
-  FStates.MarkInitialized('x');
+  FStates.Declare(NAME_X, True);
+  FStates.MarkInitialized(NAME_X);
 
   Assert.WillNotRaise(
     procedure
     begin
-      FStates.EnsureInitialized('x');
+      FStates.EnsureInitialized(NAME_X);
     end);
 end;
 
 procedure TLexicalStatesTests.EnsureAssignable_BeforeInitialization_RaisesReferenceError;
 begin
-  FStates.Declare('x', False);
+  FStates.Declare(NAME_X, False);
 
   Assert.WillRaise(
     procedure
     begin
-      FStates.EnsureAssignable('x');
+      FStates.EnsureAssignable(NAME_X);
     end,
     EJSReferenceError);
 end;
 
 procedure TLexicalStatesTests.EnsureAssignable_MutableAfterInitialization_DoesNotRaise;
 begin
-  FStates.Declare('x', False);
-  FStates.MarkInitialized('x');
+  FStates.Declare(NAME_X, False);
+  FStates.MarkInitialized(NAME_X);
 
   Assert.WillNotRaise(
     procedure
     begin
-      FStates.EnsureAssignable('x');
+      FStates.EnsureAssignable(NAME_X);
     end);
 end;
 
 procedure TLexicalStatesTests.EnsureAssignable_ConstantAfterInitialization_RaisesTypeError;
 begin
-  FStates.Declare('x', True);
-  FStates.MarkInitialized('x');
+  FStates.Declare(NAME_X, True);
+  FStates.MarkInitialized(NAME_X);
 
   Assert.WillRaise(
     procedure
     begin
-      FStates.EnsureAssignable('x');
+      FStates.EnsureAssignable(NAME_X);
     end,
     EJSTypeError);
 end;
 
 procedure TLexicalStatesTests.Declare_SameNameTwice_ResetsToUninitialized;
 begin
-  FStates.Declare('x', False);
-  FStates.MarkInitialized('x');
-  FStates.Declare('x', False);
+  FStates.Declare(NAME_X, False);
+  FStates.MarkInitialized(NAME_X);
+  FStates.Declare(NAME_X, False);
 
   Assert.WillRaise(
     procedure
     begin
-      FStates.EnsureInitialized('x');
+      FStates.EnsureInitialized(NAME_X);
     end,
     EJSReferenceError);
 end;
 
-procedure TLexicalStatesTests.CopyFrom_CopiesStatesIntoEmptyInstance;
+procedure TLexicalStatesTests.CopyFrom_EmptyTarget_CopiesStates;
 begin
-  FStates.Declare('x', True);
-  FStates.MarkInitialized('x');
-  FStates.Declare('y', False);
+  FStates.Declare(NAME_X, True);
+  FStates.MarkInitialized(NAME_X);
+  FStates.Declare(NAME_Y, False);
 
-  const Copy = TJSLexicalStates.Create;
+  const CopiedStates = TJSLexicalStates.Create;
   try
-    Copy.CopyFrom(FStates);
+    CopiedStates.CopyFrom(FStates);
 
-    Assert.IsTrue(Copy.Contains('x'));
-    Assert.IsTrue(Copy.Contains('y'));
+    const ContainsX = CopiedStates.Contains(NAME_X);
+    const ContainsY = CopiedStates.Contains(NAME_Y);
+
+    Assert.IsTrue(ContainsX);
+    Assert.IsTrue(ContainsY);
     Assert.WillRaise(
       procedure
       begin
-        Copy.EnsureAssignable('x');
+        CopiedStates.EnsureAssignable(NAME_X);
       end,
       EJSTypeError);
     Assert.WillRaise(
       procedure
       begin
-        Copy.EnsureInitialized('y');
+        CopiedStates.EnsureInitialized(NAME_Y);
       end,
       EJSReferenceError);
   finally
-    Copy.Free;
+    CopiedStates.Free;
   end;
 end;
 
-procedure TLexicalStatesTests.Clear_RemovesAllNames;
+procedure TLexicalStatesTests.Clear_DeclaredNames_RemovesAll;
 begin
   DeclareMany(MANY_NAMES);
 
   FStates.Clear;
 
-  Assert.IsFalse(FStates.Contains('name1'));
-  Assert.IsFalse(FStates.Contains(Format('name%d', [MANY_NAMES])));
+  const ContainsFirst = FStates.Contains(ManyName(1));
+  const ContainsLast = FStates.Contains(ManyName(MANY_NAMES));
+
+  Assert.IsFalse(ContainsFirst);
+  Assert.IsFalse(ContainsLast);
 end;
 
-procedure TLexicalStatesTests.ManyNames_AreFoundAndTrackedIndependently;
+procedure TLexicalStatesTests.Declare_ManyNames_TracksEachIndependently;
 begin
-  DeclareMany(MANY_NAMES);
-  FStates.MarkInitialized('name1');
-  FStates.MarkInitialized(Format('name%d', [MANY_NAMES]));
+  const FirstName = ManyName(1);
+  const MiddleName = ManyName(MANY_NAMES div 2);
+  const LastName = ManyName(MANY_NAMES);
+  const UndeclaredName = ManyName(MANY_NAMES + 1);
 
-  Assert.IsTrue(FStates.Contains('name20'));
-  Assert.IsFalse(FStates.Contains('name41'));
+  DeclareMany(MANY_NAMES);
+  FStates.MarkInitialized(FirstName);
+  FStates.MarkInitialized(LastName);
+
+  const ContainsMiddle = FStates.Contains(MiddleName);
+  const ContainsUndeclared = FStates.Contains(UndeclaredName);
+
+  Assert.IsTrue(ContainsMiddle);
+  Assert.IsFalse(ContainsUndeclared);
   Assert.WillNotRaise(
     procedure
     begin
-      FStates.EnsureInitialized('name1');
-      FStates.EnsureInitialized(Format('name%d', [MANY_NAMES]));
+      FStates.EnsureInitialized(FirstName);
+      FStates.EnsureInitialized(LastName);
     end);
   Assert.WillRaise(
     procedure
     begin
-      FStates.EnsureInitialized('name20');
+      FStates.EnsureInitialized(MiddleName);
     end,
     EJSReferenceError);
 end;
