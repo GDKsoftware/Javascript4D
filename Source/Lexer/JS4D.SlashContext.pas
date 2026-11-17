@@ -75,29 +75,16 @@ procedure TJSSlashContext.Observe(const Token: TJSToken);
 begin
   const TokenType = Token.TokenType;
 
-  if TokenType = TJSTokenType.KeywordFunction then
-  begin
-    FPendingFunction := FunctionKindFor(FPreviousToken);
-  end
-  else if TokenType = TJSTokenType.KeywordClass then
-  begin
-    StartClass;
-  end
-  else if TokenType = TJSTokenType.LeftParen then
-  begin
-    OpenParen;
-  end
-  else if TokenType = TJSTokenType.RightParen then
-  begin
-    CloseParen;
-  end
-  else if TokenType = TJSTokenType.LeftBrace then
-  begin
-    OpenBrace;
-  end
-  else if TokenType = TJSTokenType.RightBrace then
-  begin
-    CloseBrace;
+  case TokenType of
+    TJSTokenType.KeywordFunction : FPendingFunction := FunctionKindFor(FPreviousToken);
+    TJSTokenType.KeywordClass    : StartClass;
+    TJSTokenType.LeftParen       : OpenParen;
+    TJSTokenType.RightParen      : CloseParen;
+    TJSTokenType.LeftBrace       : OpenBrace;
+    TJSTokenType.RightBrace      : CloseBrace;
+  else
+    begin
+    end;
   end;
 
   FPreviousToken := Token;

@@ -25,6 +25,7 @@ type
     FVarNames: TDictionary<string, Boolean>;
     FScopeInfo: TJSScopeInfo;
 
+    function ContainsName(const Names: TArray<string>; const Name: string): Boolean;
     function IsParameter(const Name: string): Boolean;
     function IsCatchPatternName(const Name: string): Boolean;
 
@@ -95,26 +96,25 @@ begin
   inherited;
 end;
 
-function TJSParserScope.IsParameter(const Name: string): Boolean;
+function TJSParserScope.ContainsName(const Names: TArray<string>; const Name: string): Boolean;
 begin
-  for var Parameter in FParameters do
+  for var Candidate in Names do
   begin
-    if Parameter = Name then
+    if Candidate = Name then
       Exit(True);
   end;
 
   Result := False;
 end;
 
+function TJSParserScope.IsParameter(const Name: string): Boolean;
+begin
+  Result := ContainsName(FParameters, Name);
+end;
+
 function TJSParserScope.IsCatchPatternName(const Name: string): Boolean;
 begin
-  for var PatternName in FCatchPatternNames do
-  begin
-    if PatternName = Name then
-      Exit(True);
-  end;
-
-  Result := False;
+  Result := ContainsName(FCatchPatternNames, Name);
 end;
 
 function TJSParserScope.DeclaresLexical(const Name: string): Boolean;
@@ -233,8 +233,9 @@ begin
     if not IsNested then
       Continue;
 
-    const IsBlocked = Scope.BlocksFunctionHoisting(Candidate.Declaration.Id.Name);
-    if IsFunctionScope and not IsBlocked then
+    const FunctionName = Candidate.Declaration.Id.Name;
+    const IsBlocked = Scope.BlocksFunctionHoisting(FunctionName);
+    if IsFunctionScope and (not IsBlocked) then
       Candidate.Declaration.HoistsToVar := True;
 
     if IsFunctionScope or IsBlocked then

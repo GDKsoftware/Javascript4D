@@ -195,6 +195,13 @@ const
   MATH_LOG10E = 'LOG10E';
   MATH_SQRT2 = 'SQRT2';
   MATH_SQRT1_2 = 'SQRT1_2';
+  MATH_E_VALUE = 2.718281828459045;
+  MATH_LN2_VALUE = 0.6931471805599453;
+  MATH_LN10_VALUE = 2.302585092994046;
+  MATH_LOG2E_VALUE = 1.4426950408889634;
+  MATH_LOG10E_VALUE = 0.4342944819032518;
+  MATH_SQRT2_VALUE = 1.4142135623730951;
+  MATH_SQRT1_2_VALUE = 0.7071067811865476;
   MATH_ABS = 'abs';
   MATH_FLOOR = 'floor';
   MATH_CEIL = 'ceil';
@@ -282,7 +289,6 @@ const
   OBJECT_DEFINE_PROPERTY = 'defineProperty';
   OBJECT_DEFINE_PROPERTIES = 'defineProperties';
   OBJECT_CREATE = 'create';
-  OBJECT_HAS_OWN_PROPERTY = 'hasOwnProperty';
   JSON_PARSE = 'parse';
   INVALID_JSON_TEXT = 'Unexpected token in JSON';
   JSON_STRINGIFY = 'stringify';
@@ -305,8 +311,6 @@ const
   EVAL_ERROR_NAME = 'EvalError';
   ERROR_MESSAGE = 'message';
   ERROR_NAME_PROP = 'name';
-  ERROR_STACK = 'stack';
-  ERROR_TO_STRING = 'toString';
   OBJECT_METHOD_CALLED_ON_NON_OBJECT = 'Object method called on a value that is not an object';
   OBJECT_PROTOTYPE_MUST_BE_OBJECT_OR_NULL = 'Object prototype may only be an Object or null';
 
@@ -831,19 +835,31 @@ begin
   const Cooked = CoerceToObject(ArgumentAt(Args, 0));
   const Raw = CoerceToObject(Cooked.GetProperty(RAW_PROPERTY));
   const SegmentCount = TJSArrayLike.ToLength(Raw);
+  FInterpreter.Limits.EnsureArrayLength(SegmentCount);
 
-  Result := '';
+  const Builder = TStringBuilder.Create;
+  try
+    for var Index: Int64 := 0 to SegmentCount - 1 do
+    begin
+      const SegmentName = TJSArrayLike.IndexName(Index);
+      const Segment = Raw.GetProperty(SegmentName);
+      const SegmentText = ToText(Segment);
+      Builder.Append(SegmentText);
 
-  for var Index: Int64 := 0 to SegmentCount - 1 do
-  begin
-    const SegmentName = TJSArrayLike.IndexName(Index);
-    const Segment = Raw.GetProperty(SegmentName);
-    Result := Result + ToText(Segment);
+      const IsLastSegment = (Index = SegmentCount - 1);
+      const HasSubstitution = (Index + 1 < Length(Args));
+      if (not IsLastSegment) and HasSubstitution then
+      begin
+        const SubstitutionText = ToText(Args[Index + 1]);
+        Builder.Append(SubstitutionText);
+      end;
 
-    const IsLastSegment = (Index = SegmentCount - 1);
-    const HasSubstitution = (Index + 1 < Length(Args));
-    if (not IsLastSegment) and HasSubstitution then
-      Result := Result + ToText(Args[Index + 1]);
+      FInterpreter.Limits.EnsureStringLength(Builder.Length);
+    end;
+
+    Result := Builder.ToString;
+  finally
+    Builder.Free;
   end;
 end;
 
@@ -954,13 +970,13 @@ begin
   const MathObj: IJSObject = TJSObject.Create;
 
   DefineConstant(MathObj, MATH_PI, TJSValue.CreateNumber(Pi));
-  DefineConstant(MathObj, MATH_E, TJSValue.CreateNumber(Exp(1)));
-  DefineConstant(MathObj, MATH_LN2, TJSValue.CreateNumber(Ln(2)));
-  DefineConstant(MathObj, MATH_LN10, TJSValue.CreateNumber(Ln(10)));
-  DefineConstant(MathObj, MATH_LOG2E, TJSValue.CreateNumber(1 / Ln(2)));
-  DefineConstant(MathObj, MATH_LOG10E, TJSValue.CreateNumber(1 / Ln(10)));
-  DefineConstant(MathObj, MATH_SQRT2, TJSValue.CreateNumber(Sqrt(2)));
-  DefineConstant(MathObj, MATH_SQRT1_2, TJSValue.CreateNumber(Sqrt(0.5)));
+  DefineConstant(MathObj, MATH_E, TJSValue.CreateNumber(MATH_E_VALUE));
+  DefineConstant(MathObj, MATH_LN2, TJSValue.CreateNumber(MATH_LN2_VALUE));
+  DefineConstant(MathObj, MATH_LN10, TJSValue.CreateNumber(MATH_LN10_VALUE));
+  DefineConstant(MathObj, MATH_LOG2E, TJSValue.CreateNumber(MATH_LOG2E_VALUE));
+  DefineConstant(MathObj, MATH_LOG10E, TJSValue.CreateNumber(MATH_LOG10E_VALUE));
+  DefineConstant(MathObj, MATH_SQRT2, TJSValue.CreateNumber(MATH_SQRT2_VALUE));
+  DefineConstant(MathObj, MATH_SQRT1_2, TJSValue.CreateNumber(MATH_SQRT1_2_VALUE));
 
   MathObj.SetProperty(MATH_ABS, TJSValue.CreateObject(TJSFunction.CreateNative(MATH_ABS,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1589,7 +1605,7 @@ begin
       const ReviverArgument = ArgumentAt(Args, 1);
       const HasReviver = (ReviverArgument.IsFunction and Supports(ReviverArgument.ToObject, IJSFunction, Reviver));
       if HasReviver then
-        Result := TJSJsonReviver.Revive(Result, Reviver, FInterpreter.ObjectPrototype);
+        Result := TJSJsonReviver.Revive(Result, Reviver, FInterpreter.ObjectPrototype, FInterpreter.Limits);
     end)));
 
   JSONObj.SetProperty(JSON_STRINGIFY, TJSValue.CreateObject(TJSFunction.CreateNative(JSON_STRINGIFY,

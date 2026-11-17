@@ -22,7 +22,6 @@ type
     FLine: Integer;
     FAllowNumericSeparators: Boolean;
     FColumn: Integer;
-    FLineStart: Integer;
     FTokens: TObjectList<TJSToken>;
     FCurrentIndex: Integer;
     FStringHasLegacyEscape: Boolean;
@@ -216,7 +215,6 @@ begin
   FPosition := 1;
   FLine := 1;
   FColumn := 1;
-  FLineStart := 1;
   FTokens := TObjectList<TJSToken>.Create(True);
   FSubstitutionDepths := TList<Integer>.Create;
   FSlashContext := TJSSlashContext.Create;
@@ -281,7 +279,6 @@ begin
     else if IsLineTerminator(CurrentChar) then
     begin
       Inc(FLine);
-      FLineStart := FPosition + 1;
       FColumn := 1;
     end
     else
@@ -1112,7 +1109,7 @@ begin
       Advance;
       Break;
     end
-    else if IsLineTerminator(Ch) or (Ch = CR_CHAR) then
+    else if IsLineTerminator(Ch) then
     begin
       raise TJSErrorFactory.SyntaxError(SUnterminatedRegularExpression, FLine, FColumn);
     end
@@ -1134,7 +1131,8 @@ begin
   if CurrentChar = BACKSLASH then
     raise TJSErrorFactory.SyntaxError(SEscapeInRegularExpressionFlags, FLine, FColumn);
 
-  Result := TJSToken.Create(TJSTokenType.RegExpLiteral, Pattern + '/' + Flags, StartLine, StartColumn);
+  Result := TJSToken.Create(TJSTokenType.RegExpLiteral, Pattern, StartLine, StartColumn);
+  Result.RawValue := Flags;
 end;
 
 function TJSLexer.ScanOperator: TJSToken;

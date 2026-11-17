@@ -174,6 +174,8 @@ begin
   FHasAllowedKeys := True;
 
   const Count = TJSArrayLike.ToLength(Replacer);
+  FLimits.EnsureArrayLength(Count);
+
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Key: string;

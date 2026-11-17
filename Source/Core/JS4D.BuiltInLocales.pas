@@ -38,7 +38,6 @@ type
   TJSBuiltInLocaleTable = class
   private
     const
-      LOCALE_COUNT = 8;
       EXTENSION_MARKER = '-u-';
       TAG_SEPARATOR = '-';
 

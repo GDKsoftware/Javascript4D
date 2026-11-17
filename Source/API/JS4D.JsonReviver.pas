@@ -12,14 +12,18 @@ uses
 type
   TJSJsonReviver = class
   private
-    class function Walk(const Holder: IJSObject; const Name: string; const Reviver: IJSFunction): TJSValue; static;
-    class procedure WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
-                                const Reviver: IJSFunction); static;
-    class procedure WalkMember(const Container: IJSObject; const Name: string; const Reviver: IJSFunction); static;
+    FReviver: IJSFunction;
+    FLimits: TJSLimits;
+
+    function Walk(const Holder: IJSObject; const Name: string; const Depth: Integer): TJSValue;
+    procedure WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean; const Depth: Integer);
+    procedure WalkMember(const Container: IJSObject; const Name: string; const Depth: Integer);
 
   public
-    class function Revive(const Parsed: TJSValue; const Reviver: IJSFunction;
-                          const ObjectPrototype: IJSObject): TJSValue; static;
+    class function Revive(const Parsed: TJSValue; const Reviver: IJSFunction; const ObjectPrototype: IJSObject;
+                          const Limits: TJSLimits): TJSValue; static;
+
+    constructor Create(const Reviver: IJSFunction; const Limits: TJSLimits);
   end;
 
 implementation
@@ -31,37 +35,53 @@ uses
   JS4D.ObjectOperations;
 
 class function TJSJsonReviver.Revive(const Parsed: TJSValue; const Reviver: IJSFunction;
-                                     const ObjectPrototype: IJSObject): TJSValue;
+                                     const ObjectPrototype: IJSObject; const Limits: TJSLimits): TJSValue;
 begin
   const Root: IJSObject = TJSObject.Create;
   Root.Prototype := ObjectPrototype;
   TJSObjectOperations.CreateDataProperty(Root, JSON_ROOT_KEY, Parsed);
 
-  Result := Walk(Root, JSON_ROOT_KEY, Reviver);
+  const Walker = TJSJsonReviver.Create(Reviver, Limits);
+  try
+    Result := Walker.Walk(Root, JSON_ROOT_KEY, 0);
+  finally
+    Walker.Free;
+  end;
 end;
 
-class function TJSJsonReviver.Walk(const Holder: IJSObject; const Name: string;
-                                   const Reviver: IJSFunction): TJSValue;
+constructor TJSJsonReviver.Create(const Reviver: IJSFunction; const Limits: TJSLimits);
 begin
+  inherited Create;
+
+  FReviver := Reviver;
+  FLimits := Limits;
+end;
+
+function TJSJsonReviver.Walk(const Holder: IJSObject; const Name: string; const Depth: Integer): TJSValue;
+begin
+  FLimits.EnsureNestingDepth(Depth + 1);
+
   const Value = Holder.GetProperty(Name);
   if Value.IsObject then
   begin
     const IsArrayValue = TJSObjectOperations.IsArray(Value);
-    WalkMembers(Value.ToObject, IsArrayValue, Reviver);
+    WalkMembers(Value.ToObject, IsArrayValue, Depth);
   end;
 
-  Result := Reviver.Call(Holder, [TJSValue.CreateString(Name), Value]);
+  Result := FReviver.Call(Holder, [TJSValue.CreateString(Name), Value]);
 end;
 
-class procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
-                                           const Reviver: IJSFunction);
+procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
+                                     const Depth: Integer);
 begin
   if IsArrayContainer then
   begin
     const Count = TJSArrayLike.ToLength(Container);
+    FLimits.EnsureArrayLength(Count);
+
     for var Index: Int64 := 0 to Count - 1 do
     begin
-      WalkMember(Container, TJSArrayLike.IndexName(Index), Reviver);
+      WalkMember(Container, TJSArrayLike.IndexName(Index), Depth);
     end;
 
     Exit;
@@ -69,14 +89,13 @@ begin
 
   for var Name in TJSObjectKeys.Enumerable(Container) do
   begin
-    WalkMember(Container, Name, Reviver);
+    WalkMember(Container, Name, Depth);
   end;
 end;
 
-class procedure TJSJsonReviver.WalkMember(const Container: IJSObject; const Name: string;
-                                          const Reviver: IJSFunction);
+procedure TJSJsonReviver.WalkMember(const Container: IJSObject; const Name: string; const Depth: Integer);
 begin
-  const Revived = Walk(Container, Name, Reviver);
+  const Revived = Walk(Container, Name, Depth + 1);
   if Revived.IsUndefined then
   begin
     if Container.IsPropertyConfigurable(Name) then
@@ -85,17 +104,7 @@ begin
     Exit;
   end;
 
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Revived;
-  Definition.HasWritable := True;
-  Definition.Writable := True;
-  Definition.HasEnumerable := True;
-  Definition.Enumerable := True;
-  Definition.HasConfigurable := True;
-  Definition.Configurable := True;
-
-  Container.DefineOwnProperty(Name, Definition);
+  TJSObjectOperations.CreateDataProperty(Container, Name, Revived);
 end;
 
 end.

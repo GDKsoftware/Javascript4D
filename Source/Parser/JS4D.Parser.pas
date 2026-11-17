@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  System.StrUtils,
   System.Generics.Collections,
   JS4D.Tokens,
   JS4D.Lexer,
@@ -113,6 +114,7 @@ type
     function Check(const TokenType: TJSTokenType): Boolean;
     function CheckAny(const TokenTypes: array of TJSTokenType): Boolean;
     procedure Expect(const TokenType: TJSTokenType);
+    procedure ExpectOwning(const TokenType: TJSTokenType; const Owned: array of TObject);
     procedure ExpectSemicolon;
     function IsAtEnd: Boolean;
 
@@ -339,7 +341,7 @@ const
   LINE_BREAK_NOT_ALLOWED = False;
   TRUE_VALUE = 'true';
   USE_STRICT_DIRECTIVE = 'use strict';
-  LegacyLiteralInStrictModeMessage = 'Octal literals and escape sequences are not allowed in strict mode';
+  LEGACY_LITERAL_IN_STRICT_MODE_MESSAGE = 'Octal literals and escape sequences are not allowed in strict mode';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
   MAX_NESTING_DEPTH = 1000;
@@ -359,32 +361,36 @@ const
   NEW_SUPER_MESSAGE = '''super'' cannot be used with new';
   KEYWORD_GET = 'get';
   KEYWORD_SET = 'set';
-  ACCESSOR_PARAMETER_COUNT = 'Getter must not have parameters and setter must have exactly one';
+  ACCESSOR_PARAMETER_COUNT_MESSAGE = 'Getter must not have parameters and setter must have exactly one';
   DUPLICATE_PROTOTYPE_MESSAGE = 'Duplicate __proto__ fields are not allowed in object literals';
-  RestrictedParameterNameMessage = 'Parameter name ''%s'' is not allowed in strict mode';
-  RestrictedBindingNameMessage = '''%s'' cannot be declared in strict mode';
-  DeleteIdentifierMessage = 'Delete of an unqualified identifier in strict mode';
-  UnaryBeforeExponentMessage = 'Unary operator used immediately before exponentiation expression';
-  UndefinedLabelMessage = 'Undefined label ''%s''';
-  DuplicateLabelMessage = 'Label ''%s'' has already been declared';
-  ContinueTargetNotLoopMessage = 'Label ''%s'' does not label an iteration statement';
-  IllegalReturnMessage = 'Illegal return statement';
-  IllegalThrowNewlineMessage = 'Illegal newline after throw';
-  DuplicateDefaultMessage = 'More than one default clause in switch statement';
-  FunctionDeclarationBodyMessage = 'Function declaration is not allowed as the body of a statement';
-  LexicalDeclarationBodyMessage = 'Lexical declaration cannot appear in a single-statement context';
-  RedeclarationMessage = 'Identifier ''%s'' has already been declared';
-  MissingConstInitializerMessage = 'Missing initializer in const declaration';
-  LetBindingNameMessage = 'let is disallowed as a lexically bound name';
-  ForInInitializerMessage = 'for-in loop variable declaration may not have an initializer';
-  ForOfHeadMessage = 'for-of loop head must declare a single binding without an initializer';
-  AsyncOfHeadMessage = 'The left-hand side of a for-of loop may not be async';
-  DuplicateArrowParameterMessage = 'Duplicate parameter name not allowed in arrow functions';
-  DuplicateNonSimpleParameterMessage = 'Duplicate parameter name not allowed with default or rest parameters';
-  StrictNonSimpleParametersMessage = '''use strict'' directive not allowed in a function with default or rest parameters';
-  RestParameterNotLastMessage = 'Rest parameter must be last formal parameter';
-  InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
+  RESTRICTED_PARAMETER_NAME_MESSAGE = 'Parameter name ''%s'' is not allowed in strict mode';
+  RESTRICTED_BINDING_NAME_MESSAGE = '''%s'' cannot be declared in strict mode';
+  DELETE_IDENTIFIER_MESSAGE = 'Delete of an unqualified identifier in strict mode';
+  UNARY_BEFORE_EXPONENT_MESSAGE = 'Unary operator used immediately before exponentiation expression';
+  UNDEFINED_LABEL_MESSAGE = 'Undefined label ''%s''';
+  DUPLICATE_LABEL_MESSAGE = 'Label ''%s'' has already been declared';
+  CONTINUE_TARGET_NOT_LOOP_MESSAGE = 'Label ''%s'' does not label an iteration statement';
+  ILLEGAL_RETURN_MESSAGE = 'Illegal return statement';
+  ILLEGAL_THROW_NEWLINE_MESSAGE = 'Illegal newline after throw';
+  DUPLICATE_DEFAULT_MESSAGE = 'More than one default clause in switch statement';
+  FUNCTION_DECLARATION_BODY_MESSAGE = 'Function declaration is not allowed as the body of a statement';
+  LEXICAL_DECLARATION_BODY_MESSAGE = 'Lexical declaration cannot appear in a single-statement context';
+  REDECLARATION_MESSAGE = 'Identifier ''%s'' has already been declared';
+  MISSING_CONST_INITIALIZER_MESSAGE = 'Missing initializer in const declaration';
+  LET_BINDING_NAME_MESSAGE = 'let is disallowed as a lexically bound name';
+  FOR_IN_INITIALIZER_MESSAGE = 'for-in loop variable declaration may not have an initializer';
+  FOR_OF_HEAD_MESSAGE = 'for-of loop head must declare a single binding without an initializer';
+  ASYNC_OF_HEAD_MESSAGE = 'The left-hand side of a for-of loop may not be async';
+  DUPLICATE_ARROW_PARAMETER_MESSAGE = 'Duplicate parameter name not allowed in arrow functions';
+  DUPLICATE_NON_SIMPLE_PARAMETER_MESSAGE = 'Duplicate parameter name not allowed with default or rest parameters';
+  STRICT_NON_SIMPLE_PARAMETERS_MESSAGE = '''use strict'' directive not allowed in a function ' +
+                                         'with default or rest parameters';
+  REST_PARAMETER_NOT_LAST_MESSAGE = 'Rest parameter must be last formal parameter';
+  INVALID_TEMPLATE_ESCAPE_MESSAGE = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
+  STRICT_RESERVED_WORD_MESSAGE = 'Use of future reserved word in strict mode: %s';
+  STRICT_RESERVED_WORDS: array[0..8] of string = ('implements', 'interface', LET_NAME, 'package', 'private',
+                                                  'protected', 'public', STATIC_NAME, YIELD_NAME);
   OF_NAME = 'of';
   YIELD_IDENTIFIER_MESSAGE = '''yield'' cannot be used as an identifier in a generator';
   YIELD_IN_PARAMETERS_MESSAGE = 'A yield expression is not allowed in formal parameters';
@@ -399,12 +405,12 @@ const
   AWAIT_NAME = 'await';
   PATTERN_PARAMETER_FORMAT = '(pattern %d)';
   REST_PATTERN_NAME = '(rest pattern)';
-  InvalidDestructuringTargetMessage = 'Invalid destructuring assignment target';
-  MissingPatternInitializerMessage = 'Missing initializer in destructuring declaration';
-  RestElementLastMessage = 'Rest element must be last element';
-  CoverInitializerMessage = 'Invalid shorthand property initializer';
+  INVALID_DESTRUCTURING_TARGET_MESSAGE = 'Invalid destructuring assignment target';
+  MISSING_PATTERN_INITIALIZER_MESSAGE = 'Missing initializer in destructuring declaration';
+  REST_ELEMENT_LAST_MESSAGE = 'Rest element must be last element';
+  COVER_INITIALIZER_MESSAGE = 'Invalid shorthand property initializer';
   NULLISH_MIXED_WITH_LOGICAL_MESSAGE = '''??'' cannot be mixed with ''||'' or ''&&'' without parentheses';
-  DuplicateBindingMessage = 'Duplicate binding ''%s'' in a pattern';
+  DUPLICATE_BINDING_MESSAGE = 'Duplicate binding ''%s'' in a pattern';
 
 { TJSClassMemberHead }
 
@@ -486,6 +492,16 @@ procedure TJSParser.Expect(const TokenType: TJSTokenType);
 begin
   if not Match(TokenType) then
     raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.ExpectOwning(const TokenType: TJSTokenType; const Owned: array of TObject);
+begin
+  try
+    Expect(TokenType);
+  except
+    FreeOwned(Owned);
+    raise;
+  end;
 end;
 
 procedure TJSParser.ExpectSemicolon;
@@ -588,7 +604,7 @@ begin
 
   const StartsLexicalDeclaration = (Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(False));
   if StartsLexicalDeclaration then
-    raise TJSErrorFactory.SyntaxError(LexicalDeclarationBodyMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(LEXICAL_DECLARATION_BODY_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
   const StartsLabel = (Check(TJSTokenType.Identifier) and
                        (FLexer.PeekToken(1).TokenType = TJSTokenType.Colon));
@@ -692,20 +708,20 @@ end;
 procedure TJSParser.DeclareVarName(const Name: string);
 begin
   if not FScopes.TryDeclareVar(Name) then
-    raise TJSErrorFactory.SyntaxError(Format(RedeclarationMessage, [Name]), CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(Format(REDECLARATION_MESSAGE, [Name]), CurrentToken.Line, CurrentToken.Column);
 end;
 
 procedure TJSParser.DeclareLexicalName(const Name: string; const IsFunction: Boolean;
                                        const AllowFunctionDuplicate: Boolean);
 begin
   if not FScopes.TryDeclareLexical(Name, IsFunction, AllowFunctionDuplicate) then
-    raise TJSErrorFactory.SyntaxError(Format(RedeclarationMessage, [Name]), CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(Format(REDECLARATION_MESSAGE, [Name]), CurrentToken.Line, CurrentToken.Column);
 end;
 
 procedure TJSParser.CheckLexicalBindingName(const Name: string);
 begin
   if Name = LET_NAME then
-    raise TJSErrorFactory.SyntaxError(LetBindingNameMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(LET_BINDING_NAME_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
   CheckStrictModeReservedWord(Name);
   CheckRestrictedBindingName(Name);
@@ -782,7 +798,7 @@ begin
   end
   else if RequireInitializer then
   begin
-    raise TJSErrorFactory.SyntaxError(MissingConstInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(MISSING_CONST_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
   end;
 
   const Identifier = TJSIdentifier.Create(BindingName);
@@ -894,7 +910,7 @@ begin
   begin
     const IsMissingInitializer = Assigned(Declarator.Pattern) and (not Assigned(Declarator.Init));
     if IsMissingInitializer then
-      raise TJSErrorFactory.SyntaxError(MissingPatternInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+      raise TJSErrorFactory.SyntaxError(MISSING_PATTERN_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
 
@@ -1083,7 +1099,7 @@ begin
 
   const Test = ParseExpression;
 
-  Expect(TJSTokenType.RightParen);
+  ExpectOwning(TJSTokenType.RightParen, [Test]);
 
   const Body = ParseLoopBody([Test]);
 
@@ -1166,14 +1182,14 @@ begin
   end;
 
   if Result and HasLegacyDirective then
-    raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage,
+    raise TJSErrorFactory.SyntaxError(LEGACY_LITERAL_IN_STRICT_MODE_MESSAGE,
       CurrentToken.Line, CurrentToken.Column);
 end;
 
 procedure TJSParser.RejectLegacyLiteralInStrictMode(const Token: TJSToken);
 begin
   if FStrictMode and Token.IsLegacyLiteral then
-    raise TJSErrorFactory.SyntaxError(LegacyLiteralInStrictModeMessage, Token.Line, Token.Column);
+    raise TJSErrorFactory.SyntaxError(LEGACY_LITERAL_IN_STRICT_MODE_MESSAGE, Token.Line, Token.Column);
 end;
 
 function TJSParser.ParseFunctionBodyBlock(const Params: TObjectList<TJSIdentifier>;
@@ -1210,7 +1226,7 @@ begin
   FSwitchDepth := 0;
   try
     if DeclaresStrictMode and Assigned(ParameterInfo) then
-      raise TJSErrorFactory.SyntaxError(StrictNonSimpleParametersMessage, CurrentToken.Line, CurrentToken.Column);
+      raise TJSErrorFactory.SyntaxError(STRICT_NON_SIMPLE_PARAMETERS_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
     const StartPosition = FLexer.Position;
     Result := ParseNestedBlockStatement(ParameterNames);
@@ -1234,12 +1250,17 @@ begin
 
   const Body = ParseLoopBody([]);
 
-  Expect(TJSTokenType.KeywordWhile);
-  Expect(TJSTokenType.LeftParen);
+  var Test: TJSExpression := nil;
+  try
+    Expect(TJSTokenType.KeywordWhile);
+    Expect(TJSTokenType.LeftParen);
+    Test := ParseExpression;
+    Expect(TJSTokenType.RightParen);
+  except
+    FreeOwned([Body, Test]);
+    raise;
+  end;
 
-  const Test = ParseExpression;
-
-  Expect(TJSTokenType.RightParen);
   Match(TJSTokenType.Semicolon);
 
   Result := TJSDoWhileStatement.Create(Body, Test);
@@ -1288,7 +1309,7 @@ begin
       if StartsWithAsyncOf then
       begin
         Expr.Free;
-        raise TJSErrorFactory.SyntaxError(AsyncOfHeadMessage, CurrentToken.Line, CurrentToken.Column);
+        raise TJSErrorFactory.SyntaxError(ASYNC_OF_HEAD_MESSAGE, CurrentToken.Line, CurrentToken.Column);
       end;
 
       Expr := ConvertForInTarget(Expr);
@@ -1349,8 +1370,14 @@ end;
 
 function TJSParser.ParseForInStatementRest(const Left: TJSASTNode): TJSStatement;
 begin
-  const Right = ParseExpression;
-  Expect(TJSTokenType.RightParen);
+  var Right: TJSExpression := nil;
+  try
+    Right := ParseExpression;
+    Expect(TJSTokenType.RightParen);
+  except
+    FreeOwned([Left, Right]);
+    raise;
+  end;
 
   const Body = ParseLoopBody([Left, Right]);
 
@@ -1410,7 +1437,7 @@ begin
   const IsSingleBinding = (Declaration.Declarations.Count = 1);
   const HasInitializer = IsSingleBinding and Assigned(Declaration.Declarations[0].Init);
   if (not IsSingleBinding) or HasInitializer then
-    raise TJSErrorFactory.SyntaxError(ForOfHeadMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(FOR_OF_HEAD_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.ConvertForInTarget(const Target: TJSExpression): TJSExpression;
@@ -1430,7 +1457,7 @@ begin
     Exit;
 
   Node.Free;
-  raise TJSErrorFactory.SyntaxError(CoverInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+  raise TJSErrorFactory.SyntaxError(COVER_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 end;
 
 function TJSParser.ParseLexicalForStatement: TJSStatement;
@@ -1477,7 +1504,7 @@ begin
     if Match(TJSTokenType.KeywordIn) then
     begin
       if Assigned(Declaration.Declarations[0].Init) then
-        raise TJSErrorFactory.SyntaxError(ForInInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+        raise TJSErrorFactory.SyntaxError(FOR_IN_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
       Right := ParseExpression;
     end
@@ -1498,7 +1525,7 @@ begin
       begin
         const IsMissingConstInitializer = (Declaration.Kind = TJSDeclarationKind.Const_) and (Declarator.Init = nil);
         if IsMissingConstInitializer then
-          raise TJSErrorFactory.SyntaxError(MissingConstInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(MISSING_CONST_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
       end;
 
       RejectMissingPatternInitializers(Declaration);
@@ -1540,7 +1567,7 @@ function TJSParser.ParseReturnStatement: TJSReturnStatement;
 begin
   const Token = CurrentToken;
   if FFunctionDepth = 0 then
-    raise TJSErrorFactory.SyntaxError(IllegalReturnMessage, Token.Line, Token.Column);
+    raise TJSErrorFactory.SyntaxError(ILLEGAL_RETURN_MESSAGE, Token.Line, Token.Column);
 
   Expect(TJSTokenType.KeywordReturn);
 
@@ -1594,7 +1621,7 @@ begin
     const LabelIndex = FindActiveLabel(LabelName);
     const LabelsLoop = FActiveLabels[LabelIndex].LabelsIteration;
     if not LabelsLoop then
-      raise TJSErrorFactory.SyntaxError(Format(ContinueTargetNotLoopMessage, [LabelName]),
+      raise TJSErrorFactory.SyntaxError(Format(CONTINUE_TARGET_NOT_LOOP_MESSAGE, [LabelName]),
         KeywordToken.Line, KeywordToken.Column);
   end
   else if FLoopDepth = 0 then
@@ -1623,7 +1650,7 @@ begin
 
   const IsDeclared = (FindActiveLabel(Result) >= 0);
   if not IsDeclared then
-    raise TJSErrorFactory.SyntaxError(Format(UndefinedLabelMessage, [Result]),
+    raise TJSErrorFactory.SyntaxError(Format(UNDEFINED_LABEL_MESSAGE, [Result]),
       CurrentToken.Line, CurrentToken.Column);
 
   Advance;
@@ -1662,7 +1689,7 @@ begin
 
   const IsDuplicate = (FindActiveLabel(LabelToken.Value) >= 0);
   if IsDuplicate then
-    raise TJSErrorFactory.SyntaxError(Format(DuplicateLabelMessage, [LabelToken.Value]),
+    raise TJSErrorFactory.SyntaxError(Format(DUPLICATE_LABEL_MESSAGE, [LabelToken.Value]),
       LabelToken.Line, LabelToken.Column);
 
   var Info: TJSLabelInfo;
@@ -1703,7 +1730,7 @@ begin
 
   FreeOwned(Owned);
 
-  raise TJSErrorFactory.SyntaxError(FunctionDeclarationBodyMessage, CurrentToken.Line, CurrentToken.Column);
+  raise TJSErrorFactory.SyntaxError(FUNCTION_DECLARATION_BODY_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 end;
 
 procedure TJSParser.FreeOwned(const Owned: array of TObject);
@@ -1738,8 +1765,8 @@ begin
 
   const Discriminant = ParseExpression;
 
-  Expect(TJSTokenType.RightParen);
-  Expect(TJSTokenType.LeftBrace);
+  ExpectOwning(TJSTokenType.RightParen, [Discriminant]);
+  ExpectOwning(TJSTokenType.LeftBrace, [Discriminant]);
 
   Result := TJSSwitchStatement.Create(Discriminant);
 
@@ -1761,13 +1788,13 @@ begin
       else
       begin
         if HasDefaultClause then
-          raise TJSErrorFactory.SyntaxError(DuplicateDefaultMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(DUPLICATE_DEFAULT_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
         HasDefaultClause := True;
         Expect(TJSTokenType.KeywordDefault);
       end;
 
-      Expect(TJSTokenType.Colon);
+      ExpectOwning(TJSTokenType.Colon, [Test]);
 
       const SwitchCase = TJSSwitchCase.Create(Test);
       Result.Cases.Add(SwitchCase);
@@ -1800,7 +1827,7 @@ begin
   Expect(TJSTokenType.KeywordThrow);
 
   if CurrentToken.LineTerminatorBefore then
-    raise TJSErrorFactory.SyntaxError(IllegalThrowNewlineMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(ILLEGAL_THROW_NEWLINE_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
   const Argument = ParseExpression;
   try
@@ -1881,7 +1908,7 @@ begin
       begin
         const IsDuplicate = (Names[EarlierIndex] = Names[Index]);
         if IsDuplicate then
-          raise TJSErrorFactory.SyntaxError(Format(DuplicateBindingMessage, [Names[Index]]),
+          raise TJSErrorFactory.SyntaxError(Format(DUPLICATE_BINDING_MESSAGE, [Names[Index]]),
                                             CurrentToken.Line, CurrentToken.Column);
       end;
     end;
@@ -2120,7 +2147,7 @@ begin
   if HasStrayCoverInitializer then
   begin
     Result.Free;
-    raise TJSErrorFactory.SyntaxError(CoverInitializerMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(COVER_INITIALIZER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
 
@@ -2385,7 +2412,7 @@ begin
   if StartsWithUnaryOperator then
   begin
     Result.Free;
-    raise TJSErrorFactory.SyntaxError(UnaryBeforeExponentMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(UNARY_BEFORE_EXPONENT_MESSAGE, CurrentToken.Line, CurrentToken.Column);
   end;
 
   Advance;
@@ -2434,7 +2461,7 @@ begin
     if IsStrictIdentifierDelete then
     begin
       Argument.Free;
-      raise TJSErrorFactory.SyntaxError(DeleteIdentifierMessage, CurrentToken.Line, CurrentToken.Column);
+      raise TJSErrorFactory.SyntaxError(DELETE_IDENTIFIER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
     end;
 
     Exit(TJSUnaryExpression.Create(Op, Argument, True));
@@ -2624,7 +2651,7 @@ function TJSParser.CreateTemplatePart(const Chunk: TJSToken; const IsTagged: Boo
 begin
   const IsRejected = Chunk.HasInvalidEscape and (not IsTagged);
   if IsRejected then
-    raise TJSErrorFactory.SyntaxError(InvalidTemplateEscapeMessage, Chunk.Line, Chunk.Column);
+    raise TJSErrorFactory.SyntaxError(INVALID_TEMPLATE_ESCAPE_MESSAGE, Chunk.Line, Chunk.Column);
 
   Result.Cooked := Chunk.Value;
   Result.Raw := Chunk.RawValue;
@@ -2715,14 +2742,11 @@ begin
 
     TJSTokenType.RegExpLiteral:
       begin
-        const Value = CurrentToken.Value;
+        const Pattern = CurrentToken.Value;
+        const Flags = CurrentToken.RawValue;
         const Line = CurrentToken.Line;
         const Column = CurrentToken.Column;
         Advance;
-
-        const SlashPos = Value.LastIndexOf('/');
-        const Pattern = Value.Substring(0, SlashPos);
-        const Flags = Value.Substring(SlashPos + 1);
 
         TJSRegExpSyntax.ValidateFlags(Flags, Line, Column);
         TJSRegExpSyntax.ValidatePattern(Pattern, Flags, Line, Column);
@@ -2748,7 +2772,7 @@ begin
       begin
         Advance;
         const Expr = ParseNestedExpression;
-        Expect(TJSTokenType.RightParen);
+        ExpectOwning(TJSTokenType.RightParen, [Expr]);
 
         Expr.IsParenthesized := True;
 
@@ -3044,7 +3068,7 @@ begin
     const HasRest = Assigned(Result.ParameterInfo) and Assigned(Result.ParameterInfo.Rest);
     const HasExpectedParams = (Result.Params.Count = ExpectedParamCount) and (not HasRest);
     if not HasExpectedParams then
-      raise TJSErrorFactory.SyntaxError(ACCESSOR_PARAMETER_COUNT, AccessorLine, AccessorColumn);
+      raise TJSErrorFactory.SyntaxError(ACCESSOR_PARAMETER_COUNT_MESSAGE, AccessorLine, AccessorColumn);
 
     Result.SourceText := SourceTextFrom(SourceStart);
   except
@@ -3696,7 +3720,7 @@ begin
 
   const ClosesParameters = Check(TJSTokenType.RightParen);
   if not ClosesParameters then
-    raise TJSErrorFactory.SyntaxError(RestParameterNotLastMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(REST_PARAMETER_NOT_LAST_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 end;
 
 procedure TJSParser.CollectBoundNames(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
@@ -3733,7 +3757,7 @@ begin
     begin
       const IsDuplicate = (Names[EarlierIndex] = Names[Index]);
       if IsDuplicate then
-        raise TJSErrorFactory.SyntaxError(DuplicateNonSimpleParameterMessage, CurrentToken.Line, CurrentToken.Column);
+        raise TJSErrorFactory.SyntaxError(DUPLICATE_NON_SIMPLE_PARAMETER_MESSAGE, CurrentToken.Line, CurrentToken.Column);
     end;
   end;
 end;
@@ -3948,7 +3972,7 @@ begin
     begin
       const IsDuplicate = (Params[EarlierIndex].Name = Params[Index].Name);
       if IsDuplicate then
-        raise TJSErrorFactory.SyntaxError(DuplicateArrowParameterMessage, Params[Index].Line, Params[Index].Column);
+        raise TJSErrorFactory.SyntaxError(DUPLICATE_ARROW_PARAMETER_MESSAGE, Params[Index].Line, Params[Index].Column);
     end;
   end;
 end;
@@ -4073,7 +4097,7 @@ begin
         Result.Elements.Add(RestElement);
 
         if not Check(TJSTokenType.RightBracket) then
-          raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(REST_ELEMENT_LAST_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
         Break;
       end;
@@ -4106,7 +4130,7 @@ begin
         Result.Rest := ParseBindingIdentifier(Kind);
 
         if not Check(TJSTokenType.RightBrace) then
-          raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(REST_ELEMENT_LAST_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
         Break;
       end;
@@ -4183,14 +4207,14 @@ begin
     TJSASTNodeType.ArrayExpression:
       begin
         if Node.IsParenthesized then
-          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(INVALID_DESTRUCTURING_TARGET_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
         ValidateArrayPattern(TJSArrayExpression(Node));
       end;
     TJSASTNodeType.ObjectExpression:
       begin
         if Node.IsParenthesized then
-          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(INVALID_DESTRUCTURING_TARGET_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
         ValidateObjectPattern(TJSObjectExpression(Node));
       end;
@@ -4202,10 +4226,10 @@ begin
       begin
         const IsRestricted = IsRestrictedStrictName(TJSIdentifier(Node).Name);
         if IsRestricted then
-          raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+          raise TJSErrorFactory.SyntaxError(INVALID_DESTRUCTURING_TARGET_MESSAGE, CurrentToken.Line, CurrentToken.Column);
       end;
   else
-    raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+    raise TJSErrorFactory.SyntaxError(INVALID_DESTRUCTURING_TARGET_MESSAGE, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
 
@@ -4230,7 +4254,7 @@ begin
     if Element is TJSSpreadElement then
     begin
       if Source.SpreadFollowedByComma then
-        raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+        raise TJSErrorFactory.SyntaxError(REST_ELEMENT_LAST_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
       ValidateDestructuringTarget(TJSSpreadElement(Element).Argument);
     end
@@ -4252,7 +4276,7 @@ begin
         begin
           const IsLiteralTarget = (Prop.Value is TJSArrayExpression) or (Prop.Value is TJSObjectExpression);
           if Source.SpreadFollowedByComma or IsLiteralTarget then
-            raise TJSErrorFactory.SyntaxError(RestElementLastMessage, CurrentToken.Line, CurrentToken.Column);
+            raise TJSErrorFactory.SyntaxError(REST_ELEMENT_LAST_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
           ValidateDestructuringTarget(Prop.Value);
         end;
@@ -4265,7 +4289,7 @@ begin
             ValidateDestructuringTarget(Prop.Value);
         end;
     else
-      raise TJSErrorFactory.SyntaxError(InvalidDestructuringTargetMessage, CurrentToken.Line, CurrentToken.Column);
+      raise TJSErrorFactory.SyntaxError(INVALID_DESTRUCTURING_TARGET_MESSAGE, CurrentToken.Line, CurrentToken.Column);
     end;
   end;
 end;
@@ -4456,16 +4480,13 @@ end;
 
 function TJSParser.IsStrictModeReservedWord(const Name: string): Boolean;
 begin
-  Result := ((Name = 'implements') or (Name = 'interface') or (Name = 'let') or
-             (Name = 'package') or (Name = 'private') or (Name = 'protected') or
-             (Name = 'public') or (Name = 'static') or (Name = YIELD_NAME));
+  Result := MatchStr(Name, STRICT_RESERVED_WORDS);
 end;
 
 procedure TJSParser.CheckStrictModeReservedWord(const Name: string);
 begin
   if FStrictMode and IsStrictModeReservedWord(Name) then
-    raise TJSErrorFactory.SyntaxError('Use of future reserved word in strict mode: ' + Name,
-      CurrentToken.Line, CurrentToken.Column);
+    RaiseAtCurrentToken(Format(STRICT_RESERVED_WORD_MESSAGE, [Name]));
 
   const IsYieldInGenerator = (FInGenerator and (Name = YIELD_NAME));
   if IsYieldInGenerator then
@@ -4486,7 +4507,7 @@ procedure TJSParser.CheckRestrictedBindingName(const Name: string);
 begin
   if IsRestrictedStrictName(Name) then
   begin
-    const Message = Format(RestrictedBindingNameMessage, [Name]);
+    const Message = Format(RESTRICTED_BINDING_NAME_MESSAGE, [Name]);
     raise TJSErrorFactory.SyntaxError(Message, CurrentToken.Line, CurrentToken.Column);
   end;
 end;
@@ -4551,7 +4572,7 @@ begin
     const IsRestricted = (Param.Name = EVAL_NAME) or (Param.Name = ARGUMENTS_NAME);
     if IsRestricted then
     begin
-      const Message = Format(RestrictedParameterNameMessage, [Param.Name]);
+      const Message = Format(RESTRICTED_PARAMETER_NAME_MESSAGE, [Param.Name]);
       raise TJSErrorFactory.SyntaxError(Message, Param.Line, Param.Column);
     end;
   end;

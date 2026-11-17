@@ -1167,9 +1167,6 @@ type
 
 implementation
 
-const
-  PROTOTYPE_ACCESSOR_KEY = '__proto__';
-
 { TJSASTNode }
 
 constructor TJSASTNode.Create(const NodeType: TJSASTNodeType);

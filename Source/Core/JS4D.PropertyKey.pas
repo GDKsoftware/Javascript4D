@@ -7,6 +7,9 @@ interface
 uses
   System.SysUtils;
 
+const
+  PROTOTYPE_ACCESSOR_KEY = '__proto__';
+
 type
   PJSPropertyKey = ^TJSPropertyKey;
 

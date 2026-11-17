@@ -4864,7 +4864,7 @@ begin
 
       var Index: Integer;
 
-      const IsPlainElement = TryStrToInt(PropName.Stored, Index) and ArrIntf.HasElement(Index);
+      const IsPlainElement = TJSArray.TryParseIndex(PropName, Index) and ArrIntf.HasElement(Index);
       if IsPlainElement then
       begin
         Result := ArrIntf[Index];
@@ -4885,7 +4885,7 @@ begin
 
     var Index: Integer;
 
-    if TryStrToInt(PropName.Stored, Index) then
+    if TJSArray.TryParseIndex(PropName, Index) then
     begin
       if (Index >= 0) and (Index < Length(Str)) then
       begin
@@ -5199,7 +5199,9 @@ begin
   for var Index := 0 to Node.Expressions.Count - 1 do
   begin
     const Substitution = ToStringCoerced(Visit(Node.Expressions[Index]));
-    Text := Text + Substitution + Node.Parts[Index + 1].Cooked;
+    const Chunk = Node.Parts[Index + 1].Cooked;
+    FLimits.EnsureStringLength(Int64(Length(Text)) + Length(Substitution) + Length(Chunk));
+    Text := Text + Substitution + Chunk;
   end;
 
   Result := TJSValue.CreateString(Text);
@@ -6019,7 +6021,7 @@ begin
   var TargetArray: IJSArray;
   var Index: Integer;
 
-  const IsElement = Supports(Target, IJSArray, TargetArray) and TryStrToInt(PropName.Stored, Index);
+  const IsElement = Supports(Target, IJSArray, TargetArray) and TJSArray.TryParseIndex(PropName, Index);
   if IsElement then
     TargetArray.DeleteElement(Index);
 end;

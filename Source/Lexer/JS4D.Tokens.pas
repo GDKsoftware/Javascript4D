@@ -162,9 +162,7 @@ type
   TJSKeywords = class
   private
     class var FKeywords: TDictionary<string, TJSTokenType>;
-    class var FFutureReservedWords: TList<string>;
     class procedure InitializeKeywords;
-    class procedure InitializeFutureReservedWords;
 
   public
     class constructor Create;
@@ -252,20 +250,12 @@ end;
 class constructor TJSKeywords.Create;
 begin
   FKeywords := TDictionary<string, TJSTokenType>.Create;
-  FFutureReservedWords := TList<string>.Create;
   InitializeKeywords;
-  InitializeFutureReservedWords;
 end;
 
 class destructor TJSKeywords.Destroy;
 begin
-  FFutureReservedWords.Free;
   FKeywords.Free;
-end;
-
-class procedure TJSKeywords.InitializeFutureReservedWords;
-begin
-  FFutureReservedWords.AddRange(['enum', 'export', 'import']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -312,7 +302,7 @@ end;
 
 class function TJSKeywords.IsReservedWord(const Identifier: string): Boolean;
 begin
-  Result := FKeywords.ContainsKey(Identifier) or FFutureReservedWords.Contains(Identifier);
+  Result := FKeywords.ContainsKey(Identifier) or MatchStr(Identifier, UnusedReservedWords);
 end;
 
 class function TJSKeywords.IsUnusedReservedWord(const Identifier: string): Boolean;

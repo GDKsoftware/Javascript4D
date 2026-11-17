@@ -18,7 +18,6 @@ type
       OBJECT_NAME = 'Object';
       HAS_OWN_NAME = 'hasOwn';
       SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
-      PROTO_PROPERTY = '__proto__';
       PROTO_GETTER_NAME = 'get __proto__';
       PROTO_SETTER_NAME = 'set __proto__';
       PROTOTYPE_PROPERTY = 'prototype';
@@ -178,7 +177,7 @@ begin
   Descriptor.Configurable := True;
   Descriptor.Getter := TJSValue.CreateObject(Getter);
   Descriptor.Setter := TJSValue.CreateObject(Setter);
-  ObjectPrototype.DefineProperty(PROTO_PROPERTY, Descriptor);
+  ObjectPrototype.DefineProperty(PROTOTYPE_ACCESSOR_KEY, Descriptor);
 end;
 
 procedure TJSObjectBuiltins.AddEntry(const Target: IJSObject; const Entry: TJSValue);

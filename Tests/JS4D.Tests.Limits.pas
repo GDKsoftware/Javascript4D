@@ -314,6 +314,28 @@ type
     procedure Release_OfDeepObjectChainAfterCollection_DoesNotOverflowTheStack;
   end;
 
+  [TestFixture]
+  TBuiltInLimitTests = class
+  private
+    FEngine: TJSEngine;
+
+  public
+    [Setup]
+    procedure Setup;
+
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure JsonParse_ReviverMakingCycle_RaisesCallDepthExceeded;
+
+    [Test]
+    procedure StringRaw_WithHugeLength_RaisesAllocationLimit;
+
+    [Test]
+    procedure ArrayRead_WithNonCanonicalIndexText_IsUndefined;
+  end;
+
 implementation
 
 const
@@ -1154,7 +1176,48 @@ begin
   AssertDeepArrayRejected(DeepThrowScript);
 end;
 
+procedure TBuiltInLimitTests.Setup;
+begin
+  FEngine := TJSEngine.Create;
+end;
+
+procedure TBuiltInLimitTests.TearDown;
+begin
+  FEngine.Free;
+end;
+
+procedure TBuiltInLimitTests.JsonParse_ReviverMakingCycle_RaisesCallDepthExceeded;
+begin
+  const Script = 'JSON.parse(''{"x":{"a":1,"b":{}}}'', function (key, value) {' +
+                 ' if (key === "a") { this.b.self = this.b; } return value; })';
+
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute(Script);
+    end,
+    EJSCallDepthExceeded);
+end;
+
+procedure TBuiltInLimitTests.StringRaw_WithHugeLength_RaisesAllocationLimit;
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      FEngine.Execute('String.raw({ raw: { length: 1e9 } })');
+    end,
+    EJSAllocationLimitExceeded);
+end;
+
+procedure TBuiltInLimitTests.ArrayRead_WithNonCanonicalIndexText_IsUndefined;
+begin
+  const Result = FEngine.Execute('[10, 20]["01"]');
+
+  Assert.IsTrue(Result.IsUndefined);
+end;
+
 initialization
+  TDUnitX.RegisterTestFixture(TBuiltInLimitTests);
   TDUnitX.RegisterTestFixture(TCallDepthLimitTests);
   TDUnitX.RegisterTestFixture(TAllocationLimitTests);
   TDUnitX.RegisterTestFixture(TDeepStructureTests);
