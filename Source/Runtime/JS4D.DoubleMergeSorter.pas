@@ -20,12 +20,40 @@ type
     procedure MergeRuns(const LowIndex: Integer; const MiddleIndex: Integer; const HighIndex: Integer);
 
   public
+    class function CompareDefault(const Left: Double; const Right: Double): Double; static;
+
     constructor Create(const Values: TArray<Double>; const Compare: TJSElementComparer);
 
     function Sorted: TArray<Double>;
   end;
 
 implementation
+
+uses
+  System.Math,
+  JS4D.MathFunctions;
+
+class function TJSDoubleMergeSorter.CompareDefault(const Left: Double; const Right: Double): Double;
+begin
+  const LeftIsNaN = IsNaN(Left);
+  const RightIsNaN = IsNaN(Right);
+  const AnyNaN = LeftIsNaN or RightIsNaN;
+  if AnyNaN then
+    Exit(Ord(LeftIsNaN) - Ord(RightIsNaN));
+
+  const IsLess = (Left < Right);
+  if IsLess then
+    Exit(-1);
+
+  const IsGreater = (Left > Right);
+  if IsGreater then
+    Exit(1);
+
+  const LeftIsNegativeZero = TJSMathFunctions.IsNegativeZero(Left);
+  const RightIsNegativeZero = TJSMathFunctions.IsNegativeZero(Right);
+
+  Result := Ord(RightIsNegativeZero) - Ord(LeftIsNegativeZero);
+end;
 
 constructor TJSDoubleMergeSorter.Create(const Values: TArray<Double>; const Compare: TJSElementComparer);
 begin

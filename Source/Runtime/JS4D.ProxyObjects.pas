@@ -548,7 +548,10 @@ end;
 procedure TJSProxyCore.RequireLive(const Operation: string);
 begin
   if IsRevoked then
-    raise TJSErrorFactory.TypeError(Format(REVOKED, [Operation]));
+  begin
+    const Message = Format(REVOKED, [Operation]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.OpenTrap(const TrapName: string): TJSProxyTrap;
@@ -584,7 +587,10 @@ begin
     Described.SetProperty(ATTRIBUTE_VALUE, Definition.Value);
 
   if Definition.HasWritable then
-    Described.SetProperty(ATTRIBUTE_WRITABLE, TJSValue.CreateBoolean(Definition.Writable));
+  begin
+    const AttributeValue = TJSValue.CreateBoolean(Definition.Writable);
+    Described.SetProperty(ATTRIBUTE_WRITABLE, AttributeValue);
+  end;
 
   if Definition.HasGetter then
     Described.SetProperty(ATTRIBUTE_GET, Definition.Getter);
@@ -593,10 +599,16 @@ begin
     Described.SetProperty(ATTRIBUTE_SET, Definition.Setter);
 
   if Definition.HasEnumerable then
-    Described.SetProperty(ATTRIBUTE_ENUMERABLE, TJSValue.CreateBoolean(Definition.Enumerable));
+  begin
+    const AttributeValue = TJSValue.CreateBoolean(Definition.Enumerable);
+    Described.SetProperty(ATTRIBUTE_ENUMERABLE, AttributeValue);
+  end;
 
   if Definition.HasConfigurable then
-    Described.SetProperty(ATTRIBUTE_CONFIGURABLE, TJSValue.CreateBoolean(Definition.Configurable));
+  begin
+    const AttributeValue = TJSValue.CreateBoolean(Definition.Configurable);
+    Described.SetProperty(ATTRIBUTE_CONFIGURABLE, AttributeValue);
+  end;
 
   Result := TJSValue.CreateObject(Described);
 end;
@@ -694,7 +706,9 @@ begin
     Exit;
   end;
 
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const NameValue = TJSObjectOperations.KeyToValue(Name);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, NameValue]);
   Result := TrapResult.ToBoolean;
   if Result then
     Exit;
@@ -704,10 +718,16 @@ begin
     Exit;
 
   if not TargetDescriptor.Configurable then
-    raise TJSErrorFactory.TypeError(Format(HAS_HIDES_NON_CONFIGURABLE, [Name.Text]));
+  begin
+    const Message = Format(HAS_HIDES_NON_CONFIGURABLE, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   if not Subject.IsExtensible then
-    raise TJSErrorFactory.TypeError(Format(HAS_HIDES_FROM_NON_EXTENSIBLE, [Name.Text]));
+  begin
+    const Message = Format(HAS_HIDES_FROM_NON_EXTENSIBLE, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.GetPrototypeOf: IJSObject;
@@ -742,7 +762,9 @@ begin
     Exit;
   end;
 
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrNull(Prototype)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const PrototypeValue = TJSProxyShared.ObjectOrNull(Prototype);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, PrototypeValue]);
   Result := TrapResult.ToBoolean;
   if (not Result) or Subject.IsExtensible then
     Exit;
@@ -921,7 +943,9 @@ begin
     Exit;
   end;
 
-  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name), Receiver]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const NameValue = TJSObjectOperations.KeyToValue(Name);
+  Result := InvokeTrap(Trap, [SubjectValue, NameValue, Receiver]);
 
   var TargetDescriptor: TJSPropertyDescriptor;
   const IsLocked = TJSObjectOperations.TryGetOwnProperty(Subject, Name, TargetDescriptor) and
@@ -932,12 +956,18 @@ begin
   const HidesValue = (not TargetDescriptor.IsAccessor) and (not TargetDescriptor.Writable) and
                      (not Result.SameValue(TargetDescriptor.Value));
   if HidesValue then
-    raise TJSErrorFactory.TypeError(Format(GET_VALUE_MISMATCH, [Name.Text]));
+  begin
+    const Message = Format(GET_VALUE_MISMATCH, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   const HidesMissingGetter = TargetDescriptor.IsAccessor and TargetDescriptor.Getter.IsUndefined and
                              (not Result.IsUndefined);
   if HidesMissingGetter then
-    raise TJSErrorFactory.TypeError(Format(GET_ACCESSOR_MISMATCH, [Name.Text]));
+  begin
+    const Message = Format(GET_ACCESSOR_MISMATCH, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.SetWithReceiver(const Name: TJSPropertyKey; const Value: TJSValue;
@@ -952,8 +982,9 @@ begin
     Exit;
   end;
 
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name),
-                                       Value, Receiver]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const NameValue = TJSObjectOperations.KeyToValue(Name);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, NameValue, Value, Receiver]);
   Result := TrapResult.ToBoolean;
   if not Result then
     Exit;
@@ -967,11 +998,17 @@ begin
   const ChangesValue = (not TargetDescriptor.IsAccessor) and (not TargetDescriptor.Writable) and
                        (not Value.SameValue(TargetDescriptor.Value));
   if ChangesValue then
-    raise TJSErrorFactory.TypeError(Format(SET_VALUE_MISMATCH, [Name.Text]));
+  begin
+    const Message = Format(SET_VALUE_MISMATCH, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   const LacksSetter = TargetDescriptor.IsAccessor and TargetDescriptor.Setter.IsUndefined;
   if LacksSetter then
-    raise TJSErrorFactory.TypeError(Format(SET_ACCESSOR_MISMATCH, [Name.Text]));
+  begin
+    const Message = Format(SET_ACCESSOR_MISMATCH, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.DeleteOwnProperty(const Name: TJSPropertyKey): Boolean;
@@ -985,7 +1022,9 @@ begin
     Exit;
   end;
 
-  const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const NameValue = TJSObjectOperations.KeyToValue(Name);
+  const TrapResult = InvokeTrap(Trap, [SubjectValue, NameValue]);
   Result := TrapResult.ToBoolean;
   if not Result then
     Exit;
@@ -995,10 +1034,16 @@ begin
     Exit;
 
   if not TargetDescriptor.Configurable then
-    raise TJSErrorFactory.TypeError(Format(DELETE_NON_CONFIGURABLE, [Name.Text]));
+  begin
+    const Message = Format(DELETE_NON_CONFIGURABLE, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   if not Subject.IsExtensible then
-    raise TJSErrorFactory.TypeError(Format(DELETE_NON_EXTENSIBLE, [Name.Text]));
+  begin
+    const Message = Format(DELETE_NON_EXTENSIBLE, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSProxyCore.KeyFromValue(const Item: TJSValue): TJSPropertyKey;
@@ -1032,7 +1077,8 @@ begin
 
   for var Position := 0 to Count - 1 do
   begin
-    const Item = List.GetProperty(TJSArrayLike.IndexName(Position));
+    const ItemName = TJSArrayLike.IndexName(Position);
+    const Item = List.GetProperty(ItemName);
     Result[Position] := KeyFromValue(Item);
   end;
 end;
@@ -1150,7 +1196,9 @@ begin
 
   RequireLive('IsArray');
 
-  Result := TJSObjectOperations.IsArray(TJSValue.CreateObject(Subject));
+  const SubjectValue = TJSValue.CreateObject(Subject);
+
+  Result := TJSObjectOperations.IsArray(SubjectValue);
 end;
 
 function TJSProxyCore.Call(const ThisTarget: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -1168,7 +1216,11 @@ begin
     Exit;
   end;
 
-  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrUndefined(ThisTarget), TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const ThisValue = TJSProxyShared.ObjectOrUndefined(ThisTarget);
+  const ArgumentsArray = TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args);
+
+  Result := InvokeTrap(Trap, [SubjectValue, ThisValue, ArgumentsArray]);
 end;
 
 function TJSProxyCore.Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
@@ -1186,8 +1238,11 @@ begin
     Exit;
   end;
 
-  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args),
-                              TJSValue.CreateObject(NewTarget)]);
+  const SubjectValue = TJSValue.CreateObject(Subject);
+  const ArgumentsArray = TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args);
+  const NewTargetValue = TJSValue.CreateObject(NewTarget);
+
+  Result := InvokeTrap(Trap, [SubjectValue, ArgumentsArray, NewTargetValue]);
   if not Result.IsObject then
     raise TJSErrorFactory.TypeError(CONSTRUCT_RESULT);
 end;
@@ -1319,7 +1374,10 @@ class procedure TJSProxyShared.DefineOrRaise(const Core: TJSProxyCore; const Nam
                                              const Definition: TJSPropertyDefinition);
 begin
   if not Core.DefineOwnProperty(Name, Definition) then
-    raise TJSErrorFactory.TypeError(Format(PROPERTY_NOT_DEFINED, [Name.Text]));
+  begin
+    const Message = Format(PROPERTY_NOT_DEFINED, [Name.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 class function TJSProxyShared.TestIntegrity(const Core: TJSProxyCore; const Level: TJSIntegrityLevel): Boolean;

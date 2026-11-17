@@ -93,7 +93,10 @@ begin
   const Whole = TJSConversions.ToIntegerOrInfinity(Value);
   const IsValid = (Whole >= 0) and (Whole <= MAX_SAFE_INTEGER);
   if not IsValid then
-    raise TJSErrorFactory.RangeError(Format(INVALID_INDEX, [Value.ToString]));
+  begin
+    const Message = Format(INVALID_INDEX, [Value.ToString]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
 
   Result := Trunc(Whole);
 end;
@@ -270,7 +273,8 @@ function TJSBuiltinSupport.DefineMethod(const Target: IJSObject; const Name: str
 begin
   Result := CreateMethod(Name, ParameterCount, Method);
 
-  DefineMember(Target, Name, TJSValue.CreateObject(Result), True);
+  const MethodValue = TJSValue.CreateObject(Result);
+  DefineMember(Target, Name, MethodValue, True);
 end;
 
 procedure TJSBuiltinSupport.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
@@ -309,20 +313,26 @@ procedure TJSBuiltinSupport.DefineToStringTag(const Target: IJSObject; const Tag
 begin
   const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
 
-  DefineMember(Target, Key, TJSValue.CreateString(Tag), False);
+  const TagValue = TJSValue.CreateString(Tag);
+  DefineMember(Target, Key, TagValue, False);
 end;
 
 function TJSBuiltinSupport.DefineSpeciesGetter(const Constructor_: IJSObject): IJSFunction;
 begin
   const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
 
-  Result := DefineGetter(Constructor_, Key, SPECIES_GETTER_NAME, ReturnsThis());
+  const Getter = ReturnsThis();
+
+  Result := DefineGetter(Constructor_, Key, SPECIES_GETTER_NAME, Getter);
 end;
 
 procedure TJSBuiltinSupport.LinkConstructor(const Constructor_: IJSFunction; const Prototype: IJSObject);
 begin
-  DefineMember(Prototype, CONSTRUCTOR_PROPERTY, TJSValue.CreateObject(Constructor_), True);
-  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(Prototype));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  const PrototypeValue = TJSValue.CreateObject(Prototype);
+
+  DefineMember(Prototype, CONSTRUCTOR_PROPERTY, ConstructorValue, True);
+  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, PrototypeValue);
 end;
 
 function TJSBuiltinSupport.CreateConstructor(const Name: string; const ParameterCount: Integer;

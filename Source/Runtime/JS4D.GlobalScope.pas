@@ -24,12 +24,13 @@ type
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
     procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
     function CacheOwnSlot(const Cache: PJSBindingCache; const Name: string): PJSPropertyDescriptor;
+    procedure DefineGlobalProperty(const Name: string; const Value: TJSValue; const IsDeletable: Boolean);
+    procedure DefineGlobal(const Name: string; const Value: TJSValue; const IsDeletable: Boolean);
 
   public
     constructor Create(const GlobalObject: IJSObject);
     destructor Destroy; override;
 
-    function HasLexicals: Boolean;
     function HasLexical(const Name: string): Boolean;
     function CanDeclareVariable(const Name: string): Boolean;
     function CanDeclareFunction(const Name: string): Boolean;
@@ -43,7 +44,7 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
     procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
@@ -53,16 +54,29 @@ type
     function GetOwnVariables: TArray<TJSValue>;
     procedure ReleaseReferences;
 
+    property HasLexicals: Boolean read FHasLexicals;
     property Parent: IJSScope read GetParent;
   end;
 
 implementation
 
+uses
+  System.SysUtils;
+
+const
+  GLOBAL_OBJECT_NOT_SUPPORTED = 'The global object must be a TJSObjectImpl';
+
 constructor TJSGlobalScope.Create(const GlobalObject: IJSObject);
 begin
   inherited Create;
+
+  const StorageObject = GlobalObject as TObject;
+  const IsSupportedObject = (StorageObject is TJSObjectImpl);
+  if not IsSupportedObject then
+    raise EArgumentException.Create(GLOBAL_OBJECT_NOT_SUPPORTED);
+
   FGlobalObject := GlobalObject;
-  FGlobalStorage := (GlobalObject as TObject) as TJSObjectImpl;
+  FGlobalStorage := TJSObjectImpl(StorageObject);
 end;
 
 destructor TJSGlobalScope.Destroy;
@@ -70,11 +84,6 @@ begin
   FLexicalStates.Free;
   FLexicalValues.Free;
   inherited;
-end;
-
-function TJSGlobalScope.HasLexicals: Boolean;
-begin
-  Result := FHasLexicals;
 end;
 
 function TJSGlobalScope.HasLexical(const Name: string): Boolean;
@@ -117,9 +126,23 @@ begin
     Exit;
   end;
 
+  DefineGlobalProperty(Name, Value, IsDeletable);
+end;
+
+procedure TJSGlobalScope.DefineGlobalProperty(const Name: string; const Value: TJSValue;
+                                              const IsDeletable: Boolean);
+begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);
   Descriptor.Configurable := IsDeletable;
   FGlobalObject.DefineProperty(Name, Descriptor);
+end;
+
+procedure TJSGlobalScope.DefineGlobal(const Name: string; const Value: TJSValue; const IsDeletable: Boolean);
+begin
+  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
+    Exit;
+
+  DefineGlobalProperty(Name, Value, IsDeletable);
 end;
 
 function TJSGlobalScope.TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
@@ -197,12 +220,12 @@ end;
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
   if HasLexical(Name) then
-    AssignVariable(Name, Value)
+    AssignOrDeclareVariable(Name, Value)
   else
     SetGlobalProperty(Name, Value);
 end;
 
-procedure TJSGlobalScope.AssignVariable(const Name: string; const Value: TJSValue);
+procedure TJSGlobalScope.AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
 begin
   if HasLexical(Name) then
   begin
@@ -234,21 +257,12 @@ end;
 
 procedure TJSGlobalScope.DeclareVariable(const Name: string; const Value: TJSValue);
 begin
-  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
-    Exit;
-
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Configurable := False;
-  FGlobalObject.DefineProperty(Name, Descriptor);
+  DefineGlobal(Name, Value, False);
 end;
 
 procedure TJSGlobalScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
 begin
-  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
-    Exit;
-
-  const Descriptor = TJSPropertyDescriptor.Create(Value);
-  FGlobalObject.DefineProperty(Name, Descriptor);
+  DefineGlobal(Name, Value, True);
 end;
 
 function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;
@@ -284,14 +298,22 @@ end;
 
 function TJSGlobalScope.GetOwnVariables: TArray<TJSValue>;
 begin
-  Result := [TJSValue.CreateObject(FGlobalObject)];
-
+  const GlobalValue = TJSValue.CreateObject(FGlobalObject);
   if not FHasLexicals then
+  begin
+    SetLength(Result, 1);
+    Result[0] := GlobalValue;
     Exit;
+  end;
 
+  SetLength(Result, FLexicalValues.Count + 1);
+  Result[0] := GlobalValue;
+
+  var Index := 1;
   for var Value in FLexicalValues.Values do
   begin
-    Result := Result + [Value];
+    Result[Index] := Value;
+    Inc(Index);
   end;
 end;
 

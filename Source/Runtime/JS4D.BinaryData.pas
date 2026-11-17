@@ -37,6 +37,10 @@ type
                         const IsLittleEndian: Boolean = True): Double; static;
     class procedure Write(const Bytes: TBytes; const Offset: Integer; const Kind: TJSElementKind;
                           const Value: Double; const IsLittleEndian: Boolean = True); static;
+    class procedure CopyElements(const SourceBytes: TBytes; const SourceStart: Integer;
+                                 const SourceKind: TJSElementKind; const TargetBytes: TBytes;
+                                 const TargetStart: Integer; const TargetKind: TJSElementKind;
+                                 const ElementCount: Integer); static;
   end;
 
   IJSArrayBuffer = interface(IJSObject)
@@ -320,6 +324,32 @@ begin
   Move(Ordered[0], Bytes[Offset], Size);
 end;
 
+class procedure TJSElementCodec.CopyElements(const SourceBytes: TBytes; const SourceStart: Integer;
+                                             const SourceKind: TJSElementKind; const TargetBytes: TBytes;
+                                             const TargetStart: Integer; const TargetKind: TJSElementKind;
+                                             const ElementCount: Integer);
+begin
+  const HasElements = (ElementCount > 0);
+  if not HasElements then
+    Exit;
+
+  const SourceSize = SourceKind.ElementSize;
+  const TargetSize = TargetKind.ElementSize;
+
+  const IsSameKind = (SourceKind = TargetKind);
+  if IsSameKind then
+  begin
+    Move(SourceBytes[SourceStart], TargetBytes[TargetStart], ElementCount * SourceSize);
+    Exit;
+  end;
+
+  for var Index := 0 to ElementCount - 1 do
+  begin
+    const Number = Read(SourceBytes, SourceStart + (Index * SourceSize), SourceKind);
+    Write(TargetBytes, TargetStart + (Index * TargetSize), TargetKind, Number);
+  end;
+end;
+
 { TJSBinaryKeys }
 
 class function TJSBinaryKeys.TryStoreElement(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
@@ -478,7 +508,9 @@ begin
     Exit;
   end;
 
-  const Number = TJSElementCodec.Read(FBuffer.Bytes, ElementOffset(Index), FKind);
+  const Offset = ElementOffset(Index);
+  const Number = TJSElementCodec.Read(FBuffer.Bytes, Offset, FKind);
+
   Result := TJSValue.CreateNumber(Number);
 end;
 
@@ -487,7 +519,10 @@ begin
   const Number = TJSConversions.ToNumber(Value);
 
   if IsValidIndex(Index) then
-    TJSElementCodec.Write(FBuffer.Bytes, ElementOffset(Index), FKind, Number);
+  begin
+    const Offset = ElementOffset(Index);
+    TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  end;
 end;
 
 class function TJSTypedArrayObject.TryParsePlainIndex(const Name: string; out Index: Int64): Boolean;
@@ -590,7 +625,9 @@ end;
 
 function TJSTypedArrayObject.CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
 begin
-  Result := TJSPropertyDescriptor.Create(ReadElement(Index));
+  const Element = ReadElement(Index);
+
+  Result := TJSPropertyDescriptor.Create(Element);
   Result.Writable := True;
   Result.Enumerable := True;
   Result.Configurable := True;
@@ -647,7 +684,10 @@ begin
   const KeyClassAfterConversion = ClassifyKey(Name, Index);
   const IsStillValid = (KeyClassAfterConversion = TKeyClass.ValidIndex);
   if IsStillValid then
-    TJSElementCodec.Write(FBuffer.Bytes, ElementOffset(Index), FKind, Number);
+  begin
+    const Offset = ElementOffset(Index);
+    TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  end;
 end;
 
 procedure TJSTypedArrayObject.DeleteProperty(const Name: TJSPropertyKey);

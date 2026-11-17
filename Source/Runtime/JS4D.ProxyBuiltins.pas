@@ -120,15 +120,19 @@ begin
 
   const Revocable: IJSObject = TJSObject.Create;
   Revocable.Prototype := FInterpreter.ObjectPrototype;
-  Revocable.SetProperty(PROXY_PROPERTY, TJSValue.CreateObject(Proxy));
-  Revocable.SetProperty(REVOKE_PROPERTY, TJSValue.CreateObject(Revoker));
+  const ProxyValue = TJSValue.CreateObject(Proxy);
+  const RevokerValue = TJSValue.CreateObject(Revoker);
+  Revocable.SetProperty(PROXY_PROPERTY, ProxyValue);
+  Revocable.SetProperty(REVOKE_PROPERTY, RevokerValue);
 
   Result := TJSValue.CreateObject(Revocable);
 end;
 
 function TJSProxyBuiltins.CreateConstructor: IJSFunction;
 begin
-  Result := FSupport.CreateConstructor(PROXY_NAME, 2, Format(CONSTRUCTOR_REQUIRES_NEW, [PROXY_NAME]),
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [PROXY_NAME]);
+
+  Result := FSupport.CreateConstructor(PROXY_NAME, 2, RequiresNewMessage,
     function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
       const Target = TJSArrayLike.Argument(Args, 0);
@@ -151,7 +155,8 @@ begin
   DefineLengthBeforeName(Revocable, 2);
   FInterpreter.RegisterFunction(Revocable);
 
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Revocable));
+  const RevocableValue = TJSValue.CreateObject(Revocable);
+  var Descriptor := TJSPropertyDescriptor.Create(RevocableValue);
   Descriptor.Enumerable := False;
   Constructor_.DefineProperty(REVOCABLE_NAME, Descriptor);
 end;
@@ -174,7 +179,8 @@ begin
 
   const Constructor_ = CreateConstructor;
   DefineRevocable(Constructor_);
-  FInterpreter.SetGlobalVariable(PROXY_NAME, TJSValue.CreateObject(Constructor_));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  FInterpreter.SetGlobalVariable(PROXY_NAME, ConstructorValue);
 end;
 
 end.

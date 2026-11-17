@@ -70,8 +70,9 @@ end;
 class function TJSConversions.ToLength(const Value: TJSValue): Int64;
 begin
   const Number = ToIntegerOrInfinity(Value);
+  const ClampedNumber = EnsureRange(Number, 0, MAX_SAFE_INTEGER);
 
-  Result := Trunc(EnsureRange(Number, 0, MAX_SAFE_INTEGER));
+  Result := Trunc(ClampedNumber);
 end;
 
 class function TJSConversions.ToUint32(const Value: TJSValue): Int64;
@@ -81,8 +82,10 @@ begin
     Exit(0);
 
   const Whole = Int(Number);
+  const WrapCount = Floor(Whole / UINT32_RANGE);
+  const Wrapped = Whole - (UINT32_RANGE * WrapCount);
 
-  Result := Trunc(Whole - UINT32_RANGE * Floor(Whole / UINT32_RANGE));
+  Result := Trunc(Wrapped);
 end;
 
 class function TJSConversions.AsFunction(const Value: TJSValue): IJSFunction;
@@ -117,7 +120,10 @@ begin
 
   Result := AsFunction(Method);
   if not Assigned(Result) then
-    raise TJSErrorFactory.TypeError(Format(NOT_CALLABLE, [Key.Text]));
+  begin
+    const Message = Format(NOT_CALLABLE, [Key.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 class function TJSConversions.SpeciesOf(const ConstructorValue: TJSValue;

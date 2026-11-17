@@ -9,6 +9,7 @@ uses
   System.Generics.Collections,
   System.Math,
   JS4D.BuiltinSet,
+  JS4D.BuiltinSupport,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.ArrayObject,
@@ -51,6 +52,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
       FIntrinsicExec: IJSFunction;
       FIntrinsicConstructor: IJSFunction;
 
@@ -83,8 +85,6 @@ type
     function SplitWith(const Receiver: IJSObject; const Text: string; const LimitValue: TJSValue): TJSValue;
     function Match(const Receiver: IJSObject; const Text: string): TJSValue;
     function Search(const Receiver: IJSObject; const Text: string): TJSValue;
-    function CreateMethod(const Name: string; const ParameterCount: Integer;
-                          const Method: TNativeFunction): IJSFunction;
     procedure DefineMethod(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                            const ParameterCount: Integer; const Method: TNativeFunction);
 
@@ -110,10 +110,12 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
 end;
 
 destructor TJSRegExpProtocol.Destroy;
 begin
+  FSupport.Free;
   FIntrinsicExec := nil;
   FIntrinsicConstructor := nil;
 
@@ -654,22 +656,13 @@ begin
   Pieces.Push(TJSValue.CreateString(Copy(Text, PieceStart + 1, MaxInt)));
 end;
 
-function TJSRegExpProtocol.CreateMethod(const Name: string; const ParameterCount: Integer;
-                                        const Method: TNativeFunction): IJSFunction;
-begin
-  Result := TJSFunction.CreateNative(Name, Method);
-  Result.IsConstructor := False;
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Result, ParameterCount);
-  FInterpreter.RegisterFunction(Result);
-end;
-
 procedure TJSRegExpProtocol.DefineMethod(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                                          const ParameterCount: Integer; const Method: TNativeFunction);
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(CreateMethod(Name, ParameterCount, Method)));
-  Descriptor.Enumerable := False;
-  Target.DefineProperty(Key, Descriptor);
+  const MethodFunction = FSupport.CreateMethod(Name, ParameterCount, Method);
+  const MethodValue = TJSValue.CreateObject(MethodFunction);
+
+  FSupport.DefineMember(Target, Key, MethodValue, True);
 end;
 
 procedure TJSRegExpProtocol.Register;

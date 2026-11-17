@@ -2067,7 +2067,7 @@ begin
   Result := TJSValue.CreateUndefined;
 
   if Node.HoistsToVar then
-    FVarScope.AssignVariable(Node.Id.Name, FCurrentScope.GetVariable(Node.Id.Name));
+    FVarScope.AssignOrDeclareVariable(Node.Id.Name, FCurrentScope.GetVariable(Node.Id.Name));
 end;
 
 function TJSInterpreter.VisitExpressionStatement(const Node: TJSExpressionStatement): TJSValue;
@@ -4147,7 +4147,7 @@ begin
   const IsPlainScope = (BindingObject.ClassType = TJSScope);
   if IsPlainScope then
   begin
-    Binding.AssignVariable(Name, Value);
+    Binding.AssignOrDeclareVariable(Name, Value);
     Exit;
   end;
 
@@ -4171,7 +4171,7 @@ begin
     GuardGlobalWritable(Name);
   end;
 
-  Binding.AssignVariable(Name, Value);
+  Binding.AssignOrDeclareVariable(Name, Value);
 end;
 
 procedure TJSInterpreter.RejectFunctionNameAssignment;

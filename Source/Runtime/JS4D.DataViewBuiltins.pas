@@ -165,7 +165,9 @@ begin
   RequireRange(View, RequestIndex, Kind, MethodName);
 
   const Offset = View.ByteOffset + Integer(RequestIndex);
-  Result := TJSValue.CreateNumber(TJSElementCodec.Read(View.Buffer.Bytes, Offset, Kind, IsLittleEndian));
+  const Number = TJSElementCodec.Read(View.Buffer.Bytes, Offset, Kind, IsLittleEndian);
+
+  Result := TJSValue.CreateNumber(Number);
 end;
 
 function TJSDataViewBuiltins.WriteViewValue(const This: IJSObject; const Args: TArray<TJSValue>;
@@ -207,7 +209,9 @@ begin
       const View = RequireView(This, BYTE_LENGTH_PROPERTY);
       const IsDetached = View.Buffer.IsDetached;
 
-      Result := TJSValue.CreateNumber(IfThen(IsDetached, 0, View.ByteLength));
+      const ByteLength = IfThen(IsDetached, 0, View.ByteLength);
+
+      Result := TJSValue.CreateNumber(ByteLength);
     end);
 
   FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, ByteOffsetGetterName,
@@ -216,7 +220,9 @@ begin
       const View = RequireView(This, BYTE_OFFSET_PROPERTY);
       const IsDetached = View.Buffer.IsDetached;
 
-      Result := TJSValue.CreateNumber(IfThen(IsDetached, 0, View.ByteOffset));
+      const ByteOffset = IfThen(IsDetached, 0, View.ByteOffset);
+
+      Result := TJSValue.CreateNumber(ByteOffset);
     end);
 end;
 
@@ -265,7 +271,8 @@ begin
   DefineValueMethods;
   FSupport.DefineToStringTag(FPrototype, DATA_VIEW_NAME);
 
-  Interpreter.SetGlobalVariable(DATA_VIEW_NAME, TJSValue.CreateObject(FConstructor));
+  const ConstructorValue = TJSValue.CreateObject(FConstructor);
+  Interpreter.SetGlobalVariable(DATA_VIEW_NAME, ConstructorValue);
 end;
 
 end.

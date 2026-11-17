@@ -238,7 +238,8 @@ end;
 function TJSCollectionBuiltins.PutEntry(const This: IJSObject; const Kind: TJSCollectionKind;
                                         const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Store = RequireStore(This, Kind, AdderName(Kind));
+  const AdderMethodName = AdderName(Kind);
+  const Store = RequireStore(This, Kind, AdderMethodName);
   const Key = TJSArrayLike.Argument(Args, 0);
   RequireWeakKey(Kind, Key);
 
@@ -262,7 +263,8 @@ begin
   const Store = RequireStore(This, Kind, METHOD_FOR_EACH);
   const CallbackArgument = TJSArrayLike.Argument(Args, 0);
   const ThisArgument = TJSArrayLike.Argument(Args, 1);
-  const Callback = RequireCallback(CallbackArgument, KindName(Kind));
+  const CollectionName = KindName(Kind);
+  const Callback = RequireCallback(CallbackArgument, CollectionName);
   const ThisArg = FInterpreter.ThisObjectFor(Callback, ThisArgument);
   const Collection = TJSValue.CreateObject(This);
 
@@ -380,7 +382,9 @@ end;
 
 function TJSCollectionBuiltins.CreateConstructor(const Kind: TJSCollectionKind): IJSFunction;
 begin
-  Result := TJSFunction.CreateNative(KindName(Kind),
+  const CollectionName = KindName(Kind);
+
+  Result := TJSFunction.CreateNative(CollectionName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := Construct(Kind, This, Args);
@@ -401,8 +405,10 @@ begin
       end);
   end;
 
-  const AdderParameterCount = IfThen(IsMapLike(Kind), 2, 1);
-  FSupport.DefineMethod(Prototype, AdderName(Kind), AdderParameterCount,
+  const IsMap = IsMapLike(Kind);
+  const AdderParameterCount = IfThen(IsMap, 2, 1);
+  const AdderMethodName = AdderName(Kind);
+  FSupport.DefineMethod(Prototype, AdderMethodName, AdderParameterCount,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := PutEntry(This, Kind, Args);
@@ -472,17 +478,19 @@ procedure TJSCollectionBuiltins.DefineIterationAliases(const Kind: TJSCollection
                                                        const Entries: IJSFunction; const Values: IJSFunction);
 begin
   const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
+  const EntriesValue = TJSValue.CreateObject(Entries);
+  const ValuesValue = TJSValue.CreateObject(Values);
 
   const IsMap = (Kind = TJSCollectionKind.Map);
   if IsMap then
   begin
     DefineIterationMethod(Kind, Prototype, METHOD_KEYS, TJSCollectionIterationKind.Keys);
-    FSupport.DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Entries), True);
+    FSupport.DefineMember(Prototype, IteratorKey, EntriesValue, True);
   end
   else
   begin
-    FSupport.DefineMember(Prototype, METHOD_KEYS, TJSValue.CreateObject(Values), True);
-    FSupport.DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Values), True);
+    FSupport.DefineMember(Prototype, METHOD_KEYS, ValuesValue, True);
+    FSupport.DefineMember(Prototype, IteratorKey, ValuesValue, True);
   end;
 end;
 
@@ -493,7 +501,8 @@ begin
   if not IsWeak(Kind) then
     DefineIterationMembers(Kind, Prototype);
 
-  FSupport.DefineToStringTag(Prototype, KindName(Kind));
+  const CollectionName = KindName(Kind);
+  FSupport.DefineToStringTag(Prototype, CollectionName);
 end;
 
 procedure TJSCollectionBuiltins.CreatePrototype(const Kind: TJSCollectionKind);
@@ -553,7 +562,9 @@ begin
 
     const Constructor_ = CreateConstructor(Kind);
     DefineConstructorLinks(Kind, Constructor_);
-    FInterpreter.SetGlobalVariable(KindName(Kind), TJSValue.CreateObject(Constructor_));
+    const CollectionName = KindName(Kind);
+    const ConstructorValue = TJSValue.CreateObject(Constructor_);
+    FInterpreter.SetGlobalVariable(CollectionName, ConstructorValue);
   end;
 end;
 

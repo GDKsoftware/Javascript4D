@@ -35,6 +35,7 @@ type
   public
     class function NegativeZero: Double; static;
     class function KeepZeroSign(const Magnitude, SignSource: Double): Double; static;
+    class function IsNegativeZero(const Value: Double): Boolean; static;
     class function Floor(const Value: Double): Double; static;
     class function Ceil(const Value: Double): Double; static;
     class function Round(const Value: Double): Double; static;
@@ -87,6 +88,11 @@ begin
   Bits.Bits := NEGATIVE_ZERO_BITS;
 
   Result := Bits.Value;
+end;
+
+class function TJSMathFunctions.IsNegativeZero(const Value: Double): Boolean;
+begin
+  Result := ((Value = 0) and Value.Sign);
 end;
 
 class function TJSMathFunctions.KeepZeroSign(const Magnitude, SignSource: Double): Double;

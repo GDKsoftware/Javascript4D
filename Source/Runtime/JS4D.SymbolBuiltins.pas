@@ -41,7 +41,6 @@ type
     class function ThisSymbolValue(const This: IJSObject; const MethodName: string): TJSValue; static;
     class function WellKnownPropertyName(const Which: TJSWellKnownSymbol): string; static;
     function ToText(const Value: TJSValue): string;
-    function IsSymbolConstructCall(const This: IJSObject; const Prototype: IJSObject): Boolean;
     function ConstructSymbol(const This: IJSObject; const Prototype: IJSObject;
                              const Args: TArray<TJSValue>): TJSValue;
     function SymbolFor(const Args: TArray<TJSValue>): TJSValue;
@@ -63,6 +62,7 @@ uses
   JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.Conversions,
+  JS4D.PrototypeMethods,
   JS4D.Symbols;
 
 constructor TJSSymbolBuiltins.Create(const Interpreter: TJSInterpreter);
@@ -108,22 +108,11 @@ begin
   Result := Description.Substring(Length(SYMBOL_DESCRIPTION_PREFIX));
 end;
 
-function TJSSymbolBuiltins.IsSymbolConstructCall(const This: IJSObject; const Prototype: IJSObject): Boolean;
-begin
-  const HasThis = Assigned(This);
-  if not HasThis then
-    Exit(False);
-
-  const HasSymbolPrototype = ((This.Prototype as IInterface) = (Prototype as IInterface));
-  const IsWrapper = Supports(This, IJSPrimitiveWrapper);
-
-  Result := (HasSymbolPrototype and (not IsWrapper));
-end;
-
 function TJSSymbolBuiltins.ConstructSymbol(const This: IJSObject; const Prototype: IJSObject;
                                            const Args: TArray<TJSValue>): TJSValue;
 begin
-  if IsSymbolConstructCall(This, Prototype) then
+  const IsConstruction = TJSPrototypeMethods.IsConstructCall(This, Prototype);
+  if IsConstruction then
     raise TJSErrorFactory.TypeError(SYMBOL_NOT_A_CONSTRUCTOR);
 
   const DescriptionArgument = TJSArrayLike.Argument(Args, 0);
@@ -186,7 +175,8 @@ begin
   for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
     const PropertyName = WellKnownPropertyName(Which);
-    FSupport.DefineConstant(Constructor_, PropertyName, TJSWellKnownSymbols.ValueOf(Which));
+    const SymbolValue = TJSWellKnownSymbols.ValueOf(Which);
+    FSupport.DefineConstant(Constructor_, PropertyName, SymbolValue);
   end;
 
   FSupport.DefineMethod(Constructor_, METHOD_FOR, 1,
@@ -230,7 +220,8 @@ begin
     begin
       Result := ThisSymbolValue(This, TO_PRIMITIVE_NAME);
     end);
-  FSupport.DefineMember(Prototype, ToPrimitiveKey, TJSValue.CreateObject(ToPrimitiveMethod), False);
+  const ToPrimitiveValue = TJSValue.CreateObject(ToPrimitiveMethod);
+  FSupport.DefineMember(Prototype, ToPrimitiveKey, ToPrimitiveValue, False);
 
   FSupport.DefineToStringTag(Prototype, SYMBOL_TAG);
 end;
@@ -254,7 +245,8 @@ begin
   DefineConstructorMembers(Constructor_);
   DefinePrototypeMembers(Prototype);
   FInterpreter.SymbolPrototype := Prototype;
-  FInterpreter.SetGlobalVariable(SYMBOL_NAME, TJSValue.CreateObject(Constructor_));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  FInterpreter.SetGlobalVariable(SYMBOL_NAME, ConstructorValue);
 
   FHooks.Register;
 end;

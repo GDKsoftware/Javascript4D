@@ -156,6 +156,7 @@ type
     function IsInfinity: Boolean;
 
     function SameValue(const Other: TJSValue): Boolean;
+    function SameValueZero(const Other: TJSValue): Boolean;
     function StrictEquals(const Other: TJSValue): Boolean;
 
     function ToBoolean: Boolean;
@@ -190,7 +191,7 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
     procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
@@ -1218,6 +1219,19 @@ begin
   else
     raise ENotSupportedException.CreateFmt(UNSUPPORTED_VALUE_TYPE_MESSAGE, [Ord(FValueType)]);
   end;
+end;
+
+function TJSValue.SameValueZero(const Other: TJSValue): Boolean;
+begin
+  const BothNumbers = (IsNumber and Other.IsNumber);
+  if BothNumbers then
+  begin
+    const BothNaN = (FNumberValue.IsNaN and Other.FNumberValue.IsNaN);
+    Result := ((FNumberValue = Other.FNumberValue) or BothNaN);
+    Exit;
+  end;
+
+  Result := StrictEquals(Other);
 end;
 
 function TJSValue.StrictEquals(const Other: TJSValue): Boolean;

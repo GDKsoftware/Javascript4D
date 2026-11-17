@@ -14,6 +14,8 @@ type
   private
     class function ToNormForm(const Form: TJSNormalizationForm): TNormForm; static;
     class function IsLoneSurrogate(const Text: string; const Index: Integer): Boolean; static;
+    class function TryNormalizeInto(const Text: string; const NormForm: TNormForm; const Capacity: Integer;
+                                    out Normalized: string): Boolean; static;
     class function NormalizeRun(const Text: string; const Form: TJSNormalizationForm): string; static;
 
   public
@@ -25,7 +27,8 @@ implementation
 
 uses
   System.SysUtils,
-  System.Character;
+  System.Character,
+  JS4D.Errors;
 
 type
   TFormName = record
@@ -84,6 +87,17 @@ begin
   Result := not (FormsPair or IsSecondOfPair);
 end;
 
+class function TJSUnicodeNormalization.TryNormalizeInto(const Text: string; const NormForm: TNormForm;
+                                                        const Capacity: Integer; out Normalized: string): Boolean;
+begin
+  SetLength(Normalized, Capacity);
+
+  const Written = NormalizeString(NormForm, PChar(Text), Length(Text), PChar(Normalized), Capacity);
+  Result := (Written > 0);
+  if Result then
+    SetLength(Normalized, Written);
+end;
+
 class function TJSUnicodeNormalization.NormalizeRun(const Text: string; const Form: TJSNormalizationForm): string;
 begin
   if Text.IsEmpty then
@@ -92,18 +106,12 @@ begin
   const NormForm = ToNormForm(Form);
 
   var Capacity := NormalizeString(NormForm, PChar(Text), Length(Text), nil, 0);
-
-  while Capacity > 0 do
+  const CanNormalize = (Capacity > 0);
+  while CanNormalize do
   begin
-    var Buffer: string;
-    SetLength(Buffer, Capacity);
-
-    const Written = NormalizeString(NormForm, PChar(Text), Length(Text), PChar(Buffer), Capacity);
-    if Written > 0 then
-    begin
-      SetLength(Buffer, Written);
-      Exit(Buffer);
-    end;
+    var Normalized: string;
+    if TryNormalizeInto(Text, NormForm, Capacity, Normalized) then
+      Exit(Normalized);
 
     const IsBufferTooSmall = (GetLastError = ERROR_INSUFFICIENT_BUFFER);
     if not IsBufferTooSmall then
@@ -112,7 +120,9 @@ begin
     Capacity := Capacity * 2;
   end;
 
-  raise EArgumentException.CreateFmt(NORMALIZATION_FAILED_MESSAGE, [SysErrorMessage(GetLastError)]);
+  const SystemMessage = SysErrorMessage(GetLastError);
+  const Message = Format(NORMALIZATION_FAILED_MESSAGE, [SystemMessage]);
+  raise TJSErrorFactory.RangeError(Message);
 end;
 
 class function TJSUnicodeNormalization.Normalize(const Text: string; const Form: TJSNormalizationForm): string;
@@ -125,12 +135,16 @@ begin
       if not IsLoneSurrogate(Text, Index) then
         Continue;
 
-      Builder.Append(NormalizeRun(Copy(Text, RunStart, Index - RunStart), Form));
+      const Run = Copy(Text, RunStart, Index - RunStart);
+      const NormalizedRun = NormalizeRun(Run, Form);
+      Builder.Append(NormalizedRun);
       Builder.Append(Text[Index]);
       RunStart := Index + 1;
     end;
 
-    Builder.Append(NormalizeRun(Copy(Text, RunStart, MaxInt), Form));
+    const LastRun = Copy(Text, RunStart, MaxInt);
+    const NormalizedLastRun = NormalizeRun(LastRun, Form);
+    Builder.Append(NormalizedLastRun);
     Result := Builder.ToString;
   finally
     Builder.Free;

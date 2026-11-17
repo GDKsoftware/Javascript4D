@@ -44,6 +44,9 @@ type
 
 implementation
 
+uses
+  JS4D.Conversions;
+
 constructor TJSWellKnownSymbolHooks.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport);
 begin
   inherited Create;
@@ -77,7 +80,8 @@ begin
   FInterpreter.OrdinaryHasInstanceFunction := Method;
 
   const HasInstanceKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.HasInstance);
-  FSupport.DefineConstant(FInterpreter.FunctionPrototype, HasInstanceKey, TJSValue.CreateObject(Method));
+  const MethodValue = TJSValue.CreateObject(Method);
+  FSupport.DefineConstant(FInterpreter.FunctionPrototype, HasInstanceKey, MethodValue);
 end;
 
 procedure TJSWellKnownSymbolHooks.DefineArrayUnscopables;
@@ -86,25 +90,31 @@ begin
   for var MethodName in UNSCOPABLE_ARRAY_METHODS do
   begin
     const IsUnscopable = TJSValue.CreateBoolean(True);
-    Unscopables.DefineProperty(MethodName, TJSPropertyDescriptor.Create(IsUnscopable));
+    const Descriptor = TJSPropertyDescriptor.Create(IsUnscopable);
+    Unscopables.DefineProperty(MethodName, Descriptor);
   end;
 
   const UnscopablesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Unscopables);
-  FSupport.DefineMember(FInterpreter.ArrayPrototype, UnscopablesKey, TJSValue.CreateObject(Unscopables), False);
+  const UnscopablesValue = TJSValue.CreateObject(Unscopables);
+  FSupport.DefineMember(FInterpreter.ArrayPrototype, UnscopablesKey, UnscopablesValue, False);
 end;
 
 procedure TJSWellKnownSymbolHooks.DefineToStringTag(const GlobalName: string);
 begin
   const GlobalValue = FInterpreter.GetGlobalVariable(GlobalName);
 
-  FSupport.DefineToStringTag(GlobalValue.ToObject, GlobalName);
+  const GlobalObject = GlobalValue.ToObject;
+
+  FSupport.DefineToStringTag(GlobalObject, GlobalName);
 end;
 
 function TJSWellKnownSymbolHooks.DefineSpeciesGetter(const GlobalName: string): IJSFunction;
 begin
   const GlobalValue = FInterpreter.GetGlobalVariable(GlobalName);
 
-  Result := FSupport.DefineSpeciesGetter(GlobalValue.ToObject);
+  const GlobalObject = GlobalValue.ToObject;
+
+  Result := FSupport.DefineSpeciesGetter(GlobalObject);
 end;
 
 procedure TJSWellKnownSymbolHooks.Register;
@@ -115,7 +125,7 @@ begin
   DefineToStringTag(JSON_NAME);
 
   const ArrayValue = FInterpreter.GetGlobalVariable(ARRAY_NAME);
-  FInterpreter.ArrayConstructor := ArrayValue.ToObject as IJSFunction;
+  FInterpreter.ArrayConstructor := TJSConversions.AsFunction(ArrayValue);
   FInterpreter.ArraySpeciesGetter := DefineSpeciesGetter(ARRAY_NAME);
   DefineSpeciesGetter(REGEXP_NAME);
 end;

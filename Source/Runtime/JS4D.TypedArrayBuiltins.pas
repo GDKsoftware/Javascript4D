@@ -185,7 +185,8 @@ begin
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 
-  if not TJSValue.CreateObject(This).TryGetConstructor(Result) then
+  const ThisValue = TJSValue.CreateObject(This);
+  if not ThisValue.TryGetConstructor(Result) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
 
@@ -199,25 +200,8 @@ begin
 
   const SourceBytes = Source.Buffer.Bytes;
   const TargetBytes = Result.Buffer.Bytes;
-  const SourceKind = Source.Kind;
-  const SourceSize = SourceKind.ElementSize;
-  const TargetSize = Kind.ElementSize;
 
-  const IsSameKind = (SourceKind = Kind);
-  if IsSameKind then
-  begin
-    const HasElements = (ElementCount > 0);
-    if HasElements then
-      Move(SourceBytes[Source.ByteOffset], TargetBytes[0], ElementCount * TargetSize);
-
-    Exit;
-  end;
-
-  for var Index := 0 to ElementCount - 1 do
-  begin
-    const Number = TJSElementCodec.Read(SourceBytes, Source.ByteOffset + (Index * SourceSize), SourceKind);
-    TJSElementCodec.Write(TargetBytes, Index * TargetSize, Kind, Number);
-  end;
+  TJSElementCodec.CopyElements(SourceBytes, Source.ByteOffset, Source.Kind, TargetBytes, 0, Kind, ElementCount);
 end;
 
 procedure TJSTypedArrayBuiltins.RequireAlignedOffset(const Kind: TJSElementKind; const Offset: Int64);
@@ -328,7 +312,8 @@ function TJSTypedArrayBuiltins.CreateFromObject(const Kind: TJSElementKind; cons
                                                 const Prototype: IJSObject): IJSTypedArray;
 begin
   var Items: TArray<TJSValue>;
-  const IsIterable = FSupport.TryReadSequence(TJSValue.CreateObject(Source), Items);
+  const SourceValue = TJSValue.CreateObject(Source);
+  const IsIterable = FSupport.TryReadSequence(SourceValue, Items);
   if IsIterable then
   begin
     Result := CreateFromList(Kind, Items, Prototype);
@@ -443,7 +428,8 @@ function TJSTypedArrayBuiltins.OfStatic(const This: IJSObject; const Args: TArra
 begin
   const Constructor_ = RequireConstructor(This);
 
-  const Created = CreateFromConstructor(Constructor_, [TJSValue.CreateNumber(Length(Args))], OF_NAME);
+  const CountArguments: TArray<TJSValue> = [TJSValue.CreateNumber(Length(Args))];
+  const Created = CreateFromConstructor(Constructor_, CountArguments, OF_NAME);
   for var Index := 0 to Length(Args) - 1 do
   begin
     Created.StoreConvertedValue(Index, Args[Index]);
@@ -480,7 +466,9 @@ end;
 
 function TJSTypedArrayBuiltins.CreateConcreteConstructor(const Kind: TJSElementKind): IJSFunction;
 begin
-  Result := FSupport.CreateConstructor(Kind.ConstructorName, 3, Format(CONSTRUCTOR_REQUIRES_NEW, [Kind.ConstructorName]),
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [Kind.ConstructorName]);
+
+  Result := FSupport.CreateConstructor(Kind.ConstructorName, 3, RequiresNewMessage,
     function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
       Result := Construct(Kind, Args, NewTarget);
@@ -503,7 +491,8 @@ begin
   FSupport.DefineConstant(Constructor_, BYTES_PER_ELEMENT, BytesPerElement);
   FSupport.DefineConstant(Prototype, BYTES_PER_ELEMENT, BytesPerElement);
 
-  FSupport.Interpreter.SetGlobalVariable(Kind.ConstructorName, TJSValue.CreateObject(Constructor_));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  FSupport.Interpreter.SetGlobalVariable(Kind.ConstructorName, ConstructorValue);
 end;
 
 procedure TJSTypedArrayBuiltins.Register;

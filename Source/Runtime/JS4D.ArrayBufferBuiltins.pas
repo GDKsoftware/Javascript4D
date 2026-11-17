@@ -45,9 +45,6 @@ type
 
     procedure Register;
     function CreateBuffer(const ByteLength: Int64): IJSArrayBuffer;
-
-    property Prototype: IJSObject read FPrototype;
-    property Constructor_: IJSFunction read FConstructor;
   end;
 
 implementation

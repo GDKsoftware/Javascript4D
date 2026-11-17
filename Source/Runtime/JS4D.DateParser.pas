@@ -60,24 +60,25 @@ uses
   JS4D.DateMath;
 
 const
-  MONTH_NAMES: array[0..11] of string = ('jan', 'feb', 'mar', 'apr', 'may', 'jun',
-                                        'jul', 'aug', 'sep', 'oct', 'nov', 'dec');
-  WEEK_DAY_NAMES: array[0..6] of string = ('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat');
   NAME_LENGTH = 3;
   YEAR_DIGITS_PLAIN = 4;
   YEAR_DIGITS_EXTENDED = 6;
   TWO_DIGITS = 2;
   MAX_HOUR = 24;
   MAX_MINUTE_OR_SECOND = 59;
-  MINUTES_PER_HOUR = 60;
   OFFSET_DIGITS = 4;
-  UTC_LABELS: array[0..2] of string = ('GMT', 'UTC', 'Z');
+  OFFSET_HOUR_DIVISOR = 100;
+  UTC_DESIGNATOR = 'Z';
+  UTC_LABELS: array[0..2] of string = ('GMT', 'UTC', UTC_DESIGNATOR);
+  TIME_DESIGNATOR = 'T';
+  FRACTION_SEPARATOR = '.';
   COMMENT_START = '(';
   FRACTION_DIGITS_KEPT = 3;
   MIN_DAY = 1;
   DECIMAL_BASE = 10;
   TIME_SEPARATOR = ':';
-  DATE_SEPARATOR = '-';
+  MINUS_SIGN = '-';
+  DATE_SEPARATOR = MINUS_SIGN;
   ZERO_DIGIT = '0';
   SIGN_CHARS: TSysCharSet = ['+', '-'];
   DIGIT_CHARS: TSysCharSet = ['0'..'9'];
@@ -182,7 +183,7 @@ begin
   const HasExtendedYear = (not IsAtEnd) and CharInSet(FText[FPosition], SIGN_CHARS);
   if HasExtendedYear then
   begin
-    if FText[FPosition] = DATE_SEPARATOR then
+    if FText[FPosition] = MINUS_SIGN then
       Sign := -1;
 
     Inc(FPosition);
@@ -228,7 +229,7 @@ begin
   begin
     Result := TryReadDigits(TWO_DIGITS, FSecond);
 
-    const HasFraction = Result and TryConsume('.');
+    const HasFraction = Result and TryConsume(FRACTION_SEPARATOR);
     if HasFraction then
       Result := TryReadFraction(FMillisecond);
   end;
@@ -238,7 +239,7 @@ function TJSDateParser.TryReadIsoOffset: Boolean;
 begin
   Result := True;
 
-  if TryConsume('Z') then
+  if TryConsume(UTC_DESIGNATOR) then
   begin
     FHasOffset := True;
     Exit;
@@ -248,7 +249,8 @@ begin
   if not HasSign then
     Exit;
 
-  const Sign = IfThen(FText[FPosition] = '-', -1, 1);
+  const IsNegativeOffset = (FText[FPosition] = MINUS_SIGN);
+  const Sign = IfThen(IsNegativeOffset, -1, 1);
   Inc(FPosition);
 
   var Hours := 0;
@@ -256,7 +258,7 @@ begin
   Result := TryReadDigits(TWO_DIGITS, Hours) and TryConsume(TIME_SEPARATOR) and TryReadDigits(TWO_DIGITS, Minutes);
   FHasOffset := True;
   if Result then
-    FOffsetMinutes := Sign * ((Hours * MINUTES_PER_HOUR) + Minutes);
+    FOffsetMinutes := Sign * ((Hours * TJSDateMath.MINUTES_PER_HOUR) + Minutes);
 end;
 
 function TJSDateParser.TryParseIso: Boolean;
@@ -265,7 +267,7 @@ begin
   if not Result then
     Exit;
 
-  if TryConsume('T') then
+  if TryConsume(TIME_DESIGNATOR) then
   begin
     Result := TryReadIsoTime and TryReadIsoOffset;
   end;
@@ -294,7 +296,8 @@ begin
   const Prefix = Token.Substring(0, NAME_LENGTH).ToLower;
   for var Index := 0 to High(Names) do
   begin
-    if Names[Index] = Prefix then
+    const NameMatches = (Names[Index].ToLower = Prefix);
+    if NameMatches then
       Exit(Index);
   end;
 end;
@@ -314,7 +317,7 @@ begin
   if HasSign then
   begin
     Start := 2;
-    if Token[1] = DATE_SEPARATOR then
+    if Token[1] = MINUS_SIGN then
       Sign := -1;
   end;
 
@@ -340,7 +343,7 @@ begin
   const SecondToken = Tokens[FTokenIndex + 1];
   const YearToken = Tokens[FTokenIndex + 2];
 
-  const MonthFirst = (IndexOfName(MONTH_NAMES, FirstToken) >= 0);
+  const MonthFirst = (IndexOfName(TJSDateMath.MONTH_NAMES, FirstToken) >= 0);
   var DayToken := FirstToken;
   var MonthToken := SecondToken;
   if MonthFirst then
@@ -350,7 +353,7 @@ begin
   end;
 
   var YearNumber := 0;
-  FMonth := IndexOfName(MONTH_NAMES, MonthToken);
+  FMonth := IndexOfName(TJSDateMath.MONTH_NAMES, MonthToken);
   Result := (FMonth >= 0) and TryParseInteger(DayToken, FDay) and TryParseInteger(YearToken, YearNumber);
   if not Result then
     Exit;
@@ -361,11 +364,13 @@ end;
 
 function TJSDateParser.TryReadLegacyTime(const Token: string): Boolean;
 begin
-  const Parts = Token.Split([':']);
-  const HasValidShape = (Length(Parts) = 2) or (Length(Parts) = 3);
+  const Parts = Token.Split([TIME_SEPARATOR]);
+  const PartCount = Length(Parts);
+  const HasSecondsPart = (PartCount = 3);
+  const HasValidShape = (PartCount = 2) or HasSecondsPart;
   Result := HasValidShape and TryParseInteger(Parts[0], FHour) and TryParseInteger(Parts[1], FMinute);
 
-  const HasSeconds = Result and (Length(Parts) = 3);
+  const HasSeconds = Result and HasSecondsPart;
   if HasSeconds then
     Result := TryParseInteger(Parts[2], FSecond);
 end;
@@ -390,7 +395,10 @@ begin
       Exit(False);
 
     const Sign = IfThen(Signed < 0, -1, 1);
-    FOffsetMinutes := Sign * (((Abs(Signed) div 100) * MINUTES_PER_HOUR) + (Abs(Signed) mod 100));
+    const Magnitude = Abs(Signed);
+    const Hours = Magnitude div OFFSET_HOUR_DIVISOR;
+    const Minutes = Magnitude mod OFFSET_HOUR_DIVISOR;
+    FOffsetMinutes := Sign * ((Hours * TJSDateMath.MINUTES_PER_HOUR) + Minutes);
     Exit(True);
   end;
 end;
@@ -402,7 +410,8 @@ begin
   FIsLocalTime := True;
 
   FTokenIndex := 0;
-  const HasWeekDay = (Length(Tokens) > 0) and (IndexOfName(WEEK_DAY_NAMES, Tokens[0]) >= 0);
+  const HasTokens = (Length(Tokens) > 0);
+  const HasWeekDay = HasTokens and (IndexOfName(TJSDateMath.WEEK_DAY_NAMES, Tokens[0]) >= 0);
   if HasWeekDay then
     Inc(FTokenIndex);
 
@@ -428,9 +437,13 @@ end;
 
 function TJSDateParser.IsValidDate: Boolean;
 begin
-  const IsMonthValid = (FMonth >= 0) and (FMonth < 12);
+  const IsMonthValid = (FMonth >= 0) and (FMonth < TJSDateMath.MONTHS_PER_YEAR);
+  if not IsMonthValid then
+    Exit(False);
 
-  Result := IsMonthValid and (FDay >= MIN_DAY) and (FDay <= TJSDateMath.DaysInMonth(FYear, FMonth));
+  const LastDay = TJSDateMath.DaysInMonth(FYear, FMonth);
+
+  Result := (FDay >= MIN_DAY) and (FDay <= LastDay);
 end;
 
 function TJSDateParser.IsValidTime: Boolean;
