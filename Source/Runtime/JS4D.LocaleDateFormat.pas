@@ -284,7 +284,8 @@ begin
   case Style of
     TJSDateFieldStyle.Long   : Result := Locale.WeekdaysLong[Weekday];
     TJSDateFieldStyle.Narrow : Result := Locale.WeekdaysNarrow.Substring(Weekday, 1);
-    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.WeekdaysShortStandalone[Weekday], Locale.WeekdaysShort[Weekday]);
+    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.WeekdaysShortStandalone[Weekday],
+                                                Locale.WeekdaysShort[Weekday]);
   else
     raise ENotSupportedException.CreateFmt(UNSUPPORTED_WEEKDAY_STYLE, [Ord(Style)]);
   end;
@@ -296,7 +297,8 @@ begin
   case Style of
     TJSDateFieldStyle.Long   : Result := Locale.MonthsLong[Month];
     TJSDateFieldStyle.Narrow : Result := Locale.MonthsNarrow.Substring(Month, 1);
-    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.MonthsShortStandalone[Month], Locale.MonthsShort[Month]);
+    TJSDateFieldStyle.Short  : Result := IfThen(IsStandalone, Locale.MonthsShortStandalone[Month],
+                                                Locale.MonthsShort[Month]);
   else
     raise ENotSupportedException.CreateFmt(UNSUPPORTED_MONTH_STYLE, [Ord(Style)]);
   end;

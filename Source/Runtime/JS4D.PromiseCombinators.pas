@@ -162,7 +162,7 @@ procedure TJSPromiseCombinators.Perform(const Kind: TJSCombinatorKind; const Con
 begin
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  const IsIterable = FInterpreter.OpenSequenceReader(Iterable, Reader, Closer);
+  const IsIterable = FInterpreter.TryOpenSequenceReader(Iterable, Reader, Closer);
   if not IsIterable then
     raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 

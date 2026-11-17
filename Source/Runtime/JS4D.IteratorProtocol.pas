@@ -10,6 +10,7 @@ uses
   JS4D.PropertyNames,
   JS4D.Types,
   JS4D.ArrayObject,
+  JS4D.ControlFlow,
   JS4D.Errors;
 
 type
@@ -175,11 +176,9 @@ begin
   except
     on EJSExecutionInterrupted do
       raise;
-    on EOutOfMemory do
-      raise;
-    on EAccessViolation do
-      raise;
-    on Exception do
+    on EJSException do
+      Exit;
+    on TJSThrowSignal do
       Exit;
   end;
 end;

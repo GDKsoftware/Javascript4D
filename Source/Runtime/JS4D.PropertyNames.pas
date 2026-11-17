@@ -13,6 +13,7 @@ const
   ERRORS_PROPERTY = 'errors';
   FUNCTION_NAME = 'Function';
   ANONYMOUS_NAME = 'anonymous';
+  EMPTY_TEXT = '';
   NEXT_PROPERTY = 'next';
   DONE_PROPERTY = 'done';
   VALUE_PROPERTY = 'value';

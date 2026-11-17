@@ -76,7 +76,10 @@ type
       MONTH_STYLES: array[0..4] of string = (NAME_NUMERIC, NAME_TWO_DIGIT, NAME_LONG, NAME_SHORT, NAME_NARROW);
       NUMBER_STYLES: array[0..3] of string = (NAME_DECIMAL, NAME_PERCENT, NAME_CURRENCY, NAME_UNIT);
       CURRENCY_DISPLAYS: array[0..3] of string = (NAME_CODE, NAME_SYMBOL, NAME_NARROW_SYMBOL, NAME_NAME);
-      HOUR_CYCLES: array[0..3] of string = (NAME_HOUR_CYCLE_H11, NAME_HOUR_CYCLE_H12, NAME_HOUR_CYCLE_H23, NAME_HOUR_CYCLE_H24);
+      HOUR_CYCLES: array[0..3] of string = (NAME_HOUR_CYCLE_H11, NAME_HOUR_CYCLE_H12,
+                                            NAME_HOUR_CYCLE_H23, NAME_HOUR_CYCLE_H24);
+      DATE_FIELD_STYLE_NAMES: array[TJSDateFieldStyle] of string = ('', NAME_NUMERIC, NAME_TWO_DIGIT, NAME_LONG,
+                                                                    NAME_SHORT, NAME_NARROW);
 
     class function TryResolveLocale(const Locales: TJSValue; out Locale: PJSLocaleDefinition): Boolean; static;
     class function TryResolveLocaleList(const Locales: TJSValue; out Locale: PJSLocaleDefinition): Boolean; static;
@@ -177,13 +180,15 @@ class function TJSLocaleArguments.ChoiceOption(const Request: TJSLocaleRequest; 
                                                const Choices: array of string; const Scope: string): string;
 begin
   const Value = OptionValue(Request, Name);
-  if Value.IsUndefined then
+  const IsSpecified = (not Value.IsUndefined);
+  if not IsSpecified then
     Exit('');
 
   Result := Value.ToString;
   for var Choice in Choices do
   begin
-    if Choice = Result then
+    const IsChoice = (Choice = Result);
+    if IsChoice then
       Exit;
   end;
 
@@ -196,7 +201,8 @@ class function TJSLocaleArguments.DigitsOption(const Request: TJSLocaleRequest; 
                                                const Minimum: Integer; const Maximum: Integer): Integer;
 begin
   const Value = OptionValue(Request, Name);
-  if Value.IsUndefined then
+  const IsSpecified = (not Value.IsUndefined);
+  if not IsSpecified then
     Exit(UNSPECIFIED_DIGITS);
 
   const Number = Value.ToNumber;
@@ -226,10 +232,12 @@ class function TJSLocaleArguments.ReadStyle(const Request: TJSLocaleRequest): TJ
 begin
   const StyleName = ChoiceOption(Request, NAME_STYLE_OPTION, NUMBER_STYLES, NUMBER_SCOPE);
 
-  if StyleName = NAME_PERCENT then
+  const IsPercent = (StyleName = NAME_PERCENT);
+  if IsPercent then
     Exit(TJSNumberStyle.Percent);
 
-  if StyleName = NAME_CURRENCY then
+  const IsCurrency = (StyleName = NAME_CURRENCY);
+  if IsCurrency then
     Exit(TJSNumberStyle.Currency);
 
   Result := TJSNumberStyle.Decimal;
@@ -238,9 +246,11 @@ end;
 class function TJSLocaleArguments.ReadCurrency(const Request: TJSLocaleRequest; const Style: TJSNumberStyle): string;
 begin
   const Value = OptionValue(Request, NAME_CURRENCY);
-  if Value.IsUndefined then
+  const IsSpecified = (not Value.IsUndefined);
+  if not IsSpecified then
   begin
-    if Style = TJSNumberStyle.Currency then
+    const IsCurrencyStyle = (Style = TJSNumberStyle.Currency);
+    if IsCurrencyStyle then
       raise TJSErrorFactory.TypeError(CURRENCY_REQUIRED);
 
     Exit('');
@@ -262,7 +272,8 @@ class function TJSLocaleArguments.ReadCurrencyDisplay(const Request: TJSLocaleRe
 begin
   const DisplayName = ChoiceOption(Request, NAME_CURRENCY_DISPLAY_OPTION, CURRENCY_DISPLAYS, NUMBER_SCOPE);
 
-  if DisplayName = NAME_CODE then
+  const IsCode = (DisplayName = NAME_CODE);
+  if IsCode then
     Exit(TJSCurrencyDisplay.Code);
 
   Result := TJSCurrencyDisplay.Symbol;
@@ -286,32 +297,17 @@ begin
   const HasMinimum = (RequestedMinimum <> UNSPECIFIED_DIGITS);
   const HasMaximum = (RequestedMaximum <> UNSPECIFIED_DIGITS);
 
-  Result.Minimum := Defaults.Minimum;
-  Result.Maximum := Defaults.Maximum;
-
-  if HasMinimum then
+  const IsRangeInverted = (HasMinimum and HasMaximum and (RequestedMinimum > RequestedMaximum));
+  if IsRangeInverted then
   begin
-    Result.Minimum := RequestedMinimum;
-    Result.Maximum := Max(Defaults.Maximum, RequestedMinimum);
+    const Message = Format(VALUE_OUT_OF_RANGE, [NAME_MAXIMUM_FRACTION_DIGITS_OPTION]);
+    raise TJSErrorFactory.RangeError(Message);
   end;
 
-  if HasMaximum then
-  begin
-    Result.Maximum := RequestedMaximum;
-    Result.Minimum := Min(Defaults.Minimum, RequestedMaximum);
-  end;
-
-  if HasMinimum and HasMaximum then
-  begin
-    Result.Minimum := RequestedMinimum;
-
-    const IsRangeInverted = (RequestedMinimum > RequestedMaximum);
-    if IsRangeInverted then
-    begin
-      const Message = Format(VALUE_OUT_OF_RANGE, [NAME_MAXIMUM_FRACTION_DIGITS_OPTION]);
-      raise TJSErrorFactory.RangeError(Message);
-    end;
-  end;
+  Result.Minimum := IfThen(HasMinimum, RequestedMinimum, IfThen(HasMaximum, Min(Defaults.Minimum, RequestedMaximum),
+                                                                Defaults.Minimum));
+  Result.Maximum := IfThen(HasMaximum, RequestedMaximum, IfThen(HasMinimum, Max(Defaults.Maximum, RequestedMinimum),
+                                                                Defaults.Maximum));
 end;
 
 class function TJSLocaleArguments.ReadNumberOptions(const Request: TJSLocaleRequest): TJSNumberFormatOptions;
@@ -333,20 +329,12 @@ end;
 
 class function TJSLocaleArguments.StyleFromName(const Name: string): TJSDateFieldStyle;
 begin
-  if Name = NAME_NUMERIC then
-    Exit(TJSDateFieldStyle.Numeric);
-
-  if Name = NAME_TWO_DIGIT then
-    Exit(TJSDateFieldStyle.TwoDigit);
-
-  if Name = NAME_LONG then
-    Exit(TJSDateFieldStyle.Long);
-
-  if Name = NAME_SHORT then
-    Exit(TJSDateFieldStyle.Short);
-
-  if Name = NAME_NARROW then
-    Exit(TJSDateFieldStyle.Narrow);
+  for var Style := TJSDateFieldStyle.Numeric to High(TJSDateFieldStyle) do
+  begin
+    const IsNamed = (DATE_FIELD_STYLE_NAMES[Style] = Name);
+    if IsNamed then
+      Exit(Style);
+  end;
 
   Result := TJSDateFieldStyle.None;
 end;
@@ -362,19 +350,23 @@ end;
 class function TJSLocaleArguments.ReadHourCycle(const Request: TJSLocaleRequest): TJSHourCycle;
 begin
   const HourFormatOption = OptionValue(Request, NAME_HOUR12_OPTION);
-  if not HourFormatOption.IsUndefined then
+  const IsHourFormatGiven = (not HourFormatOption.IsUndefined);
+  if IsHourFormatGiven then
   begin
-    if HourFormatOption.ToBoolean then
+    const IsTwelveHour = HourFormatOption.ToBoolean;
+    if IsTwelveHour then
       Exit(TJSHourCycle.Twelve);
 
     Exit(TJSHourCycle.TwentyFour);
   end;
 
   const CycleName = ChoiceOption(Request, NAME_HOUR_CYCLE_OPTION, HOUR_CYCLES, DATE_SCOPE);
-  if (CycleName = NAME_HOUR_CYCLE_H11) or (CycleName = NAME_HOUR_CYCLE_H12) then
+  const IsTwelveHourCycle = ((CycleName = NAME_HOUR_CYCLE_H11) or (CycleName = NAME_HOUR_CYCLE_H12));
+  if IsTwelveHourCycle then
     Exit(TJSHourCycle.Twelve);
 
-  if (CycleName = NAME_HOUR_CYCLE_H23) or (CycleName = NAME_HOUR_CYCLE_H24) then
+  const IsTwentyFourHourCycle = ((CycleName = NAME_HOUR_CYCLE_H23) or (CycleName = NAME_HOUR_CYCLE_H24));
+  if IsTwentyFourHourCycle then
     Exit(TJSHourCycle.TwentyFour);
 
   Result := TJSHourCycle.LocaleDefault;
@@ -395,7 +387,8 @@ end;
 class function TJSLocaleArguments.UsesUtcZone(const Request: TJSLocaleRequest): Boolean;
 begin
   const Zone = OptionValue(Request, NAME_TIME_ZONE_OPTION);
-  if Zone.IsUndefined then
+  const IsZoneGiven = (not Zone.IsUndefined);
+  if not IsZoneGiven then
     Exit(False);
 
   const ZoneName = Zone.ToString;

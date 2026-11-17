@@ -80,6 +80,7 @@ implementation
 
 uses
   JS4D.Conversions,
+  JS4D.ObjectOperations,
   JS4D.ArrayLike,
   System.Math,
   System.Diagnostics,
@@ -116,11 +117,7 @@ end;
 
 class procedure TJSNumericBuiltins.DefineConstant(const Target: IJSObject; const Name: string; const Value: Double);
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateNumber(Value));
-  Descriptor.Writable := False;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := False;
-  Target.DefineProperty(Name, Descriptor);
+  TJSObjectOperations.DefineConstantData(Target, Name, TJSValue.CreateNumber(Value));
 end;
 
 class procedure TJSNumericBuiltins.DefineUnaryMath(const MathObject: IJSObject; const Name: string;

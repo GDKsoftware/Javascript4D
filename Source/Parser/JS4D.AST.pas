@@ -988,7 +988,8 @@ type
     procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
-    constructor Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression; const Body: TJSStatement);
+    constructor Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression;
+                       const Body: TJSStatement);
     destructor Destroy; override;
 
     property Init: TJSASTNode read FInit;
@@ -1140,7 +1141,8 @@ type
     procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
-    constructor Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause; const Finalizer: TJSBlockStatement);
+    constructor Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause;
+                       const Finalizer: TJSBlockStatement);
     destructor Destroy; override;
 
     property Block: TJSBlockStatement read FBlock;
@@ -1701,7 +1703,8 @@ end;
 
 { TJSBinaryExpression }
 
-constructor TJSBinaryExpression.Create(const Op: TJSBinaryOperator; const Left: TJSExpression; const Right: TJSExpression);
+constructor TJSBinaryExpression.Create(const Op: TJSBinaryOperator; const Left: TJSExpression;
+                                       const Right: TJSExpression);
 begin
   inherited Create(TJSASTNodeType.BinaryExpression);
   FOperator := Op;
@@ -1730,7 +1733,8 @@ end;
 
 { TJSLogicalExpression }
 
-constructor TJSLogicalExpression.Create(const Op: TJSLogicalOperator; const Left: TJSExpression; const Right: TJSExpression);
+constructor TJSLogicalExpression.Create(const Op: TJSLogicalOperator; const Left: TJSExpression;
+                                        const Right: TJSExpression);
 begin
   inherited Create(TJSASTNodeType.LogicalExpression);
   FOperator := Op;
@@ -1759,7 +1763,8 @@ end;
 
 { TJSAssignmentExpression }
 
-constructor TJSAssignmentExpression.Create(const Op: TJSAssignmentOperator; const Left: TJSExpression; const Right: TJSExpression);
+constructor TJSAssignmentExpression.Create(const Op: TJSAssignmentOperator; const Left: TJSExpression;
+                                           const Right: TJSExpression);
 begin
   inherited Create(TJSASTNodeType.AssignmentExpression);
   FOperator := Op;
@@ -1794,7 +1799,8 @@ end;
 
 { TJSUpdateExpression }
 
-constructor TJSUpdateExpression.Create(const Op: TJSUpdateOperator; const Argument: TJSExpression; const Prefix: Boolean);
+constructor TJSUpdateExpression.Create(const Op: TJSUpdateOperator; const Argument: TJSExpression;
+                                       const Prefix: Boolean);
 begin
   inherited Create(TJSASTNodeType.UpdateExpression);
   FOperator := Op;
@@ -1815,7 +1821,8 @@ end;
 
 { TJSConditionalExpression }
 
-constructor TJSConditionalExpression.Create(const Test: TJSExpression; const Consequent: TJSExpression; const Alternate: TJSExpression);
+constructor TJSConditionalExpression.Create(const Test: TJSExpression; const Consequent: TJSExpression;
+                                            const Alternate: TJSExpression);
 begin
   inherited Create(TJSASTNodeType.ConditionalExpression);
   FTest := Test;
@@ -2168,7 +2175,8 @@ end;
 
 { TJSIfStatement }
 
-constructor TJSIfStatement.Create(const Test: TJSExpression; const Consequent: TJSStatement; const Alternate: TJSStatement);
+constructor TJSIfStatement.Create(const Test: TJSExpression; const Consequent: TJSStatement;
+                                  const Alternate: TJSStatement);
 begin
   inherited Create(TJSASTNodeType.IfStatement);
   FTest := Test;
@@ -2259,7 +2267,8 @@ end;
 
 { TJSForStatement }
 
-constructor TJSForStatement.Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression; const Body: TJSStatement);
+constructor TJSForStatement.Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression;
+                                   const Body: TJSStatement);
 begin
   inherited Create(TJSASTNodeType.ForStatement);
   FInit := Init;
@@ -2476,7 +2485,8 @@ end;
 
 { TJSTryStatement }
 
-constructor TJSTryStatement.Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause; const Finalizer: TJSBlockStatement);
+constructor TJSTryStatement.Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause;
+                                   const Finalizer: TJSBlockStatement);
 begin
   inherited Create(TJSASTNodeType.TryStatement);
   FBlock := Block;

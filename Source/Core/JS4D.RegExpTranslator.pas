@@ -203,8 +203,9 @@ begin
   if not IsLowSurrogate then
     Exit(False);
 
-  Escape.CodePoint := FIRST_SUPPLEMENTARY_CODE_POINT + ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS) +
-                      (Low - LOW_SURROGATE_FIRST);
+  const HighPayload = ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS);
+  const LowPayload = (Low - LOW_SURROGATE_FIRST);
+  Escape.CodePoint := FIRST_SUPPLEMENTARY_CODE_POINT + HighPayload + LowPayload;
   Escape.EscapeLength := SURROGATE_PAIR_ESCAPE_LENGTH;
   Result := True;
 end;

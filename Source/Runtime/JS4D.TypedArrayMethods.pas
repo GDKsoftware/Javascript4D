@@ -890,7 +890,8 @@ begin
   end;
 end;
 
-function TJSTypedArrayMethods.SortValues(const Values: TArray<Double>; const Comparer: TJSElementComparer): TArray<Double>;
+function TJSTypedArrayMethods.SortValues(const Values: TArray<Double>;
+                                         const Comparer: TJSElementComparer): TArray<Double>;
 begin
   try
     const Sorter = TJSDoubleMergeSorter.Create(Values, Comparer);

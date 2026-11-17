@@ -50,8 +50,6 @@ type
 
     class function ArrayIntrinsicRole(const MethodName: string): TJSIntrinsicRole; static;
     class function IsValidArrayLength(const Value: Double): Boolean; static;
-    class procedure DefineHiddenProperty(const Target: IJSObject; const Name: string;
-                                         const Value: TJSValue); static;
     class procedure DefineFunction(const Target: IJSObject; const Name: string;
                                    const Native: TNativeFunction); static;
 
@@ -223,6 +221,7 @@ uses
   JS4D.ObjectOperations,
   JS4D.ObjectStatics,
   JS4D.Conversions,
+  JS4D.ParserRules,
   JS4D.MathFunctions,
   JS4D.SymbolBuiltins,
   JS4D.IteratorBuiltins,
@@ -248,7 +247,6 @@ const
   CONSOLE_INFO = 'info';
   CONSOLE_NAME = 'console';
   CONSOLE_ARGUMENT_SEPARATOR = ' ';
-  EMPTY_TEXT = '';
   MATH_NAME = 'Math';
   OBJECT_NAME = 'Object';
   REGEXP_NAME = 'RegExp';
@@ -263,7 +261,6 @@ const
   FUNCTION_APPLY = 'apply';
   FUNCTION_BIND = 'bind';
   FUNCTION_CALLER = 'caller';
-  FUNCTION_ARGUMENTS = 'arguments';
   NOT_CALLED_ON_FUNCTION = 'Function.prototype.%s called on a value that is not a function';
   NOT_CALLED_ON_ARRAY = 'Array.prototype.%s called on a value that is not an array';
   NOT_CALLED_ON_OBJECT = 'Object.prototype.%s called on undefined or null';
@@ -315,14 +312,6 @@ begin
   const IsWholeNumber = TJSMathFunctions.IsInteger(Value);
 
   Result := (IsWholeNumber and (Value >= 0) and (Value <= MAX_ARRAY_LENGTH));
-end;
-
-class procedure TJSEngine.DefineHiddenProperty(const Target: IJSObject; const Name: string;
-                                               const Value: TJSValue);
-begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Enumerable := False;
-  Target.DefineProperty(Name, Descriptor);
 end;
 
 class procedure TJSEngine.DefineFunction(const Target: IJSObject; const Name: string;
@@ -614,7 +603,7 @@ begin
   RegisterUriFunction(DECODE_URI_COMPONENT_NAME, TJSUriCoding.DecodeURIComponent);
 
   const GlobalThisValue = TJSValue.CreateObject(FInterpreter.GlobalObject);
-  DefineHiddenProperty(FInterpreter.GlobalObject, GLOBAL_THIS_NAME, GlobalThisValue);
+  TJSObjectOperations.DefineHiddenData(FInterpreter.GlobalObject, GLOBAL_THIS_NAME, GlobalThisValue);
 end;
 
 procedure TJSEngine.RegisterCoreObjects;
@@ -1241,7 +1230,7 @@ begin
 
   const NextFunction = TJSFunction.CreateNative(ITERATOR_NEXT, ArrayIteratorNext);
   const NextValue = TJSValue.CreateObject(NextFunction);
-  DefineHiddenProperty(IteratorPrototype, ITERATOR_NEXT, NextValue);
+  TJSObjectOperations.DefineHiddenData(IteratorPrototype, ITERATOR_NEXT, NextValue);
   FArrayIteratorPrototype := IteratorPrototype;
 
   const KeysMethod = CreateArrayIteratorFactory(KEYS_PROPERTY, TJSArrayIteratorKind.Keys, IteratorPrototype);
@@ -1416,8 +1405,8 @@ begin
   const PrototypeObject: IJSObject = TJSObject.Create;
   const NameValue = TJSValue.CreateString(ErrorName);
   const EmptyMessage = TJSValue.CreateString(EMPTY_TEXT);
-  DefineHiddenProperty(PrototypeObject, NAME_PROPERTY, NameValue);
-  DefineHiddenProperty(PrototypeObject, MESSAGE_PROPERTY, EmptyMessage);
+  TJSObjectOperations.DefineHiddenData(PrototypeObject, NAME_PROPERTY, NameValue);
+  TJSObjectOperations.DefineHiddenData(PrototypeObject, MESSAGE_PROPERTY, EmptyMessage);
 
   Result := TJSFunction.CreateNative(ErrorName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1444,7 +1433,7 @@ begin
   if HasMessage then
   begin
     const MessageValue = TJSValue.CreateString(MessageText);
-    DefineHiddenProperty(ErrorInstance, MESSAGE_PROPERTY, MessageValue);
+    TJSObjectOperations.DefineHiddenData(ErrorInstance, MESSAGE_PROPERTY, MessageValue);
   end;
 
   Result := TJSValue.CreateObject(ErrorInstance);
@@ -1583,7 +1572,7 @@ begin
   const Undefined = TJSValue.CreateUndefined;
   const Poison = TJSValue.CreateObject(FInterpreter.ThrowTypeErrorFunction);
 
-  for var PropertyName in [FUNCTION_CALLER, FUNCTION_ARGUMENTS] do
+  for var PropertyName in [FUNCTION_CALLER, ARGUMENTS_NAME] do
   begin
     var Descriptor := TJSPropertyDescriptor.Create(Undefined);
     Descriptor.IsAccessor := True;

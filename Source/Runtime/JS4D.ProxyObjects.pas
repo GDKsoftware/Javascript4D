@@ -132,7 +132,8 @@ type
                                         'configurable in the proxy target';
       DEFINE_INCOMPATIBLE = '''defineProperty'' on proxy: trap returned truish for adding property ''%s'' that is ' +
                             'incompatible with the existing property in the proxy target';
-      DEFINE_NON_WRITABLE = '''defineProperty'' on proxy: trap returned truish for defining non-configurable property ' +
+      DEFINE_NON_WRITABLE = '''defineProperty'' on proxy: trap returned truish for defining non-configurable ' +
+                            'property ' +
                             '''%s'' which cannot be non-writable, unless there exists a corresponding ' +
                             'non-configurable, non-writable property in the target';
       HAS_HIDES_NON_CONFIGURABLE = '''has'' on proxy: trap returned falsish for property ''%s'' which exists in the ' +
@@ -141,8 +142,8 @@ type
                                       'target is not extensible';
       GET_VALUE_MISMATCH = '''get'' on proxy: property ''%s'' is a read-only and non-configurable data property on ' +
                            'the proxy target but the proxy did not return its actual value';
-      GET_ACCESSOR_MISMATCH = '''get'' on proxy: property ''%s'' is a non-configurable accessor property on the proxy ' +
-                              'target and does not have a getter function, but the trap did not return ''undefined''';
+      GET_ACCESSOR_MISMATCH = '''get'' on proxy: property ''%s'' is a non-configurable accessor property on the ' +
+                              'proxy target and does not have a getter function, but the trap did not return ''undefined''';
       SET_VALUE_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy ' +
                            'target as a non-configurable and non-writable data property with a different value';
       SET_ACCESSOR_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy ' +
@@ -196,7 +197,8 @@ type
     function ReadKeyList(const Source: TJSValue): TArray<TJSPropertyKey>;
     procedure CheckOwnKeys(const Keys: TArray<TJSPropertyKey>);
     procedure CheckOwnKeysAgainstTarget(const Subject: IJSObject; const Keys: TArray<TJSPropertyKey>);
-    procedure RequireDescriptorMatches(const Subject: IJSObject; const Name: TJSPropertyKey; const Completed: TJSPropertyDescriptor;
+    procedure RequireDescriptorMatches(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                       const Completed: TJSPropertyDescriptor;
                                        const Definition: TJSPropertyDefinition);
 
   public
@@ -808,7 +810,8 @@ begin
   Result := SetPrototypeOf(Prototype);
 end;
 
-procedure TJSProxyCore.RequireDescriptorMatches(const Subject: IJSObject; const Name: TJSPropertyKey; const Completed: TJSPropertyDescriptor;
+procedure TJSProxyCore.RequireDescriptorMatches(const Subject: IJSObject; const Name: TJSPropertyKey;
+                                                const Completed: TJSPropertyDescriptor;
                                                 const Definition: TJSPropertyDefinition);
 begin
   var TargetDescriptor: TJSPropertyDescriptor;

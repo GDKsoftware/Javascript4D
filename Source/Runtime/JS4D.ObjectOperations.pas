@@ -40,7 +40,7 @@ type
                                  const Value: TJSValue; const Receiver: TJSValue): Boolean; static;
 
   public
-    class function AsProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean; static;
+    class function TryGetProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean; static;
     class function IsProxy(const Target: IJSObject): Boolean; static;
     class function KeyToValue(const Key: TJSPropertyKey): TJSValue; static;
     class function TryGetOwnProperty(const Target: IJSObject; const Name: TJSPropertyKey;
@@ -51,6 +51,10 @@ type
                                    const Receiver: TJSValue): Boolean; static;
     class function CreateDataProperty(const Target: IJSObject; const Name: TJSPropertyKey;
                                       const Value: TJSValue): Boolean; static;
+    class procedure DefineHiddenData(const Target: IJSObject; const Name: TJSPropertyKey;
+                                     const Value: TJSValue); static;
+    class procedure DefineConstantData(const Target: IJSObject; const Name: TJSPropertyKey;
+                                       const Value: TJSValue); static;
     class function DeleteOwnProperty(const Target: IJSObject; const Name: TJSPropertyKey): Boolean; static;
     class function PreventExtensions(const Target: IJSObject): Boolean; static;
     class function SetPrototypeOf(const Target: IJSObject; const Prototype: IJSObject): Boolean; static;
@@ -62,7 +66,7 @@ type
 
 implementation
 
-class function TJSObjectOperations.AsProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean;
+class function TJSObjectOperations.TryGetProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean;
 begin
   Result := Assigned(Target) and Supports(Target, IJSProxy, Proxy);
 end;
@@ -71,7 +75,7 @@ class function TJSObjectOperations.IsProxy(const Target: IJSObject): Boolean;
 begin
   var Proxy: IJSProxy;
 
-  Result := AsProxy(Target, Proxy);
+  Result := TryGetProxy(Target, Proxy);
 end;
 
 class function TJSObjectOperations.KeyToValue(const Key: TJSPropertyKey): TJSValue;
@@ -93,7 +97,7 @@ class function TJSObjectOperations.TryGetOwnProperty(const Target: IJSObject; co
                                                      out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   var Proxy: IJSProxy;
-  if AsProxy(Target, Proxy) then
+  if TryGetProxy(Target, Proxy) then
   begin
     Result := Proxy.TryGetOwnProperty(Name, Descriptor);
     Exit;
@@ -111,7 +115,7 @@ begin
   while Assigned(Current) do
   begin
     var Proxy: IJSProxy;
-    if AsProxy(Current, Proxy) then
+    if TryGetProxy(Current, Proxy) then
     begin
       Result := Proxy.GetWithReceiver(Name, Receiver);
       Exit;
@@ -153,7 +157,7 @@ begin
   while Assigned(Current) do
   begin
     var Proxy: IJSProxy;
-    if AsProxy(Current, Proxy) then
+    if TryGetProxy(Current, Proxy) then
     begin
       Result := Proxy.SetWithReceiver(Name, Value, Receiver);
       Exit;
@@ -220,10 +224,28 @@ begin
   Result := Target.DefineOwnProperty(Name, Definition);
 end;
 
+class procedure TJSObjectOperations.DefineHiddenData(const Target: IJSObject; const Name: TJSPropertyKey;
+                                                     const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Enumerable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
+
+class procedure TJSObjectOperations.DefineConstantData(const Target: IJSObject; const Name: TJSPropertyKey;
+                                                       const Value: TJSValue);
+begin
+  var Descriptor := TJSPropertyDescriptor.Create(Value);
+  Descriptor.Writable := False;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := False;
+  Target.DefineProperty(Name, Descriptor);
+end;
+
 class function TJSObjectOperations.DeleteOwnProperty(const Target: IJSObject; const Name: TJSPropertyKey): Boolean;
 begin
   var Proxy: IJSProxy;
-  if AsProxy(Target, Proxy) then
+  if TryGetProxy(Target, Proxy) then
   begin
     Result := Proxy.DeleteOwnProperty(Name);
     Exit;
@@ -251,7 +273,7 @@ end;
 class function TJSObjectOperations.PreventExtensions(const Target: IJSObject): Boolean;
 begin
   var Proxy: IJSProxy;
-  if AsProxy(Target, Proxy) then
+  if TryGetProxy(Target, Proxy) then
     Exit(Proxy.TryPreventExtensions);
 
   Target.PreventExtensions;
@@ -261,7 +283,7 @@ end;
 class function TJSObjectOperations.SetPrototypeOf(const Target: IJSObject; const Prototype: IJSObject): Boolean;
 begin
   var Proxy: IJSProxy;
-  if AsProxy(Target, Proxy) then
+  if TryGetProxy(Target, Proxy) then
   begin
     Result := Proxy.TrySetPrototype(Prototype);
     Exit;
@@ -282,7 +304,7 @@ begin
     if (Ancestor as IInterface) = (Target as IInterface) then
       Exit(False);
 
-    if AsProxy(Ancestor, Proxy) then
+    if TryGetProxy(Ancestor, Proxy) then
       Break;
 
     Ancestor := Ancestor.Prototype;
@@ -295,7 +317,7 @@ end;
 class function TJSObjectOperations.OwnKeys(const Target: IJSObject): TArray<TJSPropertyKey>;
 begin
   var Proxy: IJSProxy;
-  if AsProxy(Target, Proxy) then
+  if TryGetProxy(Target, Proxy) then
     Exit(Proxy.OwnKeys);
 
   const Names = Target.GetOwnPropertyNames;
@@ -332,7 +354,7 @@ begin
     Exit(True);
 
   var Proxy: IJSProxy;
-  Result := Value.IsObject and AsProxy(Value.ToObject, Proxy) and Proxy.IsArrayProxy;
+  Result := Value.IsObject and TryGetProxy(Value.ToObject, Proxy) and Proxy.IsArrayProxy;
 end;
 
 end.

@@ -102,7 +102,8 @@ type
     procedure DefinePrototypeProperty(const Func: IJSFunction; const PrototypeObject: IJSObject;
                                       const IsWritable: Boolean); override;
     function FrameFor(const Node: TJSASTNode): TJSStatementFrame; override;
-    procedure InitializeDeclarator(const Node: TJSVariableDeclaration; const Declarator: TJSVariableDeclarator); override;
+    procedure InitializeDeclarator(const Node: TJSVariableDeclaration;
+                                   const Declarator: TJSVariableDeclarator); override;
     procedure RestoreExecutionState(const State: TJSExecutionState); override;
     function StartAsyncFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
                                 const Body: TJSBlockStatement): TJSValue; override;
@@ -111,7 +112,8 @@ type
     function VisitYield(const Node: TJSYieldExpression): TJSValue; override;
     function ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                              const Value: TJSValue): TJSValue; override;
-    function AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode; const Value: TJSValue): TJSBodyResult; override;
+    function AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode;
+                         const Value: TJSValue): TJSBodyResult; override;
   end;
 
 implementation
@@ -547,7 +549,7 @@ end;
 procedure TJSGeneratorEngine.OpenDelegate(const Iterable: TJSValue; const Frame: TJSStatementFrame);
 begin
   var IteratorFunction: IJSFunction;
-  if not FInterpreter.FindIteratorMethod(Iterable, IteratorFunction) then
+  if not FInterpreter.TryFindIteratorMethod(Iterable, IteratorFunction) then
     raise TJSErrorFactory.TypeError(DELEGATE_NOT_ITERABLE);
 
   const IteratorReceiver = FInterpreter.ThisObjectFor(IteratorFunction, Iterable);
@@ -1065,7 +1067,8 @@ begin
   Frame.MoveTo(TJSFrameStage.ForUpdating);
 end;
 
-function TJSGeneratorEngine.EvaluateLoopSubject(const Node: TJSForInStatement; const Frame: TJSStatementFrame): TJSValue;
+function TJSGeneratorEngine.EvaluateLoopSubject(const Node: TJSForInStatement;
+                                                const Frame: TJSStatementFrame): TJSValue;
 begin
   const IsLexical = FInterpreter.IsLexicalDeclaration(Node.Left);
   if not IsLexical then
@@ -1341,7 +1344,7 @@ begin
     end;
 
     const TestValue = EvaluateRemembering(SwitchCase.Test);
-    if FInterpreter.StrictEquals(Frame.Subject, TestValue) then
+    if Frame.Subject.StrictEquals(TestValue) then
     begin
       Frame.MoveTo(TJSFrameStage.SwitchRunning);
       Exit;

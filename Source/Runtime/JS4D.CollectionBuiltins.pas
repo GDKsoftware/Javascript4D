@@ -340,7 +340,7 @@ begin
 
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  if not FInterpreter.OpenSequenceReader(Iterable, Reader, Closer) then
+  if not FInterpreter.TryOpenSequenceReader(Iterable, Reader, Closer) then
     raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 
   var Item: TJSValue;

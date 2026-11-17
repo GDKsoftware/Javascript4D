@@ -46,7 +46,8 @@ type
     class function CurrencyText(const Magnitude: string; const SignText: string; const Locale: PJSLocaleDefinition;
                                 const Options: TJSNumberFormatOptions): string; static;
   public
-    class function DefaultFractionDigits(const Style: TJSNumberStyle; const Currency: string): TJSFractionDigitRange; static;
+    class function DefaultFractionDigits(const Style: TJSNumberStyle;
+                                         const Currency: string): TJSFractionDigitRange; static;
     class function FormatNumber(const Value: Double; const Locale: PJSLocaleDefinition;
                                 const Options: TJSNumberFormatOptions): string; static;
   end;

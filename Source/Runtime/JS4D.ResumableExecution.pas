@@ -52,7 +52,8 @@ type
     procedure DefinePrototypeProperty(const Func: IJSFunction; const PrototypeObject: IJSObject;
                                       const IsWritable: Boolean); virtual; abstract;
     function FrameFor(const Node: TJSASTNode): TJSStatementFrame; virtual; abstract;
-    procedure InitializeDeclarator(const Node: TJSVariableDeclaration; const Declarator: TJSVariableDeclarator); virtual; abstract;
+    procedure InitializeDeclarator(const Node: TJSVariableDeclaration;
+                                   const Declarator: TJSVariableDeclarator); virtual; abstract;
     procedure RestoreExecutionState(const State: TJSExecutionState); virtual; abstract;
     function StartAsyncFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
                                 const Body: TJSBlockStatement): TJSValue; virtual; abstract;
@@ -61,7 +62,8 @@ type
     function VisitYield(const Node: TJSYieldExpression): TJSValue; virtual; abstract;
     function ResumeGenerator(const Generator: TJSGeneratorObject; const Mode: TJSResumeMode;
                              const Value: TJSValue): TJSValue; virtual; abstract;
-    function AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode; const Value: TJSValue): TJSBodyResult; virtual; abstract;
+    function AdvanceBody(const Body: IJSGenerator; const Mode: TJSResumeMode;
+                         const Value: TJSValue): TJSBodyResult; virtual; abstract;
   end;
 
 implementation

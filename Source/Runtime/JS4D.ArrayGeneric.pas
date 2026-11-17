@@ -46,6 +46,7 @@ type
     const
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       UNSUPPORTED_METHOD = 'Unsupported generic array method: %s';
+      EMPTY_RESULT_METHODS = [TGenericMethod.Concat];
       METHODS: array[TGenericMethod] of TGenericMethodInfo = (
         (Name: METHOD_PUSH; CreatesResultArray: False; StoresNewElements: True; AlwaysUsesPropertySemantics: False),
         (Name: METHOD_POP; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
@@ -57,10 +58,13 @@ type
         (Name: JOIN_METHOD; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
         (Name: METHOD_CONCAT; CreatesResultArray: True; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
         (Name: METHOD_SORT; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
-        (Name: TO_STRING_METHOD; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
-        (Name: METHOD_TO_LOCALE_STRING; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: TO_STRING_METHOD; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_TO_LOCALE_STRING; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: False),
         (Name: METHOD_FILL; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: True),
-        (Name: METHOD_COPY_WITHIN; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: True));
+        (Name: METHOD_COPY_WITHIN; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: True));
 
     class function TryFindMethod(const MethodName: string; out Method: TGenericMethod): Boolean; static;
     class function TryResetEmpty(const Target: IJSObject; const Count: Int64): Boolean; static;
@@ -112,6 +116,7 @@ type
     class function Handles(const MethodName: string): Boolean; static;
     class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function StartsEmpty(const MethodName: string): Boolean; static;
     class function StoresNewElements(const MethodName: string): Boolean; static;
     class function ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
                                       const Args: TArray<TJSValue>): Boolean; static;
@@ -158,6 +163,12 @@ begin
   Result := (TryFindMethod(MethodName, Method) and METHODS[Method].CreatesResultArray);
 end;
 
+class function TJSArrayGeneric.StartsEmpty(const MethodName: string): Boolean;
+begin
+  var Method: TGenericMethod;
+  Result := (TryFindMethod(MethodName, Method) and (Method in EMPTY_RESULT_METHODS));
+end;
+
 class function TJSArrayGeneric.StoresNewElements(const MethodName: string): Boolean;
 begin
   var Method: TGenericMethod;
@@ -197,7 +208,7 @@ begin
     Exit(False);
 
   var Proxy: IJSProxy;
-  if TJSObjectOperations.AsProxy(Item.ToObject, Proxy) then
+  if TJSObjectOperations.TryGetProxy(Item.ToObject, Proxy) then
     Exit(True);
 
   const Flag = ReadSpreadableFlag(Item);

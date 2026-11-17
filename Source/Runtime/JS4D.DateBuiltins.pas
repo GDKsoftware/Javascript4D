@@ -49,7 +49,8 @@ type
     class function FormatTime(const Form: TTextForm; const Time: Double): string; static;
     class function HintFromArguments(const Args: TArray<TJSValue>): TJSPrimitiveHint; static;
 
-    function DefineMethod(const Name: string; const ParameterCount: Integer; const Method: TNativeFunction): IJSFunction;
+    function DefineMethod(const Name: string; const ParameterCount: Integer;
+                          const Method: TNativeFunction): IJSFunction;
     function BindGetter(const Field: TDateField; const IsLocal: Boolean): TNativeFunction;
     function BindSetter(const Field: TDateField; const IsLocal: Boolean): TNativeFunction;
     function BindFormatter(const Form: TTextForm): TNativeFunction;

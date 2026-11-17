@@ -203,7 +203,7 @@ begin
 
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  if not FInterpreter.OpenSequenceReader(Source, Reader, Closer) then
+  if not FInterpreter.TryOpenSequenceReader(Source, Reader, Closer) then
     raise TJSErrorFactory.TypeError(NOT_ITERABLE);
 
   const Created: IJSObject = TJSObject.Create;

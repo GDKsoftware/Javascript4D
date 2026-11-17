@@ -75,6 +75,7 @@ uses
   JS4D.ArrayLike,
   JS4D.Conversions,
   JS4D.Errors,
+  JS4D.ObjectOperations,
   JS4D.ArrayStatics,
   JS4D.SymbolRegistry;
 
@@ -163,7 +164,7 @@ begin
 
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  Result := FInterpreter.OpenSequenceReader(Source, Reader, Closer);
+  Result := FInterpreter.TryOpenSequenceReader(Source, Reader, Closer);
   if not Result then
     Exit;
 
@@ -289,11 +290,7 @@ end;
 
 procedure TJSBuiltinSupport.DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Writable := False;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := False;
-  Target.DefineProperty(Key, Descriptor);
+  TJSObjectOperations.DefineConstantData(Target, Key, Value);
 end;
 
 function TJSBuiltinSupport.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey;

@@ -12,12 +12,16 @@ type
   private
     FLine: Integer;
     FColumn: Integer;
+    FBareMessage: string;
 
   public
     constructor Create(const Message: string; const Line: Integer = 0; const Column: Integer = 0);
+    constructor CreatePrefixed(const Prefix: string; const BareMessage: string; const Line: Integer;
+                               const Column: Integer);
 
     property Line: Integer read FLine;
     property Column: Integer read FColumn;
+    property BareMessage: string read FBareMessage;
   end;
 
   EJSSyntaxError = class(EJSException);
@@ -88,16 +92,20 @@ type
 
   TJSErrorFactory = class
   public
-    class function SyntaxError(const Message: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
-    class function ReferenceError(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSReferenceError;
+    class function SyntaxError(const Message: string; const Line: Integer = 0;
+                               const Column: Integer = 0): EJSSyntaxError;
+    class function ReferenceError(const Name: string; const Line: Integer = 0;
+                                  const Column: Integer = 0): EJSReferenceError;
     class function TypeError(const Message: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function RangeError(const Message: string; const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
     class function UnexpectedToken(const Token: string; const Line: Integer; const Column: Integer): EJSSyntaxError;
     class function UnexpectedEndOfInput(const Line: Integer; const Column: Integer): EJSSyntaxError;
     class function InvalidLeftHandSide(const Line: Integer; const Column: Integer): EJSReferenceError;
     class function NotAFunction(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
-    class function NotAConstructor(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
-    class function UndefinedVariable(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSReferenceError;
+    class function NotAConstructor(const Name: string; const Line: Integer = 0;
+                                   const Column: Integer = 0): EJSTypeError;
+    class function UndefinedVariable(const Name: string; const Line: Integer = 0;
+                                     const Column: Integer = 0): EJSReferenceError;
     class function InvalidArrayLength(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
     class function NotCoercibleToObject(const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function StackExhausted(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
@@ -137,6 +145,14 @@ begin
   inherited Create(Message);
   FLine := Line;
   FColumn := Column;
+  FBareMessage := Message;
+end;
+
+constructor EJSException.CreatePrefixed(const Prefix: string; const BareMessage: string; const Line: Integer;
+                                        const Column: Integer);
+begin
+  Create(Prefix + BareMessage, Line, Column);
+  FBareMessage := BareMessage;
 end;
 
 { EJSExecutionCancelled }
@@ -194,24 +210,28 @@ end;
 
 { TJSErrorFactory }
 
-class function TJSErrorFactory.SyntaxError(const Message: string; const Line: Integer; const Column: Integer): EJSSyntaxError;
+class function TJSErrorFactory.SyntaxError(const Message: string; const Line: Integer;
+                                           const Column: Integer): EJSSyntaxError;
 begin
-  Result := EJSSyntaxError.Create(SYNTAX_ERROR_PREFIX + Message, Line, Column);
+  Result := EJSSyntaxError.CreatePrefixed(SYNTAX_ERROR_PREFIX, Message, Line, Column);
 end;
 
-class function TJSErrorFactory.ReferenceError(const Name: string; const Line: Integer; const Column: Integer): EJSReferenceError;
+class function TJSErrorFactory.ReferenceError(const Name: string; const Line: Integer;
+                                              const Column: Integer): EJSReferenceError;
 begin
-  Result := EJSReferenceError.Create(REFERENCE_ERROR_PREFIX + Name, Line, Column);
+  Result := EJSReferenceError.CreatePrefixed(REFERENCE_ERROR_PREFIX, Name, Line, Column);
 end;
 
-class function TJSErrorFactory.TypeError(const Message: string; const Line: Integer; const Column: Integer): EJSTypeError;
+class function TJSErrorFactory.TypeError(const Message: string; const Line: Integer;
+                                         const Column: Integer): EJSTypeError;
 begin
-  Result := EJSTypeError.Create(TYPE_ERROR_PREFIX + Message, Line, Column);
+  Result := EJSTypeError.CreatePrefixed(TYPE_ERROR_PREFIX, Message, Line, Column);
 end;
 
-class function TJSErrorFactory.RangeError(const Message: string; const Line: Integer; const Column: Integer): EJSRangeError;
+class function TJSErrorFactory.RangeError(const Message: string; const Line: Integer;
+                                          const Column: Integer): EJSRangeError;
 begin
-  Result := EJSRangeError.Create(RANGE_ERROR_PREFIX + Message, Line, Column);
+  Result := EJSRangeError.CreatePrefixed(RANGE_ERROR_PREFIX, Message, Line, Column);
 end;
 
 class function TJSErrorFactory.NotCoercibleToObject(const Line: Integer; const Column: Integer): EJSTypeError;
@@ -219,7 +239,8 @@ begin
   Result := TypeError(NOT_COERCIBLE_TO_OBJECT_MESSAGE, Line, Column);
 end;
 
-class function TJSErrorFactory.UnexpectedToken(const Token: string; const Line: Integer; const Column: Integer): EJSSyntaxError;
+class function TJSErrorFactory.UnexpectedToken(const Token: string; const Line: Integer;
+                                               const Column: Integer): EJSSyntaxError;
 begin
   Result := SyntaxError(UNEXPECTED_TOKEN_MESSAGE + Token, Line, Column);
 end;
@@ -234,17 +255,20 @@ begin
   Result := ReferenceError(INVALID_LHS_MESSAGE, Line, Column);
 end;
 
-class function TJSErrorFactory.NotAFunction(const Name: string; const Line: Integer; const Column: Integer): EJSTypeError;
+class function TJSErrorFactory.NotAFunction(const Name: string; const Line: Integer;
+                                            const Column: Integer): EJSTypeError;
 begin
   Result := TypeError(Name + NOT_A_FUNCTION_MESSAGE, Line, Column);
 end;
 
-class function TJSErrorFactory.NotAConstructor(const Name: string; const Line: Integer; const Column: Integer): EJSTypeError;
+class function TJSErrorFactory.NotAConstructor(const Name: string; const Line: Integer;
+                                               const Column: Integer): EJSTypeError;
 begin
   Result := TypeError(Name + NOT_A_CONSTRUCTOR_MESSAGE, Line, Column);
 end;
 
-class function TJSErrorFactory.UndefinedVariable(const Name: string; const Line: Integer; const Column: Integer): EJSReferenceError;
+class function TJSErrorFactory.UndefinedVariable(const Name: string; const Line: Integer;
+                                                 const Column: Integer): EJSReferenceError;
 begin
   Result := ReferenceError(Name + NOT_DEFINED_MESSAGE, Line, Column);
 end;
@@ -261,7 +285,7 @@ end;
 
 class function TJSErrorFactory.MalformedUri: EJSURIError;
 begin
-  Result := EJSURIError.Create(URI_ERROR_PREFIX + MALFORMED_URI_MESSAGE);
+  Result := EJSURIError.CreatePrefixed(URI_ERROR_PREFIX, MALFORMED_URI_MESSAGE, 0, 0);
 end;
 
 class function TJSErrorFactory.InvalidRegExp(const Pattern: string; const Position: TJSSourcePosition): EJSSyntaxError;

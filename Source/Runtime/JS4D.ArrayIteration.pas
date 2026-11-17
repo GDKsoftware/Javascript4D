@@ -60,6 +60,7 @@ type
         (Name: METHOD_FLAT; CreatesResultArray: True),
         (Name: METHOD_FLAT_MAP; CreatesResultArray: True),
         (Name: METHOD_LAST_INDEX_OF; CreatesResultArray: False));
+      EMPTY_RESULT_METHODS = [TIterationMethod.Filter, TIterationMethod.Flat, TIterationMethod.FlatMap];
       UNSUPPORTED_METHOD = 'Unsupported array iteration method: %s';
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
       NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
@@ -128,6 +129,7 @@ type
   public
     class function Handles(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function StartsEmpty(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
                         const Limits: TJSLimits; const BeforeElements: TProc = nil): TJSValue; static;
@@ -161,6 +163,12 @@ class function TJSArrayIteration.CreatesResultArray(const MethodName: string): B
 begin
   var Method: TIterationMethod;
   Result := (TryFindMethod(MethodName, Method) and METHODS[Method].CreatesResultArray);
+end;
+
+class function TJSArrayIteration.StartsEmpty(const MethodName: string): Boolean;
+begin
+  var Method: TIterationMethod;
+  Result := (TryFindMethod(MethodName, Method) and (Method in EMPTY_RESULT_METHODS));
 end;
 
 class function TJSArrayIteration.CallWithCallback(const Method: TIterationMethod; const Target: IJSObject;

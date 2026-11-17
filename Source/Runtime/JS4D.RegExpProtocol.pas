@@ -503,7 +503,9 @@ function TJSRegExpProtocol.TryUseReceiverAsSplitter(const Receiver: IJSObject; c
 begin
   const IsIntrinsicSpecies = Assigned(Species) and
                              ((Species as IInterface) = (FIntrinsicConstructor as IInterface));
-  const HasOnlyLastIndex = (Length(Receiver.GetOwnPropertyNames) = 1) and (Length(Receiver.GetOwnSymbolKeysInCreationOrder) = 0);
+  const OwnNameCount = Length(Receiver.GetOwnPropertyNames);
+  const OwnSymbolCount = Length(Receiver.GetOwnSymbolKeysInCreationOrder);
+  const HasOnlyLastIndex = ((OwnNameCount = 1) and (OwnSymbolCount = 0));
   const IsPristine = IsIntrinsicSpecies and HasOnlyLastIndex and UsesIntrinsicExec(Receiver, Pattern);
   if not IsPristine then
     Exit(False);

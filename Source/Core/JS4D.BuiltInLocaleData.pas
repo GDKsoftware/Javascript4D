@@ -26,11 +26,13 @@ const
     MinusSign: '-';
     CurrencyLayout: TJSCurrencyLayout.SymbolBeforeNumber;
     PercentGap: '';
-    CurrencySymbols: 'EUR='#$20AC'|USD=$|GBP='#$00A3'|JPY='#$00A5'|CAD=CA$|AUD=A$|INR='#$20B9'|CNY=CN'#$00A5'|BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|PHP='#$20B1'|VND='#$20AB;
+    CurrencySymbols: 'EUR='#$20AC'|USD=$|GBP='#$00A3'|JPY='#$00A5'|CAD=CA$|AUD=A$|INR='#$20B9'|CNY=CN'#$00A5'|' +
+      'BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|PHP='#$20B1'|VND='#$20AB;
     Hour12ByDefault: True;
     AmMarker: 'AM';
     PmMarker: 'PM';
-    MonthsLong: ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December');
+    MonthsLong: ('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
+                 'November', 'December');
     MonthsShort: ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
     MonthsShortStandalone: ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
     MonthsNarrow: 'JFMAMJJASOND';
@@ -38,7 +40,8 @@ const
     WeekdaysShort: ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
     WeekdaysShortStandalone: ('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat');
     WeekdaysNarrow: 'SMTWTFS';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=M/d|Mdd=M/dd|MM=MM|MMd=MM/d|MMdd=MM/dd|MMM=MMM|MMMd=MMM d|MMMdd=MMM dd|MMMM=MMM|MMMMd=MMM d' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=M/d|Mdd=M/dd|MM=MM|MMd=MM/d|MMdd=MM/dd|MMM=MMM|MMMd=MMM d|MMMdd=MMM dd|' +
+      'MMMM=MMM|MMMMd=MMM d' +
       '|MMMMdd=MMM dd|y=y|yd=y ([day]: d)|ydd=y ([day]: dd)|yM=M/y|yMd=M/d/y|yMdd=M/dd/y|yMM=MM/y|yMMd=MM/d/y' +
       '|yMMdd=MM/dd/y|yMMM=MMM y|yMMMd=MMM d, y|yMMMdd=MMM dd, y|yMMMM=MMM y|yMMMMd=MMM d, y|yMMMMdd=MMM dd, y|E=E' +
       '|Ed=d E|Edd=dd E|EM=M E|EMd=E, M/d|EMdd=E, M/dd|EMM=E ([month]: MM)|EMMd=E, MM/d|EMMdd=E, MM/dd|EMMM=MMM E' +
@@ -51,11 +54,15 @@ const
       '|EEEEyMdd=E, M/dd/y|EEEEyMM=MM/y E|EEEEyMMd=E, MM/d/y|EEEEyMMdd=E, MM/dd/y|EEEEyMMM=MMM y E' +
       '|EEEEyMMMd=E, MMM d, y|EEEEyMMMdd=E, MMM dd, y|EEEEyMMMM=MMM y E|EEEEyMMMMd=E, MMM d, y' +
       '|EEEEyMMMMdd=E, MMM dd, y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|hs=h'#$202F'a ([second]: s)|hss=h'#$202F'a ([second]: s)' +
-      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
-      '|hhs=hh'#$202F'a ([second]: s)|hhss=hh'#$202F'a ([second]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|' +
+      'hs=h'#$202F'a ([second]: s)|hss=h'#$202F'a ([second]: s)' +
+      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|' +
+      'hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
+      '|hhs=hh'#$202F'a ([second]: s)|hhss=hh'#$202F'a ([second]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|' +
+      'hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
       '|hhmms=hh:mm:ss'#$202F'a|hhmmss=hh:mm:ss'#$202F'a|';
-    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([second]: s)|hss=HH ([second]: s)' +
+    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([second]: s)|' +
+      'hss=HH ([second]: s)' +
       '|hm=HH:mm|hms=HH:mm:ss|hmss=HH:mm:ss|hmm=HH:mm|hmms=HH:mm:ss|hmmss=HH:mm:ss|hh=HH|hhs=s ([hour]: HH)' +
       '|hhss=HH ([second]: s)|hhm=HH:mm|hhms=HH:mm:ss|hhmss=HH:mm:ss|hhmm=HH:mm|hhmms=HH:mm:ss|hhmmss=HH:mm:ss|';
     DateTimeGlueNumeric: ', ';
@@ -70,11 +77,13 @@ const
     MinusSign: '-';
     CurrencyLayout: TJSCurrencyLayout.SymbolBeforeNumberWithSpace;
     PercentGap: '';
-    CurrencySymbols: 'EUR='#$20AC'|USD=US$|GBP='#$00A3'|JPY=JP'#$00A5'|CAD=C$|AUD=AU$|INR='#$20B9'|CNY=CN'#$00A5'|BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|THB='#$0E3F'|VND='#$20AB;
+    CurrencySymbols: 'EUR='#$20AC'|USD=US$|GBP='#$00A3'|JPY=JP'#$00A5'|CAD=C$|AUD=AU$|INR='#$20B9'|CNY=CN'#$00A5'|' +
+      'BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|THB='#$0E3F'|VND='#$20AB;
     Hour12ByDefault: False;
     AmMarker: 'a.m.';
     PmMarker: 'p.m.';
-    MonthsLong: ('januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december');
+    MonthsLong: ('januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober',
+                 'november', 'december');
     MonthsShort: ('jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec');
     MonthsShortStandalone: ('jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec');
     MonthsNarrow: 'JFMAMJJASOND';
@@ -82,7 +91,8 @@ const
     WeekdaysShort: ('zo', 'ma', 'di', 'wo', 'do', 'vr', 'za');
     WeekdaysShortStandalone: ('zo', 'ma', 'di', 'wo', 'do', 'vr', 'za');
     WeekdaysNarrow: 'ZMDWDVZ';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=d-M|Mdd=dd-M|MM=MM|MMd=d-MM|MMdd=dd-MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM|MMMMd=d MMM' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=d-M|Mdd=dd-M|MM=MM|MMd=d-MM|MMdd=dd-MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|' +
+      'MMMM=MMM|MMMMd=d MMM' +
       '|MMMMdd=dd MMM|y=y|yd=y ([dag]: d)|ydd=y ([dag]: dd)|yM=M-y|yMd=d-M-y|yMdd=dd-M-y|yMM=MM-y|yMMd=d-MM-y' +
       '|yMMdd=dd-MM-y|yMMM=MMM y|yMMMd=d MMM y|yMMMdd=dd MMM y|yMMMM=MMM y|yMMMMd=d MMM y|yMMMMdd=dd MMM y|E=E|Ed=E d' +
       '|Edd=E dd|EM=M E|EMd=E d-M|EMdd=E dd-M|EMM=E ([maand]: MM)|EMMd=E d-MM|EMMdd=E dd-MM|EMMM=MMM E|EMMMd=E d MMM' +
@@ -94,11 +104,14 @@ const
       '|EEEEyd=y E d|EEEEydd=y E dd|EEEEyM=M-y E|EEEEyMd=E d-M-y|EEEEyMdd=E dd-M-y|EEEEyMM=MM-y E|EEEEyMMd=E d-MM-y' +
       '|EEEEyMMdd=E dd-MM-y|EEEEyMMM=MMM y E|EEEEyMMMd=E d MMM y|EEEEyMMMdd=E dd MMM y|EEEEyMMMM=MMM y E' +
       '|EEEEyMMMMd=E d MMM y|EEEEyMMMMdd=E dd MMM y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|hs=h'#$202F'a ([seconde]: s)|hss=h'#$202F'a ([seconde]: s)' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|' +
+      'hs=h'#$202F'a ([seconde]: s)|hss=h'#$202F'a ([seconde]: s)' +
       '|hm=h:mm a|hms=h:mm:ss a|hmss=h:mm:ss a|hmm=h:mm a|hmms=h:mm:ss a|hmmss=h:mm:ss a|hh=hh'#$202F'a' +
-      '|hhs=hh'#$202F'a ([seconde]: s)|hhss=hh'#$202F'a ([seconde]: s)|hhm=hh:mm a|hhms=hh:mm:ss a|hhmss=hh:mm:ss a|hhmm=hh:mm a' +
+      '|hhs=hh'#$202F'a ([seconde]: s)|hhss=hh'#$202F'a ([seconde]: s)|hhm=hh:mm a|hhms=hh:mm:ss a|hhmss=hh:mm:ss a|' +
+      'hhmm=hh:mm a' +
       '|hhmms=hh:mm:ss a|hhmmss=hh:mm:ss a|';
-    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([seconde]: s)|hss=HH ([seconde]: s)' +
+    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([seconde]: s)|' +
+      'hss=HH ([seconde]: s)' +
       '|hm=HH:mm|hms=HH:mm:ss|hmss=HH:mm:ss|hmm=H:mm|hmms=HH:mm:ss|hmmss=H:mm:ss|hh=HH|hhs=s ([uur]: HH)' +
       '|hhss=HH ([seconde]: s)|hhm=HH:mm|hhms=HH:mm:ss|hhmss=HH:mm:ss|hhmm=HH:mm|hhmms=HH:mm:ss|hhmmss=HH:mm:ss|';
     DateTimeGlueNumeric: ', ';
@@ -113,19 +126,23 @@ const
     MinusSign: '-';
     CurrencyLayout: TJSCurrencyLayout.SymbolAfterNumberWithSpace;
     PercentGap: #$00A0;
-    CurrencySymbols: 'EUR='#$20AC'|USD=$|GBP='#$00A3'|JPY='#$00A5'|CAD=CA$|AUD=AU$|INR='#$20B9'|CNY=CN'#$00A5'|BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|THB='#$0E3F'|VND='#$20AB;
+    CurrencySymbols: 'EUR='#$20AC'|USD=$|GBP='#$00A3'|JPY='#$00A5'|CAD=CA$|AUD=AU$|INR='#$20B9'|CNY=CN'#$00A5'|' +
+      'BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|THB='#$0E3F'|VND='#$20AB;
     Hour12ByDefault: False;
     AmMarker: 'AM';
     PmMarker: 'PM';
-    MonthsLong: ('Januar', 'Februar', 'M'#$00E4'rz', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember');
-    MonthsShort: ('Jan.', 'Feb.', 'M'#$00E4'rz', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.');
+    MonthsLong: ('Januar', 'Februar', 'M'#$00E4'rz', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober',
+                 'November', 'Dezember');
+    MonthsShort: ('Jan.', 'Feb.', 'M'#$00E4'rz', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.',
+                  'Dez.');
     MonthsShortStandalone: ('Jan', 'Feb', 'M'#$00E4'r', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez');
     MonthsNarrow: 'JFMAMJJASOND';
     WeekdaysLong: ('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
     WeekdaysShort: ('So.', 'Mo.', 'Di.', 'Mi.', 'Do.', 'Fr.', 'Sa.');
     WeekdaysShortStandalone: ('So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa');
     WeekdaysNarrow: 'SMDMDFS';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=d.M.|Mdd=dd.M.|MM=MM|MMd=d.MM.|MMdd=dd.MM.|MMM=LLL|MMMd=d. MMM|MMMdd=dd. MMM|MMMM=MMM' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=d.M.|Mdd=dd.M.|MM=MM|MMd=d.MM.|MMdd=dd.MM.|MMM=LLL|MMMd=d. MMM|MMMdd=dd. MMM|' +
+      'MMMM=MMM' +
       '|MMMMd=d. MMM|MMMMdd=dd. MMM|y=y|yd=y ([Tag]: d)|ydd=y ([Tag]: dd)|yM=M/y|yMd=d.M.y|yMdd=dd.M.y|yMM=MM.y' +
       '|yMMd=d.MM.y|yMMdd=dd.MM.y|yMMM=MMM y|yMMMd=d. MMM y|yMMMdd=dd. MMM y|yMMMM=MMM y|yMMMMd=d. MMM y' +
       '|yMMMMdd=dd. MMM y|E=c|Ed=E, d.|Edd=E, dd.|EM=M c|EMd=E, d.M.|EMdd=E, dd.M.|EMM=c ([Monat]: MM)|EMMd=E, d.MM.' +
@@ -138,9 +155,12 @@ const
       '|EEEEydd=y E, dd.|EEEEyM=M/y E|EEEEyMd=E, d.M.y|EEEEyMdd=E, dd.M.y|EEEEyMM=MM.y E|EEEEyMMd=E, d.MM.y' +
       '|EEEEyMMdd=E, dd.MM.y|EEEEyMMM=MMM y E|EEEEyMMMd=E, d. MMM y|EEEEyMMMdd=E, dd. MMM y|EEEEyMMMM=MMM y E' +
       '|EEEEyMMMMd=E, d. MMM y|EEEEyMMMMdd=E, dd. MMM y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h [Uhr] a|hs=h [Uhr] a ([Sekunde]: s)' +
-      '|hss=h [Uhr] a ([Sekunde]: s)|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a' +
-      '|hh=hh [Uhr] a|hhs=hh [Uhr] a ([Sekunde]: s)|hhss=hh [Uhr] a ([Sekunde]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h [Uhr] a|' +
+      'hs=h [Uhr] a ([Sekunde]: s)' +
+      '|hss=h [Uhr] a ([Sekunde]: s)|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|' +
+      'hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a' +
+      '|hh=hh [Uhr] a|hhs=hh [Uhr] a ([Sekunde]: s)|hhss=hh [Uhr] a ([Sekunde]: s)|hhm=hh:mm'#$202F'a|' +
+      'hhms=hh:mm:ss'#$202F'a' +
       '|hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a|hhmms=hh:mm:ss'#$202F'a|hhmmss=hh:mm:ss'#$202F'a|';
     TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH [Uhr]|hs=HH [Uhr] ([Sekunde]: s)' +
       '|hss=HH [Uhr] ([Sekunde]: s)|hm=HH:mm|hms=HH:mm:ss|hmss=HH:mm:ss|hmm=H:mm|hmms=HH:mm:ss|hmmss=H:mm:ss' +
@@ -158,19 +178,24 @@ const
     MinusSign: '-';
     CurrencyLayout: TJSCurrencyLayout.SymbolAfterNumberWithSpace;
     PercentGap: #$00A0;
-    CurrencySymbols: 'EUR='#$20AC'|USD=$US|GBP='#$00A3'GB|CAD=$CA|AUD=$AU|INR='#$20B9'|BRL=R$|MXN=$MX|KRW='#$20A9'|NZD=$NZ|SGD=$SG|ILS='#$20AA'|VND='#$20AB;
+    CurrencySymbols: 'EUR='#$20AC'|USD=$US|GBP='#$00A3'GB|CAD=$CA|AUD=$AU|INR='#$20B9'|BRL=R$|MXN=$MX|KRW='#$20A9'|' +
+      'NZD=$NZ|SGD=$SG|ILS='#$20AA'|VND='#$20AB;
     Hour12ByDefault: False;
     AmMarker: 'AM';
     PmMarker: 'PM';
-    MonthsLong: ('janvier', 'f'#$00E9'vrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'ao'#$00FB't', 'septembre', 'octobre', 'novembre', 'd'#$00E9'cembre');
-    MonthsShort: ('janv.', 'f'#$00E9'vr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'ao'#$00FB't', 'sept.', 'oct.', 'nov.', 'd'#$00E9'c.');
-    MonthsShortStandalone: ('janv.', 'f'#$00E9'vr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'ao'#$00FB't', 'sept.', 'oct.', 'nov.', 'd'#$00E9'c.');
+    MonthsLong: ('janvier', 'f'#$00E9'vrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'ao'#$00FB't', 'septembre',
+                 'octobre', 'novembre', 'd'#$00E9'cembre');
+    MonthsShort: ('janv.', 'f'#$00E9'vr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'ao'#$00FB't', 'sept.', 'oct.',
+                  'nov.', 'd'#$00E9'c.');
+    MonthsShortStandalone: ('janv.', 'f'#$00E9'vr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'ao'#$00FB't', 'sept.',
+                            'oct.', 'nov.', 'd'#$00E9'c.');
     MonthsNarrow: 'JFMAMJJASOND';
     WeekdaysLong: ('dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi');
     WeekdaysShort: ('dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.');
     WeekdaysShortStandalone: ('dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.');
     WeekdaysNarrow: 'DLMMJVS';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=dd/MM|Mdd=dd/MM|MM=MM|MMd=dd/MM|MMdd=dd/MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=dd/MM|Mdd=dd/MM|MM=MM|MMd=dd/MM|MMdd=dd/MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|' +
+      'MMMM=MMM' +
       '|MMMMd=d MMM|MMMMdd=dd MMM|y=y|yd=y ([jour]: d)|ydd=y ([jour]: dd)|yM=MM/y|yMd=dd/MM/y|yMdd=dd/M/y|yMM=MM/y' +
       '|yMMd=d/MM/y|yMMdd=dd/MM/y|yMMM=MMM y|yMMMd=d MMM y|yMMMdd=dd MMM y|yMMMM=MMM y|yMMMMd=d MMM y' +
       '|yMMMMdd=dd MMM y|E=E|Ed=E d|Edd=E dd|EM=M E|EMd=E dd/MM|EMdd=E dd/MM|EMM=E ([mois]: MM)|EMMd=E dd/MM' +
@@ -182,9 +207,12 @@ const
       '|EEEEMMMMd=E d MMM|EEEEMMMMdd=E dd MMM|EEEEy=y E|EEEEyd=y E d|EEEEydd=y E dd|EEEEyM=MM/y E|EEEEyMd=E dd/MM/y' +
       '|EEEEyMdd=E dd/MM/y|EEEEyMM=MM/y E|EEEEyMMd=E dd/MM/y|EEEEyMMdd=E dd/MM/y|EEEEyMMM=MMM y E|EEEEyMMMd=E d MMM y' +
       '|EEEEyMMMdd=E dd MMM y|EEEEyMMMM=MMM y E|EEEEyMMMMd=E d MMM y|EEEEyMMMMdd=E dd MMM y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|hs=h'#$202F'a ([seconde]: s)|hss=h'#$202F'a ([seconde]: s)' +
-      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
-      '|hhs=hh'#$202F'a ([seconde]: s)|hhss=hh'#$202F'a ([seconde]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|' +
+      'hs=h'#$202F'a ([seconde]: s)|hss=h'#$202F'a ([seconde]: s)' +
+      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|' +
+      'hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
+      '|hhs=hh'#$202F'a ([seconde]: s)|hhss=hh'#$202F'a ([seconde]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|' +
+      'hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
       '|hhmms=hh:mm:ss'#$202F'a|hhmmss=hh:mm:ss'#$202F'a|';
     TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH [h]|hs=HH [h] ([seconde]: s)' +
       '|hss=HH [h] ([seconde]: s)|hm=HH:mm|hms=HH:mm:ss|hmss=HH:mm:ss|hmm=H:mm|hmms=HH:mm:ss|hmmss=H:mm:ss|hh=HH [h]' +
@@ -206,7 +234,8 @@ const
     Hour12ByDefault: False;
     AmMarker: 'a.'#$00A0'm.';
     PmMarker: 'p.'#$00A0'm.';
-    MonthsLong: ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre');
+    MonthsLong: ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre',
+                 'noviembre', 'diciembre');
     MonthsShort: ('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic');
     MonthsShortStandalone: ('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic');
     MonthsNarrow: 'EFMAMJJASOND';
@@ -214,8 +243,10 @@ const
     WeekdaysShort: ('dom', 'lun', 'mar', 'mi'#$00E9, 'jue', 'vie', 's'#$00E1'b');
     WeekdaysShortStandalone: ('dom', 'lun', 'mar', 'mi'#$00E9, 'jue', 'vie', 's'#$00E1'b');
     WeekdaysNarrow: 'DLMXJVS';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=d/M|Mdd=d/M|MM=MM|MMd=d/M|MMdd=d/M|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM|MMMMd=d [de] MMM' +
-      '|MMMMdd=dd [de] MMM|y=y|yd=y ([d]'#$00ED'[a]: d)|ydd=y ([d]'#$00ED'[a]: dd)|yM=M/y|yMd=d/M/y|yMdd=dd/M/y|yMM=M/y|yMMd=d/MM/y' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=d/M|Mdd=d/M|MM=MM|MMd=d/M|MMdd=d/M|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM|' +
+      'MMMMd=d [de] MMM' +
+      '|MMMMdd=dd [de] MMM|y=y|yd=y ([d]'#$00ED'[a]: d)|ydd=y ([d]'#$00ED'[a]: dd)|yM=M/y|yMd=d/M/y|yMdd=dd/M/y|' +
+      'yMM=M/y|yMMd=d/MM/y' +
       '|yMMdd=dd/MM/y|yMMM=MMM y|yMMMd=d MMM y|yMMMdd=dd MMM y|yMMMM=MMM [de] y|yMMMMd=d [de] MMM [de] y' +
       '|yMMMMdd=dd [de] MMM [de] y|E=E|Ed=E d|Edd=E dd|EM=M E|EMd=E, d/M|EMdd=E, dd/M|EMM=E ([mes]: MM)|EMMd=E, d/MM' +
       '|EMMdd=E, dd/MM|EMMM=MMM E|EMMMd=E, d MMM|EMMMdd=E, dd MMM|EMMMM=E ([mes]: MMM)|EMMMMd=E, d [de] MMM' +
@@ -227,11 +258,15 @@ const
       '|EEEEydd=y E dd|EEEEyM=M/y E|EEEEyMd=E, d/M/y|EEEEyMdd=E, dd/M/y|EEEEyMM=M/y E|EEEEyMMd=E, d/MM/y' +
       '|EEEEyMMdd=E, dd/MM/y|EEEEyMMM=MMM y E|EEEEyMMMd=E, d [de] MMM [de] y|EEEEyMMMdd=E, dd [de] MMM [de] y' +
       '|EEEEyMMMM=MMM [de] y E|EEEEyMMMMd=E, d [de] MMM [de] y|EEEEyMMMMdd=E, dd [de] MMM [de] y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|hs=h'#$202F'a ([segundo]: s)|hss=h'#$202F'a ([segundo]: s)' +
-      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
-      '|hhs=hh'#$202F'a ([segundo]: s)|hhss=hh'#$202F'a ([segundo]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|' +
+      'hs=h'#$202F'a ([segundo]: s)|hss=h'#$202F'a ([segundo]: s)' +
+      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|' +
+      'hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
+      '|hhs=hh'#$202F'a ([segundo]: s)|hhss=hh'#$202F'a ([segundo]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|' +
+      'hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
       '|hhmms=hh:mm:ss'#$202F'a|hhmmss=hh:mm:ss'#$202F'a|';
-    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=H|hs=H ([segundo]: s)|hss=H ([segundo]: s)' +
+    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=H|hs=H ([segundo]: s)|' +
+      'hss=H ([segundo]: s)' +
       '|hm=H:mm|hms=H:mm:ss|hmss=H:mm:ss|hmm=H:mm|hmms=H:mm:ss|hmmss=H:mm:ss|hh=HH|hhs=s ([hora]: HH)' +
       '|hhss=HH ([segundo]: s)|hhm=HH:mm|hhms=HH:mm:ss|hhmss=HH:mm:ss|hhmm=HH:mm|hhmms=HH:mm:ss|hhmmss=HH:mm:ss|';
     DateTimeGlueNumeric: ', ';
@@ -246,19 +281,23 @@ const
     MinusSign: '-';
     CurrencyLayout: TJSCurrencyLayout.SymbolAfterNumberWithSpace;
     PercentGap: '';
-    CurrencySymbols: 'EUR='#$20AC'|GBP='#$00A3'|CAD=CA$|AUD=A$|CNY=CN'#$00A5'|NZD=NZ$|ILS='#$20AA'|THB='#$0E3F'|PHP='#$20B1;
+    CurrencySymbols: 'EUR='#$20AC'|GBP='#$00A3'|CAD=CA$|AUD=A$|CNY=CN'#$00A5'|NZD=NZ$|ILS='#$20AA'|THB='#$0E3F'|' +
+      'PHP='#$20B1;
     Hour12ByDefault: False;
     AmMarker: 'AM';
     PmMarker: 'PM';
-    MonthsLong: ('gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre');
+    MonthsLong: ('gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre',
+                 'ottobre', 'novembre', 'dicembre');
     MonthsShort: ('gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic');
     MonthsShortStandalone: ('gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic');
     MonthsNarrow: 'GFMAMGLASOND';
-    WeekdaysLong: ('domenica', 'luned'#$00EC, 'marted'#$00EC, 'mercoled'#$00EC, 'gioved'#$00EC, 'venerd'#$00EC, 'sabato');
+    WeekdaysLong: ('domenica', 'luned'#$00EC, 'marted'#$00EC, 'mercoled'#$00EC, 'gioved'#$00EC, 'venerd'#$00EC,
+                   'sabato');
     WeekdaysShort: ('dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab');
     WeekdaysShortStandalone: ('dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab');
     WeekdaysNarrow: 'DLMMGVS';
-    DatePatterns: '|d=d|dd=dd|M=M|Md=dd/MM|Mdd=dd/MM|MM=MM|MMd=dd/MM|MMdd=dd/MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM' +
+    DatePatterns: '|d=d|dd=dd|M=M|Md=dd/MM|Mdd=dd/MM|MM=MM|MMd=dd/MM|MMdd=dd/MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|' +
+      'MMMM=MMM' +
       '|MMMMd=d MMM|MMMMdd=dd MMM|y=y|yd=y ([giorno]: d)|ydd=y ([giorno]: dd)|yM=MM/y|yMd=dd/MM/y|yMdd=dd/MM/y' +
       '|yMM=MM/y|yMMd=dd/MM/y|yMMdd=dd/MM/y|yMMM=MMM y|yMMMd=d MMM y|yMMMdd=dd MMM y|yMMMM=MMM y|yMMMMd=d MMM y' +
       '|yMMMMdd=dd MMM y|E=E|Ed=E d|Edd=E dd|EM=M E|EMd=E dd/MM|EMdd=E dd/MM|EMM=E ([mese]: MM)|EMMd=E dd/MM' +
@@ -270,11 +309,15 @@ const
       '|EEEEMMMMd=E d MMM|EEEEMMMMdd=E dd MMM|EEEEy=y E|EEEEyd=y E d|EEEEydd=y E dd|EEEEyM=MM/y E|EEEEyMd=E dd/MM/y' +
       '|EEEEyMdd=E dd/MM/y|EEEEyMM=MM/y E|EEEEyMMd=E dd/MM/y|EEEEyMMdd=E dd/MM/y|EEEEyMMM=MMM y E|EEEEyMMMd=E d MMM y' +
       '|EEEEyMMMdd=E dd MMM y|EEEEyMMMM=MMM y E|EEEEyMMMMd=E d MMM y|EEEEyMMMMdd=E dd MMM y|';
-    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|hs=h'#$202F'a ([secondo]: s)|hss=h'#$202F'a ([secondo]: s)' +
-      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
-      '|hhs=hh'#$202F'a ([secondo]: s)|hhss=hh'#$202F'a ([secondo]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
+    TimePatterns12: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=h'#$202F'a|' +
+      'hs=h'#$202F'a ([secondo]: s)|hss=h'#$202F'a ([secondo]: s)' +
+      '|hm=h:mm'#$202F'a|hms=h:mm:ss'#$202F'a|hmss=h:mm:ss'#$202F'a|hmm=h:mm'#$202F'a|hmms=h:mm:ss'#$202F'a|' +
+      'hmmss=h:mm:ss'#$202F'a|hh=hh'#$202F'a' +
+      '|hhs=hh'#$202F'a ([secondo]: s)|hhss=hh'#$202F'a ([secondo]: s)|hhm=hh:mm'#$202F'a|hhms=hh:mm:ss'#$202F'a|' +
+      'hhmss=hh:mm:ss'#$202F'a|hhmm=hh:mm'#$202F'a' +
       '|hhmms=hh:mm:ss'#$202F'a|hhmmss=hh:mm:ss'#$202F'a|';
-    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([secondo]: s)|hss=HH ([secondo]: s)' +
+    TimePatterns24: '|s=s|ss=s|m=m|ms=mm:ss|mss=mm:ss|mm=m|mms=mm:ss|mmss=mm:ss|h=HH|hs=HH ([secondo]: s)|' +
+      'hss=HH ([secondo]: s)' +
       '|hm=HH:mm|hms=HH:mm:ss|hmss=HH:mm:ss|hmm=H:mm|hmms=HH:mm:ss|hmmss=H:mm:ss|hh=HH|hhs=s ([ora]: HH)' +
       '|hhss=HH ([secondo]: s)|hhm=HH:mm|hhms=HH:mm:ss|hhmss=HH:mm:ss|hhmm=HH:mm|hhmms=HH:mm:ss|hhmmss=HH:mm:ss|';
     DateTimeGlueNumeric: ', ';
@@ -282,11 +325,14 @@ const
     DateTimeGlueLong: ' alle ore ');
 
   EN_GB_CURRENCY_SYMBOLS =
-    'EUR='#$20AC'|USD=US$|GBP='#$00A3'|JPY=JP'#$00A5'|CAD=CA$|AUD=A$|INR='#$20B9'|CNY=CN'#$00A5'|BRL=R$|MXN=MX$|KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|PHP='#$20B1'|VND='#$20AB;
+    'EUR='#$20AC'|USD=US$|GBP='#$00A3'|JPY=JP'#$00A5'|CAD=CA$|AUD=A$|INR='#$20B9'|CNY=CN'#$00A5'|BRL=R$|MXN=MX$|' +
+      'KRW='#$20A9'|NZD=NZ$|HKD=HK$|ILS='#$20AA'|TWD=NT$|PHP='#$20B1'|VND='#$20AB;
 
-  EN_GB_MONTHS_SHORT: TJSMonthNames = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec');
+  EN_GB_MONTHS_SHORT: TJSMonthNames = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov',
+                                       'Dec');
 
-  EN_GB_MONTHS_SHORT_STANDALONE: TJSMonthNames = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec');
+  EN_GB_MONTHS_SHORT_STANDALONE: TJSMonthNames = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct',
+                                                  'Nov', 'Dec');
 
   EN_GB_DATE_PATTERNS =
     '|d=d|dd=dd|M=M|Md=dd/MM|Mdd=dd/M|MM=MM|MMd=d/MM|MMdd=dd/MM|MMM=MMM|MMMd=d MMM|MMMdd=dd MMM|MMMM=MMM' +

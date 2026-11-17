@@ -560,7 +560,8 @@ type
     function TryCheckThroughCache(const NeedsValueOf: Boolean; out Verdict: Boolean): Boolean;
     function CheckByWalkingChain(const NeedsValueOf: Boolean): Boolean;
     function IsUntouchedMember(const Name: TJSPropertyKey; const Role: TJSIntrinsicRole): Boolean;
-    class function SlotStillHolds(const Slot: PJSPropertyDescriptor; const Original: IJSObject): Boolean; static; inline;
+    class function SlotStillHolds(const Slot: PJSPropertyDescriptor;
+                                  const Original: IJSObject): Boolean; static; inline;
     class function SlotHoldsIntrinsic(const Slot: PJSPropertyDescriptor; const Role: TJSIntrinsicRole): Boolean; static;
     procedure RememberSymbol(const Key: TJSPropertyKey);
     function OrderedStringKeys: TArray<string>;
@@ -631,7 +632,8 @@ type
     function HasUntouchedConversion(const Hint: TJSPrimitiveHint): Boolean;
     procedure DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor); virtual;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; virtual;
-    function TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
+    function TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                      out Descriptor: TJSPropertyDescriptor): Boolean; virtual;
 
     property Prototype: IJSObject read GetPrototype write SetPrototype;
     property PropertyLayoutVersion: Cardinal read GetPropertyLayoutVersion;
@@ -2116,7 +2118,8 @@ begin
     Result := Descriptor.Value;
 end;
 
-function TJSObjectImpl.TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
+function TJSObjectImpl.TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                                out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   var Link := Self;
 

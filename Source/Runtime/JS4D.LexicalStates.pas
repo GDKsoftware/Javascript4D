@@ -69,7 +69,8 @@ begin
 
   for var Index := 0 to FCount - 1 do
   begin
-    if FNames[Index] = Name then
+    const IsMatch = (FNames[Index] = Name);
+    if IsMatch then
     begin
       Result := Index;
       Exit;
@@ -81,7 +82,8 @@ end;
 
 procedure TJSLexicalStates.Add(const Name: string; const State: TJSBindingState);
 begin
-  if FCount = Length(FNames) then
+  const IsFull = (FCount = Length(FNames));
+  if IsFull then
   begin
     const NewCapacity = Length(FNames) * 2 + INITIAL_CAPACITY;
     SetLength(FNames, NewCapacity);
@@ -153,10 +155,12 @@ end;
 procedure TJSLexicalStates.MarkInitialized(const Name: string);
 begin
   const Position = IndexOf(Name);
-  if Position < 0 then
+  const IsDeclared = (Position >= 0);
+  if not IsDeclared then
     Exit;
 
-  if FStates[Position] = TJSBindingState.UninitializedConstant then
+  const IsConstant = (FStates[Position] = TJSBindingState.UninitializedConstant);
+  if IsConstant then
     FStates[Position] := TJSBindingState.Constant
   else
     FStates[Position] := TJSBindingState.Mutable;
@@ -184,7 +188,8 @@ begin
 
   RaiseIfUninitialized(Name, State);
 
-  if State = TJSBindingState.Constant then
+  const IsConstant = (State = TJSBindingState.Constant);
+  if IsConstant then
     raise TJSErrorFactory.TypeError(Format(CONSTANT_ASSIGNMENT_MESSAGE, [Name]));
 end;
 
