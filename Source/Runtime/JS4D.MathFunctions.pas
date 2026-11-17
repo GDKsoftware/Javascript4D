@@ -8,17 +8,18 @@ type
   TJSMathFunctions = class
   private
     const
-      TwoPow52 = 4503599627370496.0;
-      TwoPow53 = 9007199254740992.0;
-      TwoPow28 = 268435456.0;
-      LargestSingleBoundary = 3.4028235677973366e+38;
-      LargestExponentForExp = 709.782712893384;
-      LargestExponentForCosh = 710.4758600739439;
-      LargestExponentForTanh = 20.0;
-      LargestSafeInteger = 9007199254740991.0;
-      SmallestNormalSingle = 1.1754943508222875e-38;
-      SmallestSingleStep = 1.401298464324817e-45;
-      DroppedMantissaBits = 29;
+      TWO_POW52 = 4503599627370496.0;
+      TWO_POW53 = 9007199254740992.0;
+      TWO_POW28 = 268435456.0;
+      LARGEST_SINGLE_BOUNDARY = 3.4028235677973366e+38;
+      LARGEST_EXPONENT_FOR_EXP = 709.782712893384;
+      LARGEST_EXPONENT_FOR_COSH = 710.4758600739439;
+      LARGEST_EXPONENT_FOR_TANH = 20.0;
+      LARGEST_SAFE_INTEGER = 9007199254740991.0;
+      SMALLEST_NORMAL_SINGLE = 1.1754943508222875e-38;
+      SMALLEST_SINGLE_STEP = 1.401298464324817e-45;
+      DROPPED_MANTISSA_BITS = 29;
+      NEGATIVE_ZERO_BITS = UInt64($8000000000000000);
 
     type
       TDoubleBits = record
@@ -77,9 +78,10 @@ uses
 
 class function TJSMathFunctions.NegativeZero: Double;
 begin
-  var Zero: Double := 0;
+  var Bits: TDoubleBits;
+  Bits.AsBits := NEGATIVE_ZERO_BITS;
 
-  Result := -Zero;
+  Result := Bits.AsDouble;
 end;
 
 class function TJSMathFunctions.KeepZeroSign(const Magnitude, SignSource: Double): Double;
@@ -93,12 +95,12 @@ end;
 
 class function TJSMathFunctions.IsWholeOrSpecial(const Value: Double): Boolean;
 begin
-  Result := (IsNaN(Value) or IsInfinite(Value) or (Value = 0) or (Abs(Value) >= TwoPow52));
+  Result := (IsNaN(Value) or IsInfinite(Value) or (Value = 0) or (Abs(Value) >= TWO_POW52));
 end;
 
 class function TJSMathFunctions.IsOddInteger(const Value: Double): Boolean;
 begin
-  const IsSafeInteger = ((Abs(Value) < TwoPow53) and (Frac(Value) = 0));
+  const IsSafeInteger = ((Abs(Value) < TWO_POW53) and (Frac(Value) = 0));
   if not IsSafeInteger then
     Exit(False);
 
@@ -294,13 +296,22 @@ begin
     Exit(NaN);
 
   if IsInfinite(Exponent) then
-    Exit(InfinitePower(Base, Exponent));
+  begin
+    Result := InfinitePower(Base, Exponent);
+    Exit;
+  end;
 
   if Base = 0 then
-    Exit(ZeroPower(Base, Exponent));
+  begin
+    Result := ZeroPower(Base, Exponent);
+    Exit;
+  end;
 
   if IsInfinite(Base) then
-    Exit(InfiniteBasePower(Base, Exponent));
+  begin
+    Result := InfiniteBasePower(Base, Exponent);
+    Exit;
+  end;
 
   Result := System.Math.Power(Base, Exponent);
 end;
@@ -394,7 +405,7 @@ begin
   if Value = NegInfinity then
     Exit(-1);
 
-  if Value > LargestExponentForExp then
+  if Value > LARGEST_EXPONENT_FOR_EXP then
     Exit(Infinity);
 
   const Exponential = Exp(Value);
@@ -415,7 +426,7 @@ begin
     Exit(Value);
 
   const Magnitude = Abs(Value);
-  if Magnitude > LargestExponentForCosh then
+  if Magnitude > LARGEST_EXPONENT_FOR_COSH then
   begin
     if Value < 0 then
       Exit(NegInfinity);
@@ -438,10 +449,10 @@ begin
     Exit(Value);
 
   const Magnitude = Abs(Value);
-  if Magnitude > LargestExponentForCosh then
+  if Magnitude > LARGEST_EXPONENT_FOR_COSH then
     Exit(Infinity);
 
-  const IsLarge = (Magnitude > LargestExponentForTanh);
+  const IsLarge = (Magnitude > LARGEST_EXPONENT_FOR_TANH);
   if IsLarge then
   begin
     const HalfRoot = Exp(Magnitude / 2);
@@ -460,7 +471,7 @@ begin
 
   const Magnitude = Abs(Value);
   var Ratio: Double := 1;
-  if Magnitude <= LargestExponentForTanh then
+  if Magnitude <= LARGEST_EXPONENT_FOR_TANH then
   begin
     const Growth = Expm1(2 * Magnitude);
     Ratio := Growth / (Growth + 2);
@@ -482,7 +493,7 @@ begin
   const Square = Magnitude * Magnitude;
 
   var Area: Double;
-  if Magnitude > TwoPow28 then
+  if Magnitude > TWO_POW28 then
     Area := LogOfLargeValue(Magnitude)
   else
     Area := Log1p(Magnitude + Square / (1 + Sqrt(1 + Square)));
@@ -502,8 +513,11 @@ begin
   if IsInfinite(Value) then
     Exit(Value);
 
-  if Value > TwoPow28 then
-    Exit(LogOfLargeValue(Value));
+  if Value > TWO_POW28 then
+  begin
+    Result := LogOfLargeValue(Value);
+    Exit;
+  end;
 
   Result := Ln(Value + Sqrt(Value * Value - 1));
 end;
@@ -564,7 +578,7 @@ begin
   if IsUnchanged then
     Exit(Value);
 
-  const OverflowsSingle = (Abs(Value) >= LargestSingleBoundary);
+  const OverflowsSingle = (Abs(Value) >= LARGEST_SINGLE_BOUNDARY);
   if OverflowsSingle then
   begin
     if Value < 0 then
@@ -573,16 +587,19 @@ begin
     Exit(Infinity);
   end;
 
-  const IsSubnormal = (Abs(Value) < SmallestNormalSingle);
+  const IsSubnormal = (Abs(Value) < SMALLEST_NORMAL_SINGLE);
   if IsSubnormal then
-    Exit(RoundToSubnormalSingle(Value));
+  begin
+    Result := RoundToSubnormalSingle(Value);
+    Exit;
+  end;
 
   Result := RoundToNormalSingle(Value);
 end;
 
 class function TJSMathFunctions.RoundToNormalSingle(const Value: Double): Double;
 begin
-  const DroppedBitsCount = UInt64(DroppedMantissaBits);
+  const DroppedBitsCount = UInt64(DROPPED_MANTISSA_BITS);
   const KeptUnit = UInt64(1) shl DroppedBitsCount;
   const HalfUnit = KeptUnit shr 1;
 
@@ -605,9 +622,9 @@ end;
 
 class function TJSMathFunctions.RoundToSubnormalSingle(const Value: Double): Double;
 begin
-  const Steps = System.Round(Value / SmallestSingleStep);
+  const Steps = System.Round(Value / SMALLEST_SINGLE_STEP);
 
-  Result := KeepZeroSign(Steps * SmallestSingleStep, Value);
+  Result := KeepZeroSign(Steps * SMALLEST_SINGLE_STEP, Value);
 end;
 
 class function TJSMathFunctions.Imul(const Left, Right: Integer): Integer;
@@ -638,7 +655,7 @@ end;
 
 class function TJSMathFunctions.IsSafeInteger(const Value: Double): Boolean;
 begin
-  Result := (IsInteger(Value) and (Abs(Value) <= LargestSafeInteger));
+  Result := (IsInteger(Value) and (Abs(Value) <= LARGEST_SAFE_INTEGER));
 end;
 
 end.

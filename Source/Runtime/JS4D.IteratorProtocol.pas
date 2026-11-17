@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
   JS4D.Errors;
 
@@ -15,12 +16,9 @@ const
   VALUE_PROPERTY = 'value';
 
 type
-  // An iterator obtained through the iterator protocol. HasNext asks the iterator for its next value and
-  // keeps it until Next hands it out. Close lets the iterator clean up after the consumer stops early. A
-  // record whose next method raised or reported completion is done, and closing a done record does nothing.
   IJSIteratorRecord = interface
     ['{5E2B7A14-9C3D-4F86-B1A0-6D8E3F7C2A59}']
-    function HasNext: Boolean;
+    function TryPrefetchNext: Boolean;
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
@@ -30,7 +28,6 @@ type
   TJSIteratorRecord = class(TInterfacedObject, IJSIteratorRecord)
   private
     const
-      NEXT_PROPERTY = 'next';
       RETURN_PROPERTY = 'return';
       NEXT_NOT_CALLABLE = 'The iterator''s next method is not a function';
       RESULT_NOT_AN_OBJECT = 'The iterator result is not an object';
@@ -48,10 +45,11 @@ type
     function ReadResult: IJSObject;
     function Step(out Value: TJSValue): Boolean;
     function FindReturnMethod: IJSFunction;
+
   public
     constructor Create(const Handler: TJSCallHandler; const Iterator: IJSObject);
 
-    function HasNext: Boolean;
+    function TryPrefetchNext: Boolean;
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
@@ -61,7 +59,9 @@ type
   TJSIteratorResults = class
   public
     class function CreateResult(const ObjectPrototype: IJSObject; const Value: TJSValue;
-                          const IsDone: Boolean): TJSValue; static;
+                                const IsDone: Boolean): TJSValue; static;
+    class function CreateEntry(const ArrayPrototype: IJSObject; const Key: TJSValue;
+                               const Value: TJSValue): TJSValue; static;
   end;
 
 implementation
@@ -98,7 +98,8 @@ begin
   FIsDone := True;
 
   const StepResult = ReadResult;
-  const IsComplete = StepResult.GetProperty(DONE_PROPERTY).ToBoolean;
+  const DoneValue = StepResult.GetProperty(DONE_PROPERTY);
+  const IsComplete = DoneValue.ToBoolean;
   if IsComplete then
     Exit(False);
 
@@ -107,7 +108,7 @@ begin
   Result := True;
 end;
 
-function TJSIteratorRecord.HasNext: Boolean;
+function TJSIteratorRecord.TryPrefetchNext: Boolean;
 begin
   if FHasPendingValue then
     Exit(True);
@@ -118,8 +119,11 @@ end;
 
 function TJSIteratorRecord.Next: TJSValue;
 begin
-  if not HasNext then
-    Exit(TJSValue.CreateUndefined);
+  if not TryPrefetchNext then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
   Result := FPendingValue;
   FPendingValue := TJSValue.CreateUndefined;
@@ -176,9 +180,24 @@ begin
   except
     on EJSExecutionInterrupted do
       raise;
+    on EOutOfMemory do
+      raise;
+    on EAccessViolation do
+      raise;
     on Exception do
       Exit;
   end;
+end;
+
+class function TJSIteratorResults.CreateEntry(const ArrayPrototype: IJSObject; const Key: TJSValue;
+                                              const Value: TJSValue): TJSValue;
+begin
+  const Entry = TJSArray.Create;
+  Entry.Prototype := ArrayPrototype;
+  Entry.Push(Key);
+  Entry.Push(Value);
+
+  Result := TJSValue.CreateObject(Entry);
 end;
 
 class function TJSIteratorResults.CreateResult(const ObjectPrototype: IJSObject; const Value: TJSValue;

@@ -32,9 +32,8 @@ type
     function ThisValueOf(const This: IJSObject; const MethodName: string): TJSValue;
     function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
     function ToText(const Value: TJSValue): string;
-    function HasSearchValue(const Value: TJSValue): Boolean;
-    function DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
-                        const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
+    function TryDelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
+                           const Rest: TArray<TJSValue>; out Delegated: TJSValue): Boolean;
     procedure RequireGlobalFlags(const SearchValue: TJSValue);
     function InvokeOnNewRegExp(const Key: TJSPropertyKey; const Pattern: TJSValue; const Text: string): TJSValue;
     function MatchOrSearch(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
@@ -91,26 +90,23 @@ begin
   Result := TJSConversions.ToText(Value, FInterpreter.Limits);
 end;
 
-function TJSStringPatternMethods.HasSearchValue(const Value: TJSValue): Boolean;
+function TJSStringPatternMethods.TryDelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey;
+                                               const Subject: TJSValue; const Rest: TArray<TJSValue>;
+                                               out Delegated: TJSValue): Boolean;
 begin
-  Result := Value.IsObject;
-end;
+  Delegated := TJSValue.CreateUndefined;
+  Result := False;
 
-function TJSStringPatternMethods.DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
-                                            const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
-begin
-  Handled := False;
-  Result := TJSValue.CreateUndefined;
-
-  if not HasSearchValue(SearchValue) then
+  if not SearchValue.IsObject then
     Exit;
 
   const Method = TJSConversions.FindMethod(SearchValue, Key);
   if not Assigned(Method) then
     Exit;
 
-  Handled := True;
-  Result := Method.Call(SearchValue.ToObject, [Subject] + Rest);
+  const MethodArguments = [Subject] + Rest;
+  Delegated := Method.Call(SearchValue.ToObject, MethodArguments);
+  Result := True;
 end;
 
 procedure TJSStringPatternMethods.RequireGlobalFlags(const SearchValue: TJSValue);
@@ -151,10 +147,12 @@ begin
   const Pattern = Argument(Args, 0);
   const Key = TJSSymbolRegistry.WellKnownKey(Which);
 
-  var Handled: Boolean;
-  const Delegated = DelegateTo(Pattern, Key, Subject, nil, Handled);
-  if Handled then
-    Exit(Delegated);
+  var Delegated: TJSValue;
+  if TryDelegateTo(Pattern, Key, Subject, nil, Delegated) then
+  begin
+    Result := Delegated;
+    Exit;
+  end;
 
   Result := InvokeOnNewRegExp(Key, Pattern, ToText(Subject));
 end;
@@ -170,20 +168,22 @@ begin
   const SearchValue = Argument(Args, 0);
   const ReplaceValue = Argument(Args, 1);
 
-  if ReplaceAll and HasSearchValue(SearchValue) then
+  if ReplaceAll and SearchValue.IsObject then
     RequireGlobalFlags(SearchValue);
 
-  var Handled: Boolean;
-  const Delegated = DelegateTo(SearchValue, TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Replace), Subject,
-                               [ReplaceValue], Handled);
-  if Handled then
-    Exit(Delegated);
+  const ReplaceKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Replace);
+  var Delegated: TJSValue;
+  if TryDelegateTo(SearchValue, ReplaceKey, Subject, [ReplaceValue], Delegated) then
+  begin
+    Result := Delegated;
+    Exit;
+  end;
 
   const Text = ToText(Subject);
   const SearchText = ToText(SearchValue);
 
   var Replacement := ReplaceValue;
-  if not TJSConversions.IsCallable(ReplaceValue) then
+  if not ReplaceValue.IsFunction then
     Replacement := TJSValue.CreateString(ToText(ReplaceValue));
 
   const Executor: TJSCallbackExecutor =
@@ -204,11 +204,13 @@ begin
   const Separator = Argument(Args, 0);
   const LimitValue = Argument(Args, 1);
 
-  var Handled: Boolean;
-  const Delegated = DelegateTo(Separator, TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Split), Subject,
-                               [LimitValue], Handled);
-  if Handled then
-    Exit(Delegated);
+  const SplitKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Split);
+  var Delegated: TJSValue;
+  if TryDelegateTo(Separator, SplitKey, Subject, [LimitValue], Delegated) then
+  begin
+    Result := Delegated;
+    Exit;
+  end;
 
   const Text = ToText(Subject);
 

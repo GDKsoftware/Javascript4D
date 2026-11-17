@@ -9,7 +9,6 @@ type
   private
     const
       ASCII_LIMIT = 128;
-      LAST_SPECIAL_UPPER_INDEX = 101;
       LATIN_CAPITAL_I_WITH_DOT_ABOVE = $0130;
       COMBINING_DOT_ABOVE = $0307;
       GREEK_CAPITAL_SIGMA = $03A3;
@@ -58,6 +57,8 @@ type
   end;
 
 const
+  FIRST_SURROGATE_CODE = $D800;
+  LAST_SURROGATE_CODE = $DFFF;
   SPECIAL_UPPER_MAPPINGS: array[0..101] of TSpecialUpper = (
     (Code: $00DF; Text: #$0053#$0053),
     (Code: $0149; Text: #$02BC#$004E),
@@ -584,9 +585,12 @@ end;
 
 class function TJSCaseMapping.CodePointToString(const Code: Integer): string;
 begin
-  const IsLoneSurrogate = ((Code >= $D800) and (Code <= $DFFF));
+  const IsLoneSurrogate = ((Code >= FIRST_SURROGATE_CODE) and (Code <= LAST_SURROGATE_CODE));
   if IsLoneSurrogate then
-    Exit(Char(Code));
+  begin
+    Result := Char(Code);
+    Exit;
+  end;
 
   Result := Char.ConvertFromUtf32(Code);
 end;
@@ -644,11 +648,11 @@ begin
 end;
 class function TJSCaseMapping.FindSpecialUpper(const Code: Integer; out Text: string): Boolean;
 begin
-  var Low := 0;
-  var High := LAST_SPECIAL_UPPER_INDEX;
-  while Low <= High do
+  var LowIndex := 0;
+  var HighIndex := High(SPECIAL_UPPER_MAPPINGS);
+  while LowIndex <= HighIndex do
   begin
-    const Middle = (Low + High) div 2;
+    const Middle = (LowIndex + HighIndex) div 2;
     const Candidate = SPECIAL_UPPER_MAPPINGS[Middle].Code;
     if Candidate = Code then
     begin
@@ -657,9 +661,9 @@ begin
     end;
 
     if Candidate < Code then
-      Low := Middle + 1
+      LowIndex := Middle + 1
     else
-      High := Middle - 1;
+      HighIndex := Middle - 1;
   end;
   Result := False;
 end;
@@ -672,7 +676,10 @@ begin
     var Width: Integer;
     const Code = CodePointBefore(Text, Index, Width);
     if not IsCaseIgnorable(Code) then
-      Exit(IsCased(Code));
+    begin
+      Result := IsCased(Code);
+      Exit;
+    end;
 
     Dec(Index, Width);
   end;
@@ -687,7 +694,10 @@ begin
     var Width: Integer;
     const Code = CodePointAt(Text, Index, Width);
     if not IsCaseIgnorable(Code) then
-      Exit(IsCased(Code));
+    begin
+      Result := IsCased(Code);
+      Exit;
+    end;
 
     Inc(Index, Width);
   end;
@@ -697,7 +707,7 @@ end;
 class function TJSCaseMapping.IsFinalSigma(const Text: string; const SigmaIndex: Integer): Boolean;
 begin
   const FollowedByCased = CasedFollows(Text, SigmaIndex + 1);
-  Result := (CasedPrecedes(Text, SigmaIndex) and not FollowedByCased);
+  Result := (CasedPrecedes(Text, SigmaIndex) and (not FollowedByCased));
 end;
 
 class function TJSCaseMapping.LowerCodePoint(const Text: string; const Index, Code: Integer): string;
@@ -705,16 +715,21 @@ begin
   if Code = LATIN_CAPITAL_I_WITH_DOT_ABOVE then
   begin
     const DotAbove = CodePointToString(COMBINING_DOT_ABOVE);
-    Exit(Format('i%s', [DotAbove]));
+    Result := Format('i%s', [DotAbove]);
+    Exit;
   end;
 
   if Code = GREEK_CAPITAL_SIGMA then
   begin
     const IsFinal = IsFinalSigma(Text, Index);
     if IsFinal then
-      Exit(CodePointToString(GREEK_SMALL_FINAL_SIGMA));
+    begin
+      Result := CodePointToString(GREEK_SMALL_FINAL_SIGMA);
+      Exit;
+    end;
 
-    Exit(CodePointToString(GREEK_SMALL_SIGMA));
+    Result := CodePointToString(GREEK_SMALL_SIGMA);
+    Exit;
   end;
 
   const LowerCode = SimpleMapping(SIMPLE_LOWER_RANGES, Code);
@@ -724,7 +739,10 @@ end;
 class function TJSCaseMapping.ToUpper(const Text: string): string;
 begin
   if IsAscii(Text) then
-    Exit(UpperCase(Text));
+  begin
+    Result := UpperCase(Text);
+    Exit;
+  end;
 
   var Builder := TStringBuilder.Create(Length(Text));
   try
@@ -754,7 +772,10 @@ end;
 class function TJSCaseMapping.ToLower(const Text: string): string;
 begin
   if IsAscii(Text) then
-    Exit(LowerCase(Text));
+  begin
+    Result := LowerCase(Text);
+    Exit;
+  end;
 
   var Builder := TStringBuilder.Create(Length(Text));
   try

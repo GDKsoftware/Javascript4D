@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  System.Generics.Collections,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors;
@@ -14,6 +15,12 @@ uses
 type
   TJSPropertyDescriptors = class
   private
+    type
+      TPendingDefinition = record
+        Name: TJSPropertyKey;
+        Definition: TJSPropertyDefinition;
+      end;
+
     const
       ATTRIBUTE_VALUE = 'value';
       ATTRIBUTE_WRITABLE = 'writable';
@@ -47,7 +54,7 @@ type
 implementation
 
 uses
-  JS4D.ObjectKeys,
+  JS4D.ObjectOperations,
   JS4D.ArrayLike;
 
 class function TJSPropertyDescriptors.ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean;
@@ -126,7 +133,7 @@ begin
   if DefinesArrayElement then
     Limits.EnsureArrayLength(Int64(ElementIndex) + 1);
 
-  const SetsArrayLength =Definition.HasValue and (Name = LENGTH_NAME) and Supports(Target, IJSArray);
+  const SetsArrayLength = (Definition.HasValue and (Name = LENGTH_NAME) and Supports(Target, IJSArray));
   if not SetsArrayLength then
     Exit;
 
@@ -156,23 +163,26 @@ begin
     Exit;
 
   const Source = Properties.ToObject;
-  var Names: TArray<TJSPropertyKey> := nil;
-  var Definitions: TArray<TJSPropertyDefinition> := nil;
+  const Pending = TList<TPendingDefinition>.Create;
+  try
+    for var Name in TJSObjectOperations.OwnKeys(Source) do
+    begin
+      const Descriptor = Source.GetOwnPropertyDescriptor(Name);
+      if not Descriptor.Enumerable then
+        Continue;
 
-  for var Name in TJSObjectKeys.All(Source) do
-  begin
-    const Descriptor = Source.GetOwnPropertyDescriptor(Name);
-    if not Descriptor.Enumerable then
-      Continue;
+      var Entry: TPendingDefinition;
+      Entry.Name := Name;
+      Entry.Definition := ToDefinition(Source.GetProperty(Name));
+      Pending.Add(Entry);
+    end;
 
-    const Definition = ToDefinition(Source.GetProperty(Name));
-    Names := Names + [Name];
-    Definitions := Definitions + [Definition];
-  end;
-
-  for var Index := 0 to Length(Names) - 1 do
-  begin
-    Define(Target, Names[Index], Definitions[Index], Limits);
+    for var Entry in Pending do
+    begin
+      Define(Target, Entry.Name, Entry.Definition, Limits);
+    end;
+  finally
+    Pending.Free;
   end;
 end;
 
@@ -180,7 +190,10 @@ class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not Target.TryGetPropertyDescriptor(Name, Descriptor) then
-    Exit(Target.IsExtensible or TJSIntegerIndexedKeys.IsInvalidIndexKey(Target, Name));
+  begin
+    Result := Target.IsExtensible or TJSIntegerIndexedKeys.IsInvalidIndexKey(Target, Name);
+    Exit;
+  end;
 
   if Descriptor.IsAccessor then
     Exit(Descriptor.Setter.IsFunction);

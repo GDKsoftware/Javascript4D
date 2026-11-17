@@ -76,10 +76,16 @@ class function TJSArrayStatics.Call(const MethodName: string; const ThisObj: IJS
                                     const Args: TArray<TJSValue>; const Context: TJSArrayStaticsContext): TJSValue;
 begin
   if MethodName = METHOD_OF then
-    Exit(ArrayOf(ThisObj, Args, Context));
+  begin
+    Result := ArrayOf(ThisObj, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_FROM then
-    Exit(ArrayFrom(ThisObj, Args, Context));
+  begin
+    Result := ArrayFrom(ThisObj, Args, Context);
+    Exit;
+  end;
 
   raise ENotSupportedException.CreateFmt('Unsupported Array static method: %s', [MethodName]);
 end;
@@ -156,7 +162,10 @@ begin
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
   if Context.OpenSequence(Items, Reader, Closer) then
-    Exit(CopySequence(ThisObj, Reader, Closer, Mapper, ThisArg, Context));
+  begin
+    Result := CopySequence(ThisObj, Reader, Closer, Mapper, ThisArg, Context);
+    Exit;
+  end;
 
   Result := CopyArrayLike(ThisObj, Items, Mapper, ThisArg, Context);
 end;

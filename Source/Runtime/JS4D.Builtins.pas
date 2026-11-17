@@ -670,7 +670,10 @@ begin
   const HasTrailUnit = Index < Length(Str);
   const IsSurrogatePair = HasTrailUnit and First.IsHighSurrogate and Str[Index + 1].IsLowSurrogate;
   if not IsSurrogatePair then
-    Exit(TJSValue.CreateNumber(Ord(First)));
+  begin
+    Result := TJSValue.CreateNumber(Ord(First));
+    Exit;
+  end;
 
   const CodePoint = Char.ConvertToUtf32(First, Str[Index + 1]);
   Result := TJSValue.CreateNumber(CodePoint);
@@ -697,7 +700,10 @@ begin
   const FromIndex = ClampPosition(IntegerArgument(Args, 1), Length(Str));
 
   if SearchStr = EMPTY_STRING then
-    Exit(TJSValue.CreateNumber(FromIndex));
+  begin
+    Result := TJSValue.CreateNumber(FromIndex);
+    Exit;
+  end;
 
   const Position = Pos(SearchStr, Str, FromIndex + 1);
 
@@ -717,7 +723,10 @@ begin
     StartIndex := ClampPosition(Int(PositionNumber), Length(Str));
 
   if SearchStr = EMPTY_STRING then
-    Exit(TJSValue.CreateNumber(StartIndex));
+  begin
+    Result := TJSValue.CreateNumber(StartIndex);
+    Exit;
+  end;
 
   const SearchIn = Copy(Str, 1, Min(StartIndex + Length(SearchStr), Length(Str)));
   var LastPos := 0;
@@ -786,7 +795,7 @@ end;
 
 class function TJSBuiltins.StringLocaleCompare(const Str: string; const Args: TArray<TJSValue>): TJSValue;
 begin
-  var Other := 'undefined';
+  var Other := TJSValue.CreateUndefined.ToString;
   if Length(Args) > 0 then
     Other := Args[0].ToString;
 
@@ -1111,7 +1120,10 @@ end;
 class function TJSBuiltins.NumberToPrecision(const Num: Double; const Args: TArray<TJSValue>): TJSValue;
 begin
   if not HasDigitCountArgument(Args) then
-    Exit(TJSValue.CreateString(TJSNumberFormat.ToDecimalString(Num)));
+  begin
+    Result := TJSValue.CreateString(TJSNumberFormat.ToDecimalString(Num));
+    Exit;
+  end;
 
   const Precision = DigitCountArgument(Args);
   const IsFinite = not (IsNan(Num) or IsInfinite(Num));
@@ -1195,10 +1207,16 @@ begin
     Exit(StringCharCodeAt(Str, Args));
 
   if MethodName = METHOD_CODE_POINT_AT then
-    Exit(StringCodePointAt(Str, Args));
+  begin
+    Result := StringCodePointAt(Str, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_NORMALIZE then
-    Exit(StringNormalize(Str, Args));
+  begin
+    Result := StringNormalize(Str, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_INDEX_OF then
     Exit(StringIndexOf(Str, Args, Limits));
@@ -1222,7 +1240,10 @@ begin
     Exit(StringToUpperCase(Str, Args));
 
   if MethodName = METHOD_LOCALE_COMPARE then
-    Exit(StringLocaleCompare(Str, Args));
+  begin
+    Result := StringLocaleCompare(Str, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_TRIM then
     Exit(StringTrim(Str, Args));
@@ -1240,7 +1261,10 @@ begin
     Exit(StringRepeat(Str, Args, Limits));
 
   if MethodName = METHOD_AT then
-    Exit(StringAt(Str, Args));
+  begin
+    Result := StringAt(Str, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_STARTS_WITH then
     Exit(StringStartsWith(Str, Args, Limits));
@@ -1434,14 +1458,18 @@ end;
 class function TJSBuiltins.CallObjectMethod(const Obj: IJSObject; const MethodName: string; const Args: TArray<TJSValue>; const Limits: TJSLimits): TJSValue;
 begin
   if Length(Args) = 0 then
-    Exit(TJSValue.CreateBoolean(False));
+  begin
+    Result := TJSValue.CreateBoolean(False);
+    Exit;
+  end;
 
   const PropertyName = Args[0].ToPropertyKey(Limits);
 
   if MethodName = METHOD_HAS_OWN_PROPERTY then
   begin
     const HasOwnProperty = Obj.HasOwnProperty(PropertyName);
-    Exit(TJSValue.CreateBoolean(HasOwnProperty));
+    Result := TJSValue.CreateBoolean(HasOwnProperty);
+    Exit;
   end;
 
   if MethodName = METHOD_PROPERTY_IS_ENUMERABLE then
@@ -1449,7 +1477,8 @@ begin
     var Descriptor: TJSPropertyDescriptor;
     const IsEnumerable = TJSObjectOperations.TryGetOwnProperty(Obj, PropertyName, Descriptor) and Descriptor.Enumerable;
 
-    Exit(TJSValue.CreateBoolean(IsEnumerable));
+    Result := TJSValue.CreateBoolean(IsEnumerable);
+    Exit;
   end;
 
   Result := TJSValue.CreateUndefined;

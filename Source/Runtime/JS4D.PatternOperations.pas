@@ -5,12 +5,16 @@ unit JS4D.PatternOperations;
 interface
 
 uses
+  System.SysUtils,
   JS4D.PropertyKey,
   JS4D.Types;
 
 type
   TJSPatternOperations = class
   private
+    class function TryAppendMatchSelector(const Builder: TStringBuilder; const Selector: Char;
+                                          const Str: string; const Position: Integer;
+                                          const Matched: string): Boolean; static;
     class function IsTemplateDigit(const Text: string; const Position: Integer): Boolean; static;
     class function TryParseGroupNumber(const Text: string; const Position: Integer; const GroupCount: Integer;
                                        out Number: Integer; out Consumed: Integer): Boolean; static;
@@ -37,12 +41,15 @@ type
 implementation
 
 uses
-  System.SysUtils,
   System.Math,
+  System.Generics.Collections,
   JS4D.Conversions;
 
 const
   DOLLAR = '$';
+  AMPERSAND = '&';
+  BACKTICK = '`';
+  APOSTROPHE = '''';
   NAMED_CAPTURE_START = '<';
   NAMED_CAPTURE_END = '>';
   MAX_GROUP_DIGITS = 2;
@@ -108,6 +115,22 @@ begin
   Result := True;
 end;
 
+class function TJSPatternOperations.TryAppendMatchSelector(const Builder: TStringBuilder; const Selector: Char;
+                                                           const Str: string; const Position: Integer;
+                                                           const Matched: string): Boolean;
+begin
+  Result := True;
+
+  case Selector of
+    DOLLAR     : Builder.Append(DOLLAR);
+    AMPERSAND  : Builder.Append(Matched);
+    BACKTICK   : Builder.Append(Copy(Str, 1, Position));
+    APOSTROPHE : Builder.Append(Copy(Str, Position + Length(Matched) + 1, MaxInt));
+  else
+    Result := False;
+  end;
+end;
+
 class function TJSPatternOperations.GetSubstitution(const Template: string; const Str: string; const Position: Integer;
                                                     const Matched: string; const Captures: TArray<TJSValue>;
                                                     const NamedCaptures: IJSObject;
@@ -132,24 +155,8 @@ begin
       var Consumed: Integer;
       var Expansion: string;
 
-      if Selector = DOLLAR then
+      if TryAppendMatchSelector(Builder, Selector, Str, Position, Matched) then
       begin
-        Builder.Append(DOLLAR);
-        Inc(Cursor, 2);
-      end
-      else if Selector = '&' then
-      begin
-        Builder.Append(Matched);
-        Inc(Cursor, 2);
-      end
-      else if Selector = '`' then
-      begin
-        Builder.Append(Copy(Str, 1, Position));
-        Inc(Cursor, 2);
-      end
-      else if Selector = '''' then
-      begin
-        Builder.Append(Copy(Str, Position + Length(Matched) + 1, MaxInt));
         Inc(Cursor, 2);
       end
       else if TryParseGroupNumber(Template, Cursor + 1, Length(Captures), GroupNumber, Consumed) then
@@ -191,8 +198,10 @@ begin
   begin
     const CallArgs: TArray<TJSValue> = [TJSValue.CreateString(SearchText), TJSValue.CreateNumber(Position),
                                         TJSValue.CreateString(Str)];
+    const Returned = Executor(Func, CallArgs);
 
-    Exit(TJSConversions.ToText(Executor(Func, CallArgs), Limits));
+    Result := TJSConversions.ToText(Returned, Limits);
+    Exit;
   end;
 
   Result := GetSubstitution(ReplaceValue.AsString, Str, Position, SearchText, nil, nil, Limits);
@@ -201,28 +210,33 @@ end;
 class function TJSPatternOperations.FindMatchPositions(const Str: string; const SearchText: string;
                                                        const ReplaceAll: Boolean): TArray<Integer>;
 begin
-  Result := nil;
-
-  const IsEmptySearch = SearchText.IsEmpty;
-  if IsEmptySearch then
-  begin
-    const LastPosition = IfThen(ReplaceAll, Length(Str), 0);
-    for var Position := 0 to LastPosition do
+  const Positions = TList<Integer>.Create;
+  try
+    const IsEmptySearch = SearchText.IsEmpty;
+    if IsEmptySearch then
     begin
-      Result := Result + [Position];
+      const LastPosition = IfThen(ReplaceAll, Length(Str), 0);
+      for var Position := 0 to LastPosition do
+      begin
+        Positions.Add(Position);
+      end;
+
+      Exit(Positions.ToArray);
     end;
 
-    Exit;
-  end;
+    var Found := Pos(SearchText, Str);
+    while Found > 0 do
+    begin
+      Positions.Add(Found - 1);
+      if not ReplaceAll then
+        Break;
 
-  var Found := Pos(SearchText, Str);
-  while Found > 0 do
-  begin
-    Result := Result + [Found - 1];
-    if not ReplaceAll then
-      Break;
+      Found := Pos(SearchText, Str, Found + Length(SearchText));
+    end;
 
-    Found := Pos(SearchText, Str, Found + Length(SearchText));
+    Result := Positions.ToArray;
+  finally
+    Positions.Free;
   end;
 end;
 

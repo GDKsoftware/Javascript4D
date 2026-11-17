@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  System.Generics.Collections,
   System.Math,
   JS4D.PropertyKey,
   JS4D.Types,
@@ -46,7 +47,8 @@ type
       EXEC_RESULT_INVALID = 'The result of the exec method must be an object or null';
       NOT_A_REGEXP = 'RegExp.prototype.exec called on a value that is not a regular expression';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of a regular expression must be an object or undefined';
-      SPECIES_NOT_A_CONSTRUCTOR = 'The species of a regular expression constructor must be a constructor, null or undefined';
+      SPECIES_NOT_A_CONSTRUCTOR = 'The species of a regular expression constructor must be a constructor, null or ' +
+                                  'undefined';
 
     type
       TMatchRecord = record
@@ -75,7 +77,7 @@ type
                                     out Matches: TArray<TMatchRecord>): Boolean;
     function CollectMatches(const Receiver: IJSObject; const Text: string; const IsGlobal: Boolean;
                             const IsUnicode: Boolean): TArray<TMatchRecord>;
-    procedure ReadMatchDetails(var Found: TMatchRecord; const Text: string);
+    function ReadMatchDetails(const Found: TMatchRecord; const Text: string): TMatchRecord;
     function CollectCaptures(const Found: IJSObject): TArray<TJSValue>;
     function ReplacementOf(const Found: TMatchRecord; const Text: string; const ReplaceValue: TJSValue;
                            const IsFunctional: Boolean): string;
@@ -215,7 +217,10 @@ begin
   const Flags = ReadFlags(Receiver);
   const IsGlobal = (Pos(GLOBAL_FLAG, Flags) > 0);
   if not IsGlobal then
-    Exit(RegExpExec(Receiver, Text));
+  begin
+    Result := RegExpExec(Receiver, Text);
+    Exit;
+  end;
 
   const IsUnicode = (Pos(UNICODE_FLAG, Flags) > 0);
 
@@ -223,7 +228,10 @@ begin
   if TryCollectPlainMatches(Receiver, Text, IsUnicode, Plain) then
   begin
     if Length(Plain) = 0 then
-      Exit(TJSValue.CreateNull);
+    begin
+      Result := TJSValue.CreateNull;
+      Exit;
+    end;
 
     const PlainMatches: IJSArray = TJSArray.Create;
     for var Entry in Plain do
@@ -231,7 +239,8 @@ begin
       PlainMatches.Push(TJSValue.CreateString(Entry.Matched));
     end;
 
-    Exit(TJSValue.CreateObject(PlainMatches));
+    Result := TJSValue.CreateObject(PlainMatches);
+    Exit;
   end;
 
   WriteLastIndex(Receiver, 0);
@@ -252,7 +261,10 @@ begin
   end;
 
   if Matches.Length = 0 then
-    Exit(TJSValue.CreateNull);
+  begin
+    Result := TJSValue.CreateNull;
+    Exit;
+  end;
 
   Result := TJSValue.CreateObject(Matches);
 end;
@@ -271,7 +283,10 @@ begin
     TJSConversions.PutProperty(Receiver, LAST_INDEX_PROPERTY, PreviousLastIndex);
 
   if Found.IsNull then
-    Exit(TJSValue.CreateNumber(-1));
+  begin
+    Result := TJSValue.CreateNumber(-1);
+    Exit;
+  end;
 
   Result := Found.ToObject.GetProperty(INDEX_PROPERTY);
 end;
@@ -332,41 +347,52 @@ begin
   Result := True;
 end;
 
-procedure TJSRegExpProtocol.ReadMatchDetails(var Found: TMatchRecord; const Text: string);
+function TJSRegExpProtocol.ReadMatchDetails(const Found: TMatchRecord; const Text: string): TMatchRecord;
 begin
+  Result := Found;
   if not Assigned(Found.Result) then
     Exit;
 
-  Found.Matched := ToText(Found.Result.GetProperty(FIRST_CAPTURE_NAME));
+  const MatchedValue = Found.Result.GetProperty(FIRST_CAPTURE_NAME);
+  Result.Matched := ToText(MatchedValue);
 
-  const RawPosition = TJSConversions.ToIntegerOrInfinity(Found.Result.GetProperty(INDEX_PROPERTY));
-  Found.Position := Trunc(EnsureRange(RawPosition, 0, Length(Text)));
+  const IndexValue = Found.Result.GetProperty(INDEX_PROPERTY);
+  const RawPosition = TJSConversions.ToIntegerOrInfinity(IndexValue);
+  Result.Position := Trunc(EnsureRange(RawPosition, 0, Length(Text)));
 end;
 
 function TJSRegExpProtocol.CollectMatches(const Receiver: IJSObject; const Text: string; const IsGlobal: Boolean;
                                           const IsUnicode: Boolean): TArray<TMatchRecord>;
 begin
-  Result := nil;
-
   if IsGlobal then
     WriteLastIndex(Receiver, 0);
 
-  while True do
-  begin
-    const Found = RegExpExec(Receiver, Text);
-    if Found.IsNull then
-      Break;
+  const Collected = TList<TMatchRecord>.Create;
+  try
+    while True do
+    begin
+      const Found = RegExpExec(Receiver, Text);
+      if Found.IsNull then
+        Break;
 
-    var Entry := Default(TMatchRecord);
-    Entry.Result := Found.ToObject;
-    Result := Result + [Entry];
+      FInterpreter.Limits.EnsureArrayLength(Int64(Collected.Count) + 1);
 
-    if not IsGlobal then
-      Break;
+      var Entry := Default(TMatchRecord);
+      Entry.Result := Found.ToObject;
+      Collected.Add(Entry);
 
-    const MatchedText = ToText(Entry.Result.GetProperty(FIRST_CAPTURE_NAME));
-    if MatchedText.IsEmpty then
-      AdvanceLastIndex(Receiver, Text, IsUnicode);
+      if not IsGlobal then
+        Break;
+
+      const MatchedValue = Entry.Result.GetProperty(FIRST_CAPTURE_NAME);
+      const MatchedText = ToText(MatchedValue);
+      if MatchedText.IsEmpty then
+        AdvanceLastIndex(Receiver, Text, IsUnicode);
+    end;
+
+    Result := Collected.ToArray;
+  finally
+    Collected.Free;
   end;
 end;
 
@@ -379,7 +405,7 @@ begin
   SetLength(Result, CaptureCount);
   for var Number := 1 to CaptureCount do
   begin
-    var Capture := Found.GetProperty(IntToStr(Number));
+    var Capture := Found.GetProperty(TJSArrayLike.IndexName(Number));
     if not Capture.IsUndefined then
       Capture := TJSValue.CreateString(ToText(Capture));
 
@@ -409,7 +435,8 @@ begin
       CallArgs := CallArgs + [NamedCaptures];
 
     const ThisArg = FInterpreter.ThisObjectFor(Func, TJSValue.CreateUndefined);
-    Exit(ToText(FInterpreter.CallFunction(Func, CallArgs, ThisArg)));
+    Result := ToText(FInterpreter.CallFunction(Func, CallArgs, ThisArg));
+    Exit;
   end;
 
   var NamedObject: IJSObject := nil;
@@ -423,7 +450,7 @@ end;
 function TJSRegExpProtocol.ReplaceWith(const Receiver: IJSObject; const Text: string;
                                        const ReplaceValue: TJSValue): TJSValue;
 begin
-  const IsFunctional = TJSConversions.IsCallable(ReplaceValue);
+  const IsFunctional = ReplaceValue.IsFunction;
   var Replacement := ReplaceValue;
   if not IsFunctional then
     Replacement := TJSValue.CreateString(ToText(ReplaceValue));
@@ -442,7 +469,7 @@ begin
     var NextSourcePosition := 0;
     for var Index := 0 to High(Matches) do
     begin
-      ReadMatchDetails(Matches[Index], Text);
+      Matches[Index] := ReadMatchDetails(Matches[Index], Text);
 
       const Replaced = ReplacementOf(Matches[Index], Text, Replacement, IsFunctional);
 
@@ -472,7 +499,10 @@ begin
   const DefaultConstructor = FInterpreter.GetGlobalVariable(REGEXP_NAME);
   const ConstructorValue = Receiver.GetProperty(CONSTRUCTOR_PROPERTY);
   if ConstructorValue.IsUndefined then
-    Exit(TJSConversions.AsFunction(DefaultConstructor));
+  begin
+    Result := TJSConversions.AsFunction(DefaultConstructor);
+    Exit;
+  end;
 
   if not ConstructorValue.IsObject then
     raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
@@ -480,7 +510,10 @@ begin
   const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
   const Species = ConstructorValue.ToObject.GetProperty(SpeciesKey);
   if Species.IsNullOrUndefined then
-    Exit(TJSConversions.AsFunction(DefaultConstructor));
+  begin
+    Result := TJSConversions.AsFunction(DefaultConstructor);
+    Exit;
+  end;
 
   Result := TJSConversions.AsFunction(Species);
   const IsConstructor = Assigned(Result) and Result.IsConstructor;
@@ -586,7 +619,8 @@ begin
     if not LimitValue.IsUndefined then
       PlainLimit := TJSConversions.ToUint32(LimitValue);
 
-    Exit(SplitWithPattern(Pattern, Text, PlainLimit, IsUnicode));
+    Result := SplitWithPattern(Pattern, Text, PlainLimit, IsUnicode);
+    Exit;
   end;
 
   const Splitter = CreateSplitter(Species, Receiver, SplitterFlags);
@@ -687,7 +721,10 @@ begin
 
       var Pattern: IJSRegExp;
       if UsesIntrinsicExec(Receiver, Pattern) then
-        Exit(TJSValue.CreateBoolean(Pattern.Test(Text)));
+      begin
+        Result := TJSValue.CreateBoolean(Pattern.Test(Text));
+        Exit;
+      end;
 
       Result := TJSValue.CreateBoolean(not RegExpExec(Receiver, Text).IsNull);
     end);

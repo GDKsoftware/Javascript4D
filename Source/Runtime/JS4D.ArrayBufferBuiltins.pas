@@ -9,10 +9,9 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.BinaryData,
-  JS4D.BinarySupport;
+  JS4D.BuiltinSupport;
 
 type
-  // The ArrayBuffer constructor, ArrayBuffer.isView and the prototype with byteLength and slice.
   TJSArrayBufferBuiltins = class
   private
     const
@@ -21,18 +20,17 @@ type
       BYTE_LENGTH_PROPERTY = 'byteLength';
       BYTE_LENGTH_GETTER_NAME = 'get byteLength';
       SLICE_NAME = 'slice';
+      ARRAY_BUFFER_SLICE_PATH = 'ArrayBuffer.prototype.slice';
       MAX_BYTE_LENGTH = 1073741824;
-      REQUIRES_NEW = 'Constructor ArrayBuffer requires ''new''';
       ALLOCATION_FAILED = 'Array buffer allocation failed';
       INCOMPATIBLE_RECEIVER = 'Method ArrayBuffer.prototype.%s called on an incompatible receiver';
-      DETACHED_BUFFER = 'Cannot perform ArrayBuffer.prototype.%s on a detached ArrayBuffer';
       SPECIES_NOT_A_BUFFER = 'The species constructor did not return an ArrayBuffer';
       SPECIES_DETACHED = 'The species constructor returned a detached ArrayBuffer';
       SPECIES_SAME_BUFFER = 'The species constructor returned the buffer that is being sliced';
       SPECIES_TOO_SMALL = 'The species constructor returned an ArrayBuffer that is too small';
 
     var
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FPrototype: IJSObject;
       FConstructor: IJSFunction;
 
@@ -44,7 +42,7 @@ type
     procedure DefinePrototypeMembers;
 
   public
-    constructor Create(const Support: TJSBinarySupport);
+    constructor Create(const Support: TJSBuiltinSupport);
 
     procedure Register;
     function CreateBuffer(const ByteLength: Int64): IJSArrayBuffer;
@@ -56,11 +54,12 @@ type
 implementation
 
 uses
+  JS4D.PropertyNames,
   System.Math,
   JS4D.Errors,
   JS4D.ArrayLike;
 
-constructor TJSArrayBufferBuiltins.Create(const Support: TJSBinarySupport);
+constructor TJSArrayBufferBuiltins.Create(const Support: TJSBuiltinSupport);
 begin
   inherited Create;
 
@@ -78,7 +77,14 @@ begin
   if ByteLength > MAX_BYTE_LENGTH then
     raise TJSErrorFactory.RangeError(ALLOCATION_FAILED);
 
-  const Buffer = TJSArrayBufferObject.Create(Integer(ByteLength));
+  var Buffer: TJSArrayBufferObject;
+  try
+    Buffer := TJSArrayBufferObject.Create(Integer(ByteLength));
+  except
+    on EOutOfMemory do
+      raise TJSErrorFactory.RangeError(ALLOCATION_FAILED);
+  end;
+
   Buffer.Prototype := Prototype;
 
   Result := Buffer;
@@ -91,7 +97,7 @@ end;
 
 function TJSArrayBufferBuiltins.IsView(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Candidate = TJSBinarySupport.Argument(Args, 0);
+  const Candidate = TJSArrayLike.Argument(Args, 0);
 
   const IsViewObject = Candidate.IsObject and (Supports(Candidate.ToObject, IJSTypedArray) or
                                                Supports(Candidate.ToObject, IJSDataView));
@@ -124,17 +130,15 @@ end;
 function TJSArrayBufferBuiltins.Slice(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Source = RequireBuffer(This, SLICE_NAME);
-  if Source.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_BUFFER, [SLICE_NAME]));
+  TJSBuiltinSupport.RequireNotDetached(Source.IsDetached, ARRAY_BUFFER_SLICE_PATH);
 
   const Count = Source.ByteLength;
-  const FirstIndex = TJSArrayLike.RelativeIndex(TJSBinarySupport.Argument(Args, 0), Count, 0);
-  const FinalIndex = TJSArrayLike.RelativeIndex(TJSBinarySupport.Argument(Args, 1), Count, Count);
+  const FirstIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
+  const FinalIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, Count);
   const NewLength = Int64(Max(FinalIndex - FirstIndex, 0));
 
   const Target = CreateSliceTarget(Source, NewLength);
-  if Source.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_BUFFER, [SLICE_NAME]));
+  TJSBuiltinSupport.RequireNotDetached(Source.IsDetached, ARRAY_BUFFER_SLICE_PATH);
 
   const AvailableLength = Source.ByteLength;
   const CopyLength = Integer(Min(NewLength, Max(AvailableLength - FirstIndex, 0)));
@@ -168,10 +172,10 @@ begin
   FPrototype := TJSObject.Create;
   FPrototype.Prototype := Interpreter.ObjectPrototype;
 
-  FConstructor := FSupport.CreateConstructor(ARRAY_BUFFER_NAME, 1, REQUIRES_NEW,
+  FConstructor := FSupport.CreateConstructor(ARRAY_BUFFER_NAME, 1, Format(CONSTRUCTOR_REQUIRES_NEW, [ARRAY_BUFFER_NAME]),
     function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
-      const ByteLength = TJSBinarySupport.ToIndex(TJSBinarySupport.Argument(Args, 0));
+      const ByteLength = TJSBuiltinSupport.ToIndex(TJSArrayLike.Argument(Args, 0));
       const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototype);
 
       Result := TJSValue.CreateObject(Allocate(ByteLength, Prototype));

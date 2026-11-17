@@ -27,16 +27,15 @@ type
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of an array must be an object or undefined';
       SPECIES_NOT_A_CONSTRUCTOR = 'The species of an array constructor must be a constructor, null or undefined';
       COMPARER_NOT_A_FUNCTION = 'The comparison function of sort must be a function or undefined';
-      CANNOT_ASSIGN_PROPERTY = 'Cannot assign to read only property ''%s''';
       CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s''';
 
-    class procedure PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue); static;
     class function SpeciesOf(const ConstructorValue: TJSValue; const SpeciesKey: TJSPropertyKey;
                              const IntrinsicSpeciesGetter: IJSFunction): TJSValue; static;
 
   public
     class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
     class function IndexName(const Index: Int64): string; static;
+    class function CreateArray(const ArrayPrototype: IJSObject; const Items: TArray<TJSValue>): TJSValue; static;
     class function ToNumber(const Value: TJSValue): Double; static;
     class function ToInteger(const Value: TJSValue): Double; static;
     class function ToLength(const Target: IJSObject): Int64; static;
@@ -50,13 +49,14 @@ type
     class procedure RequireArrayLength(const Count: Int64); static;
     class procedure RequireSafeLength(const Count: Int64); static;
     class procedure RequireSortComparer(const Args: TArray<TJSValue>); static;
-    // The constructor that creates the result of map, filter, slice, splice and concat for an array. Nil
-    // means a plain array: the receiver is no array, has no constructor or uses the intrinsic Array.
     class function SpeciesConstructor(const Target: IJSObject; const IntrinsicArray: IJSFunction;
                                       const IntrinsicSpeciesGetter: IJSFunction): IJSFunction; static;
   end;
 
 implementation
+
+uses
+  JS4D.Conversions;
 
 class function TJSArrayLike.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
 begin
@@ -66,17 +66,22 @@ begin
     Result := TJSValue.CreateUndefined;
 end;
 
+class function TJSArrayLike.CreateArray(const ArrayPrototype: IJSObject; const Items: TArray<TJSValue>): TJSValue;
+begin
+  const List: IJSArray = TJSArray.Create;
+  List.Prototype := ArrayPrototype;
+
+  for var Item in Items do
+  begin
+    List.Push(Item);
+  end;
+
+  Result := TJSValue.CreateObject(List);
+end;
+
 class function TJSArrayLike.IndexName(const Index: Int64): string;
 begin
   Result := IntToStr(Index);
-end;
-
-class procedure TJSArrayLike.PutProperty(const Target: IJSObject; const Name: string; const Value: TJSValue);
-begin
-  if not TJSPropertyDescriptors.CanPut(Target, Name) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Name]));
-
-  Target.SetProperty(Name, Value);
 end;
 
 class function TJSArrayLike.ToNumber(const Value: TJSValue): Double;
@@ -140,14 +145,17 @@ begin
   const IsArray = Supports(Target, IJSArray, TargetArray);
   const IsOwnElement = IsArray and (Index < TargetArray.Length) and TargetArray.HasElement(Integer(Index));
   if IsOwnElement then
-    Exit(TargetArray[Integer(Index)]);
+  begin
+    Result := TargetArray[Integer(Index)];
+    Exit;
+  end;
 
   Result := Target.GetProperty(IndexName(Index));
 end;
 
 class procedure TJSArrayLike.SetElement(const Target: IJSObject; const Index: Int64; const Value: TJSValue);
 begin
-  PutProperty(Target, IndexName(Index), Value);
+  TJSConversions.PutProperty(Target, IndexName(Index), Value);
 end;
 
 class procedure TJSArrayLike.DeleteElement(const Target: IJSObject; const Index: Int64);
@@ -171,7 +179,7 @@ end;
 
 class procedure TJSArrayLike.WriteLength(const Target: IJSObject; const Count: Int64);
 begin
-  PutProperty(Target, LENGTH_PROPERTY, TJSValue.CreateNumber(Count));
+  TJSConversions.PutProperty(Target, LENGTH_PROPERTY, TJSValue.CreateNumber(Count));
 end;
 
 class procedure TJSArrayLike.RequireArrayLength(const Count: Int64);

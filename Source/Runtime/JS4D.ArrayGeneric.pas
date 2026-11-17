@@ -80,8 +80,8 @@ type
     class procedure SwapMirroredElements(const Target: IJSObject; const LowerIndex, UpperIndex: Int64); static;
     class function HasSpreadabilityFlag(const Item: TJSValue): Boolean; static;
     class function IsConcatSpreadable(const Item: TJSValue): Boolean; static;
-    class procedure AppendConcatItem(const Item: TJSValue; const Combined: IJSArray; var NextIndex: Int64;
-                                     const Context: TJSArrayGenericContext); static;
+    class function AppendConcatItem(const Item: TJSValue; const Combined: IJSArray; const NextIndex: Int64;
+                                    const Context: TJSArrayGenericContext): Int64; static;
     class procedure StoreConcatElement(const Combined: IJSArray; const Index: Int64; const Element: TJSValue;
                                        const Context: TJSArrayGenericContext); static;
     class procedure WriteSortedElements(const Target: IJSObject; const Sorted: IJSArray;
@@ -186,46 +186,88 @@ begin
     raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
 
   if MethodName = METHOD_PUSH then
-    Exit(Push(Target, Args));
+  begin
+    Result := Push(Target, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_POP then
-    Exit(Pop(Target));
+  begin
+    Result := Pop(Target);
+    Exit;
+  end;
 
   if MethodName = METHOD_SHIFT then
-    Exit(Shift(Target, Context));
+  begin
+    Result := Shift(Target, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_UNSHIFT then
-    Exit(Unshift(Target, Args, Context));
+  begin
+    Result := Unshift(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_SPLICE then
-    Exit(Splice(Target, Args, Context));
+  begin
+    Result := Splice(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_SLICE then
-    Exit(Slice(Target, Args, Context));
+  begin
+    Result := Slice(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_REVERSE then
-    Exit(Reverse(Target, Context));
+  begin
+    Result := Reverse(Target, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_JOIN then
-    Exit(Join(Target, Args, Context));
+  begin
+    Result := Join(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_CONCAT then
-    Exit(Concat(Target, Args, Context));
+  begin
+    Result := Concat(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_SORT then
-    Exit(Sort(Target, Args, Context));
+  begin
+    Result := Sort(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_TO_STRING then
-    Exit(ToText(Target, Context));
+  begin
+    Result := ToText(Target, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_TO_LOCALE_STRING then
-    Exit(ToLocaleText(Target, Context));
+  begin
+    Result := ToLocaleText(Target, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_FILL then
-    Exit(Fill(Target, Args, Context));
+  begin
+    Result := Fill(Target, Args, Context);
+    Exit;
+  end;
 
   if MethodName = METHOD_COPY_WITHIN then
-    Exit(CopyWithin(Target, Args, Context));
+  begin
+    Result := CopyWithin(Target, Args, Context);
+    Exit;
+  end;
 
   raise ENotSupportedException.CreateFmt('Unsupported generic array method: %s', [MethodName]);
 end;
@@ -252,7 +294,8 @@ begin
   if IsEmpty then
   begin
     TJSArrayLike.WriteLength(Target, 0);
-    Exit(TJSValue.CreateUndefined);
+    Result := TJSValue.CreateUndefined;
+    Exit;
   end;
 
   const LastIndex = Count - 1;
@@ -268,7 +311,8 @@ begin
   if IsEmpty then
   begin
     TJSArrayLike.WriteLength(Target, 0);
-    Exit(TJSValue.CreateUndefined);
+    Result := TJSValue.CreateUndefined;
+    Exit;
   end;
 
   Result := Target.GetProperty(TJSArrayLike.IndexName(0));
@@ -565,31 +609,34 @@ begin
   const Combined: IJSArray = TJSArray.Create;
   Combined.Prototype := Context.ArrayPrototype;
 
-  var NextIndex: Int64 := 0;
-  AppendConcatItem(TJSValue.CreateObject(Target), Combined, NextIndex, Context);
+  const TargetValue = TJSValue.CreateObject(Target);
+  var NextIndex := AppendConcatItem(TargetValue, Combined, 0, Context);
   for var Item in Args do
   begin
-    AppendConcatItem(Item, Combined, NextIndex, Context);
+    NextIndex := AppendConcatItem(Item, Combined, NextIndex, Context);
   end;
 
   TJSArrayLike.WriteLength(Combined, NextIndex);
   Result := TJSValue.CreateObject(Combined);
 end;
 
-class procedure TJSArrayGeneric.AppendConcatItem(const Item: TJSValue; const Combined: IJSArray;
-                                                 var NextIndex: Int64; const Context: TJSArrayGenericContext);
+class function TJSArrayGeneric.AppendConcatItem(const Item: TJSValue; const Combined: IJSArray;
+                                                const NextIndex: Int64;
+                                                const Context: TJSArrayGenericContext): Int64;
 begin
+  Result := NextIndex;
+
   if not IsConcatSpreadable(Item) then
   begin
-    TJSArrayLike.RequireSafeLength(NextIndex + 1);
-    StoreConcatElement(Combined, NextIndex, Item, Context);
-    Inc(NextIndex);
+    TJSArrayLike.RequireSafeLength(Result + 1);
+    StoreConcatElement(Combined, Result, Item, Context);
+    Inc(Result);
     Exit;
   end;
 
   const Source = Item.ToObject;
   const SourceLength = TJSArrayLike.ToLength(Source);
-  TJSArrayLike.RequireSafeLength(NextIndex + SourceLength);
+  TJSArrayLike.RequireSafeLength(Result + SourceLength);
 
   for var Index: Int64 := 0 to SourceLength - 1 do
   begin
@@ -597,9 +644,9 @@ begin
 
     var Element: TJSValue;
     if TJSArrayLike.TryGetElement(Source, Index, Element) then
-      StoreConcatElement(Combined, NextIndex, Element, Context);
+      StoreConcatElement(Combined, Result, Element, Context);
 
-    Inc(NextIndex);
+    Inc(Result);
   end;
 end;
 
@@ -672,11 +719,17 @@ begin
   const JoinMethod = Target.GetProperty(METHOD_JOIN);
   const HasJoin = JoinMethod.IsFunction and Supports(JoinMethod.ToObject, IJSFunction, Converter);
   if HasJoin then
-    Exit(Converter.Call(Target, nil));
+  begin
+    Result := Converter.Call(Target, nil);
+    Exit;
+  end;
 
   const ObjectToString = Context.ObjectPrototype.GetProperty(METHOD_TO_STRING);
   if ObjectToString.IsFunction and Supports(ObjectToString.ToObject, IJSFunction, Converter) then
-    Exit(Converter.Call(Target, nil));
+  begin
+    Result := Converter.Call(Target, nil);
+    Exit;
+  end;
 
   raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [METHOD_TO_STRING]));
 end;

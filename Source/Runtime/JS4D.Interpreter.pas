@@ -31,6 +31,7 @@ uses
   JS4D.ObjectOperations,
   JS4D.BinaryData,
   JS4D.ProxyObjects,
+  JS4D.ConstructorFunction,
   JS4D.SymbolRegistry,
   JS4D.GeneratorObjects,
   JS4D.AsyncHost,
@@ -657,7 +658,8 @@ const
   ITERATOR_METHOD_NOT_CALLABLE = 'The Symbol.iterator property is not a function';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
   CLASS_CONSTRUCTOR_CALL = 'Class constructor %s cannot be invoked without ''new''';
-  THIS_BEFORE_SUPER = 'Must call super constructor in derived class before accessing ''this'' or returning from derived constructor';
+  THIS_BEFORE_SUPER = 'Must call super constructor in derived class before accessing ''this'' or returning from ' +
+                      'derived constructor';
   SUPER_CALLED_TWICE = 'Super constructor may only be called once';
   SUPER_NOT_CONSTRUCTOR = 'Super constructor is not a constructor';
   SUPER_OUTSIDE_METHOD = '''super'' keyword unexpected here';
@@ -1141,7 +1143,7 @@ end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
 begin
-  for var PropName in TJSObjectKeys.All(Func) do
+  for var PropName in TJSObjectOperations.OwnKeys(Func) do
   begin
     Func.DeleteProperty(PropName);
   end;
@@ -4036,7 +4038,7 @@ begin
 
   const Obj = Source.ToObject;
 
-  for var PropName in TJSObjectKeys.All(Obj) do
+  for var PropName in TJSObjectOperations.OwnKeys(Obj) do
   begin
     const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName.Stored);
     if IsExcluded or (not Obj.GetOwnPropertyDescriptor(PropName).Enumerable) then

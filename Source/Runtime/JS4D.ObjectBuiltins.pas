@@ -9,7 +9,7 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.BinarySupport;
+  JS4D.BuiltinSupport;
 
 type
   TJSObjectBuiltins = class
@@ -26,13 +26,14 @@ type
       VALUE_PROPERTY = '1';
       NOT_COERCIBLE = 'Cannot convert undefined or null to object';
       PROTOTYPE_NOT_AN_OBJECT = 'Object prototype may only be an Object or null';
-      SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this object: it is not extensible or the prototype chain would be cyclic';
+      SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this object: it is not extensible or the prototype chain ' +
+                             'would be cyclic';
       NOT_ITERABLE = 'Object.fromEntries requires an iterable object';
       ENTRY_NOT_AN_OBJECT = 'Iterator value is not an entry object';
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
 
     function ObjectFor(const Value: TJSValue): IJSObject;
     function HasOwn(const Args: TArray<TJSValue>): TJSValue;
@@ -67,7 +68,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FSupport := TJSBinarySupport.Create(Interpreter);
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
 end;
 
 destructor TJSObjectBuiltins.Destroy;
@@ -222,8 +223,13 @@ begin
     try
       AddEntry(Created, Entry);
     except
-      Closer(True);
-      raise;
+      on EJSExecutionInterrupted do
+        raise;
+      on Exception do
+      begin
+        Closer(True);
+        raise;
+      end;
     end;
   end;
 

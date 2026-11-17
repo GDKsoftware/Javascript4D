@@ -8,7 +8,7 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.BinarySupport;
+  JS4D.BuiltinSupport;
 
 type
   TJSAggregateErrorBuiltins = class
@@ -22,7 +22,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FPrototype: IJSObject;
       FConstructor: IJSFunction;
 
@@ -33,7 +33,7 @@ type
     procedure CreateConstructor(const ErrorConstructor: IJSObject);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport);
     destructor Destroy; override;
 
     procedure Register;
@@ -43,12 +43,14 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.ProxyObjects,
+  JS4D.ConstructorFunction,
   JS4D.Conversions,
   JS4D.PropertyNames;
 
-constructor TJSAggregateErrorBuiltins.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
+constructor TJSAggregateErrorBuiltins.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport);
 begin
   inherited Create;
 
@@ -82,13 +84,13 @@ function TJSAggregateErrorBuiltins.Construct(const Args: TArray<TJSValue>; const
 begin
   const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototype);
 
-  const MessageValue = TJSBinarySupport.Argument(Args, 1);
+  const MessageValue = TJSArrayLike.Argument(Args, 1);
   const HasMessage = (not MessageValue.IsUndefined);
   var MessageText := '';
   if HasMessage then
     MessageText := TJSConversions.ToText(MessageValue, FInterpreter.Limits);
 
-  const ErrorSource = TJSBinarySupport.Argument(Args, 0);
+  const ErrorSource = TJSArrayLike.Argument(Args, 0);
   const Errors = FSupport.ReadSequence(ErrorSource, NOT_ITERABLE);
 
   const Error = CreateBaseError(Prototype, MessageText);

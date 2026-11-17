@@ -180,7 +180,10 @@ end;
 function TJSBuiltinAttributes.ResolveMember(const Target: IJSObject; const Name: string): TJSValue;
 begin
   if Assigned(Target) then
-    Exit(Target.GetProperty(Name));
+  begin
+    Result := Target.GetProperty(Name);
+    Exit;
+  end;
 
   Result := FInterpreter.GetGlobalVariable(Name);
 end;

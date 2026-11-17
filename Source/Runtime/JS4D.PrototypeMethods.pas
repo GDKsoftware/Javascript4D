@@ -35,7 +35,8 @@ type
     function PropertyToText(const Source: IJSObject; const PropertyName: string; const DefaultText: string): string;
     function ConvertArgumentToPrimitive(const Arg: TJSValue; const PreferString: Boolean): TJSValue;
     function ConvertArgumentsToPrimitives(const Args: TArray<TJSValue>; const PreferString: Boolean): TArray<TJSValue>;
-    function ConvertStringArgument(const MethodName: string; const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
+    function ConvertStringArgument(const MethodName: string; const Args: TArray<TJSValue>;
+                                   const Index: Integer): TJSValue;
     function ConvertStringArguments(const MethodName: string; const Args: TArray<TJSValue>): TArray<TJSValue>;
     function ThisToText(const This: IJSObject; const MethodName: string): string;
     procedure RejectRegExpSearchString(const MethodName: string; const Args: TArray<TJSValue>);
@@ -73,7 +74,7 @@ type
 
     class function IsConstructCall(const This: IJSObject; const PrototypeObj: IJSObject): Boolean; static;
 
-    procedure RegisterObjectMethods(const PrototypeObj: IJSObject; const MathObj: IJSObject; const JSONObj: IJSObject);
+    procedure RegisterObjectMethods(const PrototypeObj: IJSObject);
     procedure RegisterStringMethods(const PrototypeObj: IJSObject);
     procedure RegisterNumberMethods(const PrototypeObj: IJSObject);
     procedure RegisterBooleanMethods(const PrototypeObj: IJSObject);
@@ -153,7 +154,7 @@ const
   NATIVE_FUNCTION_FORMAT = 'function %s() { [native code] }';
   PROPERTY_NAME = 'name';
   PROPERTY_MESSAGE = 'message';
-  DEFAULT_ERROR_NAME = 'Error';
+  DEFAULT_ERROR_NAME = CLASS_ERROR;
   ERROR_SEPARATOR = ': ';
 
 constructor TJSPrototypeMethods.Create(const Interpreter: TJSInterpreter);
@@ -222,7 +223,10 @@ begin
 
   const SourceValue = TJSValue.CreateObject(Source);
   if SourceValue.IsArray then
-    Exit(SourceValue.ToLimitedString(FInterpreter.Limits));
+  begin
+    Result := SourceValue.ToLimitedString(FInterpreter.Limits);
+    Exit;
+  end;
 
   const Primitive = ObjectToPrimitive(Source, True);
 
@@ -398,7 +402,10 @@ function TJSPrototypeMethods.ObjectIsPrototypeOf(const This: IJSObject; const Ar
 begin
   const HasCandidate = (Length(Args) > 0) and Args[0].IsObject;
   if not HasCandidate then
-    Exit(TJSValue.CreateBoolean(False));
+  begin
+    Result := TJSValue.CreateBoolean(False);
+    Exit;
+  end;
 
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [CLASS_OBJECT, METHOD_IS_PROTOTYPE_OF]));
@@ -407,7 +414,10 @@ begin
   while Assigned(Current) do
   begin
     if (Current as IInterface) = (This as IInterface) then
-      Exit(TJSValue.CreateBoolean(True));
+    begin
+      Result := TJSValue.CreateBoolean(True);
+      Exit;
+    end;
 
     Current := Current.Prototype;
   end;
@@ -434,10 +444,16 @@ begin
   const ErrorMessage = PropertyToText(This, PROPERTY_MESSAGE, DefaultMessage);
 
   if ErrorName.IsEmpty then
-    Exit(TJSValue.CreateString(ErrorMessage));
+  begin
+    Result := TJSValue.CreateString(ErrorMessage);
+    Exit;
+  end;
 
   if ErrorMessage.IsEmpty then
-    Exit(TJSValue.CreateString(ErrorName));
+  begin
+    Result := TJSValue.CreateString(ErrorName);
+    Exit;
+  end;
 
   Result := TJSValue.CreateString(ErrorName + ERROR_SEPARATOR + ErrorMessage);
 end;
@@ -475,11 +491,17 @@ function TJSPrototypeMethods.RegExpFlagValue(const This: IJSObject; const Protot
 begin
   var RegExpObj: IJSRegExp;
   if Supports(This, IJSRegExp, RegExpObj) then
-    Exit(FromRegExp(RegExpObj));
+  begin
+    Result := FromRegExp(RegExpObj);
+    Exit;
+  end;
 
   const IsPrototype = Assigned(This) and (Pointer(This as IInterface) = PrototypeIdentity);
   if IsPrototype then
-    Exit(TJSValue.CreateUndefined);
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
   raise TJSErrorFactory.TypeError(Format(NOT_A_REGEXP_GETTER_RECEIVER, [PropertyName]));
 end;
@@ -612,7 +634,10 @@ function TJSPrototypeMethods.CallStringMethod(const This: IJSObject; const Metho
 begin
   const IsValueAccessor = (MethodName = METHOD_TO_STRING) or (MethodName = METHOD_VALUE_OF);
   if IsValueAccessor then
-    Exit(ThisToPrimitive(This, TYPE_NAME_STRING, MethodName));
+  begin
+    Result := ThisToPrimitive(This, TYPE_NAME_STRING, MethodName);
+    Exit;
+  end;
 
   const Text = ThisToText(This, MethodName);
 
@@ -653,9 +678,13 @@ begin
   begin
     var LocaleText: string;
     if TryFormatLocaleNumber(NumberValue, Args, LocaleText) then
-      Exit(TJSValue.CreateString(LocaleText));
+    begin
+      Result := TJSValue.CreateString(LocaleText);
+      Exit;
+    end;
 
-    Exit(TJSBuiltins.CallNumberMethod(NumberValue, METHOD_TO_STRING, []));
+    Result := TJSBuiltins.CallNumberMethod(NumberValue, METHOD_TO_STRING, []);
+    Exit;
   end;
 
   const PrimitiveArgs = ConvertArgumentsToPrimitives(Args, False);
@@ -673,8 +702,7 @@ begin
   Result := TJSValue.CreateString(Primitive.ToString);
 end;
 
-procedure TJSPrototypeMethods.RegisterObjectMethods(const PrototypeObj: IJSObject; const MathObj: IJSObject;
-                                                       const JSONObj: IJSObject);
+procedure TJSPrototypeMethods.RegisterObjectMethods(const PrototypeObj: IJSObject);
 begin
   DefineRawThisMethod(PrototypeObj, METHOD_TO_STRING,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue

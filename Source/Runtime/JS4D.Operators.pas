@@ -23,12 +23,14 @@ type
     class function Remainder(const Dividend: Double; const Divisor: Double): Double; static;
     class function ToAddOperand(const Value: TJSValue; const Limits: TJSLimits): TJSValue; static;
     class function Add(const Left: TJSValue; const Right: TJSValue; const Limits: TJSLimits): TJSValue; static;
-    class function Compare(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+    class function Compare(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                            const Right: TJSValue): Boolean; static;
     class function ShiftRightKeepingSign(const Value: Integer; const Count: Byte): Integer; static;
-    class function Shift(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+    class function ApplyArithmetic(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
+                                   const Right: TJSValue): TJSValue; static;
+    class function Shift(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                          const Right: TJSValue): TJSValue; static;
-    class function Bitwise(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+    class function Bitwise(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                            const Right: TJSValue): TJSValue; static;
 
   public
@@ -36,12 +38,19 @@ type
     class function ToNumber(const Value: TJSValue): Double; static;
     class function ToUint32(const Value: TJSValue): Cardinal; static;
     class function ToInt32(const Value: TJSValue): Integer; static;
-    class function BinaryOperatorFor(const Operator_: TJSAssignmentOperator): TJSBinaryOperator; static;
-    class function Apply(const Operator_: TJSBinaryOperator; const Left: TJSValue; const Right: TJSValue;
+    class function BinaryOperatorFor(const AssignmentOperator: TJSAssignmentOperator): TJSBinaryOperator; static;
+    class function Apply(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue; const Right: TJSValue;
                          const Limits: TJSLimits): TJSValue; static;
   end;
 
 implementation
+
+const
+  NO_BINARY_FORM = 'Assignment operator has no binary form: %d';
+  NOT_AN_ARITHMETIC_OPERATOR = 'Operator is not an arithmetic operator: %d';
+  NOT_A_RELATIONAL_OPERATOR = 'Operator is not a relational operator: %d';
+  NOT_A_BITWISE_OPERATOR = 'Operator is not a bitwise operator: %d';
+  NOT_A_SHIFT_OPERATOR = 'Operator is not a shift operator: %d';
 
 class function TJSOperators.ToPrimitive(const Value: TJSValue): TJSValue;
 begin
@@ -71,9 +80,9 @@ begin
   Result := Integer(ToUint32(Value));
 end;
 
-class function TJSOperators.BinaryOperatorFor(const Operator_: TJSAssignmentOperator): TJSBinaryOperator;
+class function TJSOperators.BinaryOperatorFor(const AssignmentOperator: TJSAssignmentOperator): TJSBinaryOperator;
 begin
-  case Operator_ of
+  case AssignmentOperator of
     TJSAssignmentOperator.AddAssign                : Result := TJSBinaryOperator.Add;
     TJSAssignmentOperator.SubtractAssign           : Result := TJSBinaryOperator.Subtract;
     TJSAssignmentOperator.MultiplyAssign           : Result := TJSBinaryOperator.Multiply;
@@ -87,61 +96,60 @@ begin
     TJSAssignmentOperator.RightShiftAssign         : Result := TJSBinaryOperator.RightShift;
     TJSAssignmentOperator.UnsignedRightShiftAssign : Result := TJSBinaryOperator.UnsignedRightShift;
   else
-    raise ENotSupportedException.CreateFmt('Assignment operator has no binary form: %d', [Ord(Operator_)]);
+    raise ENotSupportedException.CreateFmt(NO_BINARY_FORM, [Ord(AssignmentOperator)]);
   end;
 end;
 
-class function TJSOperators.Apply(const Operator_: TJSBinaryOperator; const Left: TJSValue; const Right: TJSValue;
-                                  const Limits: TJSLimits): TJSValue;
+class function TJSOperators.ApplyArithmetic(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
+                                            const Right: TJSValue): TJSValue;
 begin
-  case Operator_ of
+  const LeftNumber = ToNumber(Left);
+  const RightNumber = ToNumber(Right);
+
+  var Outcome: Double;
+  case BinaryOperator of
+    TJSBinaryOperator.Subtract : Outcome := LeftNumber - RightNumber;
+    TJSBinaryOperator.Multiply : Outcome := LeftNumber * RightNumber;
+    TJSBinaryOperator.Divide   : Outcome := Divide(LeftNumber, RightNumber);
+    TJSBinaryOperator.Modulo   : Outcome := Remainder(LeftNumber, RightNumber);
+    TJSBinaryOperator.Exponent : Outcome := TJSMathFunctions.Power(LeftNumber, RightNumber);
+  else
+    raise ENotSupportedException.CreateFmt(NOT_AN_ARITHMETIC_OPERATOR, [Ord(BinaryOperator)]);
+  end;
+
+  Result := TJSValue.CreateNumber(Outcome);
+end;
+
+class function TJSOperators.Apply(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
+                                  const Right: TJSValue; const Limits: TJSLimits): TJSValue;
+begin
+  case BinaryOperator of
     TJSBinaryOperator.Add:
       Result := Add(Left, Right, Limits);
-    TJSBinaryOperator.Subtract:
-      begin
-        const LeftNumber = ToNumber(Left);
-        const RightNumber = ToNumber(Right);
-        Result := TJSValue.CreateNumber(LeftNumber - RightNumber);
-      end;
-    TJSBinaryOperator.Multiply:
-      begin
-        const LeftNumber = ToNumber(Left);
-        const RightNumber = ToNumber(Right);
-        Result := TJSValue.CreateNumber(LeftNumber * RightNumber);
-      end;
-    TJSBinaryOperator.Divide:
-      begin
-        const LeftNumber = ToNumber(Left);
-        const RightNumber = ToNumber(Right);
-        Result := TJSValue.CreateNumber(Divide(LeftNumber, RightNumber));
-      end;
-    TJSBinaryOperator.Modulo:
-      begin
-        const LeftNumber = ToNumber(Left);
-        const RightNumber = ToNumber(Right);
-        Result := TJSValue.CreateNumber(Remainder(LeftNumber, RightNumber));
-      end;
+    TJSBinaryOperator.Subtract,
+    TJSBinaryOperator.Multiply,
+    TJSBinaryOperator.Divide,
+    TJSBinaryOperator.Modulo,
     TJSBinaryOperator.Exponent:
-      begin
-        const LeftNumber = ToNumber(Left);
-        const RightNumber = ToNumber(Right);
-        Result := TJSValue.CreateNumber(TJSMathFunctions.Power(LeftNumber, RightNumber));
-      end;
+      Result := ApplyArithmetic(BinaryOperator, Left, Right);
     TJSBinaryOperator.LessThan,
     TJSBinaryOperator.LessThanOrEqual,
     TJSBinaryOperator.GreaterThan,
     TJSBinaryOperator.GreaterThanOrEqual:
-      Result := TJSValue.CreateBoolean(Compare(Operator_, Left, Right));
+      begin
+        const IsOrdered = Compare(BinaryOperator, Left, Right);
+        Result := TJSValue.CreateBoolean(IsOrdered);
+      end;
     TJSBinaryOperator.BitwiseAnd,
     TJSBinaryOperator.BitwiseOr,
     TJSBinaryOperator.BitwiseXor:
-      Result := Bitwise(Operator_, Left, Right);
+      Result := Bitwise(BinaryOperator, Left, Right);
     TJSBinaryOperator.LeftShift,
     TJSBinaryOperator.RightShift,
     TJSBinaryOperator.UnsignedRightShift:
-      Result := Shift(Operator_, Left, Right);
+      Result := Shift(BinaryOperator, Left, Right);
   else
-    raise ENotSupportedException.CreateFmt('Operator is not an arithmetic operator: %d', [Ord(Operator_)]);
+    raise ENotSupportedException.CreateFmt(NOT_AN_ARITHMETIC_OPERATOR, [Ord(BinaryOperator)]);
   end;
 end;
 
@@ -194,7 +202,10 @@ begin
 
   const IsStringConcat = LeftPrimitive.IsString or RightPrimitive.IsString;
   if not IsStringConcat then
-    Exit(TJSValue.CreateNumber(LeftPrimitive.ToNumber + RightPrimitive.ToNumber));
+  begin
+    Result := TJSValue.CreateNumber(LeftPrimitive.ToNumber + RightPrimitive.ToNumber);
+    Exit;
+  end;
 
   const LeftText = LeftPrimitive.ToLimitedString(Limits);
   const RightText = RightPrimitive.ToLimitedString(Limits);
@@ -203,7 +214,7 @@ begin
   Result := TJSValue.CreateString(LeftText + RightText);
 end;
 
-class function TJSOperators.Compare(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+class function TJSOperators.Compare(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                                     const Right: TJSValue): Boolean;
 begin
   const LeftPrimitive = Left.ToPrimitive(False);
@@ -213,41 +224,41 @@ begin
   begin
     const Order = CompareStr(LeftPrimitive.AsString, RightPrimitive.AsString);
 
-    case Operator_ of
+    case BinaryOperator of
       TJSBinaryOperator.LessThan           : Exit(Order < 0);
       TJSBinaryOperator.LessThanOrEqual    : Exit(Order <= 0);
       TJSBinaryOperator.GreaterThan        : Exit(Order > 0);
       TJSBinaryOperator.GreaterThanOrEqual : Exit(Order >= 0);
     else
-      raise ENotSupportedException.CreateFmt('Operator is not a relational operator: %d', [Ord(Operator_)]);
+      raise ENotSupportedException.CreateFmt(NOT_A_RELATIONAL_OPERATOR, [Ord(BinaryOperator)]);
     end;
   end;
 
   const LeftNumber = LeftPrimitive.ToNumber;
   const RightNumber = RightPrimitive.ToNumber;
 
-  case Operator_ of
-    TJSBinaryOperator.LessThan           : Result := LeftNumber < RightNumber;
-    TJSBinaryOperator.LessThanOrEqual    : Result := LeftNumber <= RightNumber;
-    TJSBinaryOperator.GreaterThan        : Result := LeftNumber > RightNumber;
-    TJSBinaryOperator.GreaterThanOrEqual : Result := LeftNumber >= RightNumber;
+  case BinaryOperator of
+    TJSBinaryOperator.LessThan           : Result := (LeftNumber < RightNumber);
+    TJSBinaryOperator.LessThanOrEqual    : Result := (LeftNumber <= RightNumber);
+    TJSBinaryOperator.GreaterThan        : Result := (LeftNumber > RightNumber);
+    TJSBinaryOperator.GreaterThanOrEqual : Result := (LeftNumber >= RightNumber);
   else
-    raise ENotSupportedException.CreateFmt('Operator is not a relational operator: %d', [Ord(Operator_)]);
+    raise ENotSupportedException.CreateFmt(NOT_A_RELATIONAL_OPERATOR, [Ord(BinaryOperator)]);
   end;
 end;
 
-class function TJSOperators.Bitwise(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+class function TJSOperators.Bitwise(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                                     const Right: TJSValue): TJSValue;
 begin
   const LeftInteger = ToInt32(Left);
   const RightInteger = ToInt32(Right);
 
-  case Operator_ of
+  case BinaryOperator of
     TJSBinaryOperator.BitwiseAnd : Result := TJSValue.CreateNumber(LeftInteger and RightInteger);
     TJSBinaryOperator.BitwiseOr  : Result := TJSValue.CreateNumber(LeftInteger or RightInteger);
     TJSBinaryOperator.BitwiseXor : Result := TJSValue.CreateNumber(LeftInteger xor RightInteger);
   else
-    raise ENotSupportedException.CreateFmt('Operator is not a bitwise operator: %d', [Ord(Operator_)]);
+    raise ENotSupportedException.CreateFmt(NOT_A_BITWISE_OPERATOR, [Ord(BinaryOperator)]);
   end;
 end;
 
@@ -259,18 +270,18 @@ begin
   Result := not ((not Value) shr Count);
 end;
 
-class function TJSOperators.Shift(const Operator_: TJSBinaryOperator; const Left: TJSValue;
+class function TJSOperators.Shift(const BinaryOperator: TJSBinaryOperator; const Left: TJSValue;
                                   const Right: TJSValue): TJSValue;
 begin
   const LeftInteger = ToInt32(Left);
   const Count = Byte(ToUint32(Right) and SHIFT_COUNT_MASK);
 
-  case Operator_ of
+  case BinaryOperator of
     TJSBinaryOperator.LeftShift          : Result := TJSValue.CreateNumber(Integer(Cardinal(LeftInteger) shl Count));
     TJSBinaryOperator.RightShift         : Result := TJSValue.CreateNumber(ShiftRightKeepingSign(LeftInteger, Count));
     TJSBinaryOperator.UnsignedRightShift : Result := TJSValue.CreateNumber(Cardinal(LeftInteger) shr Count);
   else
-    raise ENotSupportedException.CreateFmt('Operator is not a shift operator: %d', [Ord(Operator_)]);
+    raise ENotSupportedException.CreateFmt(NOT_A_SHIFT_OPERATOR, [Ord(BinaryOperator)]);
   end;
 end;
 

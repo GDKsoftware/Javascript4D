@@ -13,7 +13,10 @@ const
   ERRORS_PROPERTY = 'errors';
   FUNCTION_NAME = 'Function';
   ANONYMOUS_NAME = 'anonymous';
+  NEXT_PROPERTY = 'next';
+  SPECIES_GETTER_NAME = 'get [Symbol.species]';
   GETTER_NAME_FORMAT = 'get %s';
+  CONSTRUCTOR_REQUIRES_NEW = 'Constructor %s requires ''new''';
   SETTER_NAME_FORMAT = 'set %s';
 
 implementation

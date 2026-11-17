@@ -11,34 +11,12 @@ uses
   JS4D.ObjectHeap,
   JS4D.Types,
   JS4D.Errors,
-  JS4D.ObjectOperations;
+  JS4D.ObjectOperations,
+  JS4D.ConstructorFunction;
 
 type
-  TJSConstructHandler = reference to function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
-
   TJSTargetConstructor = reference to function(const Target: IJSFunction; const Args: TArray<TJSValue>;
                                                const NewTarget: IJSFunction): TJSValue;
-
-  // A native function that has its own behaviour when it is called with new.
-  IJSNativeConstructor = interface
-    ['{2B9C4D61-8F3A-4E75-A0D2-5C7E1B3F9A48}']
-    function ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
-  end;
-
-  TJSConstructorFunction = class(TJSFunctionImpl, IJSNativeConstructor)
-  private
-    FHandler: TJSConstructHandler;
-
-  protected
-    procedure ReleaseReferences; override;
-
-  public
-    constructor CreateConstructor(const Name: string; const Func: TNativeFunction;
-                                  const Handler: TJSConstructHandler);
-    destructor Destroy; override;
-
-    function ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
-  end;
 
   IJSProxyRuntime = interface
     ['{C41F7A02-5D3B-4B86-9E1C-72A8D0F6B3E5}']
@@ -47,6 +25,7 @@ type
     function Construct(const Target: IJSFunction; const Args: TArray<TJSValue>;
                        const NewTarget: IJSFunction): TJSValue;
     procedure ChargeStep;
+    procedure EnsureKeyCount(const Count: Int64);
     function EnterOperation: IInterface;
     procedure LeaveOperation;
     procedure Detach;
@@ -75,6 +54,7 @@ type
       FArrayPrototype: IJSObject;
       FConstruct: TJSTargetConstructor;
       FChargeStep: TProc;
+      FEnsureKeyCount: TProc<Int64>;
       FOperationDepth: Integer;
 
     function GetObjectPrototype: IJSObject;
@@ -86,12 +66,14 @@ type
 
   public
     constructor Create(const ObjectPrototype: IJSObject; const ArrayPrototype: IJSObject;
-                       const Construct: TJSTargetConstructor; const ChargeStep: TProc);
+                       const Construct: TJSTargetConstructor; const ChargeStep: TProc;
+                       const EnsureKeyCount: TProc<Int64>);
     destructor Destroy; override;
 
     function Construct(const Target: IJSFunction; const Args: TArray<TJSValue>;
                        const NewTarget: IJSFunction): TJSValue;
     procedure ChargeStep;
+    procedure EnsureKeyCount(const Count: Int64);
     function EnterOperation: IInterface;
     procedure LeaveOperation;
     procedure Detach;
@@ -104,8 +86,6 @@ type
     function IsAbsent: Boolean;
   end;
 
-  // The internal methods of a proxy: every one looks up its trap on the handler, falls back to the target
-  // and verifies the invariants of the result against the target.
   TJSProxyCore = class(TInterfacedObject, IJSProxy)
   private
     const
@@ -125,34 +105,61 @@ type
       TRAP_APPLY = 'apply';
       TRAP_CONSTRUCT = 'construct';
       PROTOTYPE_RESULT = '''getPrototypeOf'' on proxy: trap returned neither object nor null';
-      PROTOTYPE_MISMATCH = '''getPrototypeOf'' on proxy: proxy target is non-extensible but the trap did not return its actual prototype';
-      SET_PROTOTYPE_MISMATCH = '''setPrototypeOf'' on proxy: trap returned truish for setting a new prototype on the non-extensible proxy target';
+      PROTOTYPE_MISMATCH = '''getPrototypeOf'' on proxy: proxy target is non-extensible but the trap did not return ' +
+                           'its actual prototype';
+      SET_PROTOTYPE_MISMATCH = '''setPrototypeOf'' on proxy: trap returned truish for setting a new prototype on the ' +
+                               'non-extensible proxy target';
       EXTENSIBLE_MISMATCH = '''isExtensible'' on proxy: trap result does not reflect extensibility of proxy target';
-      PREVENT_EXTENSIONS_MISMATCH = '''preventExtensions'' on proxy: trap returned truish but the proxy target is extensible';
-      DESCRIPTOR_RESULT = '''getOwnPropertyDescriptor'' on proxy: trap returned neither object nor undefined for property ''%s''';
-      DESCRIPTOR_HIDES_NON_CONFIGURABLE = '''getOwnPropertyDescriptor'' on proxy: trap returned undefined for property ''%s'' which is non-configurable in the proxy target';
-      DESCRIPTOR_HIDES_FROM_NON_EXTENSIBLE = '''getOwnPropertyDescriptor'' on proxy: trap returned undefined for property ''%s'' which exists in the non-extensible proxy target';
-      DESCRIPTOR_INCOMPATIBLE = '''getOwnPropertyDescriptor'' on proxy: trap returned descriptor for property ''%s'' that is incompatible with the existing property in the proxy target';
-      DESCRIPTOR_FALSE_NON_CONFIGURABLE = '''getOwnPropertyDescriptor'' on proxy: trap reported non-configurability for property ''%s'' which is either non-existent or configurable in the proxy target';
-      DESCRIPTOR_FALSE_NON_WRITABLE = '''getOwnPropertyDescriptor'' on proxy: trap reported non-configurable and writable for property ''%s'' which is non-configurable, non-writable in the proxy target';
-      DEFINE_NON_EXTENSIBLE = '''defineProperty'' on proxy: trap returned truish for adding property ''%s'' to the non-extensible proxy target';
-      DEFINE_NON_CONFIGURABLE_MISSING = '''defineProperty'' on proxy: trap returned truish for defining non-configurable property ''%s'' which is either non-existent or configurable in the proxy target';
-      DEFINE_INCOMPATIBLE = '''defineProperty'' on proxy: trap returned truish for adding property ''%s'' that is incompatible with the existing property in the proxy target';
-      DEFINE_NON_WRITABLE = '''defineProperty'' on proxy: trap returned truish for defining non-configurable property ''%s'' which cannot be non-writable, unless there exists a corresponding non-configurable, non-writable property in the target';
-      HAS_HIDES_NON_CONFIGURABLE = '''has'' on proxy: trap returned falsish for property ''%s'' which exists in the proxy target as non-configurable';
-      HAS_HIDES_FROM_NON_EXTENSIBLE = '''has'' on proxy: trap returned falsish for property ''%s'' but the proxy target is not extensible';
-      GET_VALUE_MISMATCH = '''get'' on proxy: property ''%s'' is a read-only and non-configurable data property on the proxy target but the proxy did not return its actual value';
-      GET_ACCESSOR_MISMATCH = '''get'' on proxy: property ''%s'' is a non-configurable accessor property on the proxy target and does not have a getter function, but the trap did not return ''undefined''';
-      SET_VALUE_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy target as a non-configurable and non-writable data property with a different value';
-      SET_ACCESSOR_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy target as a non-configurable and non-writable accessor property without a setter';
-      DELETE_NON_CONFIGURABLE = '''deleteProperty'' on proxy: trap returned truish for property ''%s'' which is non-configurable in the proxy target';
-      DELETE_NON_EXTENSIBLE = '''deleteProperty'' on proxy: trap returned truish for property ''%s'' but the proxy target is non-extensible';
+      PREVENT_EXTENSIONS_MISMATCH = '''preventExtensions'' on proxy: trap returned truish but the proxy target is ' +
+                                    'extensible';
+      DESCRIPTOR_RESULT = '''getOwnPropertyDescriptor'' on proxy: trap returned neither object nor undefined for ' +
+                          'property ''%s''';
+      DESCRIPTOR_HIDES_NON_CONFIGURABLE = '''getOwnPropertyDescriptor'' on proxy: trap returned undefined for ' +
+                                          'property ''%s'' which is non-configurable in the proxy target';
+      DESCRIPTOR_HIDES_FROM_NON_EXTENSIBLE = '''getOwnPropertyDescriptor'' on proxy: trap returned undefined for ' +
+                                             'property ''%s'' which exists in the non-extensible proxy target';
+      DESCRIPTOR_INCOMPATIBLE = '''getOwnPropertyDescriptor'' on proxy: trap returned descriptor for property ''%s'' ' +
+                                'that is incompatible with the existing property in the proxy target';
+      DESCRIPTOR_FALSE_NON_CONFIGURABLE = '''getOwnPropertyDescriptor'' on proxy: trap reported non-configurability ' +
+                                          'for property ''%s'' which is either non-existent or configurable in the ' +
+                                          'proxy target';
+      DESCRIPTOR_FALSE_NON_WRITABLE = '''getOwnPropertyDescriptor'' on proxy: trap reported non-configurable and ' +
+                                      'writable for property ''%s'' which is non-configurable, non-writable in the ' +
+                                      'proxy target';
+      DEFINE_NON_EXTENSIBLE = '''defineProperty'' on proxy: trap returned truish for adding property ''%s'' to the ' +
+                              'non-extensible proxy target';
+      DEFINE_NON_CONFIGURABLE_MISSING = '''defineProperty'' on proxy: trap returned truish for defining ' +
+                                        'non-configurable property ''%s'' which is either non-existent or ' +
+                                        'configurable in the proxy target';
+      DEFINE_INCOMPATIBLE = '''defineProperty'' on proxy: trap returned truish for adding property ''%s'' that is ' +
+                            'incompatible with the existing property in the proxy target';
+      DEFINE_NON_WRITABLE = '''defineProperty'' on proxy: trap returned truish for defining non-configurable property ' +
+                            '''%s'' which cannot be non-writable, unless there exists a corresponding ' +
+                            'non-configurable, non-writable property in the target';
+      HAS_HIDES_NON_CONFIGURABLE = '''has'' on proxy: trap returned falsish for property ''%s'' which exists in the ' +
+                                   'proxy target as non-configurable';
+      HAS_HIDES_FROM_NON_EXTENSIBLE = '''has'' on proxy: trap returned falsish for property ''%s'' but the proxy ' +
+                                      'target is not extensible';
+      GET_VALUE_MISMATCH = '''get'' on proxy: property ''%s'' is a read-only and non-configurable data property on ' +
+                           'the proxy target but the proxy did not return its actual value';
+      GET_ACCESSOR_MISMATCH = '''get'' on proxy: property ''%s'' is a non-configurable accessor property on the proxy ' +
+                              'target and does not have a getter function, but the trap did not return ''undefined''';
+      SET_VALUE_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy ' +
+                           'target as a non-configurable and non-writable data property with a different value';
+      SET_ACCESSOR_MISMATCH = '''set'' on proxy: trap returned truish for property ''%s'' which exists in the proxy ' +
+                              'target as a non-configurable and non-writable accessor property without a setter';
+      DELETE_NON_CONFIGURABLE = '''deleteProperty'' on proxy: trap returned truish for property ''%s'' which is ' +
+                                'non-configurable in the proxy target';
+      DELETE_NON_EXTENSIBLE = '''deleteProperty'' on proxy: trap returned truish for property ''%s'' but the proxy ' +
+                              'target is non-extensible';
       KEYS_NOT_AN_OBJECT = '''ownKeys'' on proxy: trap returned a value that is not an object';
       KEYS_INVALID_ELEMENT = '''ownKeys'' on proxy: trap result must contain only strings and symbols';
       KEYS_DUPLICATE = '''ownKeys'' on proxy: trap returned duplicate entries';
       KEYS_MISSING_NON_CONFIGURABLE = '''ownKeys'' on proxy: trap result did not include ''%s''';
-      KEYS_MISSING_FROM_NON_EXTENSIBLE = '''ownKeys'' on proxy: trap result did not include ''%s'' of the non-extensible proxy target';
-      KEYS_EXTRA_FOR_NON_EXTENSIBLE = '''ownKeys'' on proxy: trap returned extra keys but proxy target is non-extensible';
+      KEYS_MISSING_FROM_NON_EXTENSIBLE = '''ownKeys'' on proxy: trap result did not include ''%s'' of the ' +
+                                         'non-extensible proxy target';
+      KEYS_EXTRA_FOR_NON_EXTENSIBLE = '''ownKeys'' on proxy: trap returned extra keys but proxy target is ' +
+                                      'non-extensible';
       CONSTRUCT_RESULT = '''construct'' on proxy: trap returned non-object';
       NOT_CALLABLE = 'Proxy target is not a function';
       MAX_TARGET_NESTING = 256;
@@ -168,7 +175,6 @@ type
     procedure RequireSupportedNesting(const Target: IJSObject);
     function OpenTrap(const TrapName: string): TJSProxyTrap;
     function InvokeTrap(const Trap: TJSProxyTrap; const Args: TArray<TJSValue>): TJSValue;
-    function ArrayFromList(const Items: TArray<TJSValue>): TJSValue;
     function DefinitionToObject(const Definition: TJSPropertyDefinition): TJSValue;
     class function CompleteDefinition(const Definition: TJSPropertyDefinition): TJSPropertyDescriptor; static;
     class function IsCompatible(const IsExtensible: Boolean; const Definition: TJSPropertyDefinition;
@@ -195,7 +201,7 @@ type
     function SetPrototypeOf(const Prototype: IJSObject): Boolean;
     function IsExtensible: Boolean;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
-    function Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+    function Call(const ThisTarget: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
 
     function GetWithReceiver(const Name: TJSPropertyKey; const Receiver: TJSValue): TJSValue;
@@ -251,7 +257,8 @@ type
     function HasOwnProperty(const Name: TJSPropertyKey): Boolean; override;
     procedure DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor); override;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; override;
-    function TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                      out Descriptor: TJSPropertyDescriptor): Boolean; override;
     function IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
 
     property ProxyImplementation: IJSProxy read FProxyRef implements IJSProxy;
@@ -294,7 +301,8 @@ type
     function HasOwnProperty(const Name: TJSPropertyKey): Boolean; override;
     procedure DefineProperty(const Name: TJSPropertyKey; const Descriptor: TJSPropertyDescriptor); override;
     function DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean; override;
-    function TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean; override;
+    function TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                      out Descriptor: TJSPropertyDescriptor): Boolean; override;
     function IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
 
     function ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
@@ -304,8 +312,8 @@ type
 
   TJSProxyFactory = class
   public
-    class function Create(const Runtime: IJSProxyRuntime; const Target: IJSObject;
-                          const Handler: IJSObject): IJSObject; static;
+    class function CreateProxy(const Runtime: IJSProxyRuntime; const Target: IJSObject;
+                               const Handler: IJSObject): IJSObject; static;
   end;
 
 implementation
@@ -318,15 +326,12 @@ uses
 type
   TJSIntegrityLevel = (Sealed, Frozen);
 
-  // Everything the two proxy classes share that is expressed through the IJSObject surface: the accessor
-  // that stands in for a proxy found in a prototype chain, and the integrity level operations.
   TJSProxyShared = class
   public
     class function IsCallable(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
     class function SameObject(const Left: IJSObject; const Right: IJSObject): Boolean; static;
     class function ObjectOrNull(const Value: IJSObject): TJSValue; static;
     class function ObjectOrUndefined(const Value: IJSObject): TJSValue; static;
-    class function FirstArgument(const Args: TArray<TJSValue>): TJSValue; static;
     class function InheritedAccessor(const Proxy: IJSProxy; const Name: TJSPropertyKey): TJSPropertyDescriptor; static;
     class function StringKeys(const Keys: TArray<TJSPropertyKey>): TArray<string>; static;
     class function SymbolKeys(const Keys: TArray<TJSPropertyKey>): TArray<TJSPropertyKey>; static;
@@ -345,6 +350,7 @@ const
   PREVENT_FAILED = 'Cannot prevent extensions on this proxy';
   SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this proxy';
   INHERITED_ACCESSOR = 'proxy';
+  EMPTY_FUNCTION_NAME = '';
   ATTRIBUTE_VALUE = 'value';
   ATTRIBUTE_WRITABLE = 'writable';
   ATTRIBUTE_GET = 'get';
@@ -352,39 +358,15 @@ const
   ATTRIBUTE_ENUMERABLE = 'enumerable';
   ATTRIBUTE_CONFIGURABLE = 'configurable';
 
-{ TJSConstructorFunction }
-
-constructor TJSConstructorFunction.CreateConstructor(const Name: string; const Func: TNativeFunction;
-                                                     const Handler: TJSConstructHandler);
-begin
-  inherited CreateNative(Name, Func);
-  FHandler := Handler;
-end;
-
-procedure TJSConstructorFunction.ReleaseReferences;
-begin
-  FHandler := nil;
-  inherited;
-end;
-
-destructor TJSConstructorFunction.Destroy;
-begin
-  FHandler := nil;
-  inherited;
-end;
-
-function TJSConstructorFunction.ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
-begin
-  Result := FHandler(Args, NewTarget);
-end;
-
 { TJSProxyRuntime }
 
 constructor TJSProxyRuntime.Create(const ObjectPrototype: IJSObject; const ArrayPrototype: IJSObject;
-                                   const Construct: TJSTargetConstructor; const ChargeStep: TProc);
+                                   const Construct: TJSTargetConstructor; const ChargeStep: TProc;
+                                   const EnsureKeyCount: TProc<Int64>);
 begin
   inherited Create;
 
+  FEnsureKeyCount := EnsureKeyCount;
   FObjectPrototype := ObjectPrototype;
   FArrayPrototype := ArrayPrototype;
   FConstruct := Construct;
@@ -435,8 +417,15 @@ begin
     FChargeStep();
 end;
 
+procedure TJSProxyRuntime.EnsureKeyCount(const Count: Int64);
+begin
+  if Assigned(FEnsureKeyCount) then
+    FEnsureKeyCount(Count);
+end;
+
 procedure TJSProxyRuntime.Detach;
 begin
+  FEnsureKeyCount := nil;
   FChargeStep := nil;
   FConstruct := nil;
 end;
@@ -568,19 +557,6 @@ begin
   Result := Trap.Handler.Call(FHandler, Args);
 end;
 
-function TJSProxyCore.ArrayFromList(const Items: TArray<TJSValue>): TJSValue;
-begin
-  const List: IJSArray = TJSArray.Create;
-  List.Prototype := FRuntime.ArrayPrototype;
-
-  for var Item in Items do
-  begin
-    List.Push(Item);
-  end;
-
-  Result := TJSValue.CreateObject(List);
-end;
-
 function TJSProxyCore.DefinitionToObject(const Definition: TJSPropertyDefinition): TJSValue;
 begin
   const Described: IJSObject = TJSObject.Create;
@@ -659,7 +635,8 @@ begin
   begin
     const ChangesGetter = Definition.HasGetter and (not Definition.Getter.SameValue(Current.Getter));
     const ChangesSetter = Definition.HasSetter and (not Definition.Setter.SameValue(Current.Setter));
-    Exit(not (ChangesGetter or ChangesSetter));
+    Result := not (ChangesGetter or ChangesSetter);
+    Exit;
   end;
 
   if Current.Writable then
@@ -676,7 +653,10 @@ begin
 
   const Trap = OpenTrap(TRAP_HAS);
   if Trap.IsAbsent then
-    Exit(Subject.HasProperty(Name));
+  begin
+    Result := Subject.HasProperty(Name);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
   Result := TrapResult.ToBoolean;
@@ -721,7 +701,10 @@ begin
 
   const Trap = OpenTrap(TRAP_SET_PROTOTYPE_OF);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.SetPrototypeOf(Subject, Prototype));
+  begin
+    Result := TJSObjectOperations.SetPrototypeOf(Subject, Prototype);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrNull(Prototype)]);
   Result := TrapResult.ToBoolean;
@@ -751,7 +734,10 @@ begin
 
   const Trap = OpenTrap(TRAP_PREVENT_EXTENSIONS);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.PreventExtensions(Subject));
+  begin
+    Result := TJSObjectOperations.PreventExtensions(Subject);
+    Exit;
+  end;
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]).ToBoolean;
   if Result and Subject.IsExtensible then
@@ -793,7 +779,10 @@ begin
 
   const Trap = OpenTrap(TRAP_GET_OWN_PROPERTY_DESCRIPTOR);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.TryGetOwnProperty(Subject, Name, Descriptor));
+  begin
+    Result := TJSObjectOperations.TryGetOwnProperty(Subject, Name, Descriptor);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
   const IsValid = TrapResult.IsObject or TrapResult.IsUndefined;
@@ -829,7 +818,10 @@ begin
 
   const Trap = OpenTrap(TRAP_DEFINE_PROPERTY);
   if Trap.IsAbsent then
-    Exit(Subject.DefineOwnProperty(Name, Definition));
+  begin
+    Result := Subject.DefineOwnProperty(Name, Definition);
+    Exit;
+  end;
 
   const Described = DefinitionToObject(Definition);
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name),
@@ -872,7 +864,10 @@ begin
 
   const Trap = OpenTrap(TRAP_GET);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.GetWithReceiver(Subject, Name, Receiver));
+  begin
+    Result := TJSObjectOperations.GetWithReceiver(Subject, Name, Receiver);
+    Exit;
+  end;
 
   Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name), Receiver]);
 
@@ -893,13 +888,17 @@ begin
     raise TJSErrorFactory.TypeError(Format(GET_ACCESSOR_MISMATCH, [Name.Text]));
 end;
 
-function TJSProxyCore.SetWithReceiver(const Name: TJSPropertyKey; const Value: TJSValue; const Receiver: TJSValue): Boolean;
+function TJSProxyCore.SetWithReceiver(const Name: TJSPropertyKey; const Value: TJSValue;
+                                      const Receiver: TJSValue): Boolean;
 begin
   const Subject = FTarget;
 
   const Trap = OpenTrap(TRAP_SET);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.SetWithReceiver(Subject, Name, Value, Receiver));
+  begin
+    Result := TJSObjectOperations.SetWithReceiver(Subject, Name, Value, Receiver);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name),
                                        Value, Receiver]);
@@ -929,7 +928,10 @@ begin
 
   const Trap = OpenTrap(TRAP_DELETE_PROPERTY);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.DeleteOwnProperty(Subject, Name));
+  begin
+    Result := TJSObjectOperations.DeleteOwnProperty(Subject, Name);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSObjectOperations.KeyToValue(Name)]);
   Result := TrapResult.ToBoolean;
@@ -973,6 +975,7 @@ begin
 
   const List = Source.ToObject;
   const Count = TJSArrayLike.ToLength(List);
+  FRuntime.EnsureKeyCount(Count);
   SetLength(Result, Count);
 
   for var Position := 0 to Count - 1 do
@@ -1059,7 +1062,10 @@ begin
 
   const Trap = OpenTrap(TRAP_OWN_KEYS);
   if Trap.IsAbsent then
-    Exit(TJSObjectOperations.OwnKeys(Subject));
+  begin
+    Result := TJSObjectOperations.OwnKeys(Subject);
+    Exit;
+  end;
 
   const TrapResult = InvokeTrap(Trap, [TJSValue.CreateObject(Subject)]);
   Result := ReadKeyList(TrapResult);
@@ -1086,7 +1092,7 @@ begin
   Result := TJSObjectOperations.IsArray(TJSValue.CreateObject(Subject));
 end;
 
-function TJSProxyCore.Call(const ThisObj: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+function TJSProxyCore.Call(const ThisTarget: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Subject = FTarget;
   const SubjectFunction = FTargetFunction;
@@ -1096,9 +1102,12 @@ begin
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 
   if Trap.IsAbsent then
-    Exit(SubjectFunction.Call(ThisObj, Args));
+  begin
+    Result := SubjectFunction.Call(ThisTarget, Args);
+    Exit;
+  end;
 
-  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrUndefined(ThisObj), ArrayFromList(Args)]);
+  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSProxyShared.ObjectOrUndefined(ThisTarget), TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args)]);
 end;
 
 function TJSProxyCore.Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
@@ -1111,9 +1120,12 @@ begin
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 
   if Trap.IsAbsent then
-    Exit(FRuntime.Construct(SubjectFunction, Args, NewTarget));
+  begin
+    Result := FRuntime.Construct(SubjectFunction, Args, NewTarget);
+    Exit;
+  end;
 
-  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), ArrayFromList(Args),
+  Result := InvokeTrap(Trap, [TJSValue.CreateObject(Subject), TJSArrayLike.CreateArray(FRuntime.ArrayPrototype, Args),
                               TJSValue.CreateObject(NewTarget)]);
   if not Result.IsObject then
     raise TJSErrorFactory.TypeError(CONSTRUCT_RESULT);
@@ -1143,14 +1155,6 @@ class function TJSProxyShared.ObjectOrUndefined(const Value: IJSObject): TJSValu
 begin
   if Assigned(Value) then
     Result := TJSValue.CreateObject(Value)
-  else
-    Result := TJSValue.CreateUndefined;
-end;
-
-class function TJSProxyShared.FirstArgument(const Args: TArray<TJSValue>): TJSValue;
-begin
-  if Length(Args) > 0 then
-    Result := Args[0]
   else
     Result := TJSValue.CreateUndefined;
 end;
@@ -1227,7 +1231,8 @@ begin
   end;
 end;
 
-class function TJSProxyShared.InheritedAccessor(const Proxy: IJSProxy; const Name: TJSPropertyKey): TJSPropertyDescriptor;
+class function TJSProxyShared.InheritedAccessor(const Proxy: IJSProxy;
+                                                const Name: TJSPropertyKey): TJSPropertyDescriptor;
 begin
   const Getter = TJSFunction.CreateNative(INHERITED_ACCESSOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
@@ -1238,7 +1243,9 @@ begin
   const Setter = TJSFunction.CreateNative(INHERITED_ACCESSOR,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const IsAssigned = Proxy.SetWithReceiver(Name, TJSProxyShared.FirstArgument(Args), TJSProxyShared.ObjectOrUndefined(This));
+      const AssignedValue = TJSArrayLike.Argument(Args, 0);
+      const Receiver = TJSProxyShared.ObjectOrUndefined(This);
+      const IsAssigned = Proxy.SetWithReceiver(Name, AssignedValue, Receiver);
       Result := TJSValue.CreateBoolean(IsAssigned);
     end);
 
@@ -1473,7 +1480,8 @@ begin
   Result := False;
 end;
 
-function TJSProxyObject.TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
+function TJSProxyObject.TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                                 out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   Descriptor := TJSProxyShared.InheritedAccessor(FProxyRef, Name);
   Result := True;
@@ -1483,7 +1491,7 @@ end;
 
 constructor TJSProxyFunction.Create(const Core: TJSProxyCore; const IsConstructorTarget: Boolean);
 begin
-  inherited CreateNative('', nil);
+  inherited CreateNative(EMPTY_FUNCTION_NAME, nil);
   LooksUpOwnPropertiesInMap := False;
 
   NativeFunction :=
@@ -1513,7 +1521,10 @@ end;
 function TJSProxyFunction.ConstructWith(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
 begin
   if Assigned(NewTarget) then
-    Exit(FCore.Construct(Args, NewTarget));
+  begin
+    Result := FCore.Construct(Args, NewTarget);
+    Exit;
+  end;
 
   Result := FCore.Construct(Args, Self);
 end;
@@ -1659,7 +1670,8 @@ begin
   FCore.DefineOwnProperty(Name, TJSProxyShared.ToDefinition(Descriptor));
 end;
 
-function TJSProxyFunction.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
+function TJSProxyFunction.DefineOwnProperty(const Name: TJSPropertyKey;
+                                            const Definition: TJSPropertyDefinition): Boolean;
 begin
   Result := FCore.DefineOwnProperty(Name, Definition);
 end;
@@ -1669,7 +1681,8 @@ begin
   Result := False;
 end;
 
-function TJSProxyFunction.TryGetPropertyDescriptor(const Name: TJSPropertyKey; out Descriptor: TJSPropertyDescriptor): Boolean;
+function TJSProxyFunction.TryGetPropertyDescriptor(const Name: TJSPropertyKey;
+                                                   out Descriptor: TJSPropertyDescriptor): Boolean;
 begin
   Descriptor := TJSProxyShared.InheritedAccessor(FProxyRef, Name);
   Result := True;
@@ -1677,7 +1690,7 @@ end;
 
 { TJSProxyFactory }
 
-class function TJSProxyFactory.Create(const Runtime: IJSProxyRuntime; const Target: IJSObject;
+class function TJSProxyFactory.CreateProxy(const Runtime: IJSProxyRuntime; const Target: IJSObject;
                                       const Handler: IJSObject): IJSObject;
 begin
   const Core = TJSProxyCore.Create(Runtime, Target, Handler);

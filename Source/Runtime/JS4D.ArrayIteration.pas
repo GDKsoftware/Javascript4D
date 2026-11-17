@@ -56,6 +56,9 @@ type
                          const Executor: TJSCallbackExecutor): TJSValue; static;
     class function Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;
                           const Executor: TJSCallbackExecutor): TJSValue; static;
+    class function ReduceInDirection(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                     const Executor: TJSCallbackExecutor; const MethodName: string;
+                                     const Step: Integer): TJSValue; static;
     class function ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
                                const Executor: TJSCallbackExecutor): TJSValue; static;
     class function TryFindMatch(const MethodName: string; const Target: IJSObject; const Args: TArray<TJSValue>;
@@ -126,49 +129,94 @@ begin
     raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
 
   if MethodName = METHOD_FOR_EACH then
-    Exit(ForEach(Target, Args, Executor));
+  begin
+    Result := ForEach(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_MAP then
-    Exit(Map(Target, Args, Executor, ArrayPrototype, BeforeElements));
+  begin
+    Result := Map(Target, Args, Executor, ArrayPrototype, BeforeElements);
+    Exit;
+  end;
 
   if MethodName = METHOD_FILTER then
-    Exit(Filter(Target, Args, Executor, ArrayPrototype, BeforeElements));
+  begin
+    Result := Filter(Target, Args, Executor, ArrayPrototype, BeforeElements);
+    Exit;
+  end;
 
   if MethodName = METHOD_SOME then
-    Exit(Some(Target, Args, Executor));
+  begin
+    Result := Some(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_EVERY then
-    Exit(Every(Target, Args, Executor));
+  begin
+    Result := Every(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_REDUCE then
-    Exit(Reduce(Target, Args, Executor));
+  begin
+    Result := Reduce(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_REDUCE_RIGHT then
-    Exit(ReduceRight(Target, Args, Executor));
+  begin
+    Result := ReduceRight(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_FIND then
-    Exit(Find(Target, Args, Executor));
+  begin
+    Result := Find(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_FIND_INDEX then
-    Exit(FindIndex(Target, Args, Executor));
+  begin
+    Result := FindIndex(Target, Args, Executor);
+    Exit;
+  end;
 
   if MethodName = METHOD_INDEX_OF then
-    Exit(IndexOf(Target, Args));
+  begin
+    Result := IndexOf(Target, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_INCLUDES then
-    Exit(Includes(Target, Args));
+  begin
+    Result := Includes(Target, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_AT then
-    Exit(At(Target, Args));
+  begin
+    Result := At(Target, Args);
+    Exit;
+  end;
 
   if MethodName = METHOD_FLAT then
-    Exit(Flat(Target, Args, ArrayPrototype, Limits, BeforeElements));
+  begin
+    Result := Flat(Target, Args, ArrayPrototype, Limits, BeforeElements);
+    Exit;
+  end;
 
   if MethodName = METHOD_FLAT_MAP then
-    Exit(FlatMap(Target, Args, Executor, ArrayPrototype, Limits, BeforeElements));
+  begin
+    Result := FlatMap(Target, Args, Executor, ArrayPrototype, Limits, BeforeElements);
+    Exit;
+  end;
 
   if MethodName = METHOD_LAST_INDEX_OF then
-    Exit(LastIndexOf(Target, Args));
+  begin
+    Result := LastIndexOf(Target, Args);
+    Exit;
+  end;
 
   raise ENotSupportedException.CreateFmt('Unsupported array iteration method: %s', [MethodName]);
 end;
@@ -199,11 +247,17 @@ class function TJSArrayIteration.Includes(const Target: IJSObject; const Args: T
 begin
   const Count = TJSArrayLike.ToLength(Target);
   if Count = 0 then
-    Exit(TJSValue.CreateBoolean(False));
+  begin
+    Result := TJSValue.CreateBoolean(False);
+    Exit;
+  end;
 
   const FromIndex = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 1));
   if FromIndex >= Count then
-    Exit(TJSValue.CreateBoolean(False));
+  begin
+    Result := TJSValue.CreateBoolean(False);
+    Exit;
+  end;
 
   var Start := FromIndex;
   if FromIndex < 0 then
@@ -215,7 +269,10 @@ begin
     const Element = TJSArrayLike.GetElement(Target, Index);
     const IsSame = Element.StrictEquals(SearchElement) or (Element.IsNaN and SearchElement.IsNaN);
     if IsSame then
-      Exit(TJSValue.CreateBoolean(True));
+    begin
+      Result := TJSValue.CreateBoolean(True);
+      Exit;
+    end;
   end;
 
   Result := TJSValue.CreateBoolean(False);
@@ -485,12 +542,28 @@ end;
 class function TJSArrayIteration.Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;
                                         const Executor: TJSCallbackExecutor): TJSValue;
 begin
+  Result := ReduceInDirection(Target, Args, Executor, METHOD_REDUCE, 1);
+end;
+
+class function TJSArrayIteration.ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                             const Executor: TJSCallbackExecutor): TJSValue;
+begin
+  Result := ReduceInDirection(Target, Args, Executor, METHOD_REDUCE_RIGHT, -1);
+end;
+
+class function TJSArrayIteration.ReduceInDirection(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                                   const Executor: TJSCallbackExecutor;
+                                                   const MethodName: string; const Step: Integer): TJSValue;
+begin
   const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_REDUCE, Args);
+  const Callback = RequireCallback(MethodName, Args);
   const HasInitialValue = (Length(Args) > 1);
 
   var Accumulator := TJSValue.CreateUndefined;
   var Index: Int64 := 0;
+  const IsBackward = (Step < 0);
+  if IsBackward then
+    Index := Count - 1;
 
   if HasInitialValue then
   begin
@@ -499,70 +572,27 @@ begin
   else
   begin
     var FoundFirst := False;
-    while (not FoundFirst) and (Index < Count) do
+    while (not FoundFirst) and (Index >= 0) and (Index < Count) do
     begin
       FoundFirst := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
-      Inc(Index);
+      Inc(Index, Step);
     end;
 
     if not FoundFirst then
       raise TJSErrorFactory.TypeError(REDUCE_OF_EMPTY_ARRAY);
   end;
 
-  while Index < Count do
+  const TargetValue = TJSValue.CreateObject(Target);
+  while (Index >= 0) and (Index < Count) do
   begin
     var Element: TJSValue;
     if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
-      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
-                                              TJSValue.CreateObject(Target)];
+      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index), TargetValue];
       Accumulator := Executor(Callback, CallbackArgs);
     end;
 
-    Inc(Index);
-  end;
-
-  Result := Accumulator;
-end;
-
-class function TJSArrayIteration.ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
-                                             const Executor: TJSCallbackExecutor): TJSValue;
-begin
-  const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_REDUCE_RIGHT, Args);
-  const HasInitialValue = (Length(Args) > 1);
-
-  var Accumulator := TJSValue.CreateUndefined;
-  var Index := Count - 1;
-
-  if HasInitialValue then
-  begin
-    Accumulator := Args[1];
-  end
-  else
-  begin
-    var FoundLast := False;
-    while (not FoundLast) and (Index >= 0) do
-    begin
-      FoundLast := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
-      Dec(Index);
-    end;
-
-    if not FoundLast then
-      raise TJSErrorFactory.TypeError(REDUCE_OF_EMPTY_ARRAY);
-  end;
-
-  while Index >= 0 do
-  begin
-    var Element: TJSValue;
-    if TJSArrayLike.TryGetElement(Target, Index, Element) then
-    begin
-      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
-                                              TJSValue.CreateObject(Target)];
-      Accumulator := Executor(Callback, CallbackArgs);
-    end;
-
-    Dec(Index);
+    Inc(Index, Step);
   end;
 
   Result := Accumulator;

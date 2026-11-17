@@ -893,7 +893,7 @@ end;
 
 procedure TJSEngine.CopyEnumerableOwn(const Source: IJSObject; const Target: IJSObject);
 begin
-  for var PropName in TJSObjectKeys.All(Source) do
+  for var PropName in TJSObjectOperations.OwnKeys(Source) do
   begin
     if IsEnumerableOwn(Source, PropName) then
       PutChecked(Target, PropName, Source.GetProperty(PropName));
@@ -1532,7 +1532,7 @@ begin
       const Descriptors: IJSObject = TJSObject.Create;
       Descriptors.Prototype := PrototypeObj;
 
-      for var PropName in TJSObjectKeys.All(Source) do
+      for var PropName in TJSObjectOperations.OwnKeys(Source) do
       begin
         var Descriptor: TJSPropertyDescriptor;
         if not TJSObjectOperations.TryGetOwnProperty(Source, PropName, Descriptor) then
@@ -2064,10 +2064,7 @@ end;
 
 procedure TJSEngine.RegisterPrototypeMethods;
 begin
-  const MathObject = FInterpreter.GetGlobalVariable(MATH_NAME).ToObject;
-  const JSONObject = FInterpreter.GetGlobalVariable(JSON_NAME).ToObject;
-
-  FPrototypeMethods.RegisterObjectMethods(GlobalPrototype(OBJECT_NAME), MathObject, JSONObject);
+  FPrototypeMethods.RegisterObjectMethods(GlobalPrototype(OBJECT_NAME));
   FPrototypeMethods.RegisterStringMethods(GlobalPrototype(STRING_FUNC_NAME));
   FPrototypeMethods.RegisterNumberMethods(GlobalPrototype(NUMBER_NAME));
   FPrototypeMethods.RegisterBooleanMethods(GlobalPrototype(BOOLEAN_FUNC_NAME));

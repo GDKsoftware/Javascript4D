@@ -25,7 +25,6 @@ type
     class function ToIntegerOrInfinity(const Value: TJSValue): Double; static;
     class function ToLength(const Value: TJSValue): Int64; static;
     class function ToUint32(const Value: TJSValue): Int64; static;
-    class function IsCallable(const Value: TJSValue): Boolean; static;
     class function AsFunction(const Value: TJSValue): IJSFunction; static;
     class function IsRegExp(const Value: TJSValue): Boolean; static;
     class function FindMethod(const Source: TJSValue; const Key: TJSPropertyKey): IJSFunction; static;
@@ -78,11 +77,6 @@ begin
   const Whole = Int(Number);
 
   Result := Trunc(Whole - UINT32_RANGE * Floor(Whole / UINT32_RANGE));
-end;
-
-class function TJSConversions.IsCallable(const Value: TJSValue): Boolean;
-begin
-  Result := Value.IsFunction;
 end;
 
 class function TJSConversions.AsFunction(const Value: TJSValue): IJSFunction;

@@ -12,12 +12,27 @@ uses
   JS4D.Interpreter;
 
 type
-  // The Reflect object: one function per object internal method.
   TJSReflectBuiltins = class
   private
+    type
+      TReflectMethod = function(const Args: TArray<TJSValue>): TJSValue of object;
+
     const
       REFLECT_NAME = 'Reflect';
       REFLECT_TAG = 'Reflect';
+      APPLY_NAME = 'apply';
+      CONSTRUCT_NAME = 'construct';
+      DEFINE_PROPERTY_NAME = 'defineProperty';
+      DELETE_PROPERTY_NAME = 'deleteProperty';
+      GET_NAME = 'get';
+      GET_OWN_PROPERTY_DESCRIPTOR_NAME = 'getOwnPropertyDescriptor';
+      GET_PROTOTYPE_OF_NAME = 'getPrototypeOf';
+      HAS_NAME = 'has';
+      IS_EXTENSIBLE_NAME = 'isExtensible';
+      OWN_KEYS_NAME = 'ownKeys';
+      PREVENT_EXTENSIONS_NAME = 'preventExtensions';
+      SET_NAME = 'set';
+      SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
       NOT_AN_OBJECT = 'Reflect.%s called on a non-object';
       NOT_CALLABLE = 'Reflect.%s requires a function as its target';
       NOT_A_CONSTRUCTOR = 'Reflect.construct requires a constructor';
@@ -27,7 +42,7 @@ type
     var
       FInterpreter: TJSInterpreter;
 
-    class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
+    function RequireTarget(const Args: TArray<TJSValue>; const MethodName: string): IJSObject;
     function RequireObject(const Value: TJSValue; const MethodName: string): IJSObject;
     function RequireFunction(const Value: TJSValue; const MethodName: string): IJSFunction;
     function RequireConstructor(const Value: TJSValue): IJSFunction;
@@ -51,7 +66,7 @@ type
     function SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
 
     procedure DefineFunction(const Reflect: IJSObject; const Name: string; const ParameterCount: Integer;
-                             const Method: TNativeFunction);
+                             const Method: TReflectMethod);
     procedure DefineToStringTag(const Reflect: IJSObject);
 
   public
@@ -75,18 +90,20 @@ begin
   FInterpreter := Interpreter;
 end;
 
-class function TJSReflectBuiltins.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
+function TJSReflectBuiltins.RequireTarget(const Args: TArray<TJSValue>; const MethodName: string): IJSObject;
 begin
-  if Position < Length(Args) then
-    Exit(Args[Position]);
+  const TargetValue = TJSArrayLike.Argument(Args, 0);
 
-  Result := TJSValue.CreateUndefined;
+  Result := RequireObject(TargetValue, MethodName);
 end;
 
 function TJSReflectBuiltins.RequireObject(const Value: TJSValue; const MethodName: string): IJSObject;
 begin
   if not Value.IsObject then
-    raise TJSErrorFactory.TypeError(Format(NOT_AN_OBJECT, [MethodName]));
+  begin
+    const Message = Format(NOT_AN_OBJECT, [MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   Result := Value.ToObject;
 end;
@@ -95,7 +112,10 @@ function TJSReflectBuiltins.RequireFunction(const Value: TJSValue; const MethodN
 begin
   const IsCallable = Value.IsFunction and Supports(Value.ToObject, IJSFunction, Result);
   if not IsCallable then
-    raise TJSErrorFactory.TypeError(Format(NOT_CALLABLE, [MethodName]));
+  begin
+    const Message = Format(NOT_CALLABLE, [MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSReflectBuiltins.RequireConstructor(const Value: TJSValue): IJSFunction;
@@ -107,7 +127,9 @@ end;
 
 function TJSReflectBuiltins.KeyOf(const Args: TArray<TJSValue>; const Position: Integer): TJSPropertyKey;
 begin
-  Result := Argument(Args, Position).ToPropertyKey(FInterpreter.Limits);
+  const KeyValue = TJSArrayLike.Argument(Args, Position);
+
+  Result := KeyValue.ToPropertyKey(FInterpreter.Limits);
 end;
 
 function TJSReflectBuiltins.ListFromArrayLike(const Value: TJSValue): TArray<TJSValue>;
@@ -122,66 +144,82 @@ begin
   SetLength(Result, Count);
   for var Index := 0 to Count - 1 do
   begin
-    Result[Index] := Source.GetProperty(TJSArrayLike.IndexName(Index));
+    const ElementName = TJSArrayLike.IndexName(Index);
+    Result[Index] := Source.GetProperty(ElementName);
   end;
 end;
 
 function TJSReflectBuiltins.ArrayFromKeys(const Keys: TArray<TJSPropertyKey>): TJSValue;
 begin
-  const List: IJSArray = TJSArray.Create;
-  List.Prototype := FInterpreter.ArrayPrototype;
-
-  for var Key in Keys do
+  var KeyValues: TArray<TJSValue>;
+  SetLength(KeyValues, Length(Keys));
+  for var Index := 0 to Length(Keys) - 1 do
   begin
-    List.Push(TJSObjectOperations.KeyToValue(Key));
+    KeyValues[Index] := TJSObjectOperations.KeyToValue(Keys[Index]);
   end;
 
-  Result := TJSValue.CreateObject(List);
+  Result := TJSArrayLike.CreateArray(FInterpreter.ArrayPrototype, KeyValues);
 end;
 
 function TJSReflectBuiltins.ReceiverOf(const Args: TArray<TJSValue>; const Position: Integer;
                                        const Target: IJSObject): TJSValue;
 begin
-  if Position < Length(Args) then
-    Exit(Args[Position]);
+  const HasReceiver = (Position < Length(Args));
+  if HasReceiver then
+  begin
+    Result := Args[Position];
+    Exit;
+  end;
 
   Result := TJSValue.CreateObject(Target);
 end;
 
 function TJSReflectBuiltins.Apply(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Func = RequireFunction(Argument(Args, 0), 'apply');
-  const CallArguments = ListFromArrayLike(Argument(Args, 2));
-  const ThisObj = FInterpreter.ThisObjectFor(Func, Argument(Args, 1));
+  const TargetValue = TJSArrayLike.Argument(Args, 0);
+  const Func = RequireFunction(TargetValue, APPLY_NAME);
 
-  Result := FInterpreter.CallFunction(Func, CallArguments, ThisObj);
+  const ArgumentList = TJSArrayLike.Argument(Args, 2);
+  const CallArguments = ListFromArrayLike(ArgumentList);
+
+  const ThisValue = TJSArrayLike.Argument(Args, 1);
+  const ThisReceiver = FInterpreter.ThisObjectFor(Func, ThisValue);
+
+  Result := FInterpreter.CallFunction(Func, CallArguments, ThisReceiver);
 end;
 
 function TJSReflectBuiltins.Construct(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Func = RequireConstructor(Argument(Args, 0));
+  const TargetValue = TJSArrayLike.Argument(Args, 0);
+  const Func = RequireConstructor(TargetValue);
 
   var NewTarget := Func;
-  if Length(Args) > 2 then
+  const HasNewTarget = (Length(Args) > 2);
+  if HasNewTarget then
     NewTarget := RequireConstructor(Args[2]);
 
-  const CallArguments = ListFromArrayLike(Argument(Args, 1));
+  const ArgumentList = TJSArrayLike.Argument(Args, 1);
+  const CallArguments = ListFromArrayLike(ArgumentList);
+
   Result := FInterpreter.Construct(Func, CallArguments, NewTarget);
 end;
 
 function TJSReflectBuiltins.DefineProperty(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'defineProperty');
+  const Target = RequireTarget(Args, DEFINE_PROPERTY_NAME);
   const Key = KeyOf(Args, 1);
-  const Definition = TJSPropertyDescriptors.ToDefinition(Argument(Args, 2));
-  const Checked = TJSPropertyDescriptors.WithCheckedLength(Target, Key, Definition, FInterpreter.Limits);
 
-  Result := TJSValue.CreateBoolean(Target.DefineOwnProperty(Key, Checked));
+  const DescriptorValue = TJSArrayLike.Argument(Args, 2);
+  const Definition = TJSPropertyDescriptors.ToDefinition(DescriptorValue);
+  const Checked = TJSPropertyDescriptors.WithCheckedLength(Target, Key, Definition, FInterpreter.Limits);
+  const IsDefined = Target.DefineOwnProperty(Key, Checked);
+
+  Result := TJSValue.CreateBoolean(IsDefined);
 end;
 
 function TJSReflectBuiltins.DeleteProperty(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'deleteProperty');
+  const Target = RequireTarget(Args, DELETE_PROPERTY_NAME);
 
   const Key = KeyOf(Args, 1);
   const IsDeleted = TJSObjectOperations.DeleteOwnProperty(Target, Key);
@@ -191,7 +229,7 @@ end;
 
 function TJSReflectBuiltins.Get(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'get');
+  const Target = RequireTarget(Args, GET_NAME);
   const Key = KeyOf(Args, 1);
 
   const Receiver = ReceiverOf(Args, 2, Target);
@@ -201,12 +239,16 @@ end;
 
 function TJSReflectBuiltins.GetOwnPropertyDescriptor(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'getOwnPropertyDescriptor');
+  const Target = RequireTarget(Args, GET_OWN_PROPERTY_DESCRIPTOR_NAME);
   const Key = KeyOf(Args, 1);
 
   var Descriptor: TJSPropertyDescriptor;
-  if not TJSObjectOperations.TryGetOwnProperty(Target, Key, Descriptor) then
-    Exit(TJSValue.CreateUndefined);
+  const IsFound = TJSObjectOperations.TryGetOwnProperty(Target, Key, Descriptor);
+  if not IsFound then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
   const Described = TJSPropertyDescriptors.ToDescriptorObject(Descriptor, FInterpreter.ObjectPrototype);
   Result := TJSValue.CreateObject(Described);
@@ -214,7 +256,7 @@ end;
 
 function TJSReflectBuiltins.GetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'getPrototypeOf');
+  const Target = RequireTarget(Args, GET_PROTOTYPE_OF_NAME);
   const Prototype = Target.Prototype;
 
   if Assigned(Prototype) then
@@ -225,7 +267,7 @@ end;
 
 function TJSReflectBuiltins.Has(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'has');
+  const Target = RequireTarget(Args, HAS_NAME);
 
   const Key = KeyOf(Args, 1);
   const HasKey = Target.HasProperty(Key);
@@ -235,7 +277,7 @@ end;
 
 function TJSReflectBuiltins.IsExtensible(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'isExtensible');
+  const Target = RequireTarget(Args, IS_EXTENSIBLE_NAME);
 
   const IsOpen = Target.IsExtensible;
 
@@ -244,7 +286,7 @@ end;
 
 function TJSReflectBuiltins.OwnKeys(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'ownKeys');
+  const Target = RequireTarget(Args, OWN_KEYS_NAME);
 
   const Keys = TJSObjectOperations.OwnKeys(Target);
 
@@ -253,7 +295,7 @@ end;
 
 function TJSReflectBuiltins.PreventExtensions(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'preventExtensions');
+  const Target = RequireTarget(Args, PREVENT_EXTENSIONS_NAME);
 
   const IsPrevented = TJSObjectOperations.PreventExtensions(Target);
 
@@ -262,19 +304,21 @@ end;
 
 function TJSReflectBuiltins.Put(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'set');
+  const Target = RequireTarget(Args, SET_NAME);
   const Key = KeyOf(Args, 1);
 
+  const Value = TJSArrayLike.Argument(Args, 2);
   const Receiver = ReceiverOf(Args, 3, Target);
-  const IsAssigned = TJSObjectOperations.SetWithReceiver(Target, Key, Argument(Args, 2), Receiver);
+  const IsAssigned = TJSObjectOperations.SetWithReceiver(Target, Key, Value, Receiver);
+
   Result := TJSValue.CreateBoolean(IsAssigned);
 end;
 
 function TJSReflectBuiltins.SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Target = RequireObject(Argument(Args, 0), 'setPrototypeOf');
+  const Target = RequireTarget(Args, SET_PROTOTYPE_OF_NAME);
 
-  const Prototype = Argument(Args, 1);
+  const Prototype = TJSArrayLike.Argument(Args, 1);
   const IsValidPrototype = Prototype.IsObject or Prototype.IsNull;
   if not IsValidPrototype then
     raise TJSErrorFactory.TypeError(PROTOTYPE_NOT_AN_OBJECT);
@@ -285,9 +329,15 @@ begin
 end;
 
 procedure TJSReflectBuiltins.DefineFunction(const Reflect: IJSObject; const Name: string;
-                                            const ParameterCount: Integer; const Method: TNativeFunction);
+                                            const ParameterCount: Integer; const Method: TReflectMethod);
 begin
-  const Func = TJSFunction.CreateNative(Name, Method);
+  const Native: TNativeFunction =
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := Method(Args);
+    end;
+
+  const Func = TJSFunction.CreateNative(Name, Native);
   Func.IsConstructor := False;
   Func.Prototype := FInterpreter.FunctionPrototype;
   TJSFunction.DefineLength(Func, ParameterCount);
@@ -304,7 +354,9 @@ begin
   Descriptor.Writable := False;
   Descriptor.Enumerable := False;
   Descriptor.Configurable := True;
-  Reflect.DefineProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag), Descriptor);
+
+  const TagKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
+  Reflect.DefineProperty(TagKey, Descriptor);
 end;
 
 procedure TJSReflectBuiltins.Register;
@@ -312,86 +364,24 @@ begin
   const Reflect: IJSObject = TJSObject.Create;
   Reflect.Prototype := FInterpreter.ObjectPrototype;
 
-  DefineFunction(Reflect, 'apply', 3,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Apply(Args);
-    end);
-
-  DefineFunction(Reflect, 'construct', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Construct(Args);
-    end);
-
-  DefineFunction(Reflect, 'defineProperty', 3,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := DefineProperty(Args);
-    end);
-
-  DefineFunction(Reflect, 'deleteProperty', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := DeleteProperty(Args);
-    end);
-
-  DefineFunction(Reflect, 'get', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Get(Args);
-    end);
-
-  DefineFunction(Reflect, 'getOwnPropertyDescriptor', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := GetOwnPropertyDescriptor(Args);
-    end);
-
-  DefineFunction(Reflect, 'getPrototypeOf', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := GetPrototypeOf(Args);
-    end);
-
-  DefineFunction(Reflect, 'has', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Has(Args);
-    end);
-
-  DefineFunction(Reflect, 'isExtensible', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := IsExtensible(Args);
-    end);
-
-  DefineFunction(Reflect, 'ownKeys', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := OwnKeys(Args);
-    end);
-
-  DefineFunction(Reflect, 'preventExtensions', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := PreventExtensions(Args);
-    end);
-
-  DefineFunction(Reflect, 'set', 3,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Put(Args);
-    end);
-
-  DefineFunction(Reflect, 'setPrototypeOf', 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := SetPrototypeOf(Args);
-    end);
+  DefineFunction(Reflect, APPLY_NAME, 3, Apply);
+  DefineFunction(Reflect, CONSTRUCT_NAME, 2, Construct);
+  DefineFunction(Reflect, DEFINE_PROPERTY_NAME, 3, DefineProperty);
+  DefineFunction(Reflect, DELETE_PROPERTY_NAME, 2, DeleteProperty);
+  DefineFunction(Reflect, GET_NAME, 2, Get);
+  DefineFunction(Reflect, GET_OWN_PROPERTY_DESCRIPTOR_NAME, 2, GetOwnPropertyDescriptor);
+  DefineFunction(Reflect, GET_PROTOTYPE_OF_NAME, 1, GetPrototypeOf);
+  DefineFunction(Reflect, HAS_NAME, 2, Has);
+  DefineFunction(Reflect, IS_EXTENSIBLE_NAME, 1, IsExtensible);
+  DefineFunction(Reflect, OWN_KEYS_NAME, 1, OwnKeys);
+  DefineFunction(Reflect, PREVENT_EXTENSIONS_NAME, 1, PreventExtensions);
+  DefineFunction(Reflect, SET_NAME, 3, Put);
+  DefineFunction(Reflect, SET_PROTOTYPE_OF_NAME, 2, SetPrototypeOf);
 
   DefineToStringTag(Reflect);
-  FInterpreter.SetGlobalVariable(REFLECT_NAME, TJSValue.CreateObject(Reflect));
+
+  const ReflectValue = TJSValue.CreateObject(Reflect);
+  FInterpreter.SetGlobalVariable(REFLECT_NAME, ReflectValue);
 end;
 
 end.

@@ -9,7 +9,7 @@ uses
   System.Generics.Collections,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.ObjectRegistry,
   JS4D.PromiseObjects,
   JS4D.PromiseJobQueue;
@@ -31,7 +31,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FRegistry: TJSObjectRegistry;
       FJobs: TJSPromiseJobQueue;
       FPrototype: IJSObject;
@@ -56,7 +56,7 @@ type
                                               const Outcome: TJSValue);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport);
     destructor Destroy; override;
 
     procedure Install(const Prototype: IJSObject; const PromiseConstructor: IJSFunction);
@@ -87,12 +87,13 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
   JS4D.PropertyNames,
   JS4D.CapabilityExecutor;
 
-constructor TJSPromiseOperations.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport);
+constructor TJSPromiseOperations.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport);
 begin
   inherited Create;
 
@@ -126,7 +127,7 @@ end;
 
 function TJSPromiseOperations.IsIntrinsicConstructor(const Candidate: IJSFunction): Boolean;
 begin
-  Result := (Assigned(FConstructor) and TJSBinarySupport.IsSameObject(Candidate, FConstructor));
+  Result := (Assigned(FConstructor) and TJSBuiltinSupport.IsSameObject(Candidate, FConstructor));
 end;
 
 function TJSPromiseOperations.CreatePromise(const Prototype: IJSObject): IJSPromise;
@@ -149,7 +150,7 @@ begin
         Exit;
 
       IsAlreadyResolved := True;
-      const Resolution = TJSBinarySupport.Argument(Args, 0);
+      const Resolution = TJSArrayLike.Argument(Args, 0);
       ResolvePromise(Promise, Resolution);
     end);
 
@@ -161,7 +162,7 @@ begin
         Exit;
 
       IsAlreadyResolved := True;
-      const Reason = TJSBinarySupport.Argument(Args, 0);
+      const Reason = TJSArrayLike.Argument(Args, 0);
       RejectPromise(Promise, Reason);
     end);
 end;
@@ -204,7 +205,7 @@ begin
     Exit;
   end;
 
-  const IsSelfResolution = TJSBinarySupport.IsSameObject(Resolution.ToObject, Promise);
+  const IsSelfResolution = TJSBuiltinSupport.IsSameObject(Resolution.ToObject, Promise);
   if IsSelfResolution then
   begin
     const CycleError = FSupport.TypeErrorValue(CHAINING_CYCLE);
@@ -219,7 +220,7 @@ begin
     Exit;
   end;
 
-  const HasThen = TJSBinarySupport.IsCallable(ThenLookup.Value);
+  const HasThen = TJSBuiltinSupport.IsCallable(ThenLookup.Value);
   if HasThen then
     FJobs.EnqueueThenable(Promise, Resolution, ThenLookup.Value)
   else
@@ -228,7 +229,7 @@ end;
 
 function TJSPromiseOperations.RequireConstructor(const ConstructorValue: TJSValue): IJSFunction;
 begin
-  const IsConstructor = TJSBinarySupport.AsConstructor(ConstructorValue, Result);
+  const IsConstructor = TJSBuiltinSupport.TryGetConstructor(ConstructorValue, Result);
   if not IsConstructor then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
@@ -286,8 +287,8 @@ begin
   const ExecutorValue = TJSValue.CreateObject(Executor);
   const Created = FInterpreter.Construct(ConstructorFunction, [ExecutorValue]);
 
-  const IsResolveCallable = TJSBinarySupport.IsCallable(Slots.Resolve);
-  const IsRejectCallable = TJSBinarySupport.IsCallable(Slots.Reject);
+  const IsResolveCallable = TJSBuiltinSupport.IsCallable(Slots.Resolve);
+  const IsRejectCallable = TJSBuiltinSupport.IsCallable(Slots.Reject);
   const AreCallable = (IsResolveCallable and IsRejectCallable);
   if not AreCallable then
     raise TJSErrorFactory.TypeError(CAPABILITY_NOT_CALLABLE);
@@ -308,7 +309,7 @@ end;
 procedure TJSPromiseOperations.CallCapabilityFunction(const Target: TJSValue; const Argument: TJSValue);
 begin
   var Func: IJSFunction;
-  const IsFunction = TJSBinarySupport.AsFunction(Target, Func);
+  const IsFunction = TJSBuiltinSupport.TryGetFunction(Target, Func);
   if not IsFunction then
     raise TJSErrorFactory.TypeError(CAPABILITY_NOT_CALLABLE);
 
@@ -375,10 +376,10 @@ begin
   Reaction.Capability := Capability;
   Reaction.HasCapability := True;
 
-  if TJSBinarySupport.IsCallable(OnFulfilled) then
+  if TJSBuiltinSupport.IsCallable(OnFulfilled) then
     Reaction.OnFulfilled := OnFulfilled;
 
-  if TJSBinarySupport.IsCallable(OnRejected) then
+  if TJSBuiltinSupport.IsCallable(OnRejected) then
     Reaction.OnRejected := OnRejected;
 
   SubscribeReaction(Promise, Reaction);
@@ -451,7 +452,7 @@ begin
   var IsNormal := (not Job.IsRejection);
 
   var HandlerFunction: IJSFunction;
-  const HasHandler = TJSBinarySupport.AsFunction(Handler, HandlerFunction);
+  const HasHandler = TJSBuiltinSupport.TryGetFunction(Handler, HandlerFunction);
   if HasHandler then
   begin
     const HandlerArgs: TArray<TJSValue> = [Job.Argument];
@@ -483,7 +484,7 @@ begin
   const Resolving = CreateResolvingFunctions(Job.Promise);
 
   var ThenFunction: IJSFunction;
-  const HasThen = TJSBinarySupport.AsFunction(Job.ThenFunction, ThenFunction);
+  const HasThen = TJSBuiltinSupport.TryGetFunction(Job.ThenFunction, ThenFunction);
   if not HasThen then
     raise TJSErrorFactory.TypeError(CAPABILITY_NOT_CALLABLE);
 

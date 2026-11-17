@@ -57,6 +57,8 @@ type
 
     [Test]
     procedure Normalize_MissingForm_UsesNFC;
+    [Test]
+    procedure Normalize_LoneSurrogate_KeepsItUnchanged;
 
     [Test]
     procedure Normalize_UndefinedForm_UsesNFC;
@@ -163,6 +165,12 @@ end;
 procedure TStringEs2015MethodsTests.Normalize_MissingForm_UsesNFC;
 begin
   Assert.IsTrue(EvaluateBoolean('"A\u030A".normalize() === "\u00C5"'));
+end;
+
+procedure TStringEs2015MethodsTests.Normalize_LoneSurrogate_KeepsItUnchanged;
+begin
+  Assert.IsTrue(EvaluateBoolean('"A\u030A\uD800A\u030A".normalize() === "\u00C5\uD800\u00C5"'));
+  Assert.IsTrue(EvaluateBoolean('"\uD800".normalize("NFKD") === "\uD800"'));
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_UndefinedForm_UsesNFC;

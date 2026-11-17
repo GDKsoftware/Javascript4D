@@ -8,7 +8,7 @@ uses
   System.SysUtils,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.DynamicFunctions,
   JS4D.GeneratorObjects;
 
@@ -30,7 +30,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FFactory: TJSDynamicFunctionFactory;
       FIteratorPrototype: IJSObject;
       FPrototype: IJSObject;
@@ -55,6 +55,7 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
   JS4D.PropertyNames;
@@ -64,7 +65,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FSupport := TJSBinarySupport.Create(Interpreter);
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FFactory := TJSDynamicFunctionFactory.Create(Interpreter, GENERATOR_FUNCTION_KEYWORD);
   FIteratorPrototype := IteratorPrototype;
 end;
@@ -99,7 +100,7 @@ begin
   end;
 
   const Generator = (This as TJSGeneratorObject);
-  const Argument = TJSBinarySupport.Argument(Args, 0);
+  const Argument = TJSArrayLike.Argument(Args, 0);
 
   Result := FInterpreter.GeneratorEngine.ResumeGenerator(Generator, Mode, Argument);
 end;

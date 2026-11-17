@@ -17,9 +17,6 @@ type
     property MappedScope: IJSScope read GetMappedScope;
   end;
 
-  // The arguments object of a non-strict function: elements below the parameter count share their
-  // value with the parameter variable until the element is deleted, becomes an accessor or becomes
-  // non-writable.
   TJSArgumentsObject = class(TJSObjectImpl, IJSArgumentsScope)
   private
     FScope: IJSScope;
@@ -181,7 +178,8 @@ begin
     Descriptor.Value := FScope.GetVariable(ParameterName);
 end;
 
-function TJSArgumentsObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
+function TJSArgumentsObject.DefineOwnProperty(const Name: TJSPropertyKey;
+                                              const Definition: TJSPropertyDefinition): Boolean;
 begin
   SyncStoredValue(Name);
 

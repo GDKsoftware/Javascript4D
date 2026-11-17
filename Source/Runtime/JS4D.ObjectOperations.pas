@@ -12,8 +12,6 @@ uses
   JS4D.SymbolRegistry;
 
 type
-  // The internal methods of a proxy that cannot be expressed through IJSObject: the ones that take a receiver
-  // and the ones that report failure instead of raising.
   IJSProxy = interface
     ['{7E1D2C94-3B5A-4F0E-9C68-1A2B3C4D5E6F}']
     function GetWithReceiver(const Name: TJSPropertyKey; const Receiver: TJSValue): TJSValue;
@@ -32,9 +30,13 @@ type
     property ProxyHandler: IJSObject read GetProxyHandler;
   end;
 
-  // The ordinary object internal methods, written so that they also work for objects that have a proxy
-  // in their prototype chain and for proxies themselves.
   TJSObjectOperations = class
+  private
+    class function CallSetter(const OwnDescriptor: TJSPropertyDescriptor; const Value: TJSValue;
+                              const Receiver: TJSValue): Boolean; static;
+    class function SetOnReceiver(const OwnDescriptor: TJSPropertyDescriptor; const Name: TJSPropertyKey;
+                                 const Value: TJSValue; const Receiver: TJSValue): Boolean; static;
+
   public
     class function AsProxy(const Target: IJSObject; out Proxy: IJSProxy): Boolean; static;
     class function IsProxy(const Target: IJSObject): Boolean; static;
@@ -74,7 +76,10 @@ begin
   begin
     const Found = TJSSymbolRegistry.Find(Key.SymbolId);
     if Found is TJSSymbolImpl then
-      Exit(TJSValue.CreateSymbol(TJSSymbolImpl(Found)));
+    begin
+      Result := TJSValue.CreateSymbol(Found as TJSSymbolImpl);
+      Exit;
+    end;
   end;
 
   Result := TJSValue.CreateString(Key.Text);
@@ -85,7 +90,10 @@ class function TJSObjectOperations.TryGetOwnProperty(const Target: IJSObject; co
 begin
   var Proxy: IJSProxy;
   if AsProxy(Target, Proxy) then
-    Exit(Proxy.TryGetOwnProperty(Name, Descriptor));
+  begin
+    Result := Proxy.TryGetOwnProperty(Name, Descriptor);
+    Exit;
+  end;
 
   Result := Target.HasOwnProperty(Name);
   if Result then
@@ -100,7 +108,10 @@ begin
   begin
     var Proxy: IJSProxy;
     if AsProxy(Current, Proxy) then
-      Exit(Proxy.GetWithReceiver(Name, Receiver));
+    begin
+      Result := Proxy.GetWithReceiver(Name, Receiver);
+      Exit;
+    end;
 
     if Current.HasOwnProperty(Name) then
     begin
@@ -111,9 +122,13 @@ begin
       var Getter: IJSFunction;
       const HasGetter = Descriptor.Getter.IsFunction and Supports(Descriptor.Getter.ToObject, IJSFunction, Getter);
       if not HasGetter then
-        Exit(TJSValue.CreateUndefined);
+      begin
+        Result := TJSValue.CreateUndefined;
+        Exit;
+      end;
 
-      Exit(Getter.Call(Receiver.ToObject, nil));
+      Result := Getter.Call(Receiver.ToObject, nil);
+      Exit;
     end;
 
     Current := Current.Prototype;
@@ -136,11 +151,13 @@ begin
   begin
     var Proxy: IJSProxy;
     if AsProxy(Current, Proxy) then
-      Exit(Proxy.SetWithReceiver(Name, Value, Receiver));
+    begin
+      Result := Proxy.SetWithReceiver(Name, Value, Receiver);
+      Exit;
+    end;
 
-    var IsStored: Boolean;
-    if TJSBinaryKeys.TryStoreElement(Current, Name, Value, Receiver, IsStored) then
-      Exit(IsStored);
+    if TJSBinaryKeys.TryStoreElement(Current, Name, Value, Receiver) then
+      Exit(True);
 
     if Current.HasOwnProperty(Name) then
     begin
@@ -152,23 +169,39 @@ begin
   end;
 
   if OwnDescriptor.IsAccessor then
-  begin
-    var Setter: IJSFunction;
-    const HasSetter = OwnDescriptor.Setter.IsFunction and Supports(OwnDescriptor.Setter.ToObject, IJSFunction, Setter);
-    if not HasSetter then
-      Exit(False);
+    Result := CallSetter(OwnDescriptor, Value, Receiver)
+  else
+    Result := SetOnReceiver(OwnDescriptor, Name, Value, Receiver);
+end;
 
-    Setter.Call(Receiver.ToObject, [Value]);
-    Exit(True);
-  end;
+class function TJSObjectOperations.CallSetter(const OwnDescriptor: TJSPropertyDescriptor; const Value: TJSValue;
+                                              const Receiver: TJSValue): Boolean;
+begin
+  var Setter: IJSFunction;
+  const HasSetter = OwnDescriptor.Setter.IsFunction and Supports(OwnDescriptor.Setter.ToObject, IJSFunction, Setter);
+  if not HasSetter then
+    Exit(False);
 
-  if (not OwnDescriptor.Writable) or (not Receiver.IsObject) then
+  Setter.Call(Receiver.ToObject, [Value]);
+  Result := True;
+end;
+
+class function TJSObjectOperations.SetOnReceiver(const OwnDescriptor: TJSPropertyDescriptor;
+                                                 const Name: TJSPropertyKey; const Value: TJSValue;
+                                                 const Receiver: TJSValue): Boolean;
+begin
+  const CannotAssign = (not OwnDescriptor.Writable) or (not Receiver.IsObject);
+  if CannotAssign then
     Exit(False);
 
   const ReceiverObject = Receiver.ToObject;
   var Existing: TJSPropertyDescriptor;
-  if not TryGetOwnProperty(ReceiverObject, Name, Existing) then
-    Exit(CreateDataProperty(ReceiverObject, Name, Value));
+  const HasExisting = TryGetOwnProperty(ReceiverObject, Name, Existing);
+  if not HasExisting then
+  begin
+    Result := CreateDataProperty(ReceiverObject, Name, Value);
+    Exit;
+  end;
 
   if Existing.IsAccessor or (not Existing.Writable) then
     Exit(False);
@@ -199,7 +232,10 @@ class function TJSObjectOperations.DeleteOwnProperty(const Target: IJSObject; co
 begin
   var Proxy: IJSProxy;
   if AsProxy(Target, Proxy) then
-    Exit(Proxy.DeleteOwnProperty(Name));
+  begin
+    Result := Proxy.DeleteOwnProperty(Name);
+    Exit;
+  end;
 
   if not Target.HasOwnProperty(Name) then
     Exit(True);
@@ -234,7 +270,10 @@ class function TJSObjectOperations.SetPrototypeOf(const Target: IJSObject; const
 begin
   var Proxy: IJSProxy;
   if AsProxy(Target, Proxy) then
-    Exit(Proxy.TrySetPrototype(Prototype));
+  begin
+    Result := Proxy.TrySetPrototype(Prototype);
+    Exit;
+  end;
 
   const IsUnchanged = ((Target.Prototype as IInterface) = (Prototype as IInterface));
   if IsUnchanged then

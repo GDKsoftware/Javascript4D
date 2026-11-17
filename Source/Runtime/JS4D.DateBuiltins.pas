@@ -11,19 +11,20 @@ uses
   JS4D.LocaleDateFormat;
 
 type
-  // The Date constructor and Date.prototype of ES5 15.9.
   TJSDateBuiltins = class
   private
     type
       TDateField = (Year, Month, Date, Hours, Minutes, Seconds, Milliseconds, WeekDay);
       TTextForm = (Full, DateOnly, TimeOnly, Utc);
+      TThisMethod = function(const This: IJSObject): TJSValue of object;
+      TThisAndArgumentsMethod = function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue of object;
 
     const
-      FieldNames: array[TDateField] of string = ('FullYear', 'Month', 'Date', 'Hours', 'Minutes', 'Seconds',
+      FIELD_NAMES: array[TDateField] of string = ('FullYear', 'Month', 'Date', 'Hours', 'Minutes', 'Seconds',
                                                  'Milliseconds', 'Day');
-      SetterArgumentCounts: array[TDateField] of Integer = (3, 2, 1, 4, 3, 2, 1, 0);
-      FieldCount = Ord(TDateField.WeekDay);
-      ConstructorLength = 7;
+      SETTER_ARGUMENT_COUNTS: array[TDateField] of Integer = (3, 2, 1, 4, 3, 2, 1, 0);
+      FIELD_COUNT = Ord(TDateField.WeekDay);
+      CONSTRUCTOR_LENGTH = 7;
 
   private
     FPrototype: IJSObject;
@@ -46,6 +47,8 @@ type
     function BindFormatter(const Form: TTextForm): TNativeFunction;
     function BindLocaleFormatter(const Form: TTextForm; const Scope: TJSDateFormatScope): TNativeFunction;
     function BindTimeValue: TNativeFunction;
+    function BindThis(const Method: TThisMethod): TNativeFunction;
+    function BindThisAndArguments(const Method: TThisAndArgumentsMethod): TNativeFunction;
 
     function ApplySetter(const Target: IJSDate; const OriginalTime: Double; const Field: TDateField;
                          const Values: TArray<Double>; const IsLocal: Boolean): Double;
@@ -99,6 +102,18 @@ const
   GET_PREFIX = 'get';
   SET_PREFIX = 'set';
   UTC_INFIX = 'UTC';
+  STATIC_UTC_NAME = UTC_INFIX;
+  STATIC_NOW_NAME = 'now';
+  STATIC_PARSE_NAME = 'parse';
+  METHOD_TO_LOCALE_STRING = 'toLocaleString';
+  METHOD_TO_LOCALE_DATE_STRING = 'toLocaleDateString';
+  METHOD_TO_LOCALE_TIME_STRING = 'toLocaleTimeString';
+  METHOD_TO_GMT_STRING = 'toGMTString';
+  METHOD_GET_YEAR = 'getYear';
+  METHOD_GET_TIMEZONE_OFFSET = 'getTimezoneOffset';
+  METHOD_SET_TIME = 'setTime';
+  METHOD_SET_YEAR = 'setYear';
+  METHOD_TO_JSON = 'toJSON';
   METHOD_GET_TIME = 'getTime';
   METHOD_VALUE_OF = 'valueOf';
   METHOD_TO_STRING = 'toString';
@@ -111,8 +126,8 @@ const
   DATE_NAME = 'Date';
   YEAR_OFFSET = 1900;
   LAST_TWO_DIGIT_YEAR = 99;
-  DefaultMonth = 0;
-  DefaultDay = 1;
+  DEFAULT_MONTH = 0;
+  DEFAULT_DAY = 1;
 
 constructor TJSDateBuiltins.Create(const PrototypeObj: IJSObject);
 begin
@@ -205,12 +220,12 @@ end;
 
 class function TJSDateBuiltins.CollectComponents(const Args: TArray<TJSValue>): TArray<Double>;
 begin
-  SetLength(Result, FieldCount);
+  SetLength(Result, FIELD_COUNT);
   Result[Ord(TDateField.Year)] := System.Math.NaN;
-  Result[Ord(TDateField.Month)] := DefaultMonth;
-  Result[Ord(TDateField.Date)] := DefaultDay;
+  Result[Ord(TDateField.Month)] := DEFAULT_MONTH;
+  Result[Ord(TDateField.Date)] := DEFAULT_DAY;
 
-  for var Index := 0 to Min(Length(Args), FieldCount) - 1 do
+  for var Index := 0 to Min(Length(Args), FIELD_COUNT) - 1 do
   begin
     Result[Index] := ToNumberValue(Args[Index]);
   end;
@@ -222,7 +237,10 @@ class function TJSDateBuiltins.TimeFromValue(const Value: TJSValue): Double;
 begin
   var SourceDate: IJSDate;
   if Supports(Value.ToObject, IJSDate, SourceDate) then
-    Exit(TJSDateMath.TimeClip(SourceDate.Time));
+  begin
+    Result := TJSDateMath.TimeClip(SourceDate.Time);
+    Exit;
+  end;
 
   const Primitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Default);
   if Primitive.IsString then
@@ -276,7 +294,10 @@ begin
     begin
       const Time = ThisDate(This).Time;
       if System.Math.IsNaN(Time) then
-        Exit(TJSValue.CreateNaN);
+      begin
+        Result := TJSValue.CreateNaN;
+        Exit;
+      end;
 
       const Moment = IfThen(IsLocal, TJSDateMath.LocalTime(Time), Time);
 
@@ -304,7 +325,7 @@ begin
   end;
 
   var Components: TArray<Double>;
-  SetLength(Components, FieldCount);
+  SetLength(Components, FIELD_COUNT);
   for var Part := TDateField.Year to TDateField.Milliseconds do
   begin
     Components[Ord(Part)] := ComponentOf(Part, Moment);
@@ -331,7 +352,7 @@ begin
       const OriginalTime = Target.Time;
 
       var Values: TArray<Double>;
-      SetLength(Values, Max(1, Min(Length(Args), SetterArgumentCounts[Field])));
+      SetLength(Values, Max(1, Min(Length(Args), SETTER_ARGUMENT_COUNTS[Field])));
       for var Index := 0 to High(Values) do
       begin
         if Index < Length(Args) then
@@ -352,7 +373,10 @@ begin
     begin
       const Time = ThisDate(This).Time;
       if System.Math.IsNaN(Time) then
-        Exit(TJSValue.CreateString(INVALID_DATE));
+      begin
+        Result := TJSValue.CreateString(INVALID_DATE);
+        Exit;
+      end;
 
       Result := TJSValue.CreateString(FormatTime(Form, Time));
     end;
@@ -365,7 +389,10 @@ begin
     begin
       const Time = ThisDate(This).Time;
       if System.Math.IsNaN(Time) then
-        Exit(TJSValue.CreateString(INVALID_DATE));
+      begin
+        Result := TJSValue.CreateString(INVALID_DATE);
+        Exit;
+      end;
 
       var Request: TJSLocaleRequest;
       const IsLocaleRequested = TJSLocaleArguments.TryCreateRequest(Args, Request);
@@ -373,7 +400,8 @@ begin
       begin
         const FormattedTime = FormatTime(Form, Time);
 
-        Exit(TJSValue.CreateString(FormattedTime));
+        Result := TJSValue.CreateString(FormattedTime);
+        Exit;
       end;
 
       const RequestedOptions = TJSLocaleArguments.ReadDateOptions(Request);
@@ -418,7 +446,8 @@ begin
   if System.Math.IsNaN(Requested) then
   begin
     Target.Time := System.Math.NaN;
-    Exit(TJSValue.CreateNaN);
+    Result := TJSValue.CreateNaN;
+    Exit;
   end;
 
   const NewTime = ApplySetter(Target, OriginalTime, TDateField.Year, [MakeFullYear(Requested)], True);
@@ -430,7 +459,10 @@ function TJSDateBuiltins.GetYear(const This: IJSObject): TJSValue;
 begin
   const Time = ThisDate(This).Time;
   if System.Math.IsNaN(Time) then
-    Exit(TJSValue.CreateNaN);
+  begin
+    Result := TJSValue.CreateNaN;
+    Exit;
+  end;
 
   const LocalMoment = TJSDateMath.LocalTime(Time);
 
@@ -441,9 +473,12 @@ function TJSDateBuiltins.GetTimezoneOffset(const This: IJSObject): TJSValue;
 begin
   const Time = ThisDate(This).Time;
   if System.Math.IsNaN(Time) then
-    Exit(TJSValue.CreateNaN);
+  begin
+    Result := TJSValue.CreateNaN;
+    Exit;
+  end;
 
-  Result := NumberResult((Time - TJSDateMath.LocalTime(Time)) / TJSDateMath.MsPerMinute);
+  Result := NumberResult((Time - TJSDateMath.LocalTime(Time)) / TJSDateMath.MS_PER_MINUTE);
 end;
 
 function TJSDateBuiltins.ToIsoString(const This: IJSObject): TJSValue;
@@ -465,7 +500,10 @@ begin
   const Primitive = Subject.ToPrimitive(False);
   const IsNonFinite = Primitive.IsNumber and (not TJSDateMath.IsFinite(Primitive.AsNumber));
   if IsNonFinite then
-    Exit(TJSValue.CreateNull);
+  begin
+    Result := TJSValue.CreateNull;
+    Exit;
+  end;
 
   var Converter: IJSFunction;
   const Candidate = This.GetProperty(METHOD_TO_ISO_STRING);
@@ -483,11 +521,11 @@ begin
     begin
       const Infix = IfThen(IsLocal, '', UTC_INFIX);
 
-      DefineMethod(GET_PREFIX + Infix + FieldNames[Field], 0, BindGetter(Field, IsLocal));
+      DefineMethod(GET_PREFIX + Infix + FIELD_NAMES[Field], 0, BindGetter(Field, IsLocal));
 
-      const HasSetter = (SetterArgumentCounts[Field] > 0);
+      const HasSetter = (SETTER_ARGUMENT_COUNTS[Field] > 0);
       if HasSetter then
-        DefineMethod(SET_PREFIX + Infix + FieldNames[Field], SetterArgumentCounts[Field], BindSetter(Field, IsLocal));
+        DefineMethod(SET_PREFIX + Infix + FIELD_NAMES[Field], SETTER_ARGUMENT_COUNTS[Field], BindSetter(Field, IsLocal));
     end;
   end;
 end;
@@ -497,14 +535,14 @@ begin
   DefineMethod(METHOD_TO_STRING, 0, BindFormatter(TTextForm.Full));
   DefineMethod(METHOD_TO_DATE_STRING, 0, BindFormatter(TTextForm.DateOnly));
   DefineMethod(METHOD_TO_TIME_STRING, 0, BindFormatter(TTextForm.TimeOnly));
-  DefineMethod('toLocaleString', 0, BindLocaleFormatter(TTextForm.Full, TJSDateFormatScope.DateAndTime));
-  DefineMethod('toLocaleDateString', 0, BindLocaleFormatter(TTextForm.DateOnly, TJSDateFormatScope.DateOnly));
-  DefineMethod('toLocaleTimeString', 0, BindLocaleFormatter(TTextForm.TimeOnly, TJSDateFormatScope.TimeOnly));
+  DefineMethod(METHOD_TO_LOCALE_STRING, 0, BindLocaleFormatter(TTextForm.Full, TJSDateFormatScope.DateAndTime));
+  DefineMethod(METHOD_TO_LOCALE_DATE_STRING, 0, BindLocaleFormatter(TTextForm.DateOnly, TJSDateFormatScope.DateOnly));
+  DefineMethod(METHOD_TO_LOCALE_TIME_STRING, 0, BindLocaleFormatter(TTextForm.TimeOnly, TJSDateFormatScope.TimeOnly));
 
   const UtcConverter = DefineMethod(METHOD_TO_UTC_STRING, 0, BindFormatter(TTextForm.Utc));
   var GmtDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(UtcConverter));
   GmtDescriptor.Enumerable := False;
-  FPrototype.DefineProperty('toGMTString', GmtDescriptor);
+  FPrototype.DefineProperty(METHOD_TO_GMT_STRING, GmtDescriptor);
 end;
 
 procedure TJSDateBuiltins.DefineToPrimitive;
@@ -539,62 +577,59 @@ begin
   FPrototype.DefineProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToPrimitive), Descriptor);
 end;
 
+function TJSDateBuiltins.BindThis(const Method: TThisMethod): TNativeFunction;
+begin
+  Result :=
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := Method(This);
+    end;
+end;
+
+function TJSDateBuiltins.BindThisAndArguments(const Method: TThisAndArgumentsMethod): TNativeFunction;
+begin
+  Result :=
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := Method(This, Args);
+    end;
+end;
+
 procedure TJSDateBuiltins.DefineUtilityMethods;
 begin
   DefineMethod(METHOD_VALUE_OF, 0, BindTimeValue());
   DefineMethod(METHOD_GET_TIME, 0, BindTimeValue());
-  DefineMethod('getYear', 0,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := GetYear(This);
-    end);
-  DefineMethod('getTimezoneOffset', 0,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := GetTimezoneOffset(This);
-    end);
-  DefineMethod('setTime', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := SetTime(This, Args);
-    end);
-  DefineMethod('setYear', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := SetYear(This, Args);
-    end);
-  DefineMethod(METHOD_TO_ISO_STRING, 0,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := ToIsoString(This);
-    end);
-  DefineMethod('toJSON', 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := ToJson(This);
-    end);
+  DefineMethod(METHOD_GET_YEAR, 0, BindThis(GetYear));
+  DefineMethod(METHOD_GET_TIMEZONE_OFFSET, 0, BindThis(GetTimezoneOffset));
+  DefineMethod(METHOD_SET_TIME, 1, BindThisAndArguments(SetTime));
+  DefineMethod(METHOD_SET_YEAR, 1, BindThisAndArguments(SetYear));
+  DefineMethod(METHOD_TO_ISO_STRING, 0, BindThis(ToIsoString));
+  DefineMethod(METHOD_TO_JSON, 1, BindThis(ToJson));
 end;
 
 procedure TJSDateBuiltins.DefineStaticMethods(const Constructor_: IJSFunction);
 begin
   const Target: IJSObject = Constructor_;
 
-  const NowFunc: IJSFunction = TJSFunction.CreateNative('now',
+  const NowFunc: IJSFunction = TJSFunction.CreateNative(STATIC_NOW_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := NumberResult(TJSDateMath.CurrentTime);
     end);
-  const ParseFunc: IJSFunction = TJSFunction.CreateNative('parse',
+  const ParseFunc: IJSFunction = TJSFunction.CreateNative(STATIC_PARSE_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       if Length(Args) = 0 then
-        Exit(TJSValue.CreateNaN);
+      begin
+        Result := TJSValue.CreateNaN;
+        Exit;
+      end;
 
       const Primitive = Args[0].ToPrimitive(True);
 
       Result := NumberResult(TJSDateParser.Parse(Primitive.ToString));
     end);
-  const UtcFunc: IJSFunction = TJSFunction.CreateNative('UTC',
+  const UtcFunc: IJSFunction = TJSFunction.CreateNative(STATIC_UTC_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Components = CollectComponents(Args);
@@ -604,7 +639,7 @@ begin
     end);
 
   const StaticMethods: TArray<IJSFunction> = [NowFunc, ParseFunc, UtcFunc];
-  const ParameterCounts: TArray<Integer> = [0, 1, ConstructorLength];
+  const ParameterCounts: TArray<Integer> = [0, 1, CONSTRUCTOR_LENGTH];
   for var Index := 0 to High(StaticMethods) do
   begin
     const StaticMethod = StaticMethods[Index];
@@ -623,12 +658,15 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       if TJSPrototypeMethods.IsConstructCall(This, FPrototype) then
-        Exit(ConstructDate(Args));
+      begin
+        Result := ConstructDate(Args);
+        Exit;
+      end;
 
       Result := TJSValue.CreateString(TJSDateText.ToFullString(TJSDateMath.CurrentTime));
     end);
 
-  DefineFunctionAttributes(Result, DATE_NAME, ConstructorLength);
+  DefineFunctionAttributes(Result, DATE_NAME, CONSTRUCTOR_LENGTH);
   DefineStaticMethods(Result);
   DefineGettersAndSetters;
   DefineStringMethods;

@@ -11,38 +11,27 @@ uses
   JS4D.SymbolRegistry,
   JS4D.Interpreter,
   JS4D.ObjectRegistry,
+  JS4D.BuiltinSupport,
   JS4D.OrderedStore,
   JS4D.CollectionObjects;
 
 type
-  // Map, Set, WeakMap and WeakSet with the iterators of Map and Set.
   TJSCollectionBuiltins = class
   private
-    const
-      ALL_KINDS: array[0..3] of TJSCollectionKind = (TJSCollectionKind.Map, TJSCollectionKind.Set_,
-                                                     TJSCollectionKind.WeakMap, TJSCollectionKind.WeakSet);
-
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
       FRegistry: TJSObjectRegistry;
       FPrototypes: array[TJSCollectionKind] of IJSObject;
       FMapIteratorPrototype: IJSObject;
       FSetIteratorPrototype: IJSObject;
 
     class function IsWeak(const Kind: TJSCollectionKind): Boolean; static;
+    class function IsMapLike(const Kind: TJSCollectionKind): Boolean; static;
     class function KindName(const Kind: TJSCollectionKind): string; static;
     class function AdderName(const Kind: TJSCollectionKind): string; static;
-    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
-                                 const IsWritable: Boolean); static;
-    class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
-    function CreateMethod(const Name: string; const ParameterCount: Integer;
-                          const Method: TNativeFunction): IJSFunction;
-    function DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
-                          const Method: TNativeFunction): IJSFunction;
-    procedure DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
-                           const Method: TNativeFunction);
-    procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
-    procedure DefineSpeciesGetter(const Constructor_: IJSObject);
+    function RequireCollection(const This: IJSObject; const Kind: TJSCollectionKind;
+                               const MethodName: string): IJSCollection;
     function RequireStore(const This: IJSObject; const Kind: TJSCollectionKind;
                           const MethodName: string): TJSOrderedStore;
     function RequireCallback(const Value: TJSValue; const MethodName: string): IJSFunction;
@@ -54,7 +43,7 @@ type
     function Construct(const Kind: TJSCollectionKind; const This: IJSObject;
                        const Args: TArray<TJSValue>): TJSValue;
     function CreateConstructor(const Kind: TJSCollectionKind): IJSFunction;
-    function CreatePrototype(const Kind: TJSCollectionKind): IJSObject;
+    procedure CreatePrototype(const Kind: TJSCollectionKind);
     function CreateIteratorPrototype(const Kind: TJSCollectionKind; const IteratorPrototype: IJSObject): IJSObject;
     function IterateCollection(const This: IJSObject; const Kind: TJSCollectionKind;
                                const Iteration: TJSCollectionIterationKind; const MethodName: string): TJSValue;
@@ -68,6 +57,12 @@ type
     procedure DefineSharedMembers(const Kind: TJSCollectionKind; const Prototype: IJSObject);
     procedure DefineLookupMembers(const Kind: TJSCollectionKind; const Prototype: IJSObject);
     procedure DefineIterationMembers(const Kind: TJSCollectionKind; const Prototype: IJSObject);
+    procedure DefineClearAndSize(const Kind: TJSCollectionKind; const Prototype: IJSObject);
+    function DefineIterationMethod(const Kind: TJSCollectionKind; const Prototype: IJSObject;
+                                   const MethodName: string;
+                                   const Iteration: TJSCollectionIterationKind): IJSFunction;
+    procedure DefineIterationAliases(const Kind: TJSCollectionKind; const Prototype: IJSObject;
+                                     const Entries: IJSFunction; const Values: IJSFunction);
     procedure DefineConstructorLinks(const Kind: TJSCollectionKind; const Constructor_: IJSFunction);
 
   public
@@ -83,16 +78,14 @@ implementation
 uses
   System.Math,
   JS4D.Errors,
+  JS4D.ArrayLike,
   JS4D.ArrayStatics,
-  JS4D.PrototypeMethods;
+  JS4D.PrototypeMethods,
+  JS4D.PropertyNames;
 
 const
-  NEXT_PROPERTY = 'next';
-  PROTOTYPE_PROPERTY = 'prototype';
-  CONSTRUCTOR_PROPERTY = 'constructor';
   SIZE_PROPERTY = 'size';
   SIZE_GETTER_NAME = 'get size';
-  SPECIES_GETTER_NAME = 'get [Symbol.species]';
   METHOD_GET = 'get';
   METHOD_SET = 'set';
   METHOD_ADD = 'add';
@@ -110,7 +103,6 @@ const
   MAP_ITERATOR_TAG = 'Map Iterator';
   SET_ITERATOR_TAG = 'Set Iterator';
   UNSUPPORTED_KIND = 'Unsupported collection kind: %d';
-  REQUIRES_NEW ='Constructor %s requires ''new''';
   INCOMPATIBLE_RECEIVER = 'Method %s.prototype.%s called on an incompatible receiver';
   INCOMPATIBLE_ITERATOR = 'Method %s Iterator.prototype.next called on an incompatible receiver';
   ADDER_NOT_CALLABLE = '''%s'' returned for property ''%s'' of object is not a function';
@@ -124,6 +116,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FRegistry := TJSObjectRegistry.Create;
 end;
 
@@ -131,6 +124,7 @@ destructor TJSCollectionBuiltins.Destroy;
 begin
   ReleaseCollections;
   FRegistry.Free;
+  FSupport.Free;
   inherited;
 end;
 
@@ -141,7 +135,12 @@ end;
 
 class function TJSCollectionBuiltins.IsWeak(const Kind: TJSCollectionKind): Boolean;
 begin
-  Result := Kind in [TJSCollectionKind.WeakMap, TJSCollectionKind.WeakSet];
+  Result := (Kind in [TJSCollectionKind.WeakMap, TJSCollectionKind.WeakSet]);
+end;
+
+class function TJSCollectionBuiltins.IsMapLike(const Kind: TJSCollectionKind): Boolean;
+begin
+  Result := (Kind in [TJSCollectionKind.Map, TJSCollectionKind.WeakMap]);
 end;
 
 class function TJSCollectionBuiltins.KindName(const Kind: TJSCollectionKind): string;
@@ -168,82 +167,21 @@ begin
   end;
 end;
 
-class procedure TJSCollectionBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey;
-                                                   const Value: TJSValue; const IsWritable: Boolean);
+function TJSCollectionBuiltins.RequireCollection(const This: IJSObject; const Kind: TJSCollectionKind;
+                                                 const MethodName: string): IJSCollection;
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Writable := IsWritable;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-  Target.DefineProperty(Key, Descriptor);
-end;
-
-class function TJSCollectionBuiltins.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
-begin
-  if Position < Length(Args) then
-    Exit(Args[Position]);
-
-  Result := TJSValue.CreateUndefined;
-end;
-
-function TJSCollectionBuiltins.CreateMethod(const Name: string; const ParameterCount: Integer;
-                                            const Method: TNativeFunction): IJSFunction;
-begin
-  Result := TJSFunction.CreateNative(Name, Method);
-  Result.IsConstructor := False;
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Result, ParameterCount);
-  FInterpreter.RegisterFunction(Result);
-end;
-
-function TJSCollectionBuiltins.DefineMethod(const Target: IJSObject; const Name: string;
-                                            const ParameterCount: Integer;
-                                            const Method: TNativeFunction): IJSFunction;
-begin
-  Result := CreateMethod(Name, ParameterCount, Method);
-
-  DefineMember(Target, Name, TJSValue.CreateObject(Result), True);
-end;
-
-procedure TJSCollectionBuiltins.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
-                                             const Method: TNativeFunction);
-begin
-  var Descriptor := Default(TJSPropertyDescriptor);
-  Descriptor.IsAccessor := True;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-  Descriptor.Getter := TJSValue.CreateObject(CreateMethod(Name, 0, Method));
-  Target.DefineProperty(Key, Descriptor);
-end;
-
-procedure TJSCollectionBuiltins.DefineToStringTag(const Target: IJSObject; const Tag: string);
-begin
-  const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
-
-  DefineMember(Target, Key, TJSValue.CreateString(Tag), False);
-end;
-
-procedure TJSCollectionBuiltins.DefineSpeciesGetter(const Constructor_: IJSObject);
-begin
-  const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
-
-  DefineGetter(Constructor_, Key, SPECIES_GETTER_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Assigned(This) then
-        Result := TJSValue.CreateObject(This)
-      else
-        Result := TJSValue.CreateUndefined;
-    end);
+  const IsMatch = Supports(This, IJSCollection, Result) and (Result.Kind = Kind);
+  if not IsMatch then
+  begin
+    const Message = Format(INCOMPATIBLE_RECEIVER, [KindName(Kind), MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 function TJSCollectionBuiltins.RequireStore(const This: IJSObject; const Kind: TJSCollectionKind;
                                             const MethodName: string): TJSOrderedStore;
 begin
-  var Collection: IJSCollection;
-  const IsMatch = Supports(This, IJSCollection, Collection) and (Collection.Kind = Kind);
-  if not IsMatch then
-    raise TJSErrorFactory.TypeError(Format(INCOMPATIBLE_RECEIVER, [KindName(Kind), MethodName]));
+  const Collection = RequireCollection(This, Kind, MethodName);
 
   Result := Collection.Store;
 end;
@@ -268,7 +206,7 @@ begin
   const Store = RequireStore(This, Kind, METHOD_GET);
 
   var Found: TJSValue;
-  Store.TryGet(Argument(Args, 0), Found);
+  Store.TryGet(TJSArrayLike.Argument(Args, 0), Found);
 
   Result := Found;
 end;
@@ -278,7 +216,7 @@ function TJSCollectionBuiltins.HasKey(const This: IJSObject; const Kind: TJSColl
 begin
   const Store = RequireStore(This, Kind, METHOD_HAS);
 
-  const Key = Argument(Args, 0);
+  const Key = TJSArrayLike.Argument(Args, 0);
   const HasEntry = Store.Contains(Key);
 
   Result := TJSValue.CreateBoolean(HasEntry);
@@ -289,7 +227,7 @@ function TJSCollectionBuiltins.DeleteKey(const This: IJSObject; const Kind: TJSC
 begin
   const Store = RequireStore(This, Kind, METHOD_DELETE);
 
-  const Key = Argument(Args, 0);
+  const Key = TJSArrayLike.Argument(Args, 0);
   const WasRemoved = Store.Remove(Key);
 
   Result := TJSValue.CreateBoolean(WasRemoved);
@@ -299,12 +237,11 @@ function TJSCollectionBuiltins.PutEntry(const This: IJSObject; const Kind: TJSCo
                                         const Args: TArray<TJSValue>): TJSValue;
 begin
   const Store = RequireStore(This, Kind, AdderName(Kind));
-  const Key = Argument(Args, 0);
+  const Key = TJSArrayLike.Argument(Args, 0);
   RequireWeakKey(Kind, Key);
 
-  const IsMapLike = Kind in [TJSCollectionKind.Map, TJSCollectionKind.WeakMap];
-  if IsMapLike then
-    Store.Put(Key, Argument(Args, 1))
+  if IsMapLike(Kind) then
+    Store.Put(Key, TJSArrayLike.Argument(Args, 1))
   else
     Store.Put(Key, TJSOrderedStore.CanonicalKey(Key));
 
@@ -315,8 +252,8 @@ function TJSCollectionBuiltins.ForEachEntry(const This: IJSObject; const Kind: T
                                             const Args: TArray<TJSValue>): TJSValue;
 begin
   const Store = RequireStore(This, Kind, METHOD_FOR_EACH);
-  const Callback = RequireCallback(Argument(Args, 0), KindName(Kind));
-  const ThisArg = FInterpreter.ThisObjectFor(Callback, Argument(Args, 1));
+  const Callback = RequireCallback(TJSArrayLike.Argument(Args, 0), KindName(Kind));
+  const ThisArg = FInterpreter.ThisObjectFor(Callback, TJSArrayLike.Argument(Args, 1));
   const Collection = TJSValue.CreateObject(This);
 
   const Cursor = TJSStoreCursor.Create(Store);
@@ -339,14 +276,12 @@ function TJSCollectionBuiltins.IterateCollection(const This: IJSObject; const Ki
                                                  const Iteration: TJSCollectionIterationKind;
                                                  const MethodName: string): TJSValue;
 begin
-  RequireStore(This, Kind, MethodName);
-
-  var Collection: IJSCollection;
-  Supports(This, IJSCollection, Collection);
+  const Collection = RequireCollection(This, Kind, MethodName);
 
   const Iterator = TJSCollectionIterator.Create(Collection, Iteration, FInterpreter.ArrayPrototype,
                                                 FInterpreter.ObjectPrototype);
-  if Kind = TJSCollectionKind.Map then
+  const IsMap = (Kind = TJSCollectionKind.Map);
+  if IsMap then
     Iterator.Prototype := FMapIteratorPrototype
   else
     Iterator.Prototype := FSetIteratorPrototype;
@@ -367,8 +302,7 @@ end;
 procedure TJSCollectionBuiltins.AddItem(const Collection: IJSObject; const Adder: IJSFunction;
                                         const Kind: TJSCollectionKind; const Item: TJSValue);
 begin
-  const IsMapLike = Kind in [TJSCollectionKind.Map, TJSCollectionKind.WeakMap];
-  if not IsMapLike then
+  if not IsMapLike(Kind) then
   begin
     FInterpreter.CallFunction(Adder, [Item], Collection);
     Exit;
@@ -378,8 +312,8 @@ begin
     raise TJSErrorFactory.TypeError(ENTRY_NOT_AN_OBJECT);
 
   const Entry = Item.ToObject;
-  const Key = Entry.GetProperty('0');
-  const Value = Entry.GetProperty('1');
+  const Key = Entry.GetProperty(TJSArrayLike.IndexName(0));
+  const Value = Entry.GetProperty(TJSArrayLike.IndexName(1));
 
   FInterpreter.CallFunction(Adder, [Key, Value], Collection);
 end;
@@ -416,12 +350,12 @@ function TJSCollectionBuiltins.Construct(const Kind: TJSCollectionKind; const Th
 begin
   const IsConstructCall = TJSPrototypeMethods.IsConstructCall(This, FPrototypes[Kind]);
   if not IsConstructCall then
-    raise TJSErrorFactory.TypeError(Format(REQUIRES_NEW, [KindName(Kind)]));
+    raise TJSErrorFactory.TypeError(Format(CONSTRUCTOR_REQUIRES_NEW, [KindName(Kind)]));
 
   const Collection: IJSObject = TJSCollectionObject.Create(Kind, FRegistry);
   Collection.Prototype := This.Prototype;
 
-  const Iterable = Argument(Args, 0);
+  const Iterable = TJSArrayLike.Argument(Args, 0);
   if not Iterable.IsNullOrUndefined then
     AddFromIterable(Collection, Kind, Iterable);
 
@@ -442,30 +376,29 @@ end;
 
 procedure TJSCollectionBuiltins.DefineLookupMembers(const Kind: TJSCollectionKind; const Prototype: IJSObject);
 begin
-  const IsMapLike = Kind in [TJSCollectionKind.Map, TJSCollectionKind.WeakMap];
-  if IsMapLike then
+  if IsMapLike(Kind) then
   begin
-    DefineMethod(Prototype, METHOD_GET, 1,
+    FSupport.DefineMethod(Prototype, METHOD_GET, 1,
       function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
       begin
         Result := GetValue(This, Kind, Args);
       end);
   end;
 
-  const AdderParameterCount = IfThen(IsMapLike, 2, 1);
-  DefineMethod(Prototype, AdderName(Kind), AdderParameterCount,
+  const AdderParameterCount = IfThen(IsMapLike(Kind), 2, 1);
+  FSupport.DefineMethod(Prototype, AdderName(Kind), AdderParameterCount,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := PutEntry(This, Kind, Args);
     end);
 
-  DefineMethod(Prototype, METHOD_HAS, 1,
+  FSupport.DefineMethod(Prototype, METHOD_HAS, 1,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := HasKey(This, Kind, Args);
     end);
 
-  DefineMethod(Prototype, METHOD_DELETE, 1,
+  FSupport.DefineMethod(Prototype, METHOD_DELETE, 1,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := DeleteKey(This, Kind, Args);
@@ -474,7 +407,17 @@ end;
 
 procedure TJSCollectionBuiltins.DefineIterationMembers(const Kind: TJSCollectionKind; const Prototype: IJSObject);
 begin
-  DefineMethod(Prototype, METHOD_CLEAR, 0,
+  DefineClearAndSize(Kind, Prototype);
+
+  const Entries = DefineIterationMethod(Kind, Prototype, METHOD_ENTRIES, TJSCollectionIterationKind.Entries);
+  const Values = DefineIterationMethod(Kind, Prototype, METHOD_VALUES, TJSCollectionIterationKind.Values);
+
+  DefineIterationAliases(Kind, Prototype, Entries, Values);
+end;
+
+procedure TJSCollectionBuiltins.DefineClearAndSize(const Kind: TJSCollectionKind; const Prototype: IJSObject);
+begin
+  FSupport.DefineMethod(Prototype, METHOD_CLEAR, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Store = RequireStore(This, Kind, METHOD_CLEAR);
@@ -483,46 +426,47 @@ begin
       Result := TJSValue.CreateUndefined;
     end);
 
-  DefineMethod(Prototype, METHOD_FOR_EACH, 1,
+  FSupport.DefineMethod(Prototype, METHOD_FOR_EACH, 1,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := ForEachEntry(This, Kind, Args);
     end);
 
-  DefineGetter(Prototype, SIZE_PROPERTY, SIZE_GETTER_NAME,
+  FSupport.DefineGetter(Prototype, SIZE_PROPERTY, SIZE_GETTER_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const Store = RequireStore(This, Kind, SIZE_PROPERTY);
 
       Result := TJSValue.CreateNumber(Store.Count);
     end);
+end;
 
-  const Entries = DefineMethod(Prototype, METHOD_ENTRIES, 0,
+function TJSCollectionBuiltins.DefineIterationMethod(const Kind: TJSCollectionKind; const Prototype: IJSObject;
+                                                     const MethodName: string;
+                                                     const Iteration: TJSCollectionIterationKind): IJSFunction;
+begin
+  Result := FSupport.DefineMethod(Prototype, MethodName, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := IterateCollection(This, Kind, TJSCollectionIterationKind.Entries, METHOD_ENTRIES);
+      Result := IterateCollection(This, Kind, Iteration, MethodName);
     end);
+end;
 
-  const Values = DefineMethod(Prototype, METHOD_VALUES, 0,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := IterateCollection(This, Kind, TJSCollectionIterationKind.Values, METHOD_VALUES);
-    end);
-
+procedure TJSCollectionBuiltins.DefineIterationAliases(const Kind: TJSCollectionKind; const Prototype: IJSObject;
+                                                       const Entries: IJSFunction; const Values: IJSFunction);
+begin
   const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
-  if Kind = TJSCollectionKind.Map then
+
+  const IsMap = (Kind = TJSCollectionKind.Map);
+  if IsMap then
   begin
-    DefineMethod(Prototype, METHOD_KEYS, 0,
-      function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-      begin
-        Result := IterateCollection(This, Kind, TJSCollectionIterationKind.Keys, METHOD_KEYS);
-      end);
-    DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Entries), True);
+    DefineIterationMethod(Kind, Prototype, METHOD_KEYS, TJSCollectionIterationKind.Keys);
+    FSupport.DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Entries), True);
   end
   else
   begin
-    DefineMember(Prototype, METHOD_KEYS, TJSValue.CreateObject(Values), True);
-    DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Values), True);
+    FSupport.DefineMember(Prototype, METHOD_KEYS, TJSValue.CreateObject(Values), True);
+    FSupport.DefineMember(Prototype, IteratorKey, TJSValue.CreateObject(Values), True);
   end;
 end;
 
@@ -533,16 +477,16 @@ begin
   if not IsWeak(Kind) then
     DefineIterationMembers(Kind, Prototype);
 
-  DefineToStringTag(Prototype, KindName(Kind));
+  FSupport.DefineToStringTag(Prototype, KindName(Kind));
 end;
 
-function TJSCollectionBuiltins.CreatePrototype(const Kind: TJSCollectionKind): IJSObject;
+procedure TJSCollectionBuiltins.CreatePrototype(const Kind: TJSCollectionKind);
 begin
-  Result := TJSObject.Create;
-  Result.Prototype := FInterpreter.ObjectPrototype;
-  FPrototypes[Kind] := Result;
+  const Prototype: IJSObject = TJSObject.Create;
+  Prototype.Prototype := FInterpreter.ObjectPrototype;
+  FPrototypes[Kind] := Prototype;
 
-  DefineSharedMembers(Kind, Result);
+  DefineSharedMembers(Kind, Prototype);
 end;
 
 function TJSCollectionBuiltins.CreateIteratorPrototype(const Kind: TJSCollectionKind;
@@ -551,7 +495,7 @@ begin
   Result := TJSObject.Create;
   Result.Prototype := IteratorPrototype;
 
-  DefineMethod(Result, NEXT_PROPERTY, 0,
+  FSupport.DefineMethod(Result, NEXT_PROPERTY, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Iterator: IJSCollectionIterator;
@@ -562,10 +506,11 @@ begin
       Result := Iterator.NextResult;
     end);
 
-  if Kind = TJSCollectionKind.Map then
-    DefineToStringTag(Result, MAP_ITERATOR_TAG)
+  const IsMap = (Kind = TJSCollectionKind.Map);
+  if IsMap then
+    FSupport.DefineToStringTag(Result, MAP_ITERATOR_TAG)
   else
-    DefineToStringTag(Result, SET_ITERATOR_TAG);
+    FSupport.DefineToStringTag(Result, SET_ITERATOR_TAG);
 end;
 
 procedure TJSCollectionBuiltins.DefineConstructorLinks(const Kind: TJSCollectionKind;
@@ -573,11 +518,11 @@ procedure TJSCollectionBuiltins.DefineConstructorLinks(const Kind: TJSCollection
 begin
   const Prototype = FPrototypes[Kind];
 
-  DefineMember(Prototype, CONSTRUCTOR_PROPERTY, TJSValue.CreateObject(Constructor_), True);
+  FSupport.DefineMember(Prototype, CONSTRUCTOR_PROPERTY, TJSValue.CreateObject(Constructor_), True);
   Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(Prototype));
 
   if not IsWeak(Kind) then
-    DefineSpeciesGetter(Constructor_);
+    FSupport.DefineSpeciesGetter(Constructor_);
 end;
 
 procedure TJSCollectionBuiltins.Register;
@@ -586,7 +531,7 @@ begin
   FMapIteratorPrototype := CreateIteratorPrototype(TJSCollectionKind.Map, IteratorPrototype);
   FSetIteratorPrototype := CreateIteratorPrototype(TJSCollectionKind.Set_, IteratorPrototype);
 
-  for var Kind in ALL_KINDS do
+  for var Kind := Low(TJSCollectionKind) to High(TJSCollectionKind) do
   begin
     CreatePrototype(Kind);
 

@@ -14,8 +14,6 @@ uses
   JS4D.ControlFlow;
 
 type
-  // Where the values of an iterable come from: the elements of an array or arguments object and the code
-  // points of a string are read directly, anything else goes through the iterator protocol.
   TJSIterationSource = record
     Elements: IJSArray;
     ArrayLike: IJSObject;
@@ -40,13 +38,13 @@ function TJSIterationSource.HasNext: Boolean;
 begin
   if Assigned(Protocol) then
   begin
-    Result := Protocol.HasNext;
+    Result := Protocol.TryPrefetchNext;
     Exit;
   end;
 
   if Assigned(Elements) then
   begin
-    Result := Position < Elements.Length;
+    Result := (Position < Elements.Length);
     Exit;
   end;
 

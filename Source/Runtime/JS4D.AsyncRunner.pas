@@ -9,7 +9,7 @@ uses
   JS4D.Types,
   JS4D.ControlFlow,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.GeneratorObjects,
   JS4D.AsyncHost,
   JS4D.PromiseObjects,
@@ -30,7 +30,7 @@ type
   TJSAsyncRunner = class(TJSAsyncHost)
   private
     FInterpreter: TJSInterpreter;
-    FSupport: TJSBinarySupport;
+    FSupport: TJSBuiltinSupport;
     FOperations: TJSPromiseOperations;
 
     function AwaitedPromiseOf(const Operand: TJSValue): TJSAwaitedPromise;
@@ -42,7 +42,7 @@ type
                    const Value: TJSValue);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                        const Operations: TJSPromiseOperations);
 
     function CreateResult: IJSObject; override;
@@ -55,7 +55,7 @@ implementation
 uses
   JS4D.AwaitContinuation;
 
-constructor TJSAsyncRunner.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+constructor TJSAsyncRunner.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                                   const Operations: TJSPromiseOperations);
 begin
   inherited Create;

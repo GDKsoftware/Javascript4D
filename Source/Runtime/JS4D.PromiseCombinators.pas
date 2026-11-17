@@ -9,7 +9,7 @@ uses
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.ArrayStatics,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.AggregateErrorBuiltins,
   JS4D.Combination,
   JS4D.PromiseObjects,
@@ -39,7 +39,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FOperations: TJSPromiseOperations;
       FAggregateErrors: TJSAggregateErrorBuiltins;
 
@@ -68,7 +68,7 @@ type
     procedure ResolveWithSlots(const Combination: IJSCombination; const Capability: TJSPromiseCapability);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                        const Operations: TJSPromiseOperations; const AggregateErrors: TJSAggregateErrorBuiltins);
 
     function Combine(const Kind: TJSCombinatorKind; const This: IJSObject;
@@ -78,11 +78,12 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
   JS4D.PropertyNames;
 
-constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                                          const Operations: TJSPromiseOperations;
                                          const AggregateErrors: TJSAggregateErrorBuiltins);
 begin
@@ -127,7 +128,7 @@ begin
   const ConstructorObject = ConstructorValue.ToObject;
   const Candidate = ConstructorObject.GetProperty(RESOLVE_PROPERTY);
 
-  const IsCallable = TJSBinarySupport.AsFunction(Candidate, Result);
+  const IsCallable = TJSBuiltinSupport.TryGetFunction(Candidate, Result);
   if not IsCallable then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 end;
@@ -140,7 +141,7 @@ begin
 
   const ConstructorValue = TJSValue.CreateObject(This);
   const Capability = FOperations.NewCapabilityWithFunctions(ConstructorValue);
-  const Iterable = TJSBinarySupport.Argument(Args, 0);
+  const Iterable = TJSArrayLike.Argument(Args, 0);
 
   const Outcome = FSupport.Capture(
     function: TJSValue
@@ -261,7 +262,7 @@ begin
       if not IsFirstCall then
         Exit;
 
-      const Argument = TJSBinarySupport.Argument(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
       const Entry = BuildEntry(Argument);
       Combination.FillSlot(Index, Entry);
       Finish(Kind, Combination, Capability);
