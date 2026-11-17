@@ -37,7 +37,7 @@ end;
 
 class function TJSTestSupport.ErrorNameOf(const Engine: TJSEngine; const Source: string): string;
 begin
-  const BackslashesEscaped = Source.Replace('\', '\');
+  const BackslashesEscaped = Source.Replace('\', '\\');
   const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
   const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
   const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);

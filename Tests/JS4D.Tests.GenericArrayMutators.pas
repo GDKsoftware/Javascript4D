@@ -142,7 +142,7 @@ type
     procedure Join_HoleInheritedFromPrototype_UsesInheritedElement;
 
     [Test]
-    procedure Push_PlainArray_StillAppends;
+    procedure Push_PlainArray_AppendsElement;
 
     [Test]
     [TestCase('UndefinedEnd', 'x.slice(3, undefined).length|2', '|')]
@@ -590,7 +590,7 @@ begin
   Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
-procedure TGenericArrayMutatorTests.Push_PlainArray_StillAppends;
+procedure TGenericArrayMutatorTests.Push_PlainArray_AppendsElement;
 begin
   Assert.IsTrue(EvaluateBoolean('var a = [1]; a.push(2, 3) === 3 && a.join() === "1,2,3"'));
 end;

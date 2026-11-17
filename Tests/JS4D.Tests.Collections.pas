@@ -55,9 +55,6 @@ type
     [TestCase('The constructor property is the constructor', 'Map.prototype.constructor === Map#true', '#')]
     [TestCase('Instances inherit from the prototype', 'Object.getPrototypeOf(new Map()) === Map.prototype#true', '#')]
     [TestCase('The global is not enumerable', 'Object.getOwnPropertyDescriptor(this, "Map").enumerable#false', '#')]
-    procedure Map_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Add returns the set', '(function () { var s = new Set(); return s.add(1) === s; })()#true', '#')]
     [TestCase('Duplicates are ignored', 'new Set([1, 2, 1, 2, 3]).size#3', '#')]
     [TestCase('The constructor accepts a string', '[...new Set("abca")].join("")#abc', '#')]
@@ -72,13 +69,10 @@ type
     [TestCase('The tag is Set', 'Object.prototype.toString.call(new Set())#[object Set]', '#')]
     [TestCase('Set has length 0', 'Set.length#0', '#')]
     [TestCase('Add has length 1', 'Set.prototype.add.length#1', '#')]
-    [TestCase('Species is the constructor', 'Set[Symbol.species] === Set#true', '#')]
+    [TestCase('Set Species is the constructor', 'Set[Symbol.species] === Set#true', '#')]
     [TestCase('Set methods reject a map receiver', '(function () { try { Set.prototype.add.call(new Map(), 1); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Map methods reject a set receiver', '(function () { try { Map.prototype.get.call(new Set(), 1); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('The prototype object is not a set', '(function () { try { Set.prototype.size; } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Set_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('A weak map stores objects', '(function () { var k = {}; var m = new WeakMap([[k, 1]]); return m.get(k) + "," + m.has(k) + "," + m.has({}); })()#1,true,false', '#')]
     [TestCase('A weak map deletes', '(function () { var k = {}; var m = new WeakMap(); m.set(k, 1); return m.delete(k) + "," + m.has(k) + "," + m.delete(k); })()#true,false,false', '#')]
     [TestCase('A weak map rejects primitive keys', '(function () { try { new WeakMap().set(1, 1); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
@@ -93,9 +87,6 @@ type
     [TestCase('Weak tags', 'Object.prototype.toString.call(new WeakMap()) + Object.prototype.toString.call(new WeakSet())#[object WeakMap][object WeakSet]', '#')]
     [TestCase('Weak method lengths', '[WeakMap.prototype.get, WeakMap.prototype.set, WeakSet.prototype.add].map(function (f) { return f.length; }).join("")#121', '#')]
     [TestCase('Weak receivers are checked', '(function () { try { WeakMap.prototype.get.call(new Map(), {}); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Weak_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('ForEach visits in insertion order', '(function () { var out = []; new Map([[1, "a"], [2, "b"]]).forEach(function (v, k, m) { out.push(k + v + (m instanceof Map)); }); return out.join(); })()#1atrue,2btrue', '#')]
     [TestCase('ForEach passes the this argument', '(function () { var t = {}; var r; new Set([1]).forEach(function () { r = this === t; }, t); return r; })()#true', '#')]
     [TestCase('Set forEach passes the value twice', '(function () { var out = []; new Set(["x"]).forEach(function (v, k) { out.push(v + k); }); return out.join(); })()#xx', '#')]
@@ -122,9 +113,6 @@ type
     [TestCase('Next has length 0 and a name', '(function () { var n = Object.getPrototypeOf(new Map().keys()).next; return n.length + n.name; })()#0next', '#')]
     [TestCase('A map iterator rejects a set iterator receiver', '(function () { try { Object.getPrototypeOf(new Map().keys()).next.call(new Set().values()); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Next on the prototype throws', '(function () { try { Object.getPrototypeOf(new Set().values()).next(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Iteration_IsLive(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Calling Map without new throws', '(function () { try { Map(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Calling Set without new throws', '(function () { try { Set(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Calling WeakMap without new throws', '(function () { try { WeakMap(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
@@ -135,7 +123,7 @@ type
     [TestCase('An empty argument does not read the adder', '(function () { var set = Map.prototype.set; Map.prototype.set = 1; try { return new Map().size; } finally { Map.prototype.set = set; } })()#0', '#')]
     [TestCase('A failing adder closes the iterator', '(function () { var closed = false; var it = { [Symbol.iterator]() { return { next() { return { done: false, value: 1 }; }, return() { closed = true; return {}; } }; } }; try { new Map(it); } catch (e) {} return closed; })()#true', '#')]
     [TestCase('An exception from the adder propagates', '(function () { var set = Set.prototype.add; Set.prototype.add = function () { throw new RangeError("x"); }; try { new Set([1]); } catch (e) { return e instanceof RangeError; } finally { Set.prototype.add = set; } })()#true', '#')]
-    procedure Constructors_ValidateArguments(const Expression, Expected: string);
+    procedure Collection_Script_EvaluatesToTrue(const Expression, Expected: string);
 
     [Test]
     procedure Map_WithManyEntries_StaysFast;
@@ -161,27 +149,7 @@ begin
   Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
 end;
 
-procedure TCollectionTests.Map_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TCollectionTests.Set_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TCollectionTests.Weak_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TCollectionTests.Iteration_IsLive(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TCollectionTests.Constructors_ValidateArguments(const Expression, Expected: string);
+procedure TCollectionTests.Collection_Script_EvaluatesToTrue(const Expression, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

@@ -1216,10 +1216,4 @@ begin
   Assert.IsTrue(Result.IsUndefined);
 end;
 
-initialization
-  TDUnitX.RegisterTestFixture(TBuiltInLimitTests);
-  TDUnitX.RegisterTestFixture(TCallDepthLimitTests);
-  TDUnitX.RegisterTestFixture(TAllocationLimitTests);
-  TDUnitX.RegisterTestFixture(TDeepStructureTests);
-
 end.

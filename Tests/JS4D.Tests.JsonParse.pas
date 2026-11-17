@@ -37,10 +37,9 @@ type
     [TestCase('TrailingGarbage', '1 2')]
     [TestCase('Undefined', 'undefined')]
     [TestCase('UnclosedArray', '[1')]
+    [TestCase('TrailingCommaInArray', '[1,]')]
+    [TestCase('TrailingCommaInObject', '{"a":1,}')]
     procedure IsValid_InvalidText_ReturnsFalse(const Text: string);
-
-    [Test]
-    procedure IsValid_TrailingComma_ReturnsFalse;
 
     [Test]
     procedure IsValid_ControlCharacterInString_ReturnsFalse;
@@ -57,41 +56,48 @@ type
 
 implementation
 
+const
+  NESTING_DEPTH = 5000;
+
 procedure TJsonParseTests.IsValid_ValidText_ReturnsTrue(const Text: string);
 begin
-  Assert.IsTrue(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsTrue(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_InvalidText_ReturnsFalse(const Text: string);
 begin
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
-end;
+  const IsValid = TJSJsonSyntax.IsValid(Text);
 
-procedure TJsonParseTests.IsValid_TrailingComma_ReturnsFalse;
-begin
-  Assert.IsFalse(TJSJsonSyntax.IsValid('[1,]'), 'array');
-  Assert.IsFalse(TJSJsonSyntax.IsValid('{"a":1,}'), 'object');
+  Assert.IsFalse(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_ControlCharacterInString_ReturnsFalse;
 begin
   const Text = '"a' + #1 + 'b"';
 
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsFalse(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_UnicodeWhitespaceAroundValue_ReturnsFalse;
 begin
   const Text = #$1680 + '1';
 
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsFalse(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_ExcessiveNesting_ReturnsFalse;
 begin
-  const Text = StringOfChar('[', 5000) + StringOfChar(']', 5000);
+  const Text = StringOfChar('[', NESTING_DEPTH) + StringOfChar(']', NESTING_DEPTH);
 
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsFalse(IsValid);
 end;
 
 procedure TJsonParseTests.Parse_InvalidText_ThrowsSyntaxError;
@@ -104,7 +110,9 @@ begin
       ' catch (e) { thrown = (e instanceof SyntaxError); }' + sLineBreak +
       'thrown';
 
-    Assert.IsTrue(Engine.Evaluate(Script).AsBoolean);
+    const Thrown = Engine.Evaluate(Script);
+
+    Assert.IsTrue(Thrown.AsBoolean);
   finally
     Engine.Free;
   end;

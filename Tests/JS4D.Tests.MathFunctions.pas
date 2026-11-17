@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -52,9 +51,6 @@ type
     [TestCase('RemainderNegativeBoth', '1 / (-1 % -1)#-Infinity', '#')]
     [TestCase('RemainderPositiveDividend', '1 / (1 % -1)#Infinity', '#')]
     [TestCase('RemainderNegativeZeroDividend', '1 / (-0 % 5)#-Infinity', '#')]
-    procedure Function_AtZero_KeepsSignOfZero(const Expression, Expected: string);
-
-    [Test]
     [TestCase('FloorBeyondInt32', 'Math.floor(1e20)#100000000000000000000', '#')]
     [TestCase('FloorNegativeFraction', 'Math.floor(-1.5)#-2', '#')]
     [TestCase('FloorBeyondInt64', 'Math.floor(-3e19)#-30000000000000000000', '#')]
@@ -92,7 +88,8 @@ type
     [TestCase('PowPositiveInfinityNegativePower', 'Math.pow(Infinity, -2)#0', '#')]
     [TestCase('MaxConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.max(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
     [TestCase('MinConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.min(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
-    procedure Function_OnOrdinaryValues_ReturnsSpecResult(const Expression, Expected: string);
+    procedure Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
+
   end;
 
 implementation
@@ -112,12 +109,7 @@ begin
   Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
 end;
 
-procedure TMathFunctionsTests.Function_AtZero_KeepsSignOfZero(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TMathFunctionsTests.Function_OnOrdinaryValues_ReturnsSpecResult(const Expression, Expected: string);
+procedure TMathFunctionsTests.Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

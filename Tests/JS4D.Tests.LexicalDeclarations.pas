@@ -71,9 +71,6 @@ type
     [TestCase('MissingInitializerInBlock', '{ const c; }')]
     [TestCase('MissingInitializerInFor', 'for (const c; false;) { }')]
     [TestCase('SecondDeclaratorWithoutInitializer', 'const a = 1; const b = 2; const c = 3, d;', '|')]
-    procedure Const_WithoutInitializer_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('LetLet', 'let a; let a;')]
     [TestCase('LetVar', 'let a; var a;')]
     [TestCase('VarLet', 'var a; let a;')]
@@ -91,7 +88,20 @@ type
     [TestCase('LetNamedLet', 'let let = 1;')]
     [TestCase('ConstNamedLet', 'const let = 1;')]
     [TestCase('StrictBlockFunctionTwice', '"use strict"; { function f() { } function f() { } }')]
-    procedure Declaration_Redeclared_IsSyntaxError(const Source: string);
+    [TestCase('If', 'if (true) let x = 1;')]
+    [TestCase('IfConst', 'if (true) const x = 1;')]
+    [TestCase('While', 'while (false) let y;')]
+    [TestCase('For', 'for (;;) const z = 1;')]
+    [TestCase('LetBracket', 'if (true) let [x] = 1;')]
+    [TestCase('Label', 'l: let x;')]
+    [TestCase('With', 'with ({}) let x;')]
+    [TestCase('LabelledFunctionInStrictMode', '"use strict"; l: function f() { }')]
+    [TestCase('LabelledFunctionInLoop', 'while (false) l: function f() { }')]
+    [TestCase('LabelledFunctionInIf', 'if (true) l: function f() { }')]
+    [TestCase('FunctionLet', 'function f() { let x; eval("var x;"); } f();')]
+    [TestCase('NestedBlockLet', 'function f() { { let x; { eval("var x;"); } } } f();')]
+    [TestCase('FunctionInBlock', 'function f() { { function x() { } eval("var x;"); } } f();')]
+    procedure Declaration_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('ShadowInBlock', 'let a; { let a; }')]
@@ -106,20 +116,9 @@ type
     [TestCase('LabelledFunction', 'l: function f() { }')]
     [TestCase('LabelledFunctionInBlock', '{ l: function f() { } }')]
     [TestCase('NestedLabelledFunction', 'a: b: function f() { }')]
-    procedure Declaration_Valid_RaisesNoError(const Source: string);
-
-    [Test]
-    [TestCase('If', 'if (true) let x = 1;')]
-    [TestCase('IfConst', 'if (true) const x = 1;')]
-    [TestCase('While', 'while (false) let y;')]
-    [TestCase('For', 'for (;;) const z = 1;')]
-    [TestCase('LetBracket', 'if (true) let [x] = 1;')]
-    [TestCase('Label', 'l: let x;')]
-    [TestCase('With', 'with ({}) let x;')]
-    [TestCase('LabelledFunctionInStrictMode', '"use strict"; l: function f() { }')]
-    [TestCase('LabelledFunctionInLoop', 'while (false) l: function f() { }')]
-    [TestCase('LabelledFunctionInIf', 'if (true) l: function f() { }')]
-    procedure LexicalDeclaration_AsStatementBody_IsSyntaxError(const Source: string);
+    [TestCase('CatchParameter', 'try { throw 1; } catch (e) { eval("var e;"); }')]
+    [TestCase('SiblingBlock', 'function f() { { let x; } eval("var x;"); } f();')]
+    procedure Declaration_ValidSource_RaisesNoError(const Source: string);
 
     [Test]
     procedure ForLet_CreatesFreshBindingPerIteration;
@@ -206,17 +205,6 @@ type
     procedure Eval_VarInsideBlockScopeDeclaresInFunction;
 
     [Test]
-    [TestCase('FunctionLet', 'function f() { let x; eval("var x;"); } f();')]
-    [TestCase('NestedBlockLet', 'function f() { { let x; { eval("var x;"); } } } f();')]
-    [TestCase('FunctionInBlock', 'function f() { { function x() { } eval("var x;"); } } f();')]
-    procedure Eval_VarConflictingWithEnclosingLexicalBinding_IsSyntaxError(const Source: string);
-
-    [Test]
-    [TestCase('CatchParameter', 'try { throw 1; } catch (e) { eval("var e;"); }')]
-    [TestCase('SiblingBlock', 'function f() { { let x; } eval("var x;"); } f();')]
-    procedure Eval_VarNotConflictingWithEnclosingLexicalBinding_RaisesNoError(const Source: string);
-
-    [Test]
     [TestCase('LetOnly', 'let a = 1;|undefined', '|')]
     [TestCase('ValueThenLet', '7; let a = 1;|7', '|')]
     [TestCase('ValueThenConst', '8; const a = 1;|8', '|')]
@@ -300,24 +288,14 @@ begin
   Assert.AreEqual('TypeError', ErrorNameOf(Source));
 end;
 
-procedure TLexicalDeclarationTests.Const_WithoutInitializer_IsSyntaxError(const Source: string);
+procedure TLexicalDeclarationTests.Declaration_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
   Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
 end;
 
-procedure TLexicalDeclarationTests.Declaration_Redeclared_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.Declaration_Valid_RaisesNoError(const Source: string);
+procedure TLexicalDeclarationTests.Declaration_ValidSource_RaisesNoError(const Source: string);
 begin
   Assert.AreEqual('', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.LexicalDeclaration_AsStatementBody_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
 end;
 
 procedure TLexicalDeclarationTests.ForLet_CreatesFreshBindingPerIteration;
@@ -566,16 +544,6 @@ begin
     'f()';
 
   Assert.AreEqual(12.0, FEngine.Evaluate(Script).AsNumber);
-end;
-
-procedure TLexicalDeclarationTests.Eval_VarConflictingWithEnclosingLexicalBinding_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.Eval_VarNotConflictingWithEnclosingLexicalBinding_RaisesNoError(const Source: string);
-begin
-  Assert.AreEqual('', ErrorNameOf(Source));
 end;
 
 procedure TLexicalDeclarationTests.Eval_CompletionValue_IgnoresDeclarations(const Source: string; const Expected: string);

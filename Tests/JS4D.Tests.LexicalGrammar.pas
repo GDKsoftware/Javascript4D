@@ -79,12 +79,6 @@ type
     [TestCase('Zero leading dot', '.0,0')]
     [TestCase('Fraction', '1.25,1.25')]
     [TestCase('Exponent', '2e3,2000')]
-    procedure NumericLiteral_DecimalForms_HaveTheirValue(const Source: string; const Expected: Double);
-
-    [Test]
-    procedure NumericLiteral_TrailingDotBeforeMember_ReadsMemberOfNumber;
-
-    [Test]
     [TestCase('Zero eight', '08,8')]
     [TestCase('Zero nine', '09,9')]
     [TestCase('Double zero eight', '008,8')]
@@ -92,21 +86,29 @@ type
     [TestCase('Octal like decimal long', '0708,708')]
     [TestCase('Legacy octal', '010,8')]
     [TestCase('Legacy octal seven', '0777,511')]
-    procedure NumericLiteral_LeadingZero_FollowsLegacyRules(const Source: string; const Expected: Double);
+    procedure NumericLiteral_Source_HasExpectedValue(const Source: string; const Expected: Double);
+
+    [Test]
+    procedure NumericLiteral_TrailingDotBeforeMember_ReadsMemberOfNumber;
 
     [Test]
     [TestCase('Lower hex prefix', '0x')]
     [TestCase('Upper hex prefix', '0X')]
     [TestCase('Hex prefix before operator', '0x+1')]
     [TestCase('Identifier after number', '3in [] ')]
-    procedure NumericLiteral_Malformed_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('Zero eight', '"use strict"; 08')]
     [TestCase('Zero nine', '"use strict"; 09')]
     [TestCase('Octal like decimal', '"use strict"; 018')]
     [TestCase('Legacy octal', '"use strict"; 010')]
-    procedure NumericLiteral_LeadingZeroInStrictCode_IsSyntaxError(const Source: string);
+    [TestCase('Octal', '"use strict"; "\1"')]
+    [TestCase('Octal with zero', '"use strict"; "\08"')]
+    [TestCase('Three digit octal', '"use strict"; "\101"')]
+    [TestCase('Eight', '"use strict"; "\8"')]
+    [TestCase('Nine', '"use strict"; "\9"')]
+    [TestCase('Inside strict function', 'function f() { "use strict"; return "\1"; }')]
+    [TestCase('Prologue before directive', 'function f() { "\1"; "use strict"; }')]
+    [TestCase('Prologue before directive at top', '"\052"; "use strict";')]
+    procedure Literal_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('One', '\1,1')]
@@ -127,30 +129,17 @@ type
     procedure StringLiteral_NonOctalEscapeInSloppyCode_IsTheDigit;
 
     [Test]
-    [TestCase('Octal', '"use strict"; "\1"')]
-    [TestCase('Octal with zero', '"use strict"; "\08"')]
-    [TestCase('Three digit octal', '"use strict"; "\101"')]
-    [TestCase('Eight', '"use strict"; "\8"')]
-    [TestCase('Nine', '"use strict"; "\9"')]
-    [TestCase('Inside strict function', 'function f() { "use strict"; return "\1"; }')]
-    [TestCase('Prologue before directive', 'function f() { "\1"; "use strict"; }')]
-    [TestCase('Prologue before directive at top', '"\052"; "use strict";')]
-    procedure StringLiteral_LegacyEscapeInStrictCode_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('Plain zero', '"use strict"; "\0"')]
     [TestCase('Zero before letter', '"use strict"; "\0a"')]
     [TestCase('Sloppy function next to strict one', 'function f() { "use strict"; } function g() { return "\1"; }')]
     [TestCase('Octal after prologue', 'function f() { "a"; return "\1"; }')]
-    procedure StringLiteral_AllowedEscapes_AreNotRejected(const Source: string);
+    [TestCase('Hex escape', 'function f() { "use\x20strict"; with ({}) {} }')]
+    [TestCase('Line continuation', 'function f() { "use str\' + #10 + 'ict"; with ({}) {} }')]
+    procedure StringLiteral_ValidSource_RaisesNoError(const Source: string);
 
     [Test]
     procedure DirectivePrologue_UseStrictAfterOtherDirective_StartsStrictMode;
 
-    [Test]
-    [TestCase('Hex escape', 'function f() { "use\x20strict"; with ({}) {} }')]
-    [TestCase('Line continuation', 'function f() { "use str\' + #10 + 'ict"; with ({}) {} }')]
-    procedure DirectivePrologue_UseStrictWithEscape_IsNotADirective(const Source: string);
   end;
 
 implementation
@@ -235,7 +224,7 @@ begin
   Assert.AreEqual('ab', FEngine.Evaluate(Source).AsString);
 end;
 
-procedure TLexicalGrammarTests.NumericLiteral_DecimalForms_HaveTheirValue(const Source: string;
+procedure TLexicalGrammarTests.NumericLiteral_Source_HasExpectedValue(const Source: string;
                                                                           const Expected: Double);
 begin
   Assert.AreEqual(Expected, FEngine.Evaluate(Source).AsNumber);
@@ -246,18 +235,7 @@ begin
   Assert.AreEqual('1', FEngine.Evaluate('1..toString()').AsString);
 end;
 
-procedure TLexicalGrammarTests.NumericLiteral_LeadingZero_FollowsLegacyRules(const Source: string;
-                                                                             const Expected: Double);
-begin
-  Assert.AreEqual(Expected, FEngine.Evaluate(Source).AsNumber);
-end;
-
-procedure TLexicalGrammarTests.NumericLiteral_Malformed_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
-end;
-
-procedure TLexicalGrammarTests.NumericLiteral_LeadingZeroInStrictCode_IsSyntaxError(const Source: string);
+procedure TLexicalGrammarTests.Literal_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
   Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
 end;
@@ -291,12 +269,7 @@ begin
   Assert.AreEqual('9', FEngine.Evaluate('"\9"').AsString);
 end;
 
-procedure TLexicalGrammarTests.StringLiteral_LegacyEscapeInStrictCode_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
-end;
-
-procedure TLexicalGrammarTests.StringLiteral_AllowedEscapes_AreNotRejected(const Source: string);
+procedure TLexicalGrammarTests.StringLiteral_ValidSource_RaisesNoError(const Source: string);
 begin
   Assert.AreEqual(NoErrorName, ErrorNameOfEval(Source));
 end;
@@ -306,11 +279,6 @@ begin
   const Source = 'function f() { "other"; "use strict"; with ({}) {} }';
 
   Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
-end;
-
-procedure TLexicalGrammarTests.DirectivePrologue_UseStrictWithEscape_IsNotADirective(const Source: string);
-begin
-  Assert.AreEqual(NoErrorName, ErrorNameOfEval(Source));
 end;
 
 end.

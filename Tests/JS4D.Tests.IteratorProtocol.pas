@@ -55,9 +55,6 @@ type
     [TestCase('ArrayIteratorNextLength', 'Object.getPrototypeOf([][Symbol.iterator]()).next.length|0', '|')]
     [TestCase('ArrayIteratorNextIsNotAConstructor', 'try { new (Object.getPrototypeOf([][Symbol.iterator]()).next)(); } catch (e) { e.name }|TypeError', '|')]
     [TestCase('ArrayIteratorDone', 'var it = [1][Symbol.iterator](); it.next(); var s = it.next(); s.done + "," + s.value|true,undefined', '|')]
-    procedure Intrinsics_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('ForOf', ITERABLE + 'var r = ""; for (var x of iterable) r += x; r|012', '|')]
     [TestCase('ForOfLetClosures', ITERABLE + 'var f = []; for (let x of iterable) f.push(() => x); f[0]() + "," + f[2]()|0,2', '|')]
     [TestCase('ArraySpread', ITERABLE + '[...iterable, 9].join()|0,1,2,9', '|')]
@@ -93,7 +90,41 @@ type
     [TestCase('NextReadOncePerIteration', 'var n = 0; var it = { get next() { n++; return function () { return { done: true }; }; } }; var o = { [Symbol.iterator]() { return it; } }; [...o]; [...o]; n|2', '|')]
     [TestCase('DoneIsConvertedToBoolean', 'var o = { [Symbol.iterator]() { return { next() { return { done: 1 }; } }; } }; [...o].length|0', '|')]
     [TestCase('ValueNotReadWhenDone', 'var read = false; var o = { [Symbol.iterator]() { return { next() { return { done: true, get value() { read = true; } }; } }; } }; [...o]; read|false', '|')]
-    procedure Iterates_Result(const Source: string; const Expected: string);
+    [TestCase('Break', CLOSABLE + 'for (var x of endless) { break; } log.join()|r', '|')]
+    [TestCase('Return', CLOSABLE + '(function () { for (var x of endless) { return 1; } })(); log.join()|r', '|')]
+    [TestCase('Throw', CLOSABLE + 'try { for (var x of endless) { throw 1; } } catch (e) {} log.join()|r', '|')]
+    [TestCase('ContinueOuterLoop', CLOSABLE + 'outer: for (var i of [1, 2]) { for (var x of endless) { continue outer; } } log.join()|r,r', '|')]
+    [TestCase('BreakOuterLabel', CLOSABLE + 'outer: for (var i of [1]) { for (var x of endless) { break outer; } } log.join()|r', '|')]
+    [TestCase('BreakOwnLabel', CLOSABLE + 'own: for (var x of endless) { break own; } log.join()|r', '|')]
+    [TestCase('ContinueKeepsIterating', CLOSABLE + 'var n = 0; for (var x of endless) { if (++n == 3) break; continue; } log.join() + n|r3', '|')]
+    [TestCase('ExhaustedIteratorIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; for (var x of done) {} log.length|0', '|')]
+    [TestCase('NestedBreakClosesBoth', CLOSABLE + 'for (var a of endless) { for (var b of endless) { break; } break; } log.join()|r,r', '|')]
+    [TestCase('FinallyRunsBeforeClose', CLOSABLE + 'for (var x of endless) { try { break; } finally { log.push("f"); } } log.join()|f,r', '|')]
+    [TestCase('ReturnMethodMissing', 'var o = { [Symbol.iterator]() { return { next() { return { done: false }; } }; } }; for (var x of o) { break; } 1|1', '|')]
+    [TestCase('ReturnNullIsIgnored', 'var o = { [Symbol.iterator]() { return { next() { return { done: false }; }, return: null }; } }; for (var x of o) { break; } 1|1', '|')]
+    [TestCase('ReturnReceivesIteratorAsThis', 'var self, it; var o = { [Symbol.iterator]() { it = { next() { return { done: false }; }, return() { self = this; return {}; } }; return it; } }; for (var x of o) { break; } self === it|true', '|')]
+    [TestCase('LetHeadDestructuringErrorCloses', 'var log = []; var e = { [Symbol.iterator]() { return { next() { return { value: null, done: false }; }, return() { log.push("r"); return {}; } }; } }; try { for (let [a] of e) {} } catch (err) { log.push(err.name); } log.join()|r,TypeError', '|')]
+    [TestCase('DestructuringOneOfEndless', CLOSABLE + 'var [a] = endless; log.join()|r', '|')]
+    [TestCase('DestructuringNothingFromEndless', CLOSABLE + 'var [] = endless; log.join()|r', '|')]
+    [TestCase('DestructuringHoleFromEndless', CLOSABLE + 'var [,] = endless; log.join()|r', '|')]
+    [TestCase('AssignmentDestructuringCloses', CLOSABLE + 'var a; [a] = endless; log.join()|r', '|')]
+    [TestCase('ParameterDestructuringCloses', CLOSABLE + '(function ([a]) {})(endless); log.join()|r', '|')]
+    [TestCase('DestructuringRestIsNotClosed', CLOSABLE + 'var finite = { [Symbol.iterator]() { var n = 0; return { next() { return n++ < 2 ? { value: n, done: false } : { done: true }; }, return() { log.push("r"); return {}; } }; } }; var [a, ...b] = finite; log.length + ":" + b.join()|0:2', '|')]
+    [TestCase('DestructuringExhaustedIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; var [a, b] = done; log.length|0', '|')]
+    [TestCase('DestructuringDefaultThrowCloses', CLOSABLE + 'var undef = { [Symbol.iterator]() { return { next() { return { value: undefined, done: false }; }, return() { log.push("r"); return {}; } }; } }; try { var [a = (function () { throw new RangeError(); })()] = undef; } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
+    [TestCase('DestructuringTargetThrowCloses', CLOSABLE + 'try { [ (function () { throw new RangeError(); })().x ] = endless; } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
+    [TestCase('NextThrowDoesNotClose', CLOSABLE + 'var bad = { [Symbol.iterator]() { return { next() { throw new RangeError(); }, return() { log.push("r"); return {}; } }; } }; try { var [a] = bad; } catch (e) {} log.length|0', '|')]
+    [TestCase('NextThrowInForOfDoesNotClose', CLOSABLE + 'var bad = { [Symbol.iterator]() { return { next() { throw new RangeError(); }, return() { log.push("r"); return {}; } }; } }; try { for (var x of bad) {} } catch (e) {} log.length|0', '|')]
+    [TestCase('ArrayFromMapperThrowCloses', CLOSABLE + 'try { Array.from(endless, function () { throw new RangeError(); }); } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
+    [TestCase('ArrayFromExhaustedIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; Array.from(done); log.length|0', '|')]
+    [TestCase('ForOfOverArguments', '(function () { var r = ""; for (var x of arguments) r += x; return r; })(1, 2, 3)|123', '|')]
+    [TestCase('SpreadOfArguments', '(function () { return [...arguments].length; })(1, 2, 3)|3', '|')]
+    [TestCase('ArrayFromArguments', '(function () { return Array.from(arguments).join(); })(1, 2)|1,2', '|')]
+    [TestCase('DestructureArguments', '(function () { var [a, b] = arguments; return a + b; })(1, 2)|3', '|')]
+    [TestCase('ArrayFromString', 'Array.from("a'#$D83D#$DE00'").length|2', '|')]
+    [TestCase('ArrayFromArrayLike', 'Array.from({ length: 2, 0: "a", 1: "b" }).join()|a,b', '|')]
+    [TestCase('SpreadWithHoles', '[...[1, , 3]].hasOwnProperty(1)|true', '|')]
+    procedure Iterator_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
     [TestCase('StringIteratorNextOnArrayIterator', 'Object.getPrototypeOf(""[Symbol.iterator]()).next.call([][Symbol.iterator]())|TypeError', '|')]
@@ -128,45 +159,6 @@ type
     [TestCase('ArrayFromMapperErrorWinsOverReturnError', 'var o = { [Symbol.iterator]() { return { next() { return { done: false }; }, return() { throw new RangeError(); } }; } }; Array.from(o, function () { throw new EvalError(); });|EvalError', '|')]
     procedure Iterating_RaisesError(const Source: string; const Expected: string);
 
-    [Test]
-    [TestCase('Break', CLOSABLE + 'for (var x of endless) { break; } log.join()|r', '|')]
-    [TestCase('Return', CLOSABLE + '(function () { for (var x of endless) { return 1; } })(); log.join()|r', '|')]
-    [TestCase('Throw', CLOSABLE + 'try { for (var x of endless) { throw 1; } } catch (e) {} log.join()|r', '|')]
-    [TestCase('ContinueOuterLoop', CLOSABLE + 'outer: for (var i of [1, 2]) { for (var x of endless) { continue outer; } } log.join()|r,r', '|')]
-    [TestCase('BreakOuterLabel', CLOSABLE + 'outer: for (var i of [1]) { for (var x of endless) { break outer; } } log.join()|r', '|')]
-    [TestCase('BreakOwnLabel', CLOSABLE + 'own: for (var x of endless) { break own; } log.join()|r', '|')]
-    [TestCase('ContinueKeepsIterating', CLOSABLE + 'var n = 0; for (var x of endless) { if (++n == 3) break; continue; } log.join() + n|r3', '|')]
-    [TestCase('ExhaustedIteratorIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; for (var x of done) {} log.length|0', '|')]
-    [TestCase('NestedBreakClosesBoth', CLOSABLE + 'for (var a of endless) { for (var b of endless) { break; } break; } log.join()|r,r', '|')]
-    [TestCase('FinallyRunsBeforeClose', CLOSABLE + 'for (var x of endless) { try { break; } finally { log.push("f"); } } log.join()|f,r', '|')]
-    [TestCase('ReturnMethodMissing', 'var o = { [Symbol.iterator]() { return { next() { return { done: false }; } }; } }; for (var x of o) { break; } 1|1', '|')]
-    [TestCase('ReturnNullIsIgnored', 'var o = { [Symbol.iterator]() { return { next() { return { done: false }; }, return: null }; } }; for (var x of o) { break; } 1|1', '|')]
-    [TestCase('ReturnReceivesIteratorAsThis', 'var self, it; var o = { [Symbol.iterator]() { it = { next() { return { done: false }; }, return() { self = this; return {}; } }; return it; } }; for (var x of o) { break; } self === it|true', '|')]
-    [TestCase('LetHeadDestructuringErrorCloses', 'var log = []; var e = { [Symbol.iterator]() { return { next() { return { value: null, done: false }; }, return() { log.push("r"); return {}; } }; } }; try { for (let [a] of e) {} } catch (err) { log.push(err.name); } log.join()|r,TypeError', '|')]
-    [TestCase('DestructuringOneOfEndless', CLOSABLE + 'var [a] = endless; log.join()|r', '|')]
-    [TestCase('DestructuringNothingFromEndless', CLOSABLE + 'var [] = endless; log.join()|r', '|')]
-    [TestCase('DestructuringHoleFromEndless', CLOSABLE + 'var [,] = endless; log.join()|r', '|')]
-    [TestCase('AssignmentDestructuringCloses', CLOSABLE + 'var a; [a] = endless; log.join()|r', '|')]
-    [TestCase('ParameterDestructuringCloses', CLOSABLE + '(function ([a]) {})(endless); log.join()|r', '|')]
-    [TestCase('DestructuringRestIsNotClosed', CLOSABLE + 'var finite = { [Symbol.iterator]() { var n = 0; return { next() { return n++ < 2 ? { value: n, done: false } : { done: true }; }, return() { log.push("r"); return {}; } }; } }; var [a, ...b] = finite; log.length + ":" + b.join()|0:2', '|')]
-    [TestCase('DestructuringExhaustedIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; var [a, b] = done; log.length|0', '|')]
-    [TestCase('DestructuringDefaultThrowCloses', CLOSABLE + 'var undef = { [Symbol.iterator]() { return { next() { return { value: undefined, done: false }; }, return() { log.push("r"); return {}; } }; } }; try { var [a = (function () { throw new RangeError(); })()] = undef; } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
-    [TestCase('DestructuringTargetThrowCloses', CLOSABLE + 'try { [ (function () { throw new RangeError(); })().x ] = endless; } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
-    [TestCase('NextThrowDoesNotClose', CLOSABLE + 'var bad = { [Symbol.iterator]() { return { next() { throw new RangeError(); }, return() { log.push("r"); return {}; } }; } }; try { var [a] = bad; } catch (e) {} log.length|0', '|')]
-    [TestCase('NextThrowInForOfDoesNotClose', CLOSABLE + 'var bad = { [Symbol.iterator]() { return { next() { throw new RangeError(); }, return() { log.push("r"); return {}; } }; } }; try { for (var x of bad) {} } catch (e) {} log.length|0', '|')]
-    [TestCase('ArrayFromMapperThrowCloses', CLOSABLE + 'try { Array.from(endless, function () { throw new RangeError(); }); } catch (e) { log.push(e.name); } log.join()|r,RangeError', '|')]
-    [TestCase('ArrayFromExhaustedIsNotClosed', CLOSABLE + 'var done = { [Symbol.iterator]() { return { next() { return { done: true }; }, return() { log.push("r"); return {}; } }; } }; Array.from(done); log.length|0', '|')]
-    procedure Closing_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('ForOfOverArguments', '(function () { var r = ""; for (var x of arguments) r += x; return r; })(1, 2, 3)|123', '|')]
-    [TestCase('SpreadOfArguments', '(function () { return [...arguments].length; })(1, 2, 3)|3', '|')]
-    [TestCase('ArrayFromArguments', '(function () { return Array.from(arguments).join(); })(1, 2)|1,2', '|')]
-    [TestCase('DestructureArguments', '(function () { var [a, b] = arguments; return a + b; })(1, 2)|3', '|')]
-    [TestCase('ArrayFromString', 'Array.from("a'#$D83D#$DE00'").length|2', '|')]
-    [TestCase('ArrayFromArrayLike', 'Array.from({ length: 2, 0: "a", 1: "b" }).join()|a,b', '|')]
-    [TestCase('SpreadWithHoles', '[...[1, , 3]].hasOwnProperty(1)|true', '|')]
-    procedure FastPaths_Result(const Source: string; const Expected: string);
   end;
 
 implementation
@@ -196,12 +188,7 @@ begin
   Assert.AreEqual(Expected, FEngine.Evaluate(Source).ToString);
 end;
 
-procedure TIteratorProtocolTests.Intrinsics_Result(const Source: string; const Expected: string);
-begin
-  AssertEvaluatesTo(Expected, Source);
-end;
-
-procedure TIteratorProtocolTests.Iterates_Result(const Source: string; const Expected: string);
+procedure TIteratorProtocolTests.Iterator_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   AssertEvaluatesTo(Expected, Source);
 end;
@@ -209,16 +196,6 @@ end;
 procedure TIteratorProtocolTests.Iterating_RaisesError(const Source: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, ErrorNameOf(Source));
-end;
-
-procedure TIteratorProtocolTests.Closing_Result(const Source: string; const Expected: string);
-begin
-  AssertEvaluatesTo(Expected, Source);
-end;
-
-procedure TIteratorProtocolTests.FastPaths_Result(const Source: string; const Expected: string);
-begin
-  AssertEvaluatesTo(Expected, Source);
 end;
 
 end.

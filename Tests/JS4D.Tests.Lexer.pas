@@ -298,7 +298,4 @@ begin
   Assert.AreEqual(TJSTokenType.NullLiteral, Token.TokenType);
 end;
 
-initialization
-  TDUnitX.RegisterTestFixture(TLexerTests);
-
 end.

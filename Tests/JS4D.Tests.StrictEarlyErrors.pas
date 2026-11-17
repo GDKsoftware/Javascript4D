@@ -44,10 +44,7 @@ type
     [TestCase('Delete identifier', '"use strict"; var x; delete x')]
     [TestCase('Delete parenthesized identifier', '"use strict"; var x; delete (x)')]
     [TestCase('Assign eval in strict function', 'function f() { "use strict"; eval = 1; }')]
-    procedure Source_WithRestrictedStrictUse_IsSyntaxError(const Source: string);
-
-    [Test]
-    [TestCase('Declaration named eval', 'function eval() { "use strict"; }')]
+    [TestCase('Function Declaration named eval', 'function eval() { "use strict"; }')]
     [TestCase('Declaration named arguments', 'function arguments() { "use strict"; }')]
     [TestCase('Expression named eval', '(function eval() { "use strict"; })')]
     [TestCase('Declaration parameter eval', 'function f(eval) { "use strict"; }')]
@@ -56,7 +53,7 @@ type
     [TestCase('Declaration reserved parameter', 'function f(public) { "use strict"; }')]
     [TestCase('Expression reserved name', '(function interface() { "use strict"; })')]
     [TestCase('Expression parameter eval', '(function (eval) { "use strict"; })')]
-    procedure Function_WithStrictBody_RestrictsItsNameAndParameters(const Source: string);
+    procedure StrictSource_RestrictedUse_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('Assign arguments', '(function () { var arguments; arguments = 1; arguments++; })')]
@@ -100,12 +97,7 @@ begin
   Result := FEngine.Evaluate('caught').AsBoolean;
 end;
 
-procedure TStrictEarlyErrorsTests.Source_WithRestrictedStrictUse_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
-end;
-
-procedure TStrictEarlyErrorsTests.Function_WithStrictBody_RestrictsItsNameAndParameters(const Source: string);
+procedure TStrictEarlyErrorsTests.StrictSource_RestrictedUse_RaisesSyntaxError(const Source: string);
 begin
   Assert.IsTrue(EvaluatesToSyntaxError(Source));
 end;

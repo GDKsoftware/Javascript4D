@@ -61,7 +61,7 @@ type
     procedure NewArray_InvalidLength_ThrowsRangeError(const RequestedLength: string);
 
     [Test]
-    procedure Array_StaticMethods_StillAvailable;
+    procedure Array_StaticMethods_AreAvailable;
 
     [Test]
     procedure Object_IsGlobalFunction;
@@ -85,7 +85,7 @@ type
     procedure NewObject_ResultInheritsFromObjectPrototype;
 
     [Test]
-    procedure Object_StaticMethods_StillAvailable;
+    procedure Object_StaticMethods_AreAvailable;
   end;
 
 implementation
@@ -171,7 +171,7 @@ begin
     EJSRangeError);
 end;
 
-procedure TConstructorTests.Array_StaticMethods_StillAvailable;
+procedure TConstructorTests.Array_StaticMethods_AreAvailable;
 begin
   Assert.IsTrue(EvaluateBoolean('Array.isArray([])'));
   Assert.AreEqual(2.0, EvaluateNumber('Array.from([1, 2]).length'));
@@ -215,7 +215,7 @@ begin
   Assert.IsTrue(EvaluateBoolean('new Object() instanceof Object'));
 end;
 
-procedure TConstructorTests.Object_StaticMethods_StillAvailable;
+procedure TConstructorTests.Object_StaticMethods_AreAvailable;
 begin
   Assert.AreEqual(1.0, EvaluateNumber('Object.keys({ a: 1 }).length'));
   Assert.IsTrue(EvaluateBoolean('Object.prototype.hasOwnProperty.call({ a: 1 }, "a")'));

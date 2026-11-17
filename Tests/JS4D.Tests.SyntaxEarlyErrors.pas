@@ -29,12 +29,6 @@ type
     [TestCase('ReturnAlone', 'return;')]
     [TestCase('ReturnWithValue', 'var x = 1; return 2;')]
     [TestCase('ReturnInBlock', '{ return; }')]
-    procedure Return_OutsideFunction_IsSyntaxError(const Source: string);
-
-    [Test]
-    procedure Return_InsideFunctionAndAccessor_IsAllowed;
-
-    [Test]
     [TestCase('Enum', 'var enum = 1;')]
     [TestCase('Extends', 'var extends;')]
     [TestCase('Export', 'var export;')]
@@ -44,12 +38,6 @@ type
     [TestCase('Parameter', 'function f(import) {}')]
     [TestCase('CatchParameter', 'try {} catch (enum) {}')]
     [TestCase('ForInVariable', 'for (var extends in {}) ;')]
-    procedure Identifier_UnusedReservedWord_IsSyntaxError(const Source: string);
-
-    [Test]
-    procedure PropertyName_UnusedReservedWord_IsAllowed;
-
-    [Test]
     [TestCase('TwoNumbers', '1 2')]
     [TestCase('TwoStrings', 'var s = "" "";')]
     [TestCase('BlockThenNumber', '{ 1 2 } 3')]
@@ -57,7 +45,22 @@ type
     [TestCase('VarFollowedByVar', 'var a = 1 var b = 2')]
     [TestCase('ReturnFollowedByToken', 'function f() { return 1 2 }')]
     [TestCase('BreakFollowedByToken', 'while (true) { break 1 }')]
-    procedure Statement_WithoutTerminator_IsSyntaxError(const Source: string);
+    [TestCase('While', 'while (false) function f() {}')]
+    [TestCase('DoWhile', 'do function f() {} while (false)')]
+    [TestCase('For', 'for (;false;) function f() {}')]
+    [TestCase('ForIn', 'for (var p in {}) function f() {}')]
+    [TestCase('StrictIf', '"use strict"; if (true) function f() {}')]
+    [TestCase('StrictElse', '"use strict"; if (true) ; else function f() {}')]
+    [TestCase('Eval', '"use strict"; for (var eval in {}) ;')]
+    [TestCase('Arguments', '"use strict"; for (var arguments in null) {}')]
+    [TestCase('FutureReserved', '"use strict"; for (var let;;) break;')]
+    procedure Source_InvalidSyntax_RaisesSyntaxError(const Source: string);
+
+    [Test]
+    procedure Return_InsideFunctionAndAccessor_IsAllowed;
+
+    [Test]
+    procedure PropertyName_UnusedReservedWord_IsAllowed;
 
     [Test]
     [TestCase('NewlineSeparatesVar', 'var a = 1<LF>var b = 2')]
@@ -73,25 +76,10 @@ type
     procedure Throw_FollowedByLineBreak_IsSyntaxError;
 
     [Test]
-    [TestCase('While', 'while (false) function f() {}')]
-    [TestCase('DoWhile', 'do function f() {} while (false)')]
-    [TestCase('For', 'for (;false;) function f() {}')]
-    [TestCase('ForIn', 'for (var p in {}) function f() {}')]
-    [TestCase('StrictIf', '"use strict"; if (true) function f() {}')]
-    [TestCase('StrictElse', '"use strict"; if (true) ; else function f() {}')]
-    procedure Statement_FunctionDeclarationAsBody_IsSyntaxError(const Source: string);
-
-    [Test]
     procedure Statement_FunctionDeclarationAsSloppyIfBody_IsAllowed;
 
     [Test]
     procedure Switch_TwoDefaultClauses_IsSyntaxError;
-
-    [Test]
-    [TestCase('Eval', '"use strict"; for (var eval in {}) ;')]
-    [TestCase('Arguments', '"use strict"; for (var arguments in null) {}')]
-    [TestCase('FutureReserved', '"use strict"; for (var let;;) break;')]
-    procedure ForVariable_StrictRestrictedName_IsSyntaxError(const Source: string);
 
     [Test]
     procedure RegExpLiteral_BackslashBeforeLineBreak_IsSyntaxError;
@@ -126,7 +114,7 @@ begin
   Result := FEngine.Evaluate('caught').AsBoolean;
 end;
 
-procedure TSyntaxEarlyErrorTests.Return_OutsideFunction_IsSyntaxError(const Source: string);
+procedure TSyntaxEarlyErrorTests.Source_InvalidSyntax_RaisesSyntaxError(const Source: string);
 begin
   Assert.IsTrue(EvaluatesToSyntaxError(Source));
 end;
@@ -142,11 +130,6 @@ begin
   Assert.AreEqual(7.0, FEngine.Evaluate(Script).AsNumber);
 end;
 
-procedure TSyntaxEarlyErrorTests.Identifier_UnusedReservedWord_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
-end;
-
 procedure TSyntaxEarlyErrorTests.PropertyName_UnusedReservedWord_IsAllowed;
 begin
   const Script =
@@ -154,11 +137,6 @@ begin
     'o.enum + o.class + o.export';
 
   Assert.AreEqual(7.0, FEngine.Evaluate(Script).AsNumber);
-end;
-
-procedure TSyntaxEarlyErrorTests.Statement_WithoutTerminator_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
 end;
 
 procedure TSyntaxEarlyErrorTests.Statement_WithAutomaticSemicolon_IsAllowed(const Source: string);
@@ -171,11 +149,6 @@ begin
   Assert.IsTrue(EvaluatesToSyntaxError(SourceWithLineBreaks('try { throw<LF>1; } catch (e) {}')));
 end;
 
-procedure TSyntaxEarlyErrorTests.Statement_FunctionDeclarationAsBody_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
-end;
-
 procedure TSyntaxEarlyErrorTests.Statement_FunctionDeclarationAsSloppyIfBody_IsAllowed;
 begin
   Assert.IsFalse(EvaluatesToSyntaxError('if (true) function f() {}'));
@@ -184,11 +157,6 @@ end;
 procedure TSyntaxEarlyErrorTests.Switch_TwoDefaultClauses_IsSyntaxError;
 begin
   Assert.IsTrue(EvaluatesToSyntaxError('switch (0) { default: break; default: break; }'));
-end;
-
-procedure TSyntaxEarlyErrorTests.ForVariable_StrictRestrictedName_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
 end;
 
 procedure TSyntaxEarlyErrorTests.RegExpLiteral_BackslashBeforeLineBreak_IsSyntaxError;

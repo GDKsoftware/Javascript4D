@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -47,9 +46,6 @@ type
     [TestCase('CommaInsideSubstitution', '`${1, 2}`|2', '|')]
     [TestCase('Concatenation', '`a` + `b`|ab', '|')]
     [TestCase('SubstitutionsAreEvaluatedInOrder', 'var s = ""; function f(x) { s += x; return x; } `${f(1)}${f(2)}${f(3)}`; s|123', '|')]
-    procedure Template_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('NewlineEscape', '`\n`.charCodeAt(0)|10', '|')]
     [TestCase('TabEscape', '`\t`.charCodeAt(0)|9', '|')]
     [TestCase('HexEscape', '`\x41`|A', '|')]
@@ -67,7 +63,7 @@ type
     [TestCase('CarriageReturnLineFeedIsNormalized', '`a' + #13#10 + 'b`.length|3', '|')]
     [TestCase('CarriageReturnIsNormalized', '`a' + #13 + 'b`.charCodeAt(1)|10', '|')]
     [TestCase('LineContinuationWithCarriageReturnLineFeed', '`a\' + #13#10 + 'b`|ab', '|')]
-    procedure Escape_Result(const Source: string; const Expected: string);
+    procedure Template_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
     [TestCase('UnterminatedTemplate', '`abc', '|')]
@@ -113,7 +109,17 @@ type
     [TestCase('Backslash', 'function t(s) { return s.raw[0]; } t`a\\b`|a\\b', '|')]
     [TestCase('Unicode', 'function t(s) { return s.raw[0]; } t`\u00' + '41`|\u00' + '41', '|')]
     [TestCase('Substitutions', 'function t(s) { return s.raw.join(","); } t`x\ty${1}z\n`|x\ty,z\n', '|')]
-    procedure Tagged_RawStringsKeepEscapes(const Source: string; const Expected: string);
+    [TestCase('StringRaw Plain', 'String.raw({raw: ["a", "b", "c"]}, 1, 2)|a1b2c', '|')]
+    [TestCase('FewerSubstitutions', 'String.raw({raw: ["a", "b", "c"]}, 1)|a1bc', '|')]
+    [TestCase('MoreSubstitutions', 'String.raw({raw: ["a", "b"]}, 1, 2, 3)|a1b', '|')]
+    [TestCase('ArrayLike', 'String.raw({raw: {length: 2, 0: "x", 1: "y"}}, 9)|x9y', '|')]
+    [TestCase('SingleSegment', 'String.raw({raw: ["only"]}, 1)|only', '|')]
+    [TestCase('EmptyRaw', 'String.raw({raw: []}) + "."|.', '|')]
+    [TestCase('LengthUndefined', 'String.raw({raw: {}}) + "."|.', '|')]
+    [TestCase('NegativeLength', 'String.raw({raw: {length: -1}}) + "."|.', '|')]
+    [TestCase('StringRaw', 'String.raw({raw: "abc"}, 1, 2)|a1b2c', '|')]
+    [TestCase('SubstitutionIsStringified', 'String.raw({raw: ["a", "b"]}, [1, 2])|a1,2b', '|')]
+    procedure RawStrings_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
     procedure Tagged_RawStringsNormalizeLineTerminators;
@@ -188,19 +194,6 @@ type
     procedure StringRaw_UsesRawStrings;
 
     [Test]
-    [TestCase('Plain', 'String.raw({raw: ["a", "b", "c"]}, 1, 2)|a1b2c', '|')]
-    [TestCase('FewerSubstitutions', 'String.raw({raw: ["a", "b", "c"]}, 1)|a1bc', '|')]
-    [TestCase('MoreSubstitutions', 'String.raw({raw: ["a", "b"]}, 1, 2, 3)|a1b', '|')]
-    [TestCase('ArrayLike', 'String.raw({raw: {length: 2, 0: "x", 1: "y"}}, 9)|x9y', '|')]
-    [TestCase('SingleSegment', 'String.raw({raw: ["only"]}, 1)|only', '|')]
-    [TestCase('EmptyRaw', 'String.raw({raw: []}) + "."|.', '|')]
-    [TestCase('LengthUndefined', 'String.raw({raw: {}}) + "."|.', '|')]
-    [TestCase('NegativeLength', 'String.raw({raw: {length: -1}}) + "."|.', '|')]
-    [TestCase('StringRaw', 'String.raw({raw: "abc"}, 1, 2)|a1b2c', '|')]
-    [TestCase('SubstitutionIsStringified', 'String.raw({raw: ["a", "b"]}, [1, 2])|a1,2b', '|')]
-    procedure StringRaw_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('RawIsUndefined', 'String.raw({})', '|')]
     [TestCase('RawIsNull', 'String.raw({raw: null})', '|')]
     [TestCase('TemplateIsUndefined', 'String.raw()', '|')]
@@ -240,14 +233,7 @@ begin
   Result := FEngine.Evaluate('caught').AsString;
 end;
 
-procedure TTemplateLiteralTests.Template_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TTemplateLiteralTests.Escape_Result(const Source: string; const Expected: string);
+procedure TTemplateLiteralTests.Template_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   const Actual = FEngine.Evaluate(Source);
 
@@ -278,7 +264,7 @@ begin
   Assert.AreEqual('2:a' + #10 + ':b', FEngine.Evaluate(Script).AsString);
 end;
 
-procedure TTemplateLiteralTests.Tagged_RawStringsKeepEscapes(const Source: string; const Expected: string);
+procedure TTemplateLiteralTests.RawStrings_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, FEngine.Evaluate(Source).ToString);
 end;
@@ -454,11 +440,6 @@ begin
   const Script = 'String.raw`a\n${1}b`';
 
   Assert.AreEqual('a\n1b', FEngine.Evaluate(Script).AsString);
-end;
-
-procedure TTemplateLiteralTests.StringRaw_Result(const Source: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, FEngine.Evaluate(Source).ToString);
 end;
 
 procedure TTemplateLiteralTests.StringRaw_RaisesTypeError(const Source: string);

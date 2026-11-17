@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -53,9 +52,6 @@ type
     [TestCase('FromEntries without an argument throws', '(function () { try { Object.fromEntries(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('FromEntries from a non-iterable throws', '(function () { try { Object.fromEntries({}); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('FromEntries has length 1', 'Object.fromEntries.length#1', '#')]
-    procedure ObjectStatic_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('At positive index', '[1, 2, 3].at(1)#2', '#')]
     [TestCase('At negative index', '[1, 2, 3].at(-1)#3', '#')]
     [TestCase('At out of range', '[1, 2, 3].at(5)#undefined', '#')]
@@ -90,14 +86,11 @@ type
     [TestCase('FindIndex returns the index', '[1, 2, 3].findIndex(function (x) { return x > 1; })#1', '#')]
     [TestCase('Fill fills a range', '[1, 2, 3].fill(0, 1).join()#1,0,0', '#')]
     [TestCase('CopyWithin copies a range', '[1, 2, 3, 4, 5].copyWithin(0, 3).join()#4,5,3,4,5', '#')]
-    procedure ArrayMethod_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
-    [TestCase('At positive index', '"abc".at(1)#b', '#')]
-    [TestCase('At negative index', '"abc".at(-1)#c', '#')]
-    [TestCase('At out of range', '"abc".at(3)#undefined', '#')]
+    [TestCase('StringMethod At positive index', '"abc".at(1)#b', '#')]
+    [TestCase('StringMethod At negative index', '"abc".at(-1)#c', '#')]
+    [TestCase('StringMethod At out of range', '"abc".at(3)#undefined', '#')]
     [TestCase('At converts an object index with valueOf', '"abc".at({ valueOf() { return 1; } })#b', '#')]
-    [TestCase('At has length 1', 'String.prototype.at.length#1', '#')]
+    [TestCase('StringMethod At has length 1', 'String.prototype.at.length#1', '#')]
     [TestCase('FromCodePoint of a supplementary code point', 'String.fromCodePoint(65, 128512).length#3', '#')]
     [TestCase('FromCodePoint produces a surrogate pair', 'String.fromCodePoint(128512).charCodeAt(0).toString(16)#d83d', '#')]
     [TestCase('FromCodePoint of a lone surrogate', 'String.fromCodePoint(55357).charCodeAt(0)#55357', '#')]
@@ -125,9 +118,6 @@ type
     [TestCase('PadEnd pads with a pattern', '"5".padEnd(4, "ab")#5aba', '#')]
     [TestCase('Repeat repeats the text', '"ab".repeat(2)#abab', '#')]
     [TestCase('Raw uses the raw strings', 'String.raw`a\n${1}b`#a\n1b', '#')]
-    procedure StringMethod_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Epsilon is positive', 'Number.EPSILON > 0 && Number.EPSILON < 1e-15#true', '#')]
     [TestCase('Max safe integer', 'Number.MAX_SAFE_INTEGER#9007199254740991', '#')]
     [TestCase('IsSafeInteger accepts the max safe integer', 'Number.isSafeInteger(Number.MAX_SAFE_INTEGER)#true', '#')]
@@ -140,9 +130,6 @@ type
     [TestCase('Object.getOwnPropertySymbols lists symbols', '(function () { var s = Symbol(); return Object.getOwnPropertySymbols({ [s]: 1, a: 2 }).length; })()#1', '#')]
     [TestCase('Object.entries lists pairs', 'JSON.stringify(Object.entries({ a: 1 }))#[["a",1]]', '#')]
     [TestCase('Object.values lists values', 'Object.values({ a: 1, b: 2 }).join()#1,2', '#')]
-    procedure NumberAndObjectLibrary_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Exponent', '2 ** 3#8', '#')]
     [TestCase('Exponent is right associative', '2 ** 3 ** 2#512', '#')]
     [TestCase('Exponent with a parenthesized unary operand', '(-2) ** 2#4', '#')]
@@ -156,7 +143,7 @@ type
     [TestCase('Unary minus before an exponent is a syntax error', '(function () { try { eval("-2 ** 2"); } catch (e) { return e instanceof SyntaxError; } return false; })()#true', '#')]
     [TestCase('Typeof before an exponent is a syntax error', '(function () { try { eval("typeof 2 ** 2"); } catch (e) { return e instanceof SyntaxError; } return false; })()#true', '#')]
     [TestCase('Negated exponent in parentheses', '-(2 ** 2)#-4', '#')]
-    procedure ExponentiationOperator_ReturnsSpecResult(const Expression, Expected: string);
+    procedure Library_Expression_ReturnsExpectedText(const Expression, Expected: string);
 
   end;
 
@@ -177,27 +164,7 @@ begin
   Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
 end;
 
-procedure TLibraryMethodsTests.ObjectStatic_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TLibraryMethodsTests.ArrayMethod_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TLibraryMethodsTests.StringMethod_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TLibraryMethodsTests.NumberAndObjectLibrary_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TLibraryMethodsTests.ExponentiationOperator_ReturnsSpecResult(const Expression, Expected: string);
+procedure TLibraryMethodsTests.Library_Expression_ReturnsExpectedText(const Expression, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

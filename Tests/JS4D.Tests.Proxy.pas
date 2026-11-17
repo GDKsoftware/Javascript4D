@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -70,9 +69,6 @@ type
     [TestCase('A trap must be callable', '(function () { var p = new Proxy({}, { get: 1 }); try { p.x; } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Null and undefined traps fall through', '(function () { var p = new Proxy({ a: 1 }, { get: null, has: undefined }); return p.a + "," + ("a" in p); })()#1,true', '#')]
     [TestCase('A proxy can wrap a proxy', '(function () { var log = []; var inner = new Proxy({ a: 1 }, { get: function (t, k, r) { log.push("inner"); return t[k]; } }); var outer = new Proxy(inner, { get: function (t, k, r) { log.push("outer"); return t[k]; } }); return outer.a + "," + log; })()#1,outer,inner', '#')]
-    procedure Proxy_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('A get trap cannot change a read-only data property', '(function () { var t = {}; Object.defineProperty(t, "a", { value: 1 }); var p = new Proxy(t, { get: function () { return 2; } }); try { p.a; } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('A get trap may return the real value of a read-only property', '(function () { var t = {}; Object.defineProperty(t, "a", { value: 1 }); var p = new Proxy(t, { get: function () { return 1; } }); return p.a; })()#1', '#')]
     [TestCase('A has trap cannot hide a non-configurable property', '(function () { var t = {}; Object.defineProperty(t, "a", { value: 1 }); var p = new Proxy(t, { has: function () { return false; } }); try { "a" in p; } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
@@ -90,18 +86,12 @@ type
     [TestCase('A preventExtensions trap cannot succeed on an extensible target', '(function () { var p = new Proxy({}, { preventExtensions: function () { return true; } }); try { Object.preventExtensions(p); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('A getPrototypeOf trap must return an object or null', '(function () { var p = new Proxy({}, { getPrototypeOf: function () { return 1; } }); try { Object.getPrototypeOf(p); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('A getPrototypeOf trap must match a non-extensible target', '(function () { var t = {}; Object.preventExtensions(t); var p = new Proxy(t, { getPrototypeOf: function () { return Array.prototype; } }); try { Object.getPrototypeOf(p); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Proxy_EnforcesInvariants(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Revocable returns the proxy and the revoke function', '(function () { var r = Proxy.revocable({}, {}); return typeof r.proxy + "," + typeof r.revoke + "," + r.revoke.length + "," + Object.keys(r); })()#object,function,0,proxy,revoke', '#')]
     [TestCase('A revoked proxy throws on every operation', '(function () { var r = Proxy.revocable({}, {}); r.revoke(); var n = 0; var ops = [function () { r.proxy.a; }, function () { r.proxy.a = 1; }, function () { "a" in r.proxy; }, function () { delete r.proxy.a; }, function () { Object.keys(r.proxy); }, function () { Object.getPrototypeOf(r.proxy); }]; ops.forEach(function (op) { try { op(); } catch (e) { if (e instanceof TypeError) { n++; } } }); return n; })()#6', '#')]
     [TestCase('Revoking twice is harmless', '(function () { var r = Proxy.revocable({}, {}); r.revoke(); r.revoke(); return "ok"; })()#ok', '#')]
     [TestCase('typeof a revoked function proxy is still function', '(function () { var r = Proxy.revocable(function () {}, {}); r.revoke(); return typeof r.proxy; })()#function', '#')]
     [TestCase('A revoked function proxy cannot be called', '(function () { var r = Proxy.revocable(function () {}, {}); r.revoke(); try { r.proxy(); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Revocable is not a constructor', '(function () { try { new Proxy.revocable({}, {}); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Proxy_Revocation_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Apply calls with this and arguments', 'Reflect.apply(function (a, b) { return this.x + a + b; }, { x: 1 }, [2, 3])#6', '#')]
     [TestCase('Apply requires a function', '(function () { try { Reflect.apply({}, null, []); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Apply requires an argument list object', '(function () { try { Reflect.apply(function () {}, null); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
@@ -134,7 +124,7 @@ type
     [TestCase('Reflect is not callable', 'typeof Reflect#object', '#')]
     [TestCase('Reflect works on a proxy', '(function () { var log = []; var p = new Proxy({ a: 1 }, { get: function (t, k, r) { log.push("get"); return Reflect.get(t, k, r); }, has: function (t, k) { log.push("has"); return Reflect.has(t, k); } }); return Reflect.get(p, "a") + "," + Reflect.has(p, "a") + "," + log; })()#1,true,get,has', '#')]
     [TestCase('A proxy handler can forward to Reflect', '(function () { var o = {}; var p = new Proxy(o, { set: function (t, k, v, r) { return Reflect.set(t, k, v + 1, r); } }); p.a = 1; return o.a; })()#2', '#')]
-    procedure Reflect_FollowsSpecification(const Expression, Expected: string);
+    procedure ProxyAndReflect_Script_EvaluatesToTrue(const Expression, Expected: string);
 
     [Test]
     procedure Proxy_OverObjectWithManyReads_StaysFast;
@@ -166,22 +156,7 @@ begin
   Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
 end;
 
-procedure TProxyTests.Proxy_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TProxyTests.Proxy_EnforcesInvariants(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TProxyTests.Proxy_Revocation_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TProxyTests.Reflect_FollowsSpecification(const Expression, Expected: string);
+procedure TProxyTests.ProxyAndReflect_Script_EvaluatesToTrue(const Expression, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

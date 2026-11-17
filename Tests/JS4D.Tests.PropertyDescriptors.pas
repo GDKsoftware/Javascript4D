@@ -8,7 +8,6 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   System.Diagnostics,
-  JS4D.Types,
   JS4D.Engine;
 
 type

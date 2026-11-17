@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -42,18 +41,12 @@ type
     [TestCase('Bitwise xor of infinity', 'result = Infinity ^ 1#1', '#')]
     [TestCase('Bitwise not of NaN', 'result = ~"x"#-1', '#')]
     [TestCase('Bitwise not of large number', 'result = ~4294967295#0', '#')]
-    procedure BinaryOperator_OnNumbers_UsesInt32Semantics(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Positive by positive zero', 'result = 1 / 0#Infinity', '#')]
     [TestCase('Positive by negative zero', 'result = 1 / -0#-Infinity', '#')]
     [TestCase('Negative by positive zero', 'result = -1 / 0#-Infinity', '#')]
     [TestCase('Negative by negative zero', 'result = -1 / -0#Infinity', '#')]
     [TestCase('Infinity by negative zero', 'result = Infinity / -0#-Infinity', '#')]
     [TestCase('Zero by negative zero', 'result = isNaN(0 / -0)#true', '#')]
-    procedure Divide_ByZero_FollowsSignOfBothOperands(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Add wrapper and number', 'result = new String("1") + 1#11', '#')]
     [TestCase('Add two wrappers', 'result = new String("1") + new String("1")#11', '#')]
     [TestCase('Add wrapper and undefined', 'result = new String("1") + undefined#1undefined', '#')]
@@ -75,9 +68,6 @@ type
       'result = Object.getPrototypeOf(parseInt) === Function.prototype#true', '#')]
     [TestCase('Unary plus array', 'result = +[5]#5', '#')]
     [TestCase('Unary plus object without valueOf result', 'result = isNaN(+{})#true', '#')]
-    procedure BinaryOperator_OnObjects_ConvertsOperandsToPrimitives(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Less than wrapper', 'result = new Number(1) < 2#true', '#')]
     [TestCase('Greater than object', 'result = ({valueOf: function() { return 3; }}) > 2#true', '#')]
     [TestCase('Less than or equal strings in objects', 'result = new String("a") <= new String("b")#true', '#')]
@@ -88,9 +78,6 @@ type
     [TestCase('Equals number and numeric string', 'result = 255 == "255"#true', '#')]
     [TestCase('Two objects compare by identity', 'result = new String("a") == new String("a")#false', '#')]
     [TestCase('Null equals only undefined', 'result = (null == 0)#false', '#')]
-    procedure Comparison_OnObjects_ConvertsOperandsToPrimitives(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Bitwise or on identifier', 'var x = 5; x |= 2; result = x#7', '#')]
     [TestCase('Bitwise and on identifier', 'var x = 7; x &= 2; result = x#2', '#')]
     [TestCase('Bitwise xor on identifier', 'var x = 7; x ^= 2; result = x#5', '#')]
@@ -108,9 +95,6 @@ type
     [TestCase('Add wrapper to boolean target', 'var x = true; x += new String("1"); result = x#true1', '#')]
     [TestCase('Add assigns result of operator', 'var o = {x: 1}; result = (o.x += 2)#3', '#')]
     [TestCase('Subtract object operand', 'var x = 5; x -= {valueOf: function() { return 2; }}; result = x#3', '#')]
-    procedure CompoundAssignment_AppliesOperator(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Identifier reads before right side', 'var x = 1; x += (x = 2); result = x#3', '#')]
     [TestCase('Identifier bitwise reads before right side', 'var x = 4; x |= (x = 1); result = x#5', '#')]
     [TestCase('Member reads before right side', 'var o = {x: 1}; o.x += (o.x = 2); result = o.x#3', '#')]
@@ -124,24 +108,29 @@ type
       'var n = 0; var key = {toString: function() { n++; return "p"; }}; var o = {p: 2}; o[key] += 3; result = n + ":" + o.p#1:5', '#')]
     [TestCase('Key conversion happens once in update',
       'var n = 0; var key = {toString: function() { n++; return "p"; }}; var o = {p: 2}; o[key]++; result = n + ":" + o.p#1:3', '#')]
-    procedure Assignment_EvaluatesOperandsInSpecOrder(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Compound on null base evaluates property first',
       'var log = ""; try { null[(log += "p", "k")] ^= (log += "r", 1); } catch (e) { log += e.name; } result = log#pTypeError', '#')]
     [TestCase('Compound on undefined base skips key conversion',
       'var log = ""; var key = {toString: function() { log += "k"; return "k"; }}; try { undefined[key] += (log += "r", 1); } catch (e) { log += e.name; } result = log#TypeError', '#')]
     [TestCase('Simple assignment on null base evaluates right side first',
       'var log = ""; try { null[(log += "p", "k")] = (log += "r", 1); } catch (e) { log += e.name; } result = log#prTypeError', '#')]
-    procedure Assignment_ToNullBase_FailsAtTheSpecifiedStep(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('Prefix increment on object', 'var o = {valueOf: function() { return 1; }}; result = ++o#2', '#')]
     [TestCase('Postfix increment on object returns number', 'var o = {valueOf: function() { return 1; }}; result = typeof (o++)#number', '#')]
     [TestCase('Postfix increment on string', 'var s = "5"; var old = s++; result = old + ":" + s#5:6', '#')]
     [TestCase('Postfix decrement on wrapper', 'var w = new Number(3); w--; result = w#2', '#')]
     [TestCase('Prefix decrement on member of wrapper', 'var o = {w: new String("4")}; result = --o.w#3', '#')]
-    procedure UpdateExpression_ConvertsOperandToNumber(const Script: string; const Expected: string);
+    [TestCase('Non writable property', 'var o = {}; Object.defineProperty(o, "p", {value: 1}); o.p = 2; result = o.p#1', '#')]
+    [TestCase('Getter without setter', 'var o = {get p() { return 1; }}; o.p = 2; result = o.p#1', '#')]
+    [TestCase('Non extensible object', 'var o = Object.preventExtensions({}); o.p = 2; result = typeof o.p#undefined', '#')]
+    [TestCase('Primitive base', 'var s = "abc"; s.p = 1; result = typeof s.p#undefined', '#')]
+    [TestCase('Compound on non writable', 'var o = {}; Object.defineProperty(o, "p", {value: 1}); o.p += 5; result = o.p#1', '#')]
+    [TestCase('Primitive left operand', 'result = 1 instanceof Object#false', '#')]
+    [TestCase('Primitive left operand with invalid prototype',
+      'var F = function () {}; F.prototype = 1; result = "s" instanceof F#false', '#')]
+    [TestCase('Instance', 'result = [] instanceof Array#true', '#')]
+    [TestCase('Own property through in', 'result = "a" in {a: 1}#true', '#')]
+    [TestCase('Array index through in', 'result = 0 in [1]#true', '#')]
+    procedure Operator_Script_ReturnsExpected(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Non writable property', 'var o = {}; Object.defineProperty(o, "p", {value: 1}); o.p = 2', '#')]
@@ -156,14 +145,6 @@ type
     [TestCase('Frozen array append', 'var a = Object.freeze([1]); a[1] = 2', '#')]
     [TestCase('Primitive base', 'var s = "abc"; s.p = 1', '#')]
     procedure StrictMode_FailedPut_ThrowsTypeError(const Script: string);
-
-    [Test]
-    [TestCase('Non writable property', 'var o = {}; Object.defineProperty(o, "p", {value: 1}); o.p = 2; result = o.p#1', '#')]
-    [TestCase('Getter without setter', 'var o = {get p() { return 1; }}; o.p = 2; result = o.p#1', '#')]
-    [TestCase('Non extensible object', 'var o = Object.preventExtensions({}); o.p = 2; result = typeof o.p#undefined', '#')]
-    [TestCase('Primitive base', 'var s = "abc"; s.p = 1; result = typeof s.p#undefined', '#')]
-    [TestCase('Compound on non writable', 'var o = {}; Object.defineProperty(o, "p", {value: 1}); o.p += 5; result = o.p#1', '#')]
-    procedure SloppyMode_FailedPut_IsIgnored(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Writable property', 'var o = {p: 1}; o.p = 2; result = o.p#2', '#')]
@@ -186,14 +167,6 @@ type
     [TestCase('In with null right operand', '"x" in null')]
     procedure RelationalOperator_OnInvalidRightOperand_ThrowsTypeError(const Expression: string);
 
-    [Test]
-    [TestCase('Primitive left operand', 'result = 1 instanceof Object#false', '#')]
-    [TestCase('Primitive left operand with invalid prototype',
-      'var F = function () {}; F.prototype = 1; result = "s" instanceof F#false', '#')]
-    [TestCase('Instance', 'result = [] instanceof Array#true', '#')]
-    [TestCase('Own property through in', 'result = "a" in {a: 1}#true', '#')]
-    [TestCase('Array index through in', 'result = 0 in [1]#true', '#')]
-    procedure RelationalOperator_OnValidOperands_ReturnsBoolean(const Script: string; const Expected: string);
   end;
 
 implementation
@@ -222,44 +195,7 @@ begin
   Result := FEngine.Evaluate('String(result)').ToString;
 end;
 
-procedure TOperatorsTests.BinaryOperator_OnNumbers_UsesInt32Semantics(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.Divide_ByZero_FollowsSignOfBothOperands(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.BinaryOperator_OnObjects_ConvertsOperandsToPrimitives(const Script: string;
-                                                                                const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.Comparison_OnObjects_ConvertsOperandsToPrimitives(const Script: string;
-                                                                            const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.CompoundAssignment_AppliesOperator(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.Assignment_EvaluatesOperandsInSpecOrder(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.Assignment_ToNullBase_FailsAtTheSpecifiedStep(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
-end;
-
-procedure TOperatorsTests.UpdateExpression_ConvertsOperandToNumber(const Script: string; const Expected: string);
+procedure TOperatorsTests.Operator_Script_ReturnsExpected(const Script: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, RunScript(Script));
 end;
@@ -269,11 +205,6 @@ begin
   const Guarded = Format('var caught = ""; try { %s } catch (e) { caught = e.name; } result = caught;', [Script]);
 
   Assert.AreEqual('TypeError', RunStrictScript(Guarded));
-end;
-
-procedure TOperatorsTests.SloppyMode_FailedPut_IsIgnored(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
 end;
 
 procedure TOperatorsTests.StrictMode_SuccessfulPut_StillWorks(const Script: string; const Expected: string);
@@ -286,12 +217,6 @@ begin
   const Guarded = Format('var caught = ""; try { %s; } catch (e) { caught = e.name; } result = caught;', [Expression]);
 
   Assert.AreEqual('TypeError', RunScript(Guarded));
-end;
-
-procedure TOperatorsTests.RelationalOperator_OnValidOperands_ReturnsBoolean(const Script: string;
-                                                                            const Expected: string);
-begin
-  Assert.AreEqual(Expected, RunScript(Script));
 end;
 
 end.

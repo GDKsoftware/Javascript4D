@@ -62,7 +62,7 @@ type
     procedure HostGlobal_IsVisibleAsPropertyOfThis;
 
     [Test]
-    procedure UnknownVariable_StillThrowsReferenceError;
+    procedure UnknownVariable_ThrowsReferenceError;
 
     [Test]
     procedure FunctionDeclaration_OverNaN_ThrowsTypeError;
@@ -231,7 +231,7 @@ begin
   Assert.IsTrue(EvaluatesToTrue('this.hostValue === 5'));
 end;
 
-procedure TGlobalObjectTests.UnknownVariable_StillThrowsReferenceError;
+procedure TGlobalObjectTests.UnknownVariable_ThrowsReferenceError;
 begin
   const Script = 'var name = ""; try { missing; } catch (e) { name = e.name; } name === "ReferenceError"';
 

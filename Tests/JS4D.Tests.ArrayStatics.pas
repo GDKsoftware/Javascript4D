@@ -43,9 +43,6 @@ type
     [TestCase('LengthSetterReceivesCount',
       'var seen; function C() { Object.defineProperty(this, "length", {set: function(v) { seen = v; }}); } ' +
       'Array.of.call(C, 1, 2, 3, 4); seen#4', '#')]
-    procedure ArrayOf_Result(const Expression: string; const Expected: string);
-
-    [Test]
     [TestCase('Array', 'Array.from([1, 2, 3]).join()#1,2,3', '#')]
     [TestCase('String', 'Array.from("abc").join("-")#a-b-c', '#')]
     [TestCase('SurrogatePair', 'Array.from("a\uD83D\uDE00b").length#3', '#')]
@@ -65,9 +62,9 @@ type
     [TestCase('CustomConstructorForIterable',
       'function C() { this.got = arguments.length; } var r = Array.from.call(C, [5, 6]); r.got + "" + r.length + r[1]#026', '#')]
     [TestCase('ObjectAsConstructor', 'Array.from.call(Object, []).constructor === Object#true', '#')]
-    [TestCase('Length', 'Array.from.length#1', '#')]
+    [TestCase('ArrayFrom Length', 'Array.from.length#1', '#')]
     [TestCase('FromArrayIterator', 'Array.from([5, 6].keys()).join()#0,1', '#')]
-    procedure ArrayFrom_Result(const Expression: string; const Expected: string);
+    procedure ArrayStatic_Script_ReturnsExpected(const Expression: string; const Expected: string);
 
     [Test]
     [TestCase('Of_ThrowingConstructor', 'function C() { throw new RangeError(); } Array.of.call(C)#RangeError', '#')]
@@ -111,12 +108,7 @@ begin
   Result := FEngine.Evaluate('caught').AsString;
 end;
 
-procedure TArrayStaticsTests.ArrayOf_Result(const Expression: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TArrayStaticsTests.ArrayFrom_Result(const Expression: string; const Expected: string);
+procedure TArrayStaticsTests.ArrayStatic_Script_ReturnsExpected(const Expression: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

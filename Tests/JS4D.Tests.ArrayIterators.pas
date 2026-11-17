@@ -41,9 +41,6 @@ type
     [TestCase('EntriesTypeof', 'typeof Array.prototype.entries#function', '#')]
     [TestCase('KeysNotEnumerable', 'Object.keys(Array.prototype).indexOf("keys")#-1', '#')]
     [TestCase('IteratorsShareNext', '[].keys().next === [].entries().next#true', '#')]
-    procedure Iterator_Result(const Expression: string; const Expected: string);
-
-    [Test]
     [TestCase('ForOfKeys', 'var r = ""; for (var k of ["a", "b"].keys()) r += k; r#01', '#')]
     [TestCase('ForOfValues', 'var r = ""; for (var v of ["a", "b"].values()) r += v; r#ab', '#')]
     [TestCase('ForOfEntries', 'var r = ""; for (var [k, v] of ["a", "b"].entries()) r += k + v; r#0a1b', '#')]
@@ -53,7 +50,7 @@ type
     [TestCase('Spread', '[...["a", "b"].keys()].join()#0,1', '#')]
     [TestCase('SpreadInCall', 'Math.max(...[3, 9, 4].values())#9', '#')]
     [TestCase('ArrayDestructuring', 'var [x, y] = ["p", "q"].values(); x + y#pq', '#')]
-    procedure Iterator_IsIterable(const Expression: string; const Expected: string);
+    procedure Iterator_Script_ReturnsExpected(const Expression: string; const Expected: string);
 
     [Test]
     [TestCase('NextOnObject', 'Array.prototype.keys.call([]).next.call({})#TypeError', '#')]
@@ -87,12 +84,7 @@ begin
   Result := FEngine.Evaluate('caught').AsString;
 end;
 
-procedure TArrayIteratorsTests.Iterator_Result(const Expression: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TArrayIteratorsTests.Iterator_IsIterable(const Expression: string; const Expected: string);
+procedure TArrayIteratorsTests.Iterator_Script_ReturnsExpected(const Expression: string; const Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;

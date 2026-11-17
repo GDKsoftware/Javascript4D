@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.IOUtils,
+  JS4D.Conformance.Defines,
   JS4D.Conformance.Metadata;
 
 type
@@ -33,9 +34,8 @@ type
 implementation
 
 const
-  PathSeparator = '/';
-  GroupDepth = 2;
-  FixtureMarker = '_FIXTURE';
+  GROUP_DEPTH = 2;
+  FIXTURE_MARKER = '_FIXTURE';
 
 constructor TTestCase.Create(const FilePath: string; const RelativePath: string);
 begin
@@ -53,17 +53,17 @@ end;
 
 function TTestCase.GetGroup: string;
 begin
-  const Segments = FRelativePath.Split([PathSeparator]);
-  const HasDirectory = (Length(Segments) > GroupDepth);
-  if not HasDirectory then
+  const Segments = FRelativePath.Split([PATH_SEPARATOR]);
+  const IsNested = (Length(Segments) > GROUP_DEPTH);
+  if not IsNested then
     Exit(Segments[0]);
 
-  Result := string.Join(PathSeparator, Segments, 0, GroupDepth);
+  Result := string.Join(PATH_SEPARATOR, Segments, 0, GROUP_DEPTH);
 end;
 
 function TTestCase.GetIsFixture: Boolean;
 begin
-  Result := FRelativePath.Contains(FixtureMarker);
+  Result := FRelativePath.Contains(FIXTURE_MARKER);
 end;
 
 end.

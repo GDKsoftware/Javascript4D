@@ -116,12 +116,6 @@ type
     [TestCase('Undeclared', 'typeof notDeclared,undefined')]
     [TestCase('FeatureDetection', 'typeof window === "undefined" ? "server" : "browser",server')]
     [TestCase('Declared', 'var answer = 42; typeof answer,number')]
-    procedure Execute_TypeofIdentifier_ReturnsType(const Script: string; const Expected: string);
-
-    [Test]
-    procedure Execute_UndeclaredIdentifier_RaisesReferenceError;
-
-    [Test]
     [TestCase('VarInIfBlock', '(function () { if (true) { var t = 1; } return t; })(),1')]
     [TestCase('VarRedeclaredInBlock', '(function () { var t = 0; if (true) { var t = 5; } return t; })(),5')]
     [TestCase('VarInForInit', '(function () { for (var i = 0; i < 3; i++) {} return i; })(),3')]
@@ -130,7 +124,10 @@ type
     [TestCase('VarReadBeforeDeclaration', '(function () { var before = x; var x = 1; return before; })(),undefined')]
     [TestCase('FunctionCalledBeforeDeclaration', '(function () { return f(); function f() { return 42; } })(),42')]
     [TestCase('UndeclaredAssignmentGoesGlobal', '(function () { g = 9; })(); g,9')]
-    procedure Execute_VarScoping_FollowsFunctionScope(const Script: string; const Expected: string);
+    procedure Execute_Script_ReturnsExpectedText(const Script: string; const Expected: string);
+
+    [Test]
+    procedure Execute_UndeclaredIdentifier_RaisesReferenceError;
 
     [Test]
     procedure Execute_DateRelationalComparison_UsesTimestamp;
@@ -142,7 +139,13 @@ type
     procedure Execute_StringRelationalComparison_UsesLexicographicOrder;
 
     [Test]
-    procedure Execute_DatePlusDate_ConcatenatesTextForms;
+    procedure Execute_StringRelationalComparison_MixedStringAndNumber_UsesNumericConversion;
+
+    [Test]
+    procedure Execute_DatePlusDate_ReturnsString;
+
+    [Test]
+    procedure Execute_DatePlusDate_EqualsConcatenatedTextForms;
 
     [Test]
     procedure Execute_DateTimesNumber_ProducesNumericProduct;
@@ -154,7 +157,7 @@ type
     [Test]
     procedure CollectGarbage_GlobalState_Persists;
     [Test]
-    procedure CollectGarbage_Builtins_StillWork;
+    procedure CollectGarbage_Builtins_ReturnResultsAfterCollection;
 
   end;
 
@@ -396,7 +399,7 @@ begin
   Assert.AreEqual('undefined', FEngine.Evaluate('typeof undefined').ToString);
 end;
 
-procedure TEngineTests.Execute_TypeofIdentifier_ReturnsType(const Script: string; const Expected: string);
+procedure TEngineTests.Execute_Script_ReturnsExpectedText(const Script: string; const Expected: string);
 begin
   const Result = FEngine.Evaluate(Script);
 
@@ -413,45 +416,66 @@ begin
     EJSReferenceError);
 end;
 
-procedure TEngineTests.Execute_VarScoping_FollowsFunctionScope(const Script: string; const Expected: string);
-begin
-  const Result = FEngine.Evaluate(Script);
-
-  Assert.AreEqual(Expected, Result.ToString);
-end;
-
 procedure TEngineTests.Execute_DateRelationalComparison_UsesTimestamp;
 begin
-  Assert.IsTrue(FEngine.Evaluate('new Date(1000) >= new Date(0)').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('new Date(0) <= new Date(1000)').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('new Date(2000) > new Date(1000)').ToBoolean);
-  Assert.IsFalse(FEngine.Evaluate('new Date(0) > new Date(1000)').ToBoolean);
+  const GreaterOrEqual = FEngine.Evaluate('new Date(1000) >= new Date(0)');
+  const LessOrEqual = FEngine.Evaluate('new Date(0) <= new Date(1000)');
+  const Greater = FEngine.Evaluate('new Date(2000) > new Date(1000)');
+  const NotGreater = FEngine.Evaluate('new Date(0) > new Date(1000)');
+
+  Assert.IsTrue(GreaterOrEqual.ToBoolean);
+  Assert.IsTrue(LessOrEqual.ToBoolean);
+  Assert.IsTrue(Greater.ToBoolean);
+  Assert.IsFalse(NotGreater.ToBoolean);
 end;
 
 procedure TEngineTests.Execute_DateArithmetic_UsesTimestamp;
 begin
-  Assert.AreEqual(Double(1000), FEngine.Evaluate('new Date(2000) - new Date(1000)').ToNumber);
+  const Difference = FEngine.Evaluate('new Date(2000) - new Date(1000)');
+
+  Assert.AreEqual(Double(1000), Difference.ToNumber);
 end;
 
 procedure TEngineTests.Execute_StringRelationalComparison_UsesLexicographicOrder;
 begin
-  Assert.IsTrue(FEngine.Evaluate('"2026-05-19T10:20:32Z" >= "2026-05-19"').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('"2026-05-19T10:20:32Z" < "2026-05-26"').ToBoolean);
-  Assert.IsTrue(FEngine.Evaluate('"apple" < "banana"').ToBoolean);
-  Assert.IsFalse(FEngine.Evaluate('"banana" < "apple"').ToBoolean);
-  // Mixed string/number uses numeric conversion per spec.
-  Assert.IsTrue(FEngine.Evaluate('"10" >= 5').ToBoolean);
+  const LongerString = FEngine.Evaluate('"2026-05-19T10:20:32Z" >= "2026-05-19"');
+  const EarlierDay = FEngine.Evaluate('"2026-05-19T10:20:32Z" < "2026-05-26"');
+  const Alphabetical = FEngine.Evaluate('"apple" < "banana"');
+  const Reversed = FEngine.Evaluate('"banana" < "apple"');
+
+  Assert.IsTrue(LongerString.ToBoolean);
+  Assert.IsTrue(EarlierDay.ToBoolean);
+  Assert.IsTrue(Alphabetical.ToBoolean);
+  Assert.IsFalse(Reversed.ToBoolean);
 end;
 
-procedure TEngineTests.Execute_DatePlusDate_ConcatenatesTextForms;
+procedure TEngineTests.Execute_StringRelationalComparison_MixedStringAndNumber_UsesNumericConversion;
 begin
-  Assert.AreEqual('string', FEngine.Evaluate('typeof (new Date(1000) + new Date(2000))').ToString);
-  Assert.IsTrue(FEngine.Evaluate('(new Date(1000) + new Date(2000)) === new Date(1000).toString() + new Date(2000).toString()').AsBoolean);
+  const IsGreaterOrEqual = FEngine.Evaluate('"10" >= 5');
+
+  Assert.IsTrue(IsGreaterOrEqual.ToBoolean);
+end;
+
+procedure TEngineTests.Execute_DatePlusDate_ReturnsString;
+begin
+  const TypeName = FEngine.Evaluate('typeof (new Date(1000) + new Date(2000))');
+
+  Assert.AreEqual('string', TypeName.ToString);
+end;
+
+procedure TEngineTests.Execute_DatePlusDate_EqualsConcatenatedTextForms;
+begin
+  const Script = '(new Date(1000) + new Date(2000)) === new Date(1000).toString() + new Date(2000).toString()';
+  const IsConcatenation = FEngine.Evaluate(Script);
+
+  Assert.IsTrue(IsConcatenation.ToBoolean);
 end;
 
 procedure TEngineTests.Execute_DateTimesNumber_ProducesNumericProduct;
 begin
-  Assert.AreEqual(Double(2000), FEngine.Evaluate('new Date(1000) * 2').ToNumber);
+  const Product = FEngine.Evaluate('new Date(1000) * 2');
+
+  Assert.AreEqual(Double(2000), Product.ToNumber);
 end;
 
 {$WARN SYMBOL_PLATFORM OFF}
@@ -505,7 +529,7 @@ begin
   Assert.AreEqual(Double(42), Result.ToNumber);
 end;
 
-procedure TEngineTests.CollectGarbage_Builtins_StillWork;
+procedure TEngineTests.CollectGarbage_Builtins_ReturnResultsAfterCollection;
 begin
   FEngine.CollectGarbage;
 
@@ -513,8 +537,5 @@ begin
 
   Assert.AreEqual(Double(7), Result.ToNumber);
 end;
-
-initialization
-  TDUnitX.RegisterTestFixture(TEngineTests);
 
 end.

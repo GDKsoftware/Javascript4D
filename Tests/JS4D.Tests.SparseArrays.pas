@@ -7,8 +7,8 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
   JS4D.Errors,
+  JS4D.Types,
   JS4D.Engine;
 
 type
@@ -69,7 +69,7 @@ type
     procedure Length_ChangedToNonWritableDuringCoercion_ThrowsTypeError;
 
     [Test]
-    procedure Length_WithDefaultLimits_StillRaisesAllocationLimit;
+    procedure Length_AboveDefaultMaxArrayLength_RaisesAllocationLimit;
   end;
 
 implementation
@@ -190,9 +190,9 @@ begin
   Assert.AreEqual('TypeError,2', EvaluateText(Script));
 end;
 
-procedure TSparseArrayTests.Length_WithDefaultLimits_StillRaisesAllocationLimit;
+procedure TSparseArrayTests.Length_AboveDefaultMaxArrayLength_RaisesAllocationLimit;
 begin
-  FEngine.MaxArrayLength := 1024 * 1024;
+  FEngine.MaxArrayLength := TJSLimits.DefaultMaxArrayLength;
 
   Assert.WillRaise(
     procedure

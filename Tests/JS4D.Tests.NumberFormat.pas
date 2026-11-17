@@ -49,7 +49,9 @@ type
     [TestCase('LargestPowerProduct', 'Math.pow(2, 52) * Math.pow(2, 971)|8.98846567431158e+307', '|')]
     [TestCase('MaxValueLiteral', '1.7976931348623157e308|1.7976931348623157e+308', '|')]
     [TestCase('SquareRootEqualsLiteral', 'Math.sqrt(0.00812479431693535) === 0.09013764095501585|true', '|')]
-    procedure ToString_Number_UsesShortestRoundTrip(const Expression: string; const Expected: string);
+    [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
+    [TestCase('UnknownLocale', '1234.5.toLocaleString("xx-XX")|1234.5', '|')]
+    procedure ToString_Expression_ReturnsExpectedText(const Expression: string; const Expected: string);
 
     [Test]
     [TestCase('Rounds', '1.005|2|1.00', '|')]
@@ -134,10 +136,6 @@ type
     procedure ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 
     [Test]
-    [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
-    [TestCase('UnknownLocale', '1234.5.toLocaleString("xx-XX")|1234.5', '|')]    procedure ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
-
-    [Test]
     procedure ToExponential_InfiniteValueWithBadDigits_ReturnsInfinity;
   end;
 
@@ -170,7 +168,7 @@ begin
   Result := FEngine.Evaluate(Script).AsString;
 end;
 
-procedure TNumberFormatTests.ToString_Number_UsesShortestRoundTrip(const Expression: string; const Expected: string);
+procedure TNumberFormatTests.ToString_Expression_ReturnsExpectedText(const Expression: string; const Expected: string);
 begin
   const Actual = StringOf(Expression);
 
@@ -209,13 +207,6 @@ end;
 procedure TNumberFormatTests.ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 begin
   const Actual = StringOf(Format('(255).toString(%s)', [Radix]));
-
-  Assert.AreEqual(Expected, Actual);
-end;
-
-procedure TNumberFormatTests.ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
-begin
-  const Actual = StringOf(Expression);
 
   Assert.AreEqual(Expected, Actual);
 end;

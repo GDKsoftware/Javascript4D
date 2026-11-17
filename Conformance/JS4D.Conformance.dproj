@@ -100,6 +100,12 @@
         <DCCReference Include="..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>
+        <DCCReference Include="..\Source\Parser\JS4D.ParserScope.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.PropertyKey.pas"/>
+        <DCCReference Include="..\Source\Runtime\JS4D.BinaryData.pas"/>
+        <DCCReference Include="..\Source\Runtime\JS4D.ControlFlow.pas"/>
+        <DCCReference Include="..\Source\Runtime\JS4D.LexicalStates.pas"/>
+        <DCCReference Include="..\Source\API\JS4D.JsonSyntax.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Builtins.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.PatternOperations.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Interpreter.pas"/>
@@ -107,7 +113,8 @@
         <DCCReference Include="..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="JS4D.Conformance.Defines.pas"/>
         <DCCReference Include="JS4D.Conformance.Metadata.pas"/>
-        <DCCReference Include="JS4D.Conformance.Exclusions.pas"/>
+        <DCCReference Include="JS4D.Conformance.FeatureExclusions.pas"/>
+        <DCCReference Include="JS4D.Conformance.ListFile.pas"/>
         <DCCReference Include="JS4D.Conformance.PathExclusions.pas"/>
         <DCCReference Include="JS4D.Conformance.TestCase.pas"/>
         <DCCReference Include="JS4D.Conformance.Session.pas"/>

@@ -6,8 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
   JS4D.Engine;
 
 type

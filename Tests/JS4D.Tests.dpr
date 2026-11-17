@@ -25,6 +25,12 @@ uses
   JS4D.SlashContext in '..\Source\Lexer\JS4D.SlashContext.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
+  JS4D.ParserScope in '..\Source\Parser\JS4D.ParserScope.pas',
+  JS4D.PropertyKey in '..\Source\Core\JS4D.PropertyKey.pas',
+  JS4D.BinaryData in '..\Source\Runtime\JS4D.BinaryData.pas',
+  JS4D.ControlFlow in '..\Source\Runtime\JS4D.ControlFlow.pas',
+  JS4D.LexicalStates in '..\Source\Runtime\JS4D.LexicalStates.pas',
+  JS4D.JsonSyntax in '..\Source\API\JS4D.JsonSyntax.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
   JS4D.Json in '..\Source\API\JS4D.Json.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas',
@@ -48,6 +54,7 @@ uses
   JS4D.Tests.ArrayResultCreation in 'JS4D.Tests.ArrayResultCreation.pas',
   JS4D.Tests.ArrayPrototypeSemantics in 'JS4D.Tests.ArrayPrototypeSemantics.pas',
   JS4D.Tests.BuiltinMethodLookup in 'JS4D.Tests.BuiltinMethodLookup.pas',
+  JS4D.Tests.BuiltinMethodNames in 'JS4D.Tests.BuiltinMethodNames.pas',
   JS4D.Tests.JsonParse in 'JS4D.Tests.JsonParse.pas',
   JS4D.Tests.Eval in 'JS4D.Tests.Eval.pas',
   JS4D.Tests.FunctionConstructor in 'JS4D.Tests.FunctionConstructor.pas',
@@ -130,29 +137,22 @@ uses
   JS4D.Tests.HotPathSemantics in 'JS4D.Tests.HotPathSemantics.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
-var
-  Runner: ITestRunner;
-  Results: IRunResults;
-  Logger: ITestLogger;
-  NUnitLogger: ITestLogger;
-
 begin
   ReportMemoryLeaksOnShutdown := True;
 
   try
     TDUnitX.CheckCommandLine;
 
-    Runner := TDUnitX.CreateRunner;
+    const Runner = TDUnitX.CreateRunner;
     Runner.UseRTTI := True;
 
-    Logger := TDUnitXConsoleLogger.Create(True);
+    const Logger = TDUnitXConsoleLogger.Create(True);
     Runner.AddLogger(Logger);
 
-    NUnitLogger := TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
+    const NUnitLogger = TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
     Runner.AddLogger(NUnitLogger);
-    Runner.FailsOnNoAsserts := False;
 
-    Results := Runner.Execute;
+    const Results = Runner.Execute;
 
     if not Results.AllPassed then
       System.ExitCode := EXIT_ERRORS;
@@ -166,6 +166,9 @@ begin
     {$ENDIF}
   except
     on E: Exception do
+    begin
       System.Writeln(E.ClassName, ': ', E.Message);
+      System.ExitCode := EXIT_ERRORS;
+    end;
   end;
 end.

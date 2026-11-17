@@ -12,7 +12,6 @@ uses
 type
   TConformanceOptions = class
   private
-    FConformanceDirectory: string;
     FTest262Directory: string;
     FExclusionsFile: string;
     FPathExclusionsFile: string;
@@ -21,6 +20,8 @@ type
     FLimits: TSessionLimits;
 
     function FindConformanceDirectory: string;
+    function ReadPathOption(const Name: string; const ConformanceDirectory: string;
+                            const DefaultFileName: string): string;
     function ReadOption(const Name: string): string;
     function ReadInt64Option(const Name: string; const DefaultValue: Int64): Int64;
 
@@ -42,96 +43,97 @@ type
 implementation
 
 const
-  OptionPrefix = '-';
-  OptionSeparator = '=';
-  Test262Option = 'test262';
-  ExclusionsOption = 'exclusions';
-  PathExclusionsOption = 'path-exclusions';
-  ResultsOption = 'results';
-  FilterOption = 'filter';
-  BudgetOption = 'budget';
-  ExclusionsFileName = 'exclusions.txt';
-  PathExclusionsFileName = 'excluded-paths.txt';
-  Test262FolderName = 'test262';
-  ResultsFolderName = 'results';
-  TestFolderName = 'test';
-  HarnessFolderName = 'harness';
-  DefaultRoots: array[0..1] of string = ('language', 'built-ins');
-  MaxLevelsUp = 6;
+  OPTION_PREFIX = '-';
+  OPTION_SEPARATOR = '=';
+  TEST262_OPTION = 'test262';
+  EXCLUSIONS_OPTION = 'exclusions';
+  PATH_EXCLUSIONS_OPTION = 'path-exclusions';
+  RESULTS_OPTION = 'results';
+  FILTER_OPTION = 'filter';
+  BUDGET_OPTION = 'budget';
+  EXCLUSIONS_FILE_NAME = 'exclusions.txt';
+  PATH_EXCLUSIONS_FILE_NAME = 'excluded-paths.txt';
+  TEST262_FOLDER_NAME = 'test262';
+  RESULTS_FOLDER_NAME = 'results';
+  TEST_FOLDER_NAME = 'test';
+  HARNESS_FOLDER_NAME = 'harness';
+  DEFAULT_ROOTS: array[0..1] of string = ('language', 'built-ins');
+  MAX_LEVELS_UP = 6;
 
 constructor TConformanceOptions.Create;
 begin
   inherited Create;
-  FConformanceDirectory := FindConformanceDirectory;
+  const ConformanceDirectory = FindConformanceDirectory;
 
-  FTest262Directory := ReadOption(Test262Option);
-  if FTest262Directory.IsEmpty then
-    FTest262Directory := TPath.Combine(FConformanceDirectory, Test262FolderName);
+  FTest262Directory := ReadPathOption(TEST262_OPTION, ConformanceDirectory, TEST262_FOLDER_NAME);
+  FExclusionsFile := ReadPathOption(EXCLUSIONS_OPTION, ConformanceDirectory, EXCLUSIONS_FILE_NAME);
+  FPathExclusionsFile := ReadPathOption(PATH_EXCLUSIONS_OPTION, ConformanceDirectory, PATH_EXCLUSIONS_FILE_NAME);
+  FResultsDirectory := ReadPathOption(RESULTS_OPTION, ConformanceDirectory, RESULTS_FOLDER_NAME);
+  FPathFilter := ReadOption(FILTER_OPTION).Replace(BACKSLASH, PATH_SEPARATOR);
 
-  FExclusionsFile := ReadOption(ExclusionsOption);
-  if FExclusionsFile.IsEmpty then
-    FExclusionsFile := TPath.Combine(FConformanceDirectory, ExclusionsFileName);
-
-  FPathExclusionsFile := ReadOption(PathExclusionsOption);
-  if FPathExclusionsFile.IsEmpty then
-    FPathExclusionsFile := TPath.Combine(FConformanceDirectory, PathExclusionsFileName);
-
-  FResultsDirectory := ReadOption(ResultsOption);
-  if FResultsDirectory.IsEmpty then
-    FResultsDirectory := TPath.Combine(FConformanceDirectory, ResultsFolderName);
-
-  FPathFilter := ReadOption(FilterOption).Replace('\', '/');
-
-  FLimits.StepBudget := ReadInt64Option(BudgetOption, DefaultStepBudget);
-  FLimits.MaxCallDepth := DefaultMaxCallDepth;
-  FLimits.MaxStringLength := DefaultMaxStringLength;
-  FLimits.MaxArrayLength := DefaultMaxArrayLength;
+  FLimits.StepBudget := ReadInt64Option(BUDGET_OPTION, DEFAULT_STEP_BUDGET);
+  FLimits.MaxCallDepth := DEFAULT_MAX_CALL_DEPTH;
+  FLimits.MaxStringLength := DEFAULT_MAX_STRING_LENGTH;
+  FLimits.MaxArrayLength := UNLIMITED_ARRAY_LENGTH;
 end;
 
 function TConformanceOptions.TestDirectory: string;
 begin
-  Result := TPath.Combine(FTest262Directory, TestFolderName);
+  Result := TPath.Combine(FTest262Directory, TEST_FOLDER_NAME);
 end;
 
 function TConformanceOptions.HarnessDirectory: string;
 begin
-  Result := TPath.Combine(FTest262Directory, HarnessFolderName);
+  Result := TPath.Combine(FTest262Directory, HARNESS_FOLDER_NAME);
 end;
 
 function TConformanceOptions.SearchRoots: TArray<string>;
 begin
-  SetLength(Result, Length(DefaultRoots));
-  for var Index := 0 to High(DefaultRoots) do
+  Result := [];
+  for var Root in DEFAULT_ROOTS do
   begin
-    Result[Index] := TPath.Combine(TestDirectory, DefaultRoots[Index]);
+    const RootDirectory = TPath.Combine(TestDirectory, Root);
+    Result := Result + [RootDirectory];
   end;
 end;
 
 function TConformanceOptions.FindConformanceDirectory: string;
 begin
   var Candidate := TPath.GetDirectoryName(ParamStr(0));
-  for var Level := 0 to MaxLevelsUp do
+  for var Level := 0 to MAX_LEVELS_UP do
   begin
-    const MarkerPath = TPath.Combine(Candidate, ExclusionsFileName);
+    const MarkerPath = TPath.Combine(Candidate, EXCLUSIONS_FILE_NAME);
     if TFile.Exists(MarkerPath) then
       Exit(Candidate);
 
     Candidate := TPath.GetDirectoryName(Candidate);
   end;
 
-  raise EConformanceError.CreateFmt('Cannot find %s above %s', [ExclusionsFileName, ParamStr(0)]);
+  raise EConformanceError.CreateFmt('Cannot find %s above %s', [EXCLUSIONS_FILE_NAME, ParamStr(0)]);
 end;
 
 function TConformanceOptions.ReadOption(const Name: string): string;
 begin
-  const Prefix = Format('%s%s%s', [OptionPrefix, Name, OptionSeparator]);
+  const Prefix = Format('%s%s%s', [OPTION_PREFIX, Name, OPTION_SEPARATOR]);
   for var Index := 1 to ParamCount do
   begin
-    if ParamStr(Index).StartsWith(Prefix, True) then
-      Exit(ParamStr(Index).Substring(Prefix.Length));
+    const Argument = ParamStr(Index);
+    if Argument.StartsWith(Prefix, True) then
+    begin
+      Result := Argument.Substring(Prefix.Length);
+      Exit;
+    end;
   end;
 
   Result := '';
+end;
+
+function TConformanceOptions.ReadPathOption(const Name: string; const ConformanceDirectory: string;
+                                            const DefaultFileName: string): string;
+begin
+  Result := ReadOption(Name);
+  if Result.IsEmpty then
+    Result := TPath.Combine(ConformanceDirectory, DefaultFileName);
 end;
 
 function TConformanceOptions.ReadInt64Option(const Name: string; const DefaultValue: Int64): Int64;

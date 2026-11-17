@@ -1,5 +1,5 @@
 param(
-    [string]$Delphi = 'C:\Program Files (x86)\Embarcadero\Studio\37.0',
+    [string]$Delphi = $(if ($env:BDS) { $env:BDS } else { 'C:\Program Files (x86)\Embarcadero\Studio\37.0' }),
     [string[]]$RunnerArguments = @()
 )
 
@@ -12,8 +12,6 @@ $Executable = Join-Path $OutputDir 'JS4D.Conformance.exe'
 $Source = '..\Source\Core;..\Source\Lexer;..\Source\Parser;..\Source\Runtime;..\Source\API'
 $SearchPath = "$Delphi\lib\Win64\release;$Source"
 
-# Always rebuild: a run against an executable older than the sources
-# produces a different pass list without any test changing.
 New-Item -ItemType Directory -Force $OutputDir | Out-Null
 Push-Location $Root
 try {

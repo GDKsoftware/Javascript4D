@@ -33,7 +33,17 @@ type
     [TestCase('Own method of the prototype', 'String(Array.prototype.hasOwnProperty("toLocaleString"))#true', '#')]
     [TestCase('Method is not a constructor', 'try { new Array.prototype.toLocaleString(); } catch (e) { e.name; }#TypeError', '#')]
     [TestCase('Missing element method', 'try { [{ toLocaleString: 1 }].toLocaleString(); } catch (e) { e.name; }#TypeError', '#')]
-    procedure ToLocaleString_Receiver_ReturnsText(const Script: string; const Expected: string);
+    [TestCase('Missing elements are read', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 42); log.join()#length,0,1,2,3', '#')]
+    [TestCase('Stops at the match', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 10); log.join()#length,0,1', '#')]
+    [TestCase('Does not test for presence', 'var log = []; var p = new Proxy([1, 2], { has: function (t, k) { log.push(String(k)); return k in t; } }); [].includes.call(p, 2); log.join()#', '#')]
+    [TestCase('Array.isArray', 'Array.isArray(Array.prototype)#true', '#')]
+    [TestCase('Initial length', 'String(Array.prototype.length)#0', '#')]
+    [TestCase('Class tag', 'Object.prototype.toString.call(Array.prototype)#[object Array]', '#')]
+    [TestCase('Index updates the length', 'Array.prototype[2] = 42; var n = Array.prototype.length; delete Array.prototype[2]; Array.prototype.length = 0; String(n)#3', '#')]
+    [TestCase('Length truncates', 'Array.prototype[1] = 1; Array.prototype.length = 0; String(Array.prototype[1])#undefined', '#')]
+    [TestCase('Instances do not share its length', 'String([].length)#0', '#')]
+    [TestCase('Has an own length', 'String(Object.getOwnPropertyNames(Array.prototype).indexOf("length") >= 0)#true', '#')]
+    procedure ArrayPrototype_Script_EvaluatesToTrue(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Null', 'null')]
@@ -45,12 +55,6 @@ type
 
     [Test]
     procedure Sort_ComparerIsUndefined_SortsByText;
-
-    [Test]
-    [TestCase('Missing elements are read', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 42); log.join()#length,0,1,2,3', '#')]
-    [TestCase('Stops at the match', 'var log = []; var p = new Proxy({ length: 4 }, { get: function (t, k) { log.push(String(k)); return k === "length" ? 4 : k * 10; } }); [].includes.call(p, 10); log.join()#length,0,1', '#')]
-    [TestCase('Does not test for presence', 'var log = []; var p = new Proxy([1, 2], { has: function (t, k) { log.push(String(k)); return k in t; } }); [].includes.call(p, 2); log.join()#', '#')]
-    procedure Includes_Proxy_ReadsEveryElementOnce(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Concat', 'concat')]
@@ -70,16 +74,6 @@ type
     [TestCase('Flat', 'flat')]
     [TestCase('FlatMap', 'flatMap')]
     procedure Flatten_ProxyReceiver_ReadsConstructorAfterLength(const MethodName: string);
-
-    [Test]
-    [TestCase('Array.isArray', 'Array.isArray(Array.prototype)#true', '#')]
-    [TestCase('Initial length', 'String(Array.prototype.length)#0', '#')]
-    [TestCase('Class tag', 'Object.prototype.toString.call(Array.prototype)#[object Array]', '#')]
-    [TestCase('Index updates the length', 'Array.prototype[2] = 42; var n = Array.prototype.length; delete Array.prototype[2]; Array.prototype.length = 0; String(n)#3', '#')]
-    [TestCase('Length truncates', 'Array.prototype[1] = 1; Array.prototype.length = 0; String(Array.prototype[1])#undefined', '#')]
-    [TestCase('Instances do not share its length', 'String([].length)#0', '#')]
-    [TestCase('Has an own length', 'String(Object.getOwnPropertyNames(Array.prototype).indexOf("length") >= 0)#true', '#')]
-    procedure ArrayPrototype_IsAnArrayExoticObject(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Push', 'push')]
@@ -110,7 +104,7 @@ begin
   Result := FEngine.Evaluate(Script).ToString;
 end;
 
-procedure TArrayPrototypeSemanticsTests.ToLocaleString_Receiver_ReturnsText(const Script: string;
+procedure TArrayPrototypeSemanticsTests.ArrayPrototype_Script_EvaluatesToTrue(const Script: string;
                                                                             const Expected: string);
 begin
   Assert.AreEqual(Expected, EvaluateText(Script));
@@ -132,12 +126,6 @@ end;
 procedure TArrayPrototypeSemanticsTests.Sort_ComparerIsUndefined_SortsByText;
 begin
   Assert.AreEqual('1,10,2', EvaluateText('[10, 2, 1].sort(undefined).join()'));
-end;
-
-procedure TArrayPrototypeSemanticsTests.Includes_Proxy_ReadsEveryElementOnce(const Script: string;
-                                                                             const Expected: string);
-begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_ReceiverIsProxyOfArray_UsesTheSpeciesConstructor(
@@ -184,12 +172,6 @@ begin
     [MethodName]);
 
   Assert.AreEqual('length,constructor', EvaluateText(Script));
-end;
-
-procedure TArrayPrototypeSemanticsTests.ArrayPrototype_IsAnArrayExoticObject(const Script: string;
-                                                                             const Expected: string);
-begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
 end;
 
 procedure TArrayPrototypeSemanticsTests.Method_PrototypeSetterLocksTheLength_ThrowsTypeError(const MethodName: string);

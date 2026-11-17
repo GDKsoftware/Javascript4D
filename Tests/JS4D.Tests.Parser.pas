@@ -170,8 +170,9 @@ begin
   FProgram := FParser.Parse;
 
   const FuncDecl = FProgram.Body[0] as TJSFunctionDeclaration;
+  const FuncBody = FuncDecl.Body;
 
-  Assert.AreEqual(Expected, FuncDecl.Body.ReferencesArguments);
+  Assert.AreEqual(Expected, FuncBody.ReferencesArguments);
 end;
 
 procedure TParserTests.Parse_IfStatement_CreatesIfNode;
@@ -359,12 +360,10 @@ begin
 
   Assert.AreEqual(2, Integer(FProgram.Body.Count));
 
-  const Update = (FProgram.Body[1] as TJSExpressionStatement).Expression as TJSUpdateExpression;
+  const Statement = FProgram.Body[1] as TJSExpressionStatement;
+  const Update = Statement.Expression as TJSUpdateExpression;
 
   Assert.IsTrue(Update.Prefix);
 end;
-
-initialization
-  TDUnitX.RegisterTestFixture(TParserTests);
 
 end.

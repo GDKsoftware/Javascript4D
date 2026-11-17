@@ -6,7 +6,6 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
   JS4D.Engine;
 
 type
@@ -83,23 +82,6 @@ type
     [TestCase('RepeatedFlag', 'a;gg', ';')]
     [TestCase('RepeatedAmongOthers', 'a;gmg', ';')]
     [TestCase('UpperCaseFlag', 'a;G', ';')]
-    procedure Constructor_InvalidFlags_ThrowsSyntaxError(const Pattern: string; const Flags: string);
-
-    [Test]
-    procedure Constructor_ValidFlags_DoesNotThrow;
-
-    [Test]
-    [TestCase('Star', '/a**/', ';')]
-    [TestCase('LeadingPlus', '/+a/', ';')]
-    [TestCase('OutOfOrderBraced', '/a{2,1}/', ';')]
-    [TestCase('OutOfOrderRange', '/[b-a]/', ';')]
-    [TestCase('UnclosedGroup', '/(a/', ';')]
-    [TestCase('UnmatchedParen', '/a)/', ';')]
-    [TestCase('BadFlag', '/a/x', ';')]
-    [TestCase('DuplicateFlag', '/a/gg', ';')]
-    procedure Literal_InvalidRegExp_IsEarlySyntaxError(const Source: string);
-
-    [Test]
     [TestCase('LoneOpeningBrace', '{;u', ';')]
     [TestCase('LoneClosingBrace', '};u', ';')]
     [TestCase('LoneClosingBracket', '];u', ';')]
@@ -133,7 +115,26 @@ type
     [TestCase('ClassLegacyOctalEscape', '[\1];u', ';')]
     [TestCase('ClassControlEscapeWithDigit', '[\c0];u', ';')]
     [TestCase('ClassNonBoundaryEscape', '[\B];u', ';')]
-    procedure Constructor_InvalidPatternWithUnicodeFlag_ThrowsSyntaxError(const Pattern: string; const Flags: string);
+    procedure Constructor_InvalidInput_ThrowsSyntaxError(const Pattern: string; const Flags: string);
+
+    [Test]
+    procedure Constructor_ValidFlags_DoesNotThrow;
+
+    [Test]
+    [TestCase('Star', '/a**/', ';')]
+    [TestCase('LeadingPlus', '/+a/', ';')]
+    [TestCase('OutOfOrderBraced', '/a{2,1}/', ';')]
+    [TestCase('OutOfOrderRange', '/[b-a]/', ';')]
+    [TestCase('UnclosedGroup', '/(a/', ';')]
+    [TestCase('UnmatchedParen', '/a)/', ';')]
+    [TestCase('BadFlag', '/a/x', ';')]
+    [TestCase('DuplicateFlag', '/a/gg', ';')]
+    [TestCase('IdentityEscape', '/\M/u', ';')]
+    [TestCase('LoneBrace', '/{/u', ';')]
+    [TestCase('OutOfBoundsEscape', '/\8/u', ';')]
+    [TestCase('ClassRange', '/[\d-a]/u', ';')]
+    [TestCase('BracedEscape', '/\u{110000}/u', ';')]
+    procedure Literal_InvalidSource_IsEarlySyntaxError(const Source: string);
 
     [Test]
     [TestCase('Escapes', '\d\D\s\S\w\W\b\B\n\r\t\f\v\0\cA\x41A;u', ';')]
@@ -149,14 +150,6 @@ type
     [TestCase('Groups', '(a)(?:b)(?=c)(?!d);u', ';')]
     [TestCase('LegacyEscapesWithoutUnicodeFlag', '\1[\1\c0]\M{];g', ';')]
     procedure Constructor_ValidPatternWithUnicodeFlag_DoesNotThrow(const Pattern: string; const Flags: string);
-
-    [Test]
-    [TestCase('IdentityEscape', '/\M/u', ';')]
-    [TestCase('LoneBrace', '/{/u', ';')]
-    [TestCase('OutOfBoundsEscape', '/\8/u', ';')]
-    [TestCase('ClassRange', '/[\d-a]/u', ';')]
-    [TestCase('BracedEscape', '/\u{110000}/u', ';')]
-    procedure Literal_InvalidUnicodePattern_IsEarlySyntaxError(const Source: string);
 
     [Test]
     procedure Literal_ValidRegExp_StillMatches;
@@ -235,7 +228,7 @@ begin
   Assert.AreEqual(NoError, ErrorNameOfConstructing(Pattern));
 end;
 
-procedure TRegExpSyntaxTests.Constructor_InvalidFlags_ThrowsSyntaxError(const Pattern: string; const Flags: string);
+procedure TRegExpSyntaxTests.Constructor_InvalidInput_ThrowsSyntaxError(const Pattern: string; const Flags: string);
 begin
   Assert.AreEqual(SyntaxErrorName, ErrorNameOfConstructing(Pattern, Flags));
 end;
@@ -245,24 +238,14 @@ begin
   Assert.AreEqual(NoError, ErrorNameOfConstructing('a', 'gim'));
 end;
 
-procedure TRegExpSyntaxTests.Literal_InvalidRegExp_IsEarlySyntaxError(const Source: string);
+procedure TRegExpSyntaxTests.Literal_InvalidSource_IsEarlySyntaxError(const Source: string);
 begin
   Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
-end;
-
-procedure TRegExpSyntaxTests.Constructor_InvalidPatternWithUnicodeFlag_ThrowsSyntaxError(const Pattern: string; const Flags: string);
-begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfConstructing(Pattern, Flags));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidPatternWithUnicodeFlag_DoesNotThrow(const Pattern: string; const Flags: string);
 begin
   Assert.AreEqual(NoError, ErrorNameOfConstructing(Pattern, Flags));
-end;
-
-procedure TRegExpSyntaxTests.Literal_InvalidUnicodePattern_IsEarlySyntaxError(const Source: string);
-begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
 end;
 
 procedure TRegExpSyntaxTests.Literal_ValidRegExp_StillMatches;

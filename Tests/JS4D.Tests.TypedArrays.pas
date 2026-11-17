@@ -39,16 +39,13 @@ type
     [TestCase('Species', 'ArrayBuffer[Symbol.species] === ArrayBuffer#true', '#')]
     [TestCase('Slice uses the species constructor', '(function () { var b = new ArrayBuffer(4); var n = 0; b.constructor = { [Symbol.species]: function (l) { n++; return new ArrayBuffer(l); } }; b.slice(0, 2); return n; })()#1', '#')]
     [TestCase('Receiver check', '(function () { try { ArrayBuffer.prototype.slice.call({}, 0); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    procedure ArrayBuffer_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Length constructor', '(function () { var a = new Int16Array(3); return a.length + "," + a.byteLength + "," + a.byteOffset; })()#3,6,0', '#')]
     [TestCase('Elements start at zero', 'new Float64Array(2).join()#0,0', '#')]
     [TestCase('Bytes per element', '[Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array].map(function (c) { return c.BYTES_PER_ELEMENT; }).join("")#111224448', '#')]
     [TestCase('Prototype bytes per element', 'Int32Array.prototype.BYTES_PER_ELEMENT#4', '#')]
     [TestCase('Constructor names', '[Int8Array, Uint8ClampedArray, Float64Array].map(function (c) { return c.name; }).join()#Int8Array,Uint8ClampedArray,Float64Array', '#')]
     [TestCase('Constructor length', 'Uint8Array.length#3', '#')]
-    [TestCase('Requires new', '(function () { try { Int8Array(1); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
+    [TestCase('Constructors Requires new', '(function () { try { Int8Array(1); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('From array', 'new Uint8Array([1, 2, 300]).join()#1,2,44', '#')]
     [TestCase('From array-like', 'new Uint8Array({ length: 2, 0: 7, 1: 8 }).join()#7,8', '#')]
     [TestCase('From iterable', 'new Uint8Array(new Set([5, 6])).join()#5,6', '#')]
@@ -60,12 +57,9 @@ type
     [TestCase('Shared storage', '(function () { var a = new Uint8Array(4); var b = new Uint16Array(a.buffer); b[0] = 0x0102; return a[0] + "," + a[1]; })()#2,1', '#')]
     [TestCase('Prototype chain', 'Object.getPrototypeOf(Int8Array) === Object.getPrototypeOf(Float64Array)#true', '#')]
     [TestCase('Abstract constructor', '(function () { var T = Object.getPrototypeOf(Int8Array); try { new T(); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    [TestCase('Tag', 'Object.prototype.toString.call(new Float32Array(1))#[object Float32Array]', '#')]
+    [TestCase('Constructors Tag', 'Object.prototype.toString.call(new Float32Array(1))#[object Float32Array]', '#')]
     [TestCase('Tag on the prototype', 'Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag).get.call(1)#undefined', '#')]
     [TestCase('Subclass-like prototype', '(function () { function F() {} F.prototype = { x: 1 }; var a = Reflect.construct(Int8Array, [2], F); return Object.getPrototypeOf(a) === F.prototype; })()#true', '#')]
-    procedure Constructors_FollowSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Int8 wraps', 'new Int8Array([127, 128, 255, -129]).join()#127,-128,-1,127', '#')]
     [TestCase('Uint8 wraps', 'new Uint8Array([256, -1, 1.9, NaN, Infinity]).join()#0,255,1,0,0', '#')]
     [TestCase('Clamped rounds half to even', 'new Uint8ClampedArray([0.5, 1.5, 2.5, 254.5, 255.5, -3, 300, NaN]).join()#0,2,2,254,255,0,255,0', '#')]
@@ -82,9 +76,6 @@ type
     [TestCase('Valid index assigned through a prototype creates a property', '(function () { var t = new Int8Array(2); var r = Object.create(t); r[1] = 5; return r.hasOwnProperty(1) + "," + t[1]; })()#true,0', '#')]
     [TestCase('Other keys assigned through a prototype are created', '(function () { var r = Object.create(new Int8Array(1)); r.x = 5; r["1a"] = 6; return r.x + r["1a"]; })()#11', '#')]
     [TestCase('Invalid index assigned through a prototype of a non-extensible object', '(function () { "use strict"; var r = Object.preventExtensions(Object.create(new Int8Array(1))); r[1] = 5; return r.hasOwnProperty(1); })()#false', '#')]
-    procedure Elements_AreConverted(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Read in range', 'new Int8Array([5, 6])[1]#6', '#')]
     [TestCase('Read out of range', 'new Int8Array(2)[2]#undefined', '#')]
     [TestCase('Negative index', 'new Int8Array(2)[-1]#undefined', '#')]
@@ -107,9 +98,6 @@ type
     [TestCase('Index from the prototype chain', '(function () { var a = new Int8Array([4]); var o = Object.create(a); return o[0] + "," + o[1]; })()#4,undefined', '#')]
     [TestCase('For-in lists the indexes', '(function () { var r = []; for (var k in new Int8Array(2)) r.push(k); return r.join(); })()#0,1', '#')]
     [TestCase('Set with Reflect', '(function () { var a = new Int8Array(2); return Reflect.set(a, "1", 5) + "," + a[1] + "," + Reflect.set(a, "7", 5); })()#true,5,true', '#')]
-    procedure IntegerIndexedObject_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('at', '(function () { var a = new Int8Array([1, 2, 3]); return a.at(0) + "," + a.at(-1) + "," + a.at(3); })()#1,3,undefined', '#')]
     [TestCase('copyWithin', 'new Int8Array([1, 2, 3, 4, 5]).copyWithin(0, 3).join()#4,5,3,4,5', '#')]
     [TestCase('copyWithin overlapping', 'new Int8Array([1, 2, 3, 4, 5]).copyWithin(1, 0, 4).join()#1,1,2,3,4', '#')]
@@ -152,9 +140,6 @@ type
     [TestCase('Method on a plain object', '(function () { try { Int8Array.prototype.fill.call([], 1); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('Accessors on the wrong receiver', '(function () { var g = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), "length").get; try { g.call({}); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('Method lengths', '(function () { var p = Object.getPrototypeOf(Int8Array.prototype); return ["at", "copyWithin", "fill", "indexOf", "set", "slice", "subarray", "sort", "map", "reduce", "toLocaleString"].map(function (n) { return p[n].length; }).join(""); })()#12111221110', '#')]
-    procedure Methods_FollowSpecification(const Expression, Expected: string);
-
-    [Test]
     [TestCase('from array', 'Int8Array.from([1, 2]).join()#1,2', '#')]
     [TestCase('from with a mapper', 'Int8Array.from([1, 2], function (x, i) { return x * 10 + i; }).join()#10,21', '#')]
     [TestCase('from a string', 'Uint8Array.from("123").join()#1,2,3', '#')]
@@ -164,10 +149,7 @@ type
     [TestCase('from an array-like longer than 2^31', '(function () { try { Uint8Array.from({ length: 3000000000 }); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     [TestCase('from on a non-constructor','(function () { try { Int8Array.from.call({}, []); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('of', 'Float32Array.of(1, 2.5).join()#1,2.5', '#')]
-    [TestCase('Species', '(function () { var T = Object.getPrototypeOf(Int8Array); return T[Symbol.species] === T; })()#true', '#')]
-    procedure Statics_FollowSpecification(const Expression, Expected: string);
-
-    [Test]
+    [TestCase('Statics Species', '(function () { var T = Object.getPrototypeOf(Int8Array); return T[Symbol.species] === T; })()#true', '#')]
     [TestCase('Set and get', '(function () { var v = new DataView(new ArrayBuffer(8)); v.setInt16(0, -2); return v.getInt16(0) + "," + v.getUint16(0); })()#-2,65534', '#')]
     [TestCase('Endianness', '(function () { var v = new DataView(new ArrayBuffer(4)); v.setUint16(0, 0x0102); v.setUint16(2, 0x0102, true); return [v.getUint8(0), v.getUint8(1), v.getUint8(2), v.getUint8(3)].join(); })()#1,2,2,1', '#')]
     [TestCase('Floats', '(function () { var v = new DataView(new ArrayBuffer(12)); v.setFloat32(0, 1.5); v.setFloat64(4, -2.25, true); return v.getFloat32(0) + "," + v.getFloat64(4, true); })()#1.5,-2.25', '#')]
@@ -179,17 +161,14 @@ type
     [TestCase('Shares bytes with typed arrays', '(function () { var b = new ArrayBuffer(2); new DataView(b).setUint8(1, 9); return new Uint8Array(b).join(); })()#0,9', '#')]
     [TestCase('Out of range read', '(function () { try { new DataView(new ArrayBuffer(2)).getInt32(0); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     [TestCase('Out of range write', '(function () { try { new DataView(new ArrayBuffer(2)).setInt8(2, 0); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
-    [TestCase('Negative index', '(function () { try { new DataView(new ArrayBuffer(2)).getInt8(-1); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
+    [TestCase('DataView Negative index', '(function () { try { new DataView(new ArrayBuffer(2)).getInt8(-1); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     [TestCase('Offset beyond the buffer', '(function () { try { new DataView(new ArrayBuffer(2), 3); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
-    [TestCase('Length beyond the buffer', '(function () { try { new DataView(new ArrayBuffer(2), 1, 2); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
+    [TestCase('DataView Length beyond the buffer', '(function () { try { new DataView(new ArrayBuffer(2), 1, 2); } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     [TestCase('Not a buffer', '(function () { try { new DataView({}); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    [TestCase('Requires new', '(function () { try { DataView(new ArrayBuffer(1)); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    [TestCase('Tag', 'Object.prototype.toString.call(new DataView(new ArrayBuffer(1)))#[object DataView]', '#')]
-    [TestCase('Method lengths', '[DataView.prototype.getInt8.length, DataView.prototype.setInt8.length, DataView.prototype.getFloat64.length, DataView.prototype.setFloat64.length, DataView.length].join("")#12121', '#')]
-    [TestCase('Receiver check', '(function () { try { DataView.prototype.getInt8.call({}, 0); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    procedure DataView_FollowsSpecification(const Expression, Expected: string);
-
-    [Test]
+    [TestCase('DataView Requires new', '(function () { try { DataView(new ArrayBuffer(1)); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
+    [TestCase('DataView Tag', 'Object.prototype.toString.call(new DataView(new ArrayBuffer(1)))#[object DataView]', '#')]
+    [TestCase('DataView Method lengths', '[DataView.prototype.getInt8.length, DataView.prototype.setInt8.length, DataView.prototype.getFloat64.length, DataView.prototype.setFloat64.length, DataView.length].join("")#12121', '#')]
+    [TestCase('DataView Receiver check', '(function () { try { DataView.prototype.getInt8.call({}, 0); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('Length', '(function () { var a = new Int8Array(4); detach(a.buffer); return a.length + "," + a.byteLength + "," + a.byteOffset; })()#0,0,0', '#')]
     [TestCase('Buffer byteLength', '(function () { var b = new ArrayBuffer(4); detach(b); return b.byteLength; })()#0', '#')]
     [TestCase('Elements', '(function () { var a = new Int8Array(4); detach(a.buffer); return a[0] + "," + (0 in a) + "," + Object.keys(a).length; })()#undefined,false,0', '#')]
@@ -200,10 +179,10 @@ type
     [TestCase('DataView throws', '(function () { var b = new ArrayBuffer(4); var v = new DataView(b); detach(b); try { v.getInt8(0); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('Detaching during a conversion', '(function () { var a = new Int8Array(2); a[0] = { valueOf: function () { detach(a.buffer); return 1; } }; return a.length; })()#0', '#')]
     [TestCase('Iterator throws', '(function () { var a = new Int8Array(2); var it = a[Symbol.iterator](); it.next(); detach(a.buffer); try { it.next(); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    procedure DetachedBuffer_FollowsSpecification(const Expression, Expected: string);
+    procedure TypedArray_Script_EvaluatesToTrue(const Expression, Expected: string);
 
     [Test]
-    procedure Elements_OfLargeArrays_StayFast;
+    procedure Elements_LargeFloat64Array_SumsAllElements;
   end;
 
 implementation
@@ -225,7 +204,8 @@ begin
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Buffer: IJSArrayBuffer;
-      if Supports(Args[0].ToObject, IJSArrayBuffer, Buffer) then
+      const HasArgument = (Length(Args) > 0);
+      if HasArgument and Supports(Args[0].ToObject, IJSArrayBuffer, Buffer) then
         Buffer.Detach;
 
       Result := TJSValue.CreateUndefined;
@@ -237,47 +217,12 @@ begin
   Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
 end;
 
-procedure TTypedArrayTests.ArrayBuffer_FollowsSpecification(const Expression, Expected: string);
+procedure TTypedArrayTests.TypedArray_Script_EvaluatesToTrue(const Expression, Expected: string);
 begin
   Assert.AreEqual(Expected, Evaluate(Expression));
 end;
 
-procedure TTypedArrayTests.Constructors_FollowSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.Elements_AreConverted(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.IntegerIndexedObject_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.Methods_FollowSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.Statics_FollowSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.DataView_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.DetachedBuffer_FollowsSpecification(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TTypedArrayTests.Elements_OfLargeArrays_StayFast;
+procedure TTypedArrayTests.Elements_LargeFloat64Array_SumsAllElements;
 begin
   const Script = '(function () { var a = new Float64Array(200000); for (var i = 0; i < a.length; i++) { a[i] = i; } ' +
                  'var sum = 0; for (var j = 0; j < a.length; j++) { sum += a[j]; } return sum; })()';

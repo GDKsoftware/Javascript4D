@@ -18,8 +18,8 @@ uses
   JS4D.Conformance.Runner;
 
 const
-  ExitSuccess = 0;
-  ExitCrash = 2;
+  EXIT_SUCCESS = 0;
+  EXIT_CRASH = 2;
 
 class function TConformanceApplication.Run: Integer;
 begin
@@ -29,9 +29,10 @@ begin
       const Runner = TConformanceRunner.Create(Options);
       try
         Runner.Run;
-        const Summary = Runner.Report.BuildSummary;
+        const Report = Runner.Report;
+        const Summary = Report.BuildSummary;
         Writeln(Summary);
-        Runner.Report.SaveTo(Options.ResultsDirectory);
+        Report.SaveTo(Options.ResultsDirectory, Summary);
 
         const SavedMessage = Format('Results written to %s', [Options.ResultsDirectory]);
         Writeln(SavedMessage);
@@ -42,13 +43,13 @@ begin
       Options.Free;
     end;
 
-    Result := ExitSuccess;
+    Result := EXIT_SUCCESS;
   except
     on E: Exception do
     begin
       const Message = Format('%s: %s', [E.ClassName, E.Message]);
       Writeln(ErrOutput, Message);
-      Result := ExitCrash;
+      Result := EXIT_CRASH;
     end;
   end;
 end;

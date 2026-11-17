@@ -306,7 +306,4 @@ begin
   Assert.IsTrue(FEngine.StepCount < FirstCount, 'Each Execute must start counting from zero');
 end;
 
-initialization
-  TDUnitX.RegisterTestFixture(TCancellationTests);
-
 end.

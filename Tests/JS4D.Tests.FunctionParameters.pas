@@ -7,7 +7,6 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Errors,
   JS4D.Engine;
 
 type
@@ -43,7 +42,51 @@ type
     [TestCase('FunctionConstructor', 'new Function("a", "b = 2", "return a + b")(1)|3', '|')]
     [TestCase('NameIsInferred', 'function f(g = function() {}) { return g.name; } f()|g', '|')]
     [TestCase('ThisIsReceiver', 'var o = { v: 8, f: function(a = this.v) { return a; } }; o.f()|8', '|')]
-    procedure Default_Result(const Source: string; const Expected: string);
+    [TestCase('NoDefaults', 'function f(a, b) {} f.length|2', '|')]
+    [TestCase('StopsAtFirstDefault', 'function f(a, b = 1, c) {} f.length|1', '|')]
+    [TestCase('DefaultFirst', 'function f(a = 1, b) {} f.length|0', '|')]
+    [TestCase('RestIsNotCounted', 'function f(a, ...r) {} f.length|1', '|')]
+    [TestCase('OnlyRest', 'function f(...r) {} f.length|0', '|')]
+    [TestCase('ArrowWithDefault', '((a, b = 1) => 1).length|1', '|')]
+    [TestCase('ArrowWithRest', '((a, ...r) => 1).length|1', '|')]
+    [TestCase('MethodWithDefault', '({ m(a, b = 1) {} }).m.length|1', '|')]
+    [TestCase('Collects', 'function f(a, ...r) { return r.join(); } f(1, 2, 3)|2,3', '|')]
+    [TestCase('EmptyWhenNoExtraArguments', 'function f(a, ...r) { return r.length; } f(1)|0', '|')]
+    [TestCase('Rest OnlyRest', 'function f(...r) { return r.length; } f(1, 2, 3, 4)|4', '|')]
+    [TestCase('IsArray', 'function f(...r) { return Array.isArray(r); } f()|true', '|')]
+    [TestCase('IsFreshArray', 'function f(...r) { return r; } f() !== f()|true', '|')]
+    [TestCase('Arrow', 'var f = (...r) => r.length; f(1, 2)|2', '|')]
+    [TestCase('ArrowAfterParameter', 'var f = (a, ...r) => r[0]; f(1, 2)|2', '|')]
+    [TestCase('WithDefaultBefore', 'function f(a = 1, ...r) { return a + r.length; } f(undefined, 5, 6)|3', '|')]
+    [TestCase('Method', 'var o = { m(...r) { return r.length; } }; o.m(1, 2, 3)|3', '|')]
+    [TestCase('VarWithRestName', 'function f(a = 1, ...r) { var r; return r.length; } f(undefined, 1, 2)|2', '|')]
+    [TestCase('ArgumentsStillHoldsAll', 'function f(a, ...r) { return arguments.length; } f(1, 2, 3)|3', '|')]
+    [TestCase('Rest FunctionConstructor', 'new Function("...r", "return r.length")(1, 2)|2', '|')]
+    [TestCase('Call', 'function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])|6', '|')]
+    [TestCase('CallMixed', 'function f() { return Array.prototype.join.call(arguments); } f(0, ...[1, 2], 3, ...[4])|0,1,2,3,4', '|')]
+    [TestCase('CallEmptyArray', 'function f() { return arguments.length; } f(...[])|0', '|')]
+    [TestCase('CallString', 'function f() { return arguments.length; } f(..."abc")|3', '|')]
+    [TestCase('CallStringSurrogatePair', 'function f() { return arguments.length; } f(..."a'#$D83D#$DE00'b")|3', '|')]
+    [TestCase('MethodCall', 'var o = { v: 2, f: function(a, b) { return this.v * (a + b); } }; o.f(...[1, 2])|6', '|')]
+    [TestCase('BuiltinMethod', 'Math.max(...[1, 9, 3])|9', '|')]
+    [TestCase('ArrayPush', 'var a = [1]; a.push(...[2, 3]); a.join()|1,2,3', '|')]
+    [TestCase('HoleBecomesUndefined', 'function f(a, b) { return typeof b; } f(...[1, ,])|undefined', '|')]
+    [TestCase('New', 'function P(a, b) { this.s = a + b; } new P(...[1, 2]).s|3', '|')]
+    [TestCase('NewMixed', 'function P() { this.n = arguments.length; } new P(1, ...[2, 3]).n|3', '|')]
+    [TestCase('EvaluatedLeftToRight', 'var log = ""; function t(x) { log += x; return [x]; } Math.max(...t(1), ...t(2)); log|12', '|')]
+    [TestCase('ArrowCall', 'var f = (...r) => r.length; f(...[1, 2], ...[3])|3', '|')]
+    [TestCase('Array', '[0, ...[1, 2], 3].join()|0,1,2,3', '|')]
+    [TestCase('OnlyArray', '[...[1, 2]].length|2', '|')]
+    [TestCase('Empty', '[...[]].length|0', '|')]
+    [TestCase('String', '[..."ab"].join()|a,b', '|')]
+    [TestCase('StringSurrogatePair', '[..."'#$D83D#$DE00'"].length|1', '|')]
+    [TestCase('Twice', '[...[1], ...[2]].join()|1,2', '|')]
+    [TestCase('HolesBecomeUndefined', '[...[1, ,2]].hasOwnProperty(1)|true', '|')]
+    [TestCase('ElisionBeforeSpread', '[, ...[1]].hasOwnProperty(0)|false', '|')]
+    [TestCase('IsCopy', 'var a = [1]; var b = [...a]; b.push(2); a.length|1', '|')]
+    [TestCase('Nested', '[...[...[1, 2]], 3].join()|1,2,3', '|')]
+    [TestCase('ArgumentOfSpreadCall', 'Math.max(...[...[1, 5], 2])|5', '|')]
+    procedure Parameters_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
     procedure Default_IsEvaluatedAtEachCall;
@@ -74,62 +117,6 @@ type
 
     [Test]
     procedure Arguments_InDefault_RefersToCallArguments;
-
-    [Test]
-    [TestCase('NoDefaults', 'function f(a, b) {} f.length|2', '|')]
-    [TestCase('StopsAtFirstDefault', 'function f(a, b = 1, c) {} f.length|1', '|')]
-    [TestCase('DefaultFirst', 'function f(a = 1, b) {} f.length|0', '|')]
-    [TestCase('RestIsNotCounted', 'function f(a, ...r) {} f.length|1', '|')]
-    [TestCase('OnlyRest', 'function f(...r) {} f.length|0', '|')]
-    [TestCase('ArrowWithDefault', '((a, b = 1) => 1).length|1', '|')]
-    [TestCase('ArrowWithRest', '((a, ...r) => 1).length|1', '|')]
-    [TestCase('MethodWithDefault', '({ m(a, b = 1) {} }).m.length|1', '|')]
-    procedure Length_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Collects', 'function f(a, ...r) { return r.join(); } f(1, 2, 3)|2,3', '|')]
-    [TestCase('EmptyWhenNoExtraArguments', 'function f(a, ...r) { return r.length; } f(1)|0', '|')]
-    [TestCase('OnlyRest', 'function f(...r) { return r.length; } f(1, 2, 3, 4)|4', '|')]
-    [TestCase('IsArray', 'function f(...r) { return Array.isArray(r); } f()|true', '|')]
-    [TestCase('IsFreshArray', 'function f(...r) { return r; } f() !== f()|true', '|')]
-    [TestCase('Arrow', 'var f = (...r) => r.length; f(1, 2)|2', '|')]
-    [TestCase('ArrowAfterParameter', 'var f = (a, ...r) => r[0]; f(1, 2)|2', '|')]
-    [TestCase('WithDefaultBefore', 'function f(a = 1, ...r) { return a + r.length; } f(undefined, 5, 6)|3', '|')]
-    [TestCase('Method', 'var o = { m(...r) { return r.length; } }; o.m(1, 2, 3)|3', '|')]
-    [TestCase('VarWithRestName', 'function f(a = 1, ...r) { var r; return r.length; } f(undefined, 1, 2)|2', '|')]
-    [TestCase('ArgumentsStillHoldsAll', 'function f(a, ...r) { return arguments.length; } f(1, 2, 3)|3', '|')]
-    [TestCase('FunctionConstructor', 'new Function("...r", "return r.length")(1, 2)|2', '|')]
-    procedure Rest_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Call', 'function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])|6', '|')]
-    [TestCase('CallMixed', 'function f() { return Array.prototype.join.call(arguments); } f(0, ...[1, 2], 3, ...[4])|0,1,2,3,4', '|')]
-    [TestCase('CallEmptyArray', 'function f() { return arguments.length; } f(...[])|0', '|')]
-    [TestCase('CallString', 'function f() { return arguments.length; } f(..."abc")|3', '|')]
-    [TestCase('CallStringSurrogatePair', 'function f() { return arguments.length; } f(..."a'#$D83D#$DE00'b")|3', '|')]
-    [TestCase('MethodCall', 'var o = { v: 2, f: function(a, b) { return this.v * (a + b); } }; o.f(...[1, 2])|6', '|')]
-    [TestCase('BuiltinMethod', 'Math.max(...[1, 9, 3])|9', '|')]
-    [TestCase('ArrayPush', 'var a = [1]; a.push(...[2, 3]); a.join()|1,2,3', '|')]
-    [TestCase('HoleBecomesUndefined', 'function f(a, b) { return typeof b; } f(...[1, ,])|undefined', '|')]
-    [TestCase('New', 'function P(a, b) { this.s = a + b; } new P(...[1, 2]).s|3', '|')]
-    [TestCase('NewMixed', 'function P() { this.n = arguments.length; } new P(1, ...[2, 3]).n|3', '|')]
-    [TestCase('EvaluatedLeftToRight', 'var log = ""; function t(x) { log += x; return [x]; } Math.max(...t(1), ...t(2)); log|12', '|')]
-    [TestCase('ArrowCall', 'var f = (...r) => r.length; f(...[1, 2], ...[3])|3', '|')]
-    procedure SpreadCall_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Array', '[0, ...[1, 2], 3].join()|0,1,2,3', '|')]
-    [TestCase('OnlyArray', '[...[1, 2]].length|2', '|')]
-    [TestCase('Empty', '[...[]].length|0', '|')]
-    [TestCase('String', '[..."ab"].join()|a,b', '|')]
-    [TestCase('StringSurrogatePair', '[..."'#$D83D#$DE00'"].length|1', '|')]
-    [TestCase('Twice', '[...[1], ...[2]].join()|1,2', '|')]
-    [TestCase('HolesBecomeUndefined', '[...[1, ,2]].hasOwnProperty(1)|true', '|')]
-    [TestCase('ElisionBeforeSpread', '[, ...[1]].hasOwnProperty(0)|false', '|')]
-    [TestCase('IsCopy', 'var a = [1]; var b = [...a]; b.push(2); a.length|1', '|')]
-    [TestCase('Nested', '[...[...[1, 2]], 3].join()|1,2,3', '|')]
-    [TestCase('ArgumentOfSpreadCall', 'Math.max(...[...[1, 5], 2])|5', '|')]
-    procedure SpreadArray_Result(const Source: string; const Expected: string);
 
     [Test]
     procedure New_EvaluatesArgumentsBeforeCheckingConstructor;
@@ -217,7 +204,7 @@ begin
   Result := FEngine.Evaluate('caught').AsString;
 end;
 
-procedure TFunctionParameterTests.Default_Result(const Source: string; const Expected: string);
+procedure TFunctionParameterTests.Parameters_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   const Actual = FEngine.Evaluate(Source);
 
@@ -288,34 +275,6 @@ begin
   const Script = 'function f(a = arguments.length) { return a; } f(undefined, 2, 3)';
 
   Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
-end;
-
-procedure TFunctionParameterTests.Length_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TFunctionParameterTests.Rest_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TFunctionParameterTests.SpreadCall_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TFunctionParameterTests.SpreadArray_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
 end;
 
 procedure TFunctionParameterTests.New_EvaluatesArgumentsBeforeCheckingConstructor;

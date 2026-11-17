@@ -6,7 +6,6 @@ interface
 
 uses
   System.SysUtils,
-  System.IOUtils,
   System.Generics.Collections;
 
 type
@@ -23,21 +22,15 @@ type
 
 implementation
 
-const
-  CommentPrefix = '#';
+uses
+  JS4D.Conformance.ListFile;
 
 constructor TPathExclusionList.Create(const FilePath: string);
 begin
   inherited Create;
   FPrefixes := TList<string>.Create;
 
-  for var Line in TFile.ReadAllLines(FilePath) do
-  begin
-    const Prefix = Line.Trim;
-    const IsPrefix = (not Prefix.IsEmpty) and (not Prefix.StartsWith(CommentPrefix));
-    if IsPrefix then
-      FPrefixes.Add(Prefix);
-  end;
+  FPrefixes.AddRange(TListFile.ReadEntries(FilePath));
 end;
 
 destructor TPathExclusionList.Destroy;
@@ -53,7 +46,8 @@ begin
     if RelativePath.StartsWith(Candidate) then
     begin
       Prefix := Candidate;
-      Exit(True);
+      Result := True;
+      Exit;
     end;
   end;
 

@@ -66,7 +66,13 @@ type
     [TestCase('Literal', '10e10000|Infinity', '|')]
     [TestCase('NegativeLiteral', '-10e10000|-Infinity', '|')]
     [TestCase('Underflow', '10e-10000|0', '|')]
-    procedure Literal_OutOfRange_BecomesInfinityOrZero(const Expression: string; const Expected: string);
+    [TestCase('IsNaNObject', 'isNaN({valueOf: function () { return 1; }})|false', '|')]
+    [TestCase('IsNaNInfinityString', 'isNaN("Infinity")|false', '|')]
+    [TestCase('IsNaNArray', 'isNaN([1])|false', '|')]
+    [TestCase('IsFiniteObject', 'isFinite({valueOf: function () { return 1; }})|true', '|')]
+    [TestCase('IsFiniteArray', 'isFinite([1])|true', '|')]
+    [TestCase('IsFiniteInfinityString', 'isFinite("Infinity")|false', '|')]
+    procedure Number_Expression_ReturnsExpectedText(const Expression: string; const Expected: string);
 
     [Test]
     [TestCase('AboveLargestMidpoint', '1.797693134862315808e+308|Infinity', '|')]
@@ -142,16 +148,6 @@ type
     procedure Trim_Text_RemovesOnlyEcmaScriptWhiteSpace(const Text: string; const Expected: string);
 
     [Test]
-    [TestCase('IsNaNObject', 'isNaN({valueOf: function () { return 1; }})|false', '|')]
-    [TestCase('IsNaNInfinityString', 'isNaN("Infinity")|false', '|')]
-    [TestCase('IsNaNArray', 'isNaN([1])|false', '|')]
-    [TestCase('IsFiniteObject', 'isFinite({valueOf: function () { return 1; }})|true', '|')]
-    [TestCase('IsFiniteArray', 'isFinite([1])|true', '|')]
-    [TestCase('IsFiniteInfinityString', 'isFinite("Infinity")|false', '|')]
-    procedure GlobalPredicate_ObjectArgument_ConvertsThroughToNumber(const Expression: string;
-                                                                     const Expected: string);
-
-    [Test]
     [TestCase('IsNaN', 'isNaN({valueOf: function () { throw new Error("x"); }})', '|')]
     [TestCase('IsFinite', 'isFinite({valueOf: function () { throw new Error("x"); }})', '|')]
     procedure GlobalPredicate_ThrowingValueOf_Propagates(const Expression: string);
@@ -182,7 +178,7 @@ begin
   Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TNumberParsingTests.Literal_OutOfRange_BecomesInfinityOrZero(const Expression: string;
+procedure TNumberParsingTests.Number_Expression_ReturnsExpectedText(const Expression: string;
                                                                        const Expected: string);
 begin
   const Actual = StringOf(Expression);
@@ -231,14 +227,6 @@ begin
   const IsExpected = FEngine.Evaluate(Format('(%s).trim() === %s', [Text, Expected])).AsBoolean;
 
   Assert.IsTrue(IsExpected);
-end;
-
-procedure TNumberParsingTests.GlobalPredicate_ObjectArgument_ConvertsThroughToNumber(const Expression: string;
-                                                                                     const Expected: string);
-begin
-  const Actual = StringOf(Expression);
-
-  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberParsingTests.GlobalPredicate_ThrowingValueOf_Propagates(const Expression: string);

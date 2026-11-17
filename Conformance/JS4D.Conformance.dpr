@@ -5,7 +5,6 @@ program JS4D.Conformance;
 {$R *.res}
 
 uses
-  System.SysUtils,
   JS4D.Types in '..\Source\Core\JS4D.Types.pas',
   JS4D.Errors in '..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
@@ -16,6 +15,12 @@ uses
   JS4D.SlashContext in '..\Source\Lexer\JS4D.SlashContext.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
+  JS4D.ParserScope in '..\Source\Parser\JS4D.ParserScope.pas',
+  JS4D.PropertyKey in '..\Source\Core\JS4D.PropertyKey.pas',
+  JS4D.BinaryData in '..\Source\Runtime\JS4D.BinaryData.pas',
+  JS4D.ControlFlow in '..\Source\Runtime\JS4D.ControlFlow.pas',
+  JS4D.LexicalStates in '..\Source\Runtime\JS4D.LexicalStates.pas',
+  JS4D.JsonSyntax in '..\Source\API\JS4D.JsonSyntax.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
   JS4D.PatternOperations in '..\Source\Runtime\JS4D.PatternOperations.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
@@ -23,7 +28,8 @@ uses
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas',
   JS4D.Conformance.Defines in 'JS4D.Conformance.Defines.pas',
   JS4D.Conformance.Metadata in 'JS4D.Conformance.Metadata.pas',
-  JS4D.Conformance.Exclusions in 'JS4D.Conformance.Exclusions.pas',
+  JS4D.Conformance.FeatureExclusions in 'JS4D.Conformance.FeatureExclusions.pas',
+  JS4D.Conformance.ListFile in 'JS4D.Conformance.ListFile.pas',
   JS4D.Conformance.PathExclusions in 'JS4D.Conformance.PathExclusions.pas',
   JS4D.Conformance.TestCase in 'JS4D.Conformance.TestCase.pas',
   JS4D.Conformance.Session in 'JS4D.Conformance.Session.pas',

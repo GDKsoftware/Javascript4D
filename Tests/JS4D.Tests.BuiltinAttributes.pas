@@ -103,7 +103,7 @@ type
     procedure BuiltinMethods_AreNotConstructors(const Method: string);
 
     [Test]
-    procedure PrototypeMethods_AreStillWritableAndConfigurable;
+    procedure PrototypeMethods_AreWritableAndConfigurable;
   end;
 
 implementation
@@ -324,7 +324,7 @@ begin
   Assert.IsTrue(EvaluateBoolean(Script));
 end;
 
-procedure TBuiltinAttributeTests.PrototypeMethods_AreStillWritableAndConfigurable;
+procedure TBuiltinAttributeTests.PrototypeMethods_AreWritableAndConfigurable;
 begin
   const Script =
     'var d = Object.getOwnPropertyDescriptor(Array.prototype, "join");' + sLineBreak +

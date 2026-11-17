@@ -6,42 +6,41 @@ interface
 
 uses
   System.SysUtils,
-  System.IOUtils,
-  System.Generics.Collections,
-  JS4D.Conformance.Defines,
-  JS4D.Conformance.Session;
+  System.Generics.Collections;
 
 type
   THarnessLibrary = class
   private
     FDirectory: string;
-    FLimits: TSessionLimits;
     FSources: TDictionary<string, string>;
+
   public
-    constructor Create(const Directory: string; const Limits: TSessionLimits);
+    class function BaseFiles: TArray<string>; static;
+
+    constructor Create(const Directory: string);
     destructor Destroy; override;
 
     function ReadSource(const FileName: string): string;
-
-    class function BaseFiles: TArray<string>; static;
   end;
 
 implementation
 
+uses
+  System.IOUtils;
+
 const
-  AssertFile = 'assert.js';
-  StaFile = 'sta.js';
+  ASSERT_FILE = 'assert.js';
+  STA_FILE = 'sta.js';
 
 class function THarnessLibrary.BaseFiles: TArray<string>;
 begin
-  Result := [AssertFile, StaFile];
+  Result := [ASSERT_FILE, STA_FILE];
 end;
 
-constructor THarnessLibrary.Create(const Directory: string; const Limits: TSessionLimits);
+constructor THarnessLibrary.Create(const Directory: string);
 begin
   inherited Create;
   FDirectory := Directory;
-  FLimits := Limits;
   FSources := TDictionary<string, string>.Create;
 end;
 

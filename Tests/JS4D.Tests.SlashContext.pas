@@ -37,9 +37,6 @@ type
     [TestCase('AfterForInHead', 'var r = "no"; for (var k in {a: 1}) /1/.test("1") && (r = "yes"); r|yes', '|')]
     [TestCase('AfterWithHead', 'var r = "no"; with ({}) /1/.test("1") && (r = "yes"); r|yes', '|')]
     [TestCase('InsideEval', 'var r = "no"; eval("{}/1/.test(\"1\") && (r = \"yes\")"); r|yes', '|')]
-    procedure Regex_AfterStatementEnd(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('ObjectLiteralMember', 'var o = {a: 8}.a / 2 / 2; o|2', '|')]
     [TestCase('ObjectLiteralInParens', '({a: 6}).a / 2 / 1|3', '|')]
     [TestCase('ObjectLiteralInArray', '[{a: 6}][0].a / 2 / 1|3', '|')]
@@ -52,7 +49,8 @@ type
     [TestCase('AfterIncrement', 'var x = 4; x++ / 2 / 1|2', '|')]
     [TestCase('AfterBlockThenIdentifier', 'var x = 4; { x = 8; } x / 2 / 1|4', '|')]
     [TestCase('AfterTemplateSubstitution', '`${ {a: 6}.a / 2 / 1 }`|3', '|')]
-    procedure Division_AfterExpressionEnd(const Source: string; const Expected: string);
+    procedure Slash_Source_HasExpectedTokenType(const Source: string; const Expected: string);
+
   end;
 
 implementation
@@ -67,14 +65,7 @@ begin
   FEngine.Free;
 end;
 
-procedure TSlashContextTests.Regex_AfterStatementEnd(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TSlashContextTests.Division_AfterExpressionEnd(const Source: string; const Expected: string);
+procedure TSlashContextTests.Slash_Source_HasExpectedTokenType(const Source: string; const Expected: string);
 begin
   const Actual = FEngine.Evaluate(Source);
 

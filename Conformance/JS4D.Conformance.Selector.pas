@@ -8,13 +8,13 @@ uses
   System.SysUtils,
   JS4D.Conformance.Defines,
   JS4D.Conformance.TestCase,
-  JS4D.Conformance.Exclusions,
+  JS4D.Conformance.FeatureExclusions,
   JS4D.Conformance.PathExclusions;
 
 type
   TTestSelector = class
   private
-    FExclusions: TExclusionList;
+    FExclusions: TFeatureExclusionList;
     FPathExclusions: TPathExclusionList;
 
     function TryGetFixtureReason(const TestCase: TTestCase; out Reason: string): Boolean;
@@ -25,7 +25,7 @@ type
     function TryGetHostMemberReason(const TestCase: TTestCase; out Reason: string): Boolean;
 
   public
-    constructor Create(const Exclusions: TExclusionList; const PathExclusions: TPathExclusionList);
+    constructor Create(const Exclusions: TFeatureExclusionList; const PathExclusions: TPathExclusionList);
 
     function TryGetSkipReason(const TestCase: TTestCase; out Reason: string): Boolean;
   end;
@@ -33,19 +33,18 @@ type
 implementation
 
 const
-  FixtureReason = 'fixture file';
-  FlagReasonFormat = 'flag: %s';
-  PathReasonFormat = 'path: %s';
-  PhaseReasonFormat = 'negative phase: %s';
-  FeatureReasonFormat = 'feature: %s';
-  HostMemberReasonFormat = 'host member not provided: %s';
-  UnsupportedHostMembers: array[0..2] of string = ('$262.createRealm',
-                                                   '$262.agent',
-                                                   '$262.IsHTMLDDA');
-  SkippedFlags: array[0..2] of string = ('module', 'CanBlockIsFalse', 'CanBlockIsTrue');
-  ResolutionPhase = 'resolution';
+  FIXTURE_REASON = 'fixture file';
+  FLAG_REASON_FORMAT = 'flag: %s';
+  PATH_REASON_FORMAT = 'path: %s';
+  PHASE_REASON_FORMAT = 'negative phase: %s';
+  FEATURE_REASON_FORMAT = 'feature: %s';
+  HOST_MEMBER_REASON_FORMAT = 'host member not provided: %s';
+  UNSUPPORTED_HOST_MEMBERS: array[0..2] of string = (HOST_OBJECT_NAME + '.createRealm',
+                                                     HOST_OBJECT_NAME + '.agent',
+                                                     HOST_OBJECT_NAME + '.IsHTMLDDA');
+  SKIPPED_FLAGS: array[0..2] of string = ('module', 'CanBlockIsFalse', 'CanBlockIsTrue');
 
-constructor TTestSelector.Create(const Exclusions: TExclusionList; const PathExclusions: TPathExclusionList);
+constructor TTestSelector.Create(const Exclusions: TFeatureExclusionList; const PathExclusions: TPathExclusionList);
 begin
   inherited Create;
   FExclusions := Exclusions;
@@ -64,18 +63,24 @@ end;
 
 function TTestSelector.TryGetFixtureReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
-  Reason := FixtureReason;
   Result := TestCase.IsFixture;
+  if Result then
+    Reason := FIXTURE_REASON
+  else
+    Reason := '';
 end;
 
 function TTestSelector.TryGetFlagReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
-  for var Flag in SkippedFlags do
+  Reason := '';
+  const Metadata = TestCase.Metadata;
+  for var Flag in SKIPPED_FLAGS do
   begin
-    if TestCase.Metadata.HasFlag(Flag) then
+    if Metadata.HasFlag(Flag) then
     begin
-      Reason := Format(FlagReasonFormat, [Flag]);
-      Exit(True);
+      Reason := Format(FLAG_REASON_FORMAT, [Flag]);
+      Result := True;
+      Exit;
     end;
   end;
 
@@ -87,35 +92,43 @@ begin
   var Prefix: string;
   Result := FPathExclusions.TryFindExcluded(TestCase.RelativePath, Prefix);
   if Result then
-    Reason := Format(PathReasonFormat, [Prefix])
+    Reason := Format(PATH_REASON_FORMAT, [Prefix])
   else
     Reason := '';
 end;
 
 function TTestSelector.TryGetPhaseReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
-  Reason := Format(PhaseReasonFormat, [ResolutionPhase]);
-  Result := (TestCase.Metadata.NegativePhase = TErrorPhase.Resolution);
+  const Metadata = TestCase.Metadata;
+  Result := (Metadata.NegativePhase = TErrorPhase.Resolution);
+  if Result then
+    Reason := Format(PHASE_REASON_FORMAT, [PHASE_RESOLUTION])
+  else
+    Reason := '';
 end;
 
 function TTestSelector.TryGetFeatureReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
   var Tag: string;
-  Result := FExclusions.TryFindExcluded(TestCase.Metadata.Features, Tag);
+  const Features = TestCase.Metadata.Features;
+  Result := FExclusions.TryFindExcluded(Features, Tag);
   if Result then
-    Reason := Format(FeatureReasonFormat, [Tag])
+    Reason := Format(FEATURE_REASON_FORMAT, [Tag])
   else
     Reason := '';
 end;
 
 function TTestSelector.TryGetHostMemberReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
-  for var Member in UnsupportedHostMembers do
+  Reason := '';
+  const Source = TestCase.Source;
+  for var Member in UNSUPPORTED_HOST_MEMBERS do
   begin
-    if TestCase.Source.Contains(Member) then
+    if Source.Contains(Member) then
     begin
-      Reason := Format(HostMemberReasonFormat, [Member]);
-      Exit(True);
+      Reason := Format(HOST_MEMBER_REASON_FORMAT, [Member]);
+      Result := True;
+      Exit;
     end;
   end;
 

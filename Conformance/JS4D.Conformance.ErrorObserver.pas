@@ -8,9 +8,6 @@ uses
   System.SysUtils,
   JS4D.PropertyKey,
   JS4D.Types,
-  JS4D.Errors,
-  JS4D.ControlFlow,
-  JS4D.Interpreter,
   JS4D.Conformance.Defines;
 
 type
@@ -29,15 +26,33 @@ type
 
 implementation
 
+uses
+  JS4D.Errors,
+  JS4D.ControlFlow;
+
+type
+  TErrorNameEntry = record
+    ErrorClass: ExceptClass;
+    Name: string;
+  end;
+
 const
-  MessageProperty = 'message';
-  ConstructorProperty = 'constructor';
-  NameProperty = 'name';
-  ObjectTypeName = 'Object';
-  ThrownStringName = 'String';
-  ThrownNumberName = 'Number';
-  ThrownBooleanName = 'Boolean';
-  ThrownOtherName = 'Value';
+  ENGINE_ERROR_NAMES: array[0..5] of TErrorNameEntry = (
+    (ErrorClass: EJSSyntaxError;    Name: SYNTAX_ERROR_NAME),
+    (ErrorClass: EJSReferenceError; Name: REFERENCE_ERROR_NAME),
+    (ErrorClass: EJSTypeError;      Name: TYPE_ERROR_NAME),
+    (ErrorClass: EJSRangeError;     Name: RANGE_ERROR_NAME),
+    (ErrorClass: EJSEvalError;      Name: EVAL_ERROR_NAME),
+    (ErrorClass: EJSURIError;       Name: URI_ERROR_NAME)
+  );
+  MESSAGE_PROPERTY = 'message';
+  CONSTRUCTOR_PROPERTY = 'constructor';
+  NAME_PROPERTY = 'name';
+  OBJECT_TYPE_NAME = 'Object';
+  THROWN_STRING_NAME = 'String';
+  THROWN_NUMBER_NAME = 'Number';
+  THROWN_BOOLEAN_NAME = 'Boolean';
+  THROWN_OTHER_NAME = 'Value';
 
 class function TErrorObserver.Observe(const Error: Exception): TObservedError;
 begin
@@ -60,66 +75,75 @@ end;
 class function TErrorObserver.NameOfThrownValue(const Value: TJSValue): string;
 begin
   if Value.IsString then
-    Exit(ThrownStringName);
+    Exit(THROWN_STRING_NAME);
 
   if Value.IsNumber then
-    Exit(ThrownNumberName);
+    Exit(THROWN_NUMBER_NAME);
 
   if Value.IsBoolean then
-    Exit(ThrownBooleanName);
+    Exit(THROWN_BOOLEAN_NAME);
 
   if not Value.IsObject then
-    Exit(ThrownOtherName);
+    Exit(THROWN_OTHER_NAME);
 
+  const ThrownObject = Value.AsObject;
   var NativeError: IJSError;
-  if Supports(Value.AsObject, IJSError, NativeError) then
-    Exit(NativeError.GetErrorName);
+  if Supports(ThrownObject, IJSError, NativeError) then
+  begin
+    Result := NativeError.GetErrorName;
+    Exit;
+  end;
 
-  Result := ConstructorNameOf(Value.AsObject);
+  Result := ConstructorNameOf(ThrownObject);
 end;
 
 class function TErrorObserver.ConstructorNameOf(const Thrown: IJSObject): string;
 begin
-  Result := ObjectTypeName;
+  Result := OBJECT_TYPE_NAME;
 
-  const HasConstructor = Thrown.HasProperty(ConstructorProperty);
+  const HasConstructor = Thrown.HasProperty(CONSTRUCTOR_PROPERTY);
   if not HasConstructor then
     Exit;
 
-  const ConstructorValue = Thrown.GetProperty(ConstructorProperty);
-  const HasName = ConstructorValue.IsObject and ConstructorValue.AsObject.HasProperty(NameProperty);
+  const ConstructorValue = Thrown.GetProperty(CONSTRUCTOR_PROPERTY);
+  const HasConstructorObject = ConstructorValue.IsObject;
+  if not HasConstructorObject then
+    Exit;
+
+  const ConstructorObject = ConstructorValue.AsObject;
+  const HasName = ConstructorObject.HasProperty(NAME_PROPERTY);
   if HasName then
-    Result := ConstructorValue.AsObject.GetProperty(NameProperty).ToString;
+  begin
+    const NameValue = ConstructorObject.GetProperty(NAME_PROPERTY);
+    Result := NameValue.ToString;
+  end;
 end;
 
 class function TErrorObserver.MessageOfThrownValue(const Value: TJSValue): string;
 begin
-  const HasMessage = Value.IsObject and Value.AsObject.HasProperty(MessageProperty);
+  Result := Value.ToString;
+  if not Value.IsObject then
+    Exit;
+
+  const ThrownObject = Value.AsObject;
+  const HasMessage = ThrownObject.HasProperty(MESSAGE_PROPERTY);
   if HasMessage then
-    Result := Value.AsObject.GetProperty(MessageProperty).ToString
-  else
-    Result := Value.ToString;
+  begin
+    const MessageValue = ThrownObject.GetProperty(MESSAGE_PROPERTY);
+    Result := MessageValue.ToString;
+  end;
 end;
 
 class function TErrorObserver.NameOfEngineError(const Error: Exception): string;
 begin
-  if Error is EJSSyntaxError then
-    Exit(SyntaxErrorName);
-
-  if Error is EJSReferenceError then
-    Exit(ReferenceErrorName);
-
-  if Error is EJSTypeError then
-    Exit(TypeErrorName);
-
-  if Error is EJSRangeError then
-    Exit(RangeErrorName);
-
-  if Error is EJSEvalError then
-    Exit(EvalErrorName);
-
-  if Error is EJSURIError then
-    Exit(URIErrorName);
+  for var Entry in ENGINE_ERROR_NAMES do
+  begin
+    if Error is Entry.ErrorClass then
+    begin
+      Result := Entry.Name;
+      Exit;
+    end;
+  end;
 
   Result := Error.ClassName;
 end;

@@ -1,4 +1,4 @@
-unit JS4D.Conformance.Exclusions;
+unit JS4D.Conformance.FeatureExclusions;
 
 {$SCOPEDENUMS ON}
 
@@ -6,11 +6,10 @@ interface
 
 uses
   System.SysUtils,
-  System.IOUtils,
   System.Generics.Collections;
 
 type
-  TExclusionList = class
+  TFeatureExclusionList = class
   private
     FTags: THashSet<string>;
 
@@ -23,37 +22,35 @@ type
 
 implementation
 
-const
-  CommentPrefix = '#';
+uses
+  JS4D.Conformance.ListFile;
 
-constructor TExclusionList.Create(const FilePath: string);
+constructor TFeatureExclusionList.Create(const FilePath: string);
 begin
   inherited Create;
   FTags := THashSet<string>.Create;
 
-  for var Line in TFile.ReadAllLines(FilePath) do
+  for var Tag in TListFile.ReadEntries(FilePath) do
   begin
-    const Tag = Line.Trim;
-    const IsTag = (not Tag.IsEmpty) and (not Tag.StartsWith(CommentPrefix));
-    if IsTag then
-      FTags.Add(Tag);
+    FTags.Add(Tag);
   end;
 end;
 
-destructor TExclusionList.Destroy;
+destructor TFeatureExclusionList.Destroy;
 begin
   FTags.Free;
   inherited;
 end;
 
-function TExclusionList.TryFindExcluded(const Features: TArray<string>; out Tag: string): Boolean;
+function TFeatureExclusionList.TryFindExcluded(const Features: TArray<string>; out Tag: string): Boolean;
 begin
   for var Feature in Features do
   begin
     if FTags.Contains(Feature) then
     begin
       Tag := Feature;
-      Exit(True);
+      Result := True;
+      Exit;
     end;
   end;
 

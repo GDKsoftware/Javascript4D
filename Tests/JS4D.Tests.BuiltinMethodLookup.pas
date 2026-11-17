@@ -16,6 +16,8 @@ type
   private
     FEngine: TJSEngine;
 
+    function EvaluatesToTrue(const Script: string): Boolean;
+
   public
     [Setup]
     procedure Setup;
@@ -57,12 +59,42 @@ type
     procedure ArrayProperty_WithoutPrototype_IsUndefined;
 
     [Test]
-    procedure BuiltinMethods_NotReplaced_KeepWorking;
+    procedure BuiltinMethods_NotReplaced_RunTheBuiltin;
 
     [Test]
     [TestCase('Descriptor', 'Object.getOwnPropertyDescriptor({ a: 1 }, "a")', '#')]
     [TestCase('Descriptors', 'Object.getOwnPropertyDescriptors({ a: 1 }).a', '#')]
     procedure DescriptorObject_InheritsFromObjectPrototype(const Expression: string);
+
+    [Test]
+    procedure ArrayPush_InFunction_AppendsInOrder;
+
+    [Test]
+    procedure PropertyRead_OwnDataProperty_ReturnsValue;
+
+    [Test]
+    procedure PropertyRead_InheritedProperty_ReturnsPrototypeValue;
+
+    [Test]
+    procedure PropertyRead_OwnPropertyShadowsInherited_ReturnsOwnValue;
+
+    [Test]
+    procedure PropertyRead_OwnAccessor_InvokesGetterWithObjectAsThis;
+
+    [Test]
+    procedure PropertyRead_MissingProperty_IsUndefined;
+
+    [Test]
+    procedure PropertyRead_NamedPropertyOnArray_KeepsElementsAndLength;
+
+    [Test]
+    procedure PropertyRead_LengthAndIndexOfStringWrapper_ReadsPrimitive;
+
+    [Test]
+    procedure PropertyRead_DeletedProperty_IsUndefined;
+
+    [Test]
+    procedure PropertyRead_ReadOnlyProperty_ReadsValueAndIgnoresWrite;
   end;
 
 implementation
@@ -75,6 +107,11 @@ end;
 procedure TBuiltinMethodLookupTests.TearDown;
 begin
   FEngine.Free;
+end;
+
+function TBuiltinMethodLookupTests.EvaluatesToTrue(const Script: string): Boolean;
+begin
+  Result := FEngine.Evaluate(Script).AsBoolean;
 end;
 
 procedure TBuiltinMethodLookupTests.ArrayMethod_OwnPropertyReplacesIt_RunsTheReplacement;
@@ -116,7 +153,7 @@ begin
   Assert.AreEqual('own', FEngine.Evaluate(Script).AsString);
 end;
 
-procedure TBuiltinMethodLookupTests.BuiltinMethods_NotReplaced_KeepWorking;
+procedure TBuiltinMethodLookupTests.BuiltinMethods_NotReplaced_RunTheBuiltin;
 begin
   const Script = 'var a = [1, 2]; a.push(3);' +
                  'var f = function(x) { return x; };' +
@@ -171,7 +208,9 @@ begin
                  'delete Array.prototype.size;' +
                  'size';
 
-  Assert.AreEqual(3, Integer(Trunc(FEngine.Evaluate(Script).AsNumber)));
+  const Size = FEngine.Evaluate(Script);
+
+  Assert.AreEqual(3.0, Size.AsNumber);
 end;
 
 procedure TBuiltinMethodLookupTests.ArrayProperty_InheritedFromObjectPrototype_ReadsTheValue;
@@ -197,6 +236,66 @@ begin
                         [Expression]);
 
   Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+end;
+
+procedure TBuiltinMethodLookupTests.ArrayPush_InFunction_AppendsInOrder;
+begin
+  const Script = '(function () { var a = []; for (var i = 0; i < 5; i++) { a.push(i, i * 2); } ' +
+                 'return a.join(); })() === "0,0,1,2,2,4,3,6,4,8"';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_OwnDataProperty_ReturnsValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1, b: "two" }; o.a === 1 && o.b === "two"'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_InheritedProperty_ReturnsPrototypeValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = Object.create({ inherited: 1 }); o.own = 2; o.inherited + o.own === 3'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_OwnPropertyShadowsInherited_ReturnsOwnValue;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = Object.create({ x: 1 }); o.x = 2; o.x === 2'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_OwnAccessor_InvokesGetterWithObjectAsThis;
+begin
+  const Script = 'var o = { base: 40 }; ' +
+                 'Object.defineProperty(o, "answer", { get: function() { return this.base + 2; }, configurable: true }); ' +
+                 'o.answer === 42';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_MissingProperty_IsUndefined;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1 }; o.missing === undefined'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_NamedPropertyOnArray_KeepsElementsAndLength;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var a = [7, 8]; a.extra = 5; a.extra === 5 && a.length === 2 && a[1] === 8'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_LengthAndIndexOfStringWrapper_ReadsPrimitive;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var s = new String("abc"); s.length === 3 && s[1] === "b"'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_DeletedProperty_IsUndefined;
+begin
+  Assert.IsTrue(EvaluatesToTrue('var o = { a: 1 }; var before = o.a; delete o.a; before === 1 && o.a === undefined'));
+end;
+
+procedure TBuiltinMethodLookupTests.PropertyRead_ReadOnlyProperty_ReadsValueAndIgnoresWrite;
+begin
+  const Script = 'var o = {}; Object.defineProperty(o, "fixed", { value: 1, writable: false }); ' +
+                 'o.fixed = 2; o.fixed === 1';
+
+  Assert.IsTrue(EvaluatesToTrue(Script));
 end;
 
 end.
