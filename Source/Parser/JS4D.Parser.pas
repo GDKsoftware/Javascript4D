@@ -10,6 +10,7 @@ uses
   JS4D.Tokens,
   JS4D.Lexer,
   JS4D.AST,
+  JS4D.SourceContext,
   JS4D.ParserScope,
   JS4D.Errors,
   JS4D.RegExpSyntax;
@@ -21,6 +22,30 @@ type
     Name: string;
     LabelsIteration: Boolean;
   end;
+
+  TJSFunctionContext = (Ordinary, Method, DerivedConstructor);
+
+  TJSFunctionState = record
+    Context: TJSSourceContext;
+    InGenerator: Boolean;
+    YieldForbidden: Boolean;
+    InAsync: Boolean;
+    AwaitForbidden: Boolean;
+  end;
+
+  TJSClassMemberHead = record
+    KeyText: string;
+    IsStatic: Boolean;
+    IsGenerator: Boolean;
+    IsAsync: Boolean;
+    Computed: Boolean;
+    Kind: TJSPropertyKind;
+    SourceStart: Integer;
+
+    function IsConstructor: Boolean;
+  end;
+
+  TJSOperandParser = function: TJSExpression of object;
 
   TJSParser = class
   private
@@ -39,6 +64,48 @@ type
     FAllowLabelledFunction: Boolean;
     FInLiteralElement: Boolean;
     FCoverInitializerCount: Integer;
+    FContext: TJSSourceContext;
+    FNestingDepth: Integer;
+    FStackFloor: NativeUInt;
+    FInGenerator: Boolean;
+    FYieldForbidden: Boolean;
+    FInAsync: Boolean;
+    FAwaitForbidden: Boolean;
+
+    procedure EnterNesting;
+    procedure LeaveNesting; inline;
+    function SaveFunctionState: TJSFunctionState;
+    procedure RestoreFunctionState(const State: TJSFunctionState);
+    procedure EnterFunction(const Context: TJSFunctionContext; const IsGenerator: Boolean; const IsAsync: Boolean);
+    procedure RaiseAtCurrentToken(const Message: string);
+    procedure RejectAsyncGenerator(const IsGenerator: Boolean; const IsAsync: Boolean);
+    function ParseNested(const ParseOperand: TJSOperandParser): TJSExpression;
+    function ParseWithInOperator(const ParseOperand: TJSOperandParser): TJSExpression;
+    function ParseRightOperand(const Left: TJSExpression; const ParseOperand: TJSOperandParser): TJSExpression;
+    function ParseMemberName(const Owner: TJSExpression): TJSIdentifier;
+    function ParseComputedMember(const Owner: TJSExpression): TJSExpression;
+    function ParseClass(const RequireName: Boolean): TJSClassExpression;
+    function ParseClassDefinition(const RequireName: Boolean; const SourceStart: Integer): TJSClassExpression;
+    procedure DeclareClassName(const ClassName: string);
+    function ParseClassDeclaration: TJSVariableDeclaration;
+    procedure ParseClassHeritage(const Target: TJSClassExpression);
+    procedure ParseClassBody(const Target: TJSClassExpression);
+    procedure ParseClassMember(const Target: TJSClassExpression);
+    function StartsStaticModifier: Boolean;
+    function ParseClassMemberKind(const HasModifier: Boolean): TJSPropertyKind;
+    function ClassMemberKeyText(const Key: TJSExpression; const Computed: Boolean): string;
+    procedure ValidateClassMember(const Target: TJSClassExpression; const Head: TJSClassMemberHead);
+    procedure ValidateClassMemberName(const Target: TJSClassExpression; const Head: TJSClassMemberHead);
+    class function ClassFunctionContext(const IsConstructor: Boolean;
+                                        const HasSuperClass: Boolean): TJSFunctionContext; static;
+    function ParseClassMemberFunction(const Target: TJSClassExpression;
+                                      const Head: TJSClassMemberHead): TJSFunctionExpression;
+    procedure AddClassMember(const Target: TJSClassExpression; const Key: TJSExpression;
+                             const Func: TJSFunctionExpression; const Head: TJSClassMemberHead);
+    function ParseMethodFunction(const Context: TJSFunctionContext; const IsGenerator: Boolean;
+                                 const IsAsync: Boolean; const SourceStart: Integer): TJSFunctionExpression;
+    function ParseSuperExpression: TJSExpression;
+    function ParseNewTarget: TJSExpression;
 
     function CurrentToken: TJSToken;
     procedure Advance;
@@ -51,6 +118,8 @@ type
 
     function ParseProgram: TJSProgram;
     function ParseStatement: TJSStatement;
+    function ParseStatementBody: TJSStatement;
+    function ParseAsyncOrExpressionStatement(const AllowLabelledFunction: Boolean): TJSStatement;
     function ParseStatementListItem: TJSStatement;
     function ParseBlockStatement: TJSBlockStatement;
     function ParseScopedBlock(const Kind: TJSParserScopeKind; const Parameters: TArray<string>;
@@ -80,7 +149,15 @@ type
     procedure DeclareVarName(const Name: string);
     procedure DeclareLexicalName(const Name: string; const IsFunction: Boolean; const AllowFunctionDuplicate: Boolean);
     procedure CheckLexicalBindingName(const Name: string);
-    function ParseFunctionDeclaration: TJSFunctionDeclaration;
+    function ParseFunctionDeclaration(const AllowGenerator: Boolean;
+                                      const IsAsync: Boolean = False): TJSFunctionDeclaration;
+    procedure DeclareFunctionName(const FuncName: string; const IsFunctionLevel: Boolean;
+                                  const IsPlainFunction: Boolean);
+    procedure ParseFunctionDeclarationBody(const Func: TJSFunctionDeclaration; const SourceStart: Integer);
+    procedure CheckHeaderInEnclosingAsyncContext(const Func: TJSFunctionDeclaration;
+                                                 const OuterState: TJSFunctionState);
+    procedure RegisterBlockFunction(const Func: TJSFunctionDeclaration; const IsStrictContext: Boolean;
+                                    const IsPlainFunction: Boolean);
     function ParseExpressionStatement: TJSExpressionStatement;
     function ParseIfStatement: TJSIfStatement;
     function ParseWhileStatement: TJSWhileStatement;
@@ -112,11 +189,17 @@ type
 
     function ParseExpression: TJSExpression;
     function ParseAssignmentExpression: TJSExpression;
+    function ParseAssignmentOperand: TJSExpression;
+    function ParseUnaryOperand: TJSExpression;
+    function ParseExponentOperand: TJSExpression;
+    function ParseNewOperand: TJSExpression;
     function ParseExpressionWithoutIn: TJSExpression;
     function ParseNestedExpression: TJSExpression;
     function ParseNestedAssignmentExpression: TJSExpression;
     function ParseNestedBlockStatement(const Parameters: TArray<string>): TJSBlockStatement;
     function ParseConditionalExpression: TJSExpression;
+    function ParseShortCircuitExpression: TJSExpression;
+    function ParseNullishCoalesceExpression(const Head: TJSExpression): TJSExpression;
     function ParseLogicalOrExpression: TJSExpression;
     function ParseLogicalAndExpression: TJSExpression;
     function ParseBitwiseOrExpression: TJSExpression;
@@ -147,16 +230,36 @@ type
     function ParseShorthandProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
     function ParseCoverInitializedProperty(const Key: TJSExpression; const Name: string): TJSObjectProperty;
     function ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean;
-                                 const SourceStart: Integer): TJSObjectProperty;
+                                 const SourceStart: Integer; const IsGenerator: Boolean;
+                                 const IsAsync: Boolean): TJSObjectProperty;
     function StartsAccessorProperty: Boolean;
     function ParsePropertyKey(out Computed: Boolean): TJSExpression;
     function ParseAccessorProperty: TJSObjectProperty;
-    function ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer): TJSFunctionExpression;
-    function ParseFunctionExpression: TJSFunctionExpression;
-    procedure ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
+    function ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer;
+                                   const Context: TJSFunctionContext = TJSFunctionContext.Method): TJSFunctionExpression;
+    function ParseFunctionExpression(const IsAsync: Boolean = False): TJSFunctionExpression;
+    procedure CheckFunctionExpressionName(const FuncName: string; const IsGenerator: Boolean;
+                                          const IsAsync: Boolean);
+    procedure ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression;
+                                            const Context: TJSFunctionContext = TJSFunctionContext.Ordinary;
+                                            const IsGenerator: Boolean = False;
+                                            const IsAsync: Boolean = False);
+    procedure ParseSignatureAndBodyInContext(const Func: TJSFunctionExpression; const IsGenerator: Boolean;
+                                             const IsAsync: Boolean);
+    function ParseYieldExpression: TJSExpression;
+    function StartsYieldOperand: Boolean;
+    function IsYieldKeyword: Boolean;
+    procedure MarkSuspendableBody(const Body: TJSBlockStatement; const IsGenerator: Boolean;
+                                const IsAsync: Boolean = False);
+    function IsAwaitKeyword: Boolean;
+    function ParseAwaitExpression: TJSExpression;
+    function IsAsyncWord: Boolean;
+    function StartsAsyncModifier: Boolean;
+    function StartsAsyncFunction: Boolean;
+    function StartsAsyncArrowFunction: Boolean;
     function StartsArrowFunction: Boolean;
     function SourceTextFrom(const StartOffset: Integer): string;
-    function ParseArrowFunction: TJSFunctionExpression;
+    function ParseArrowFunction(const IsAsync: Boolean = False): TJSFunctionExpression;
     procedure ParseArrowParameters(const Func: TJSFunctionExpression);
     procedure ParseArrowParameter(const Func: TJSFunctionExpression);
     function ParseFormalParameters(const Params: TObjectList<TJSIdentifier>): TJSParameterInfo;
@@ -164,7 +267,7 @@ type
     procedure ParseRestParameter(const Info: TJSParameterInfo);
     procedure RejectDuplicateNonSimpleParameters(const Info: TJSParameterInfo);
     function StartsParameterExpression(const Offset: Integer): Boolean;
-    function FindClosingParenthesisOffset: Integer;
+    function FindClosingParenthesisOffset(const StartOffset: Integer = 0): Integer;
     function StartsArrowAfterParenthesis: Boolean;
     function ParseSpreadOrAssignmentExpression: TJSExpression;
 
@@ -188,6 +291,8 @@ type
     function ParseCatchPattern: TJSCatchClause;
     procedure CollectBoundNames(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo);
     procedure ParseArrowBody(const Func: TJSFunctionExpression);
+    procedure ParseArrowBlockBody(const Func: TJSFunctionExpression);
+    procedure ParseArrowConciseBody(const Func: TJSFunctionExpression);
     function ParseConciseBody: TJSBlockStatement;
     procedure RejectDuplicateArrowParameters(const Params: TObjectList<TJSIdentifier>);
     function ParseArguments(const Target: TObjectList<TJSExpression>): Boolean;
@@ -215,17 +320,43 @@ type
 
     function Parse: TJSProgram; overload;
     function Parse(const IsStrictContext: Boolean): TJSProgram; overload;
+    function Parse(const IsStrictContext: Boolean; const Context: TJSSourceContext): TJSProgram; overload;
   end;
 
 implementation
 
+uses
+  JS4D.StackGuard,
+  JS4D.SuspensionAnalysis;
+
 const
+  ASYNC_FUNCTION = True;
+  GENERATOR_NOT_ALLOWED = False;
+  NOT_A_GENERATOR = False;
+  NAME_REQUIRED = True;
+  NAME_OPTIONAL = False;
+  LINE_BREAK_ALLOWED = True;
+  LINE_BREAK_NOT_ALLOWED = False;
   TRUE_VALUE = 'true';
   USE_STRICT_DIRECTIVE = 'use strict';
   LegacyLiteralInStrictModeMessage = 'Octal literals and escape sequences are not allowed in strict mode';
   ARGUMENTS_NAME = 'arguments';
   EVAL_NAME = 'eval';
-  SUPER_NAME = 'super';
+  MAX_NESTING_DEPTH = 1000;
+  NESTING_TOO_DEEP_MESSAGE = 'The source nests parentheses, blocks or classes too deeply';
+  STATIC_NAME = 'static';
+  CONSTRUCTOR_NAME = 'constructor';
+  PROTOTYPE_NAME = 'prototype';
+  TARGET_NAME = 'target';
+  SUPER_OUTSIDE_METHOD_MESSAGE = '''super'' keyword unexpected here';
+  NEW_TARGET_OUTSIDE_FUNCTION_MESSAGE = 'new.target is only allowed inside functions';
+  CLASS_DECLARATION_BODY_MESSAGE = 'Class declaration cannot appear in a single-statement context';
+  DUPLICATE_CONSTRUCTOR_MESSAGE = 'A class may only have one constructor';
+  SPECIAL_CONSTRUCTOR_MESSAGE = 'Class constructor may not be an accessor';
+  CONSTRUCTOR_NOT_PLAIN_MESSAGE = 'Class constructor may not be a generator or an async method';
+  STATIC_PROTOTYPE_MESSAGE = 'Classes may not have a static property named ''prototype''';
+  CLASS_FIELD_MESSAGE = 'Class fields are not supported';
+  NEW_SUPER_MESSAGE = '''super'' cannot be used with new';
   KEYWORD_GET = 'get';
   KEYWORD_SET = 'set';
   ACCESSOR_PARAMETER_COUNT = 'Getter must not have parameters and setter must have exactly one';
@@ -255,14 +386,32 @@ const
   InvalidTemplateEscapeMessage = 'Invalid escape sequence in template literal';
   LET_NAME = 'let';
   OF_NAME = 'of';
+  YIELD_IDENTIFIER_MESSAGE = '''yield'' cannot be used as an identifier in a generator';
+  YIELD_IN_PARAMETERS_MESSAGE = 'A yield expression is not allowed in formal parameters';
+  YIELD_ESCAPE_MESSAGE = 'The keyword ''yield'' must not contain escaped characters';
+  GENERATOR_DECLARATION_BODY_MESSAGE = 'Generator declaration is not allowed as the body of a statement';
+  ASYNC_DECLARATION_BODY_MESSAGE = 'Async function declaration is not allowed as the body of a statement';
+  ASYNC_GENERATOR_MESSAGE = 'Async generators are not supported';
+  AWAIT_IDENTIFIER_MESSAGE = '''await'' cannot be used as an identifier in an async function';
+  AWAIT_IN_PARAMETERS_MESSAGE = 'An await expression is not allowed in formal parameters';
+  AWAIT_ESCAPE_MESSAGE = 'The keyword ''await'' must not contain escaped characters';
   ASYNC_NAME = 'async';
+  AWAIT_NAME = 'await';
   PATTERN_PARAMETER_FORMAT = '(pattern %d)';
   REST_PATTERN_NAME = '(rest pattern)';
   InvalidDestructuringTargetMessage = 'Invalid destructuring assignment target';
   MissingPatternInitializerMessage = 'Missing initializer in destructuring declaration';
   RestElementLastMessage = 'Rest element must be last element';
   CoverInitializerMessage = 'Invalid shorthand property initializer';
+  NULLISH_MIXED_WITH_LOGICAL_MESSAGE = '''??'' cannot be mixed with ''||'' or ''&&'' without parentheses';
   DuplicateBindingMessage = 'Duplicate binding ''%s'' in a pattern';
+
+{ TJSClassMemberHead }
+
+function TJSClassMemberHead.IsConstructor: Boolean;
+begin
+  Result := ((not IsStatic) and (KeyText = CONSTRUCTOR_NAME));
+end;
 
 { TJSParser }
 
@@ -367,6 +516,12 @@ begin
   Result := ParseProgram;
 end;
 
+function TJSParser.Parse(const IsStrictContext: Boolean; const Context: TJSSourceContext): TJSProgram;
+begin
+  FContext := Context;
+  Result := Parse(IsStrictContext);
+end;
+
 function TJSParser.ParseProgram: TJSProgram;
 begin
   Result := TJSProgram.Create;
@@ -398,14 +553,35 @@ end;
 
 function TJSParser.ParseStatementListItem: TJSStatement;
 begin
-  if Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(True) then
-    Exit(ParseLexicalDeclaration);
+  const StartsLexicalDeclaration = (Check(TJSTokenType.KeywordConst) or StartsLetDeclaration(LINE_BREAK_ALLOWED));
+  const StartsClassDeclaration = Check(TJSTokenType.KeywordClass);
 
-  FAllowLabelledFunction := True;
-  Result := ParseStatement;
+  if StartsLexicalDeclaration then
+  begin
+    Result := ParseLexicalDeclaration;
+  end
+  else if StartsClassDeclaration then
+  begin
+    Result := ParseClassDeclaration;
+  end
+  else
+  begin
+    FAllowLabelledFunction := True;
+    Result := ParseStatement;
+  end;
 end;
 
 function TJSParser.ParseStatement: TJSStatement;
+begin
+  EnterNesting;
+  try
+    Result := ParseStatementBody;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseStatementBody: TJSStatement;
 begin
   const AllowLabelledFunction = FAllowLabelledFunction;
   FAllowLabelledFunction := False;
@@ -428,7 +604,9 @@ begin
     TJSTokenType.KeywordVar:
       Result := ParseVariableDeclaration;
     TJSTokenType.KeywordFunction:
-      Result := ParseFunctionDeclaration;
+      Result := ParseFunctionDeclaration(AllowLabelledFunction);
+    TJSTokenType.KeywordClass:
+      raise TJSErrorFactory.SyntaxError(CLASS_DECLARATION_BODY_MESSAGE, CurrentToken.Line, CurrentToken.Column);
     TJSTokenType.KeywordIf:
       Result := ParseIfStatement;
     TJSTokenType.KeywordWhile:
@@ -456,7 +634,22 @@ begin
     TJSTokenType.KeywordDebugger:
       Result := ParseDebuggerStatement;
     else
-      Result := ParseExpressionStatement;
+      Result := ParseAsyncOrExpressionStatement(AllowLabelledFunction);
+  end;
+end;
+
+function TJSParser.ParseAsyncOrExpressionStatement(const AllowLabelledFunction: Boolean): TJSStatement;
+begin
+  if StartsAsyncFunction then
+  begin
+    if not AllowLabelledFunction then
+      RaiseAtCurrentToken(ASYNC_DECLARATION_BODY_MESSAGE);
+
+    Result := ParseFunctionDeclaration(AllowLabelledFunction, ASYNC_FUNCTION);
+  end
+  else
+  begin
+    Result := ParseExpressionStatement;
   end;
 end;
 
@@ -711,12 +904,24 @@ begin
   Result := FLexer.SourceSlice(StartOffset, LastConsumed.EndOffset);
 end;
 
-function TJSParser.ParseFunctionDeclaration: TJSFunctionDeclaration;
+function TJSParser.ParseFunctionDeclaration(const AllowGenerator: Boolean;
+                                           const IsAsync: Boolean): TJSFunctionDeclaration;
 begin
   const SourceStart = CurrentToken.StartOffset;
+  if IsAsync then
+    Advance;
+
   Expect(TJSTokenType.KeywordFunction);
 
-  if not Check(TJSTokenType.Identifier) then
+  const IsGenerator = Match(TJSTokenType.Multiply);
+  const IsRejectedGenerator = (IsGenerator and (not AllowGenerator));
+  if IsRejectedGenerator then
+    RaiseAtCurrentToken(GENERATOR_DECLARATION_BODY_MESSAGE);
+
+  RejectAsyncGenerator(IsGenerator, IsAsync);
+
+  const HasName = Check(TJSTokenType.Identifier);
+  if not HasName then
     raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
 
   const FuncName = CurrentToken.Value;
@@ -724,44 +929,85 @@ begin
 
   const IsStrictContext = FStrictMode;
   const IsFunctionLevel = FScopes.IsFunctionLevel;
-  if IsFunctionLevel then
-    DeclareVarName(FuncName)
-  else
-    DeclareLexicalName(FuncName, True, not IsStrictContext);
+  const IsPlainFunction = (not IsGenerator) and (not IsAsync);
+  DeclareFunctionName(FuncName, IsFunctionLevel, IsPlainFunction);
 
   Advance;
   Inc(FClosureCount);
 
   const Identifier = TJSIdentifier.Create(FuncName);
   Result := TJSFunctionDeclaration.Create(Identifier);
+  Result.IsGenerator := IsGenerator;
+  Result.IsAsync := IsAsync;
 
   try
-    Result.ParameterInfo := ParseFormalParameters(Result.Params);
-
-    const OldStrictMode = FStrictMode;
-    Result.Body := ParseFunctionBodyBlock(Result.Params, Result.ParameterInfo);
-
-    if Result.Body.DeclaresStrictMode then
-    begin
-      Result.IsStrict := True;
-      FStrictMode := True;
-    end;
-
-    CheckStrictFunctionHeader(FuncName, Result.Params, Result.ParameterInfo);
-    FStrictMode := OldStrictMode;
-    Result.SourceText := SourceTextFrom(SourceStart);
+    ParseFunctionDeclarationBody(Result, SourceStart);
   except
     Result.Free;
     raise;
   end;
 
   if not IsFunctionLevel then
-  begin
-    FScopes.AddDeclaration(Result);
+    RegisterBlockFunction(Result, IsStrictContext, IsPlainFunction);
+end;
 
-    if not IsStrictContext then
-      FScopes.AddFunctionCandidate(Result);
+procedure TJSParser.DeclareFunctionName(const FuncName: string; const IsFunctionLevel: Boolean;
+                                        const IsPlainFunction: Boolean);
+begin
+  if IsFunctionLevel then
+  begin
+    DeclareVarName(FuncName);
+  end
+  else
+  begin
+    const AllowFunctionDuplicate = ((not FStrictMode) and IsPlainFunction);
+    DeclareLexicalName(FuncName, IsPlainFunction, AllowFunctionDuplicate);
   end;
+end;
+
+procedure TJSParser.ParseFunctionDeclarationBody(const Func: TJSFunctionDeclaration; const SourceStart: Integer);
+begin
+  const OuterState = SaveFunctionState;
+  EnterFunction(TJSFunctionContext.Ordinary, Func.IsGenerator, Func.IsAsync);
+  try
+    Func.ParameterInfo := ParseFormalParameters(Func.Params);
+    FYieldForbidden := False;
+    FAwaitForbidden := False;
+
+    const OldStrictMode = FStrictMode;
+    const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
+    Func.Body := Body;
+    MarkSuspendableBody(Body, Func.IsGenerator, Func.IsAsync);
+
+    if Body.DeclaresStrictMode then
+    begin
+      Func.IsStrict := True;
+      FStrictMode := True;
+    end;
+
+    CheckHeaderInEnclosingAsyncContext(Func, OuterState);
+    FStrictMode := OldStrictMode;
+    Func.SourceText := SourceTextFrom(SourceStart);
+  finally
+    RestoreFunctionState(OuterState);
+  end;
+end;
+
+procedure TJSParser.CheckHeaderInEnclosingAsyncContext(const Func: TJSFunctionDeclaration;
+                                                       const OuterState: TJSFunctionState);
+begin
+  FInAsync := OuterState.InAsync;
+  CheckStrictFunctionHeader(Func.Id.Name, Func.Params, Func.ParameterInfo);
+end;
+
+procedure TJSParser.RegisterBlockFunction(const Func: TJSFunctionDeclaration; const IsStrictContext: Boolean;
+                                          const IsPlainFunction: Boolean);
+begin
+  FScopes.AddDeclaration(Func);
+
+  const IsCandidate = ((not IsStrictContext) and IsPlainFunction);
+  if IsCandidate then
+    FScopes.AddFunctionCandidate(Func);
 end;
 
 function TJSParser.ParseExpressionStatement: TJSExpressionStatement;
@@ -818,7 +1064,8 @@ begin
   FScopes.Enter(TJSParserScopeKind.Block, nil);
 
   try
-    Block.Body.Add(ParseFunctionDeclaration);
+    const Declaration = ParseFunctionDeclaration(GENERATOR_NOT_ALLOWED);
+    Block.Body.Add(Declaration);
     Block.ScopeInfo := FScopes.Leave;
   except
     Block.Free;
@@ -877,18 +1124,13 @@ end;
 
 function TJSParser.StartsWithDeclaration: Boolean;
 begin
-  if Check(TJSTokenType.KeywordFunction) or Check(TJSTokenType.KeywordConst) then
+  if CheckAny([TJSTokenType.KeywordFunction, TJSTokenType.KeywordConst, TJSTokenType.KeywordClass]) then
     Exit(True);
 
   if not Check(TJSTokenType.Identifier) then
     Exit(False);
 
-  if StartsLetDeclaration(False) then
-    Exit(True);
-
-  const FollowedByName = (FLexer.PeekToken(1).TokenType = TJSTokenType.Identifier);
-
-  Result := (CurrentToken.Value = 'class') and FollowedByName;
+  Result := StartsLetDeclaration(LINE_BREAK_NOT_ALLOWED);
 end;
 
 function TJSParser.PrologueDeclaresStrictMode(const FirstTokenOffset: Integer): Boolean;
@@ -1430,6 +1672,15 @@ begin
   Advance;
   Expect(TJSTokenType.Colon);
 
+  const FollowingToken = FLexer.PeekToken(1);
+  const IsLabelledGenerator = (Check(TJSTokenType.KeywordFunction) and
+                               (FollowingToken.TokenType = TJSTokenType.Multiply));
+  if IsLabelledGenerator then
+    RaiseAtCurrentToken(GENERATOR_DECLARATION_BODY_MESSAGE);
+
+  if StartsAsyncFunction then
+    RaiseAtCurrentToken(ASYNC_DECLARATION_BODY_MESSAGE);
+
   const IsAllowedFunction = (AllowFunction and Check(TJSTokenType.KeywordFunction) and (not FStrictMode));
   if StartsWithDeclaration and (not IsAllowedFunction) then
     raise TJSErrorFactory.SyntaxError('Declaration is not allowed as the body of a labelled statement',
@@ -1695,36 +1946,122 @@ begin
   end;
 end;
 
-function TJSParser.ParseNestedExpression: TJSExpression;
+procedure TJSParser.EnterNesting;
 begin
+  const IsStackFloorUnset = (FStackFloor = 0);
+  if IsStackFloorUnset then
+    FStackFloor := TJSStackGuard.CurrentFloor;
+
+  var StackMarker: Byte;
+  const IsStackExhausted = (NativeUInt(@StackMarker) < FStackFloor);
+  const IsTooDeep = (FNestingDepth >= MAX_NESTING_DEPTH);
+  if IsStackExhausted or IsTooDeep then
+    raise TJSErrorFactory.RangeError(NESTING_TOO_DEEP_MESSAGE, CurrentToken.Line, CurrentToken.Column);
+
+  Inc(FNestingDepth);
+end;
+
+procedure TJSParser.LeaveNesting;
+begin
+  Dec(FNestingDepth);
+end;
+
+function TJSParser.ParseNested(const ParseOperand: TJSOperandParser): TJSExpression;
+begin
+  EnterNesting;
+  try
+    Result := ParseOperand;
+  finally
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseWithInOperator(const ParseOperand: TJSOperandParser): TJSExpression;
+begin
+  EnterNesting;
   const PreviousAllowed = FInOperatorAllowed;
   FInOperatorAllowed := True;
   try
-    Result := ParseExpression;
+    Result := ParseOperand;
   finally
     FInOperatorAllowed := PreviousAllowed;
+    LeaveNesting;
   end;
+end;
+
+function TJSParser.ParseRightOperand(const Left: TJSExpression; const ParseOperand: TJSOperandParser): TJSExpression;
+begin
+  try
+    Result := ParseOperand;
+  except
+    Left.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseMemberName(const Owner: TJSExpression): TJSIdentifier;
+begin
+  try
+    Result := ParseIdentifierName;
+  except
+    Owner.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseComputedMember(const Owner: TJSExpression): TJSExpression;
+begin
+  Result := nil;
+  try
+    Result := ParseNestedExpression;
+    Expect(TJSTokenType.RightBracket);
+  except
+    Result.Free;
+    Owner.Free;
+    raise;
+  end;
+end;
+
+function TJSParser.ParseAssignmentOperand: TJSExpression;
+begin
+  Result := ParseNested(ParseAssignmentExpression);
+end;
+
+function TJSParser.ParseUnaryOperand: TJSExpression;
+begin
+  Result := ParseNested(ParseUnaryExpression);
+end;
+
+function TJSParser.ParseExponentOperand: TJSExpression;
+begin
+  Result := ParseNested(ParseExponentiationExpression);
+end;
+
+function TJSParser.ParseNewOperand: TJSExpression;
+begin
+  Result := ParseNested(ParseNewExpression);
+end;
+
+function TJSParser.ParseNestedExpression: TJSExpression;
+begin
+  Result := ParseWithInOperator(ParseExpression);
 end;
 
 function TJSParser.ParseNestedAssignmentExpression: TJSExpression;
 begin
-  const PreviousAllowed = FInOperatorAllowed;
-  FInOperatorAllowed := True;
-  try
-    Result := ParseAssignmentExpression;
-  finally
-    FInOperatorAllowed := PreviousAllowed;
-  end;
+  Result := ParseWithInOperator(ParseAssignmentExpression);
 end;
 
 function TJSParser.ParseNestedBlockStatement(const Parameters: TArray<string>): TJSBlockStatement;
 begin
+  EnterNesting;
   const PreviousAllowed = FInOperatorAllowed;
   FInOperatorAllowed := True;
   try
     Result := ParseScopedBlock(TJSParserScopeKind.Function_, Parameters, '');
   finally
     FInOperatorAllowed := PreviousAllowed;
+    LeaveNesting;
   end;
 end;
 
@@ -1733,6 +2070,18 @@ begin
   const IsLiteralElement = FInLiteralElement;
   FInLiteralElement := False;
   const CoverMark = FCoverInitializerCount;
+
+  if IsYieldKeyword then
+  begin
+    Result := ParseYieldExpression;
+    Exit;
+  end;
+
+  if StartsAsyncArrowFunction then
+  begin
+    Result := ParseArrowFunction(ASYNC_FUNCTION);
+    Exit;
+  end;
 
   if StartsArrowFunction then
     Exit(ParseArrowFunction);
@@ -1754,7 +2103,7 @@ begin
 
     var Right: TJSExpression;
     try
-      Right := ParseAssignmentExpression;
+      Right := ParseAssignmentOperand;
     except
       Left.Free;
       raise;
@@ -1777,7 +2126,7 @@ end;
 
 function TJSParser.ParseConditionalExpression: TJSExpression;
 begin
-  const Test = ParseLogicalOrExpression;
+  const Test = ParseShortCircuitExpression;
 
   if Match(TJSTokenType.Question) then
   begin
@@ -1786,7 +2135,7 @@ begin
     try
       Consequent := ParseNestedAssignmentExpression;
       Expect(TJSTokenType.Colon);
-      Alternate := ParseAssignmentExpression;
+      Alternate := ParseAssignmentOperand;
     except
       FreeOwned([Test, Consequent, Alternate]);
       raise;
@@ -1798,13 +2147,49 @@ begin
   Result := Test;
 end;
 
+function TJSParser.ParseShortCircuitExpression: TJSExpression;
+begin
+  Result := ParseLogicalOrExpression;
+
+  const StartsNullishChain = Check(TJSTokenType.NullishCoalesce);
+  if StartsNullishChain then
+    Result := ParseNullishCoalesceExpression(Result);
+end;
+
+function TJSParser.ParseNullishCoalesceExpression(const Head: TJSExpression): TJSExpression;
+begin
+  const HeadIsBareLogical = (Head is TJSLogicalExpression) and (not Head.IsParenthesized);
+  if HeadIsBareLogical then
+  begin
+    Head.Free;
+    RaiseAtCurrentToken(NULLISH_MIXED_WITH_LOGICAL_MESSAGE);
+  end;
+
+  Result := Head;
+
+  while Match(TJSTokenType.NullishCoalesce) do
+  begin
+    const Right = ParseRightOperand(Result, ParseBitwiseOrExpression);
+
+    Result := TJSLogicalExpression.Create(TJSLogicalOperator.Nullish, Result, Right);
+  end;
+
+  const IsMixedWithLogical = (Check(TJSTokenType.LogicalOr) or Check(TJSTokenType.LogicalAnd));
+  if IsMixedWithLogical then
+  begin
+    Result.Free;
+    RaiseAtCurrentToken(NULLISH_MIXED_WITH_LOGICAL_MESSAGE);
+  end;
+end;
+
 function TJSParser.ParseLogicalOrExpression: TJSExpression;
 begin
   Result := ParseLogicalAndExpression;
 
   while Match(TJSTokenType.LogicalOr) do
   begin
-    const Right = ParseLogicalAndExpression;
+    const Right = ParseRightOperand(Result, ParseLogicalAndExpression);
+
     Result := TJSLogicalExpression.Create(TJSLogicalOperator.Or_, Result, Right);
   end;
 end;
@@ -1815,7 +2200,8 @@ begin
 
   while Match(TJSTokenType.LogicalAnd) do
   begin
-    const Right = ParseBitwiseOrExpression;
+    const Right = ParseRightOperand(Result, ParseBitwiseOrExpression);
+
     Result := TJSLogicalExpression.Create(TJSLogicalOperator.And_, Result, Right);
   end;
 end;
@@ -1826,7 +2212,8 @@ begin
 
   while Match(TJSTokenType.BitwiseOr) do
   begin
-    const Right = ParseBitwiseXorExpression;
+    const Right = ParseRightOperand(Result, ParseBitwiseXorExpression);
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseOr, Result, Right);
   end;
 end;
@@ -1837,7 +2224,8 @@ begin
 
   while Match(TJSTokenType.BitwiseXor) do
   begin
-    const Right = ParseBitwiseAndExpression;
+    const Right = ParseRightOperand(Result, ParseBitwiseAndExpression);
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseXor, Result, Right);
   end;
 end;
@@ -1848,7 +2236,8 @@ begin
 
   while Match(TJSTokenType.BitwiseAnd) do
   begin
-    const Right = ParseEqualityExpression;
+    const Right = ParseRightOperand(Result, ParseEqualityExpression);
+
     Result := TJSBinaryExpression.Create(TJSBinaryOperator.BitwiseAnd, Result, Right);
   end;
 end;
@@ -1874,7 +2263,8 @@ begin
 
     Advance;
 
-    const Right = ParseRelationalExpression;
+    const Right = ParseRightOperand(Result, ParseRelationalExpression);
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -1904,7 +2294,8 @@ begin
 
     Advance;
 
-    const Right = ParseShiftExpression;
+    const Right = ParseRightOperand(Result, ParseShiftExpression);
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -1928,7 +2319,8 @@ begin
 
     Advance;
 
-    const Right = ParseAdditiveExpression;
+    const Right = ParseRightOperand(Result, ParseAdditiveExpression);
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -1948,7 +2340,8 @@ begin
 
     Advance;
 
-    const Right = ParseMultiplicativeExpression;
+    const Right = ParseRightOperand(Result, ParseMultiplicativeExpression);
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -1972,7 +2365,8 @@ begin
 
     Advance;
 
-    const Right = ParseExponentiationExpression;
+    const Right = ParseRightOperand(Result, ParseExponentiationExpression);
+
     Result := TJSBinaryExpression.Create(Op, Result, Right);
   end;
 end;
@@ -1981,7 +2375,7 @@ function TJSParser.ParseExponentiationExpression: TJSExpression;
 begin
   const StartsWithUnaryOperator = CheckAny([TJSTokenType.LogicalNot, TJSTokenType.BitwiseNot, TJSTokenType.Plus,
                                             TJSTokenType.Minus, TJSTokenType.KeywordTypeof, TJSTokenType.KeywordVoid,
-                                            TJSTokenType.KeywordDelete]);
+                                            TJSTokenType.KeywordDelete]) or IsAwaitKeyword;
 
   Result := ParseUnaryExpression;
 
@@ -1996,12 +2390,19 @@ begin
 
   Advance;
 
-  const Right = ParseExponentiationExpression;
+  const Right = ParseRightOperand(Result, ParseExponentOperand);
+
   Result := TJSBinaryExpression.Create(TJSBinaryOperator.Exponent, Result, Right);
 end;
 
 function TJSParser.ParseUnaryExpression: TJSExpression;
 begin
+  if IsAwaitKeyword then
+  begin
+    Result := ParseAwaitExpression;
+    Exit;
+  end;
+
   if CheckAny([TJSTokenType.LogicalNot, TJSTokenType.BitwiseNot, TJSTokenType.Plus, TJSTokenType.Minus,
                TJSTokenType.KeywordTypeof, TJSTokenType.KeywordVoid, TJSTokenType.KeywordDelete]) then
   begin
@@ -2026,7 +2427,7 @@ begin
 
     Advance;
 
-    const Argument = ParseUnaryExpression;
+    const Argument = ParseUnaryOperand;
 
     const IsStrictIdentifierDelete = (Op = TJSUnaryOperator.Delete) and FStrictMode and
                                      (Argument is TJSIdentifier);
@@ -2087,7 +2488,7 @@ end;
 function TJSParser.ParseCallExpression: TJSExpression;
 begin
   if Check(TJSTokenType.KeywordNew) then
-    Result := ParseNewExpression
+    Result := ParseNewOperand
   else
     Result := ParseMemberExpression;
 
@@ -2107,13 +2508,12 @@ begin
     end
     else if Match(TJSTokenType.Dot) then
     begin
-      const Prop = ParseIdentifierName;
+      const Prop = ParseMemberName(Result);
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseNestedExpression;
-      Expect(TJSTokenType.RightBracket);
+      const Prop = ParseComputedMember(Result);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
     else if IsTemplateStart then
@@ -2135,7 +2535,7 @@ end;
 function TJSParser.ParseMemberExpression: TJSExpression;
 begin
   if Check(TJSTokenType.KeywordNew) then
-    Result := ParseNewExpression
+    Result := ParseNewOperand
   else
     Result := ParsePrimaryExpression;
 
@@ -2143,13 +2543,12 @@ begin
   begin
     if Match(TJSTokenType.Dot) then
     begin
-      const Prop = ParseIdentifierName;
+      const Prop = ParseMemberName(Result);
       Result := TJSMemberExpression.Create(Result, Prop, False);
     end
     else if Match(TJSTokenType.LeftBracket) then
     begin
-      const Prop = ParseNestedExpression;
-      Expect(TJSTokenType.RightBracket);
+      const Prop = ParseComputedMember(Result);
       Result := TJSMemberExpression.Create(Result, Prop, True);
     end
     else if IsTemplateStart then
@@ -2236,7 +2635,19 @@ function TJSParser.ParseNewExpression: TJSExpression;
 begin
   Expect(TJSTokenType.KeywordNew);
 
+  if Check(TJSTokenType.Dot) then
+  begin
+    Result := ParseNewTarget;
+    Exit;
+  end;
+
   const Callee = ParseMemberExpression;
+  if Callee is TJSSuperExpression then
+  begin
+    Callee.Free;
+    RaiseAtCurrentToken(NEW_SUPER_MESSAGE);
+  end;
+
   const NewExpr = TJSNewExpression.Create(Callee);
 
   if Check(TJSTokenType.LeftParen) then
@@ -2257,11 +2668,14 @@ begin
   case CurrentToken.TokenType of
     TJSTokenType.Identifier:
       begin
+        if StartsAsyncFunction then
+        begin
+          Result := ParseFunctionExpression(ASYNC_FUNCTION);
+          Exit;
+        end;
+
         const Name = CurrentToken.Value;
         CheckStrictModeReservedWord(Name);
-
-        if Name = SUPER_NAME then
-          raise TJSErrorFactory.UnexpectedToken(Name, CurrentToken.Line, CurrentToken.Column);
 
         if Name = EVAL_NAME then
           Inc(FClosureCount);
@@ -2349,6 +2763,12 @@ begin
 
     TJSTokenType.KeywordFunction:
       Exit(ParseFunctionExpression);
+
+    TJSTokenType.KeywordClass:
+      Result := ParseClass(NAME_OPTIONAL);
+
+    TJSTokenType.KeywordSuper:
+      Result := ParseSuperExpression;
 
     else
       raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
@@ -2441,12 +2861,22 @@ begin
     Exit(ParseAccessorProperty);
 
   const MemberStart = CurrentToken.StartOffset;
-  const KeyIsIdentifier = Check(TJSTokenType.Identifier);
+  const IsAsync = StartsAsyncModifier;
+  if IsAsync then
+    Advance;
+
+  const IsGenerator = Match(TJSTokenType.Multiply);
+  RejectAsyncGenerator(IsGenerator, IsAsync);
+
+  const KeyIsIdentifier = (Check(TJSTokenType.Identifier) and (not IsGenerator) and (not IsAsync));
   const KeyText = CurrentToken.Value;
 
   var Computed: Boolean;
   const Key = ParsePropertyKey(Computed);
   try
+    if (IsGenerator or IsAsync) and (not Check(TJSTokenType.LeftParen)) then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
     if Match(TJSTokenType.Colon) then
     begin
       FInLiteralElement := True;
@@ -2457,7 +2887,7 @@ begin
 
     if Check(TJSTokenType.LeftParen) then
     begin
-      Result := ParseMethodProperty(Key, Computed, MemberStart);
+      Result := ParseMethodProperty(Key, Computed, MemberStart, IsGenerator, IsAsync);
       Exit;
     end;
 
@@ -2509,19 +2939,26 @@ begin
 end;
 
 function TJSParser.ParseMethodProperty(const Key: TJSExpression; const Computed: Boolean;
-                                       const SourceStart: Integer): TJSObjectProperty;
+                                       const SourceStart: Integer; const IsGenerator: Boolean;
+                                       const IsAsync: Boolean): TJSObjectProperty;
 begin
-  const Func = TJSFunctionExpression.Create;
-  try
-    ParseFunctionSignatureAndBody(Func);
-    RejectDuplicateParameters(Func.Params);
-    Func.SourceText := SourceTextFrom(SourceStart);
-  except
-    Func.Free;
-    raise;
-  end;
+  const Func = ParseMethodFunction(TJSFunctionContext.Method, IsGenerator, IsAsync, SourceStart);
 
   Result := TJSObjectProperty.Create(Key, Func, Computed, TJSPropertyKind.Method);
+end;
+
+function TJSParser.ParseMethodFunction(const Context: TJSFunctionContext; const IsGenerator: Boolean;
+                                       const IsAsync: Boolean; const SourceStart: Integer): TJSFunctionExpression;
+begin
+  Result := TJSFunctionExpression.Create;
+  try
+    ParseFunctionSignatureAndBody(Result, Context, IsGenerator, IsAsync);
+    RejectDuplicateParameters(Result.Params);
+    Result.SourceText := SourceTextFrom(SourceStart);
+  except
+    Result.Free;
+    raise;
+  end;
 end;
 
 function TJSParser.StartsAccessorProperty: Boolean;
@@ -2592,7 +3029,8 @@ begin
   end;
 end;
 
-function TJSParser.ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer): TJSFunctionExpression;
+function TJSParser.ParseAccessorFunction(const Kind: TJSPropertyKind; const SourceStart: Integer;
+                                         const Context: TJSFunctionContext): TJSFunctionExpression;
 begin
   Result := TJSFunctionExpression.Create;
 
@@ -2600,7 +3038,7 @@ begin
     const AccessorLine = CurrentToken.Line;
     const AccessorColumn = CurrentToken.Column;
 
-    ParseFunctionSignatureAndBody(Result);
+    ParseFunctionSignatureAndBody(Result, Context);
 
     const ExpectedParamCount = Ord(Kind = TJSPropertyKind.Setter);
     const HasRest = Assigned(Result.ParameterInfo) and Assigned(Result.ParameterInfo.Rest);
@@ -2615,23 +3053,58 @@ begin
   end;
 end;
 
-function TJSParser.ParseFunctionExpression: TJSFunctionExpression;
+function TJSParser.ParseClassDeclaration: TJSVariableDeclaration;
+begin
+  const ClassNode = ParseClass(NAME_REQUIRED);
+  const ClassId = TJSIdentifier.Create(ClassNode.Id.Name);
+  const Declarator = TJSVariableDeclarator.Create(ClassId, ClassNode);
+
+  Result := TJSVariableDeclaration.Create;
+  Result.Kind := TJSDeclarationKind.Let;
+  Result.Declarations.Add(Declarator);
+  FScopes.AddDeclaration(Result);
+end;
+
+function TJSParser.ParseClass(const RequireName: Boolean): TJSClassExpression;
 begin
   const SourceStart = CurrentToken.StartOffset;
-  Expect(TJSTokenType.KeywordFunction);
+  Expect(TJSTokenType.KeywordClass);
+  EnterNesting;
 
-  Result := TJSFunctionExpression.Create;
-
+  const OuterStrictMode = FStrictMode;
+  FStrictMode := True;
   try
-    if Check(TJSTokenType.Identifier) then
+    Result := ParseClassDefinition(RequireName, SourceStart);
+  finally
+    FStrictMode := OuterStrictMode;
+    LeaveNesting;
+  end;
+end;
+
+function TJSParser.ParseClassDefinition(const RequireName: Boolean; const SourceStart: Integer): TJSClassExpression;
+begin
+  Result := TJSClassExpression.Create;
+  try
+    const HasName = Check(TJSTokenType.Identifier);
+    const IsMissingName = (RequireName and (not HasName));
+    if IsMissingName then
+      raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+    if HasName then
     begin
-      const FuncName = CurrentToken.Value;
-      CheckStrictModeReservedWord(FuncName);
+      const ClassName = CurrentToken.Value;
+      CheckLexicalBindingName(ClassName);
+
+      if RequireName then
+        DeclareClassName(ClassName);
+
+      Result.Id := TJSIdentifier.Create(ClassName);
       Advance;
-      Result.Id := TJSIdentifier.Create(FuncName);
     end;
 
-    ParseFunctionSignatureAndBody(Result);
+    Inc(FClosureCount);
+    ParseClassHeritage(Result);
+    ParseClassBody(Result);
     Result.SourceText := SourceTextFrom(SourceStart);
   except
     Result.Free;
@@ -2639,15 +3112,293 @@ begin
   end;
 end;
 
-procedure TJSParser.ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression);
+procedure TJSParser.DeclareClassName(const ClassName: string);
+begin
+  const IsFunction = False;
+  const AllowFunctionDuplicate = False;
+  DeclareLexicalName(ClassName, IsFunction, AllowFunctionDuplicate);
+end;
+
+procedure TJSParser.ParseClassHeritage(const Target: TJSClassExpression);
+begin
+  if Match(TJSTokenType.KeywordExtends) then
+    Target.SuperClass := ParseCallExpression;
+end;
+
+procedure TJSParser.ParseClassBody(const Target: TJSClassExpression);
+begin
+  Expect(TJSTokenType.LeftBrace);
+
+  while not Check(TJSTokenType.RightBrace) do
+  begin
+    ParseClassMember(Target);
+  end;
+
+  Expect(TJSTokenType.RightBrace);
+end;
+
+function TJSParser.StartsStaticModifier: Boolean;
+begin
+  const IsStaticWord = (CurrentToken.IsIdentifierNamed(STATIC_NAME) and (not CurrentToken.HasEscape));
+  if not IsStaticWord then
+    Exit(False);
+
+  const FollowingToken = FLexer.PeekToken(1);
+  const FollowingType = FollowingToken.TokenType;
+  Result := not (FollowingType in [TJSTokenType.LeftParen, TJSTokenType.Assign, TJSTokenType.Semicolon,
+                                   TJSTokenType.RightBrace]);
+end;
+
+function TJSParser.ParseClassMemberKind(const HasModifier: Boolean): TJSPropertyKind;
+begin
+  const IsAccessor = ((not HasModifier) and StartsAccessorProperty);
+  if not IsAccessor then
+    Exit(TJSPropertyKind.Method);
+
+  const IsSetter = (CurrentToken.Value = KEYWORD_SET);
+  if IsSetter then
+    Result := TJSPropertyKind.Setter
+  else
+    Result := TJSPropertyKind.Getter;
+
+  Advance;
+end;
+
+function TJSParser.ClassMemberKeyText(const Key: TJSExpression; const Computed: Boolean): string;
+begin
+  Result := '';
+
+  if Computed then
+    Exit;
+
+  if Key is TJSIdentifier then
+  begin
+    Result := TJSIdentifier(Key).Name;
+    Exit;
+  end;
+
+  const IsStringKey = (Key is TJSLiteral) and (TJSLiteral(Key).LiteralType = TJSLiteralType.String_);
+  if IsStringKey then
+    Result := TJSLiteral(Key).StringValue;
+end;
+
+procedure TJSParser.ParseClassMember(const Target: TJSClassExpression);
+begin
+  if Match(TJSTokenType.Semicolon) then
+    Exit;
+
+  var Head := Default(TJSClassMemberHead);
+  Head.IsStatic := StartsStaticModifier;
+  if Head.IsStatic then
+    Advance;
+
+  Head.SourceStart := CurrentToken.StartOffset;
+  Head.IsAsync := StartsAsyncModifier;
+  if Head.IsAsync then
+    Advance;
+
+  Head.IsGenerator := Match(TJSTokenType.Multiply);
+  RejectAsyncGenerator(Head.IsGenerator, Head.IsAsync);
+
+  const HasModifier = (Head.IsGenerator or Head.IsAsync);
+  Head.Kind := ParseClassMemberKind(HasModifier);
+
+  const Key = ParsePropertyKey(Head.Computed);
+  Head.KeyText := ClassMemberKeyText(Key, Head.Computed);
+
+  var Func: TJSFunctionExpression;
+  try
+    ValidateClassMember(Target, Head);
+    Func := ParseClassMemberFunction(Target, Head);
+  except
+    Key.Free;
+    raise;
+  end;
+
+  AddClassMember(Target, Key, Func, Head);
+end;
+
+procedure TJSParser.ValidateClassMember(const Target: TJSClassExpression; const Head: TJSClassMemberHead);
+begin
+  const IsField = (not Check(TJSTokenType.LeftParen));
+  if IsField then
+    RaiseAtCurrentToken(CLASS_FIELD_MESSAGE);
+
+  ValidateClassMemberName(Target, Head);
+
+  const IsSpecialConstructor = (Head.IsConstructor and (Head.IsGenerator or Head.IsAsync));
+  if IsSpecialConstructor then
+    RaiseAtCurrentToken(CONSTRUCTOR_NOT_PLAIN_MESSAGE);
+end;
+
+procedure TJSParser.ValidateClassMemberName(const Target: TJSClassExpression; const Head: TJSClassMemberHead);
+begin
+  const IsPlainMethod = (Head.Kind = TJSPropertyKind.Method);
+  const IsSpecialConstructor = (Head.IsConstructor and (not IsPlainMethod));
+  if IsSpecialConstructor then
+    RaiseAtCurrentToken(SPECIAL_CONSTRUCTOR_MESSAGE);
+
+  const IsDuplicateConstructor = (Head.IsConstructor and Assigned(Target.Constructor_));
+  if IsDuplicateConstructor then
+    RaiseAtCurrentToken(DUPLICATE_CONSTRUCTOR_MESSAGE);
+
+  const IsStaticPrototype = (Head.IsStatic and (Head.KeyText = PROTOTYPE_NAME));
+  if IsStaticPrototype then
+    RaiseAtCurrentToken(STATIC_PROTOTYPE_MESSAGE);
+end;
+
+class function TJSParser.ClassFunctionContext(const IsConstructor: Boolean;
+                                              const HasSuperClass: Boolean): TJSFunctionContext;
+begin
+  const IsDerivedConstructor = (IsConstructor and HasSuperClass);
+  if IsDerivedConstructor then
+    Result := TJSFunctionContext.DerivedConstructor
+  else
+    Result := TJSFunctionContext.Method;
+end;
+
+function TJSParser.ParseClassMemberFunction(const Target: TJSClassExpression;
+                                            const Head: TJSClassMemberHead): TJSFunctionExpression;
+begin
+  const IsAccessor = (Head.Kind <> TJSPropertyKind.Method);
+  if IsAccessor then
+  begin
+    Result := ParseAccessorFunction(Head.Kind, Head.SourceStart);
+    Exit;
+  end;
+
+  const HasSuperClass = Assigned(Target.SuperClass);
+  const Context = ClassFunctionContext(Head.IsConstructor, HasSuperClass);
+
+  Result := ParseMethodFunction(Context, Head.IsGenerator, Head.IsAsync, Head.SourceStart);
+end;
+
+procedure TJSParser.AddClassMember(const Target: TJSClassExpression; const Key: TJSExpression;
+                                   const Func: TJSFunctionExpression; const Head: TJSClassMemberHead);
+begin
+  if Head.IsConstructor then
+  begin
+    Target.Constructor_ := Func;
+    Key.Free;
+    Exit;
+  end;
+
+  const Member = TJSClassMember.Create(Key, Func, Head.Computed, Head.IsStatic, Head.Kind);
+  Target.Members.Add(Member);
+end;
+
+function TJSParser.ParseSuperExpression: TJSExpression;
+begin
+  const Line = CurrentToken.Line;
+  const Column = CurrentToken.Column;
+  Expect(TJSTokenType.KeywordSuper);
+
+  var IsAllowed: Boolean;
+  case CurrentToken.TokenType of
+    TJSTokenType.LeftParen:
+      IsAllowed := FContext.AllowSuperCall;
+    TJSTokenType.Dot,
+    TJSTokenType.LeftBracket:
+      IsAllowed := FContext.AllowSuperProperty;
+  else
+    IsAllowed := False;
+  end;
+
+  if not IsAllowed then
+    raise TJSErrorFactory.SyntaxError(SUPER_OUTSIDE_METHOD_MESSAGE, Line, Column);
+
+  Result := TJSSuperExpression.Create;
+end;
+
+function TJSParser.ParseNewTarget: TJSExpression;
+begin
+  const Line = CurrentToken.Line;
+  const Column = CurrentToken.Column;
+  Expect(TJSTokenType.Dot);
+
+  const IsTargetName = (CurrentToken.IsIdentifierNamed(TARGET_NAME) and (not CurrentToken.HasEscape));
+  if not IsTargetName then
+    raise TJSErrorFactory.UnexpectedToken(CurrentToken.Value, CurrentToken.Line, CurrentToken.Column);
+
+  if not FContext.AllowNewTarget then
+    raise TJSErrorFactory.SyntaxError(NEW_TARGET_OUTSIDE_FUNCTION_MESSAGE, Line, Column);
+
+  Advance;
+  Result := TJSNewTargetExpression.Create;
+end;
+
+function TJSParser.ParseFunctionExpression(const IsAsync: Boolean): TJSFunctionExpression;
+begin
+  const SourceStart = CurrentToken.StartOffset;
+  if IsAsync then
+    Advance;
+
+  Expect(TJSTokenType.KeywordFunction);
+
+  const IsGenerator = Match(TJSTokenType.Multiply);
+  RejectAsyncGenerator(IsGenerator, IsAsync);
+
+  Result := TJSFunctionExpression.Create;
+
+  try
+    if Check(TJSTokenType.Identifier) then
+    begin
+      const FuncName = CurrentToken.Value;
+      CheckFunctionExpressionName(FuncName, IsGenerator, IsAsync);
+
+      Advance;
+      Result.Id := TJSIdentifier.Create(FuncName);
+    end;
+
+    ParseFunctionSignatureAndBody(Result, TJSFunctionContext.Ordinary, IsGenerator, IsAsync);
+    Result.SourceText := SourceTextFrom(SourceStart);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TJSParser.CheckFunctionExpressionName(const FuncName: string; const IsGenerator: Boolean;
+                                                const IsAsync: Boolean);
+begin
+  const OuterState = SaveFunctionState;
+  FInGenerator := IsGenerator;
+  FInAsync := IsAsync;
+  try
+    CheckStrictModeReservedWord(FuncName);
+  finally
+    RestoreFunctionState(OuterState);
+  end;
+end;
+
+procedure TJSParser.ParseFunctionSignatureAndBody(const Func: TJSFunctionExpression;
+                                                  const Context: TJSFunctionContext;
+                                                  const IsGenerator: Boolean; const IsAsync: Boolean);
+begin
+  const OuterState = SaveFunctionState;
+  EnterFunction(Context, IsGenerator, IsAsync);
+  Func.IsGenerator := IsGenerator;
+  Func.IsAsync := IsAsync;
+  try
+    ParseSignatureAndBodyInContext(Func, IsGenerator, IsAsync);
+  finally
+    RestoreFunctionState(OuterState);
+  end;
+end;
+
+procedure TJSParser.ParseSignatureAndBodyInContext(const Func: TJSFunctionExpression; const IsGenerator: Boolean;
+                                                   const IsAsync: Boolean);
 begin
   Func.ParameterInfo := ParseFormalParameters(Func.Params);
+  FYieldForbidden := False;
+  FAwaitForbidden := False;
 
   Inc(FClosureCount);
 
   const OldStrictMode = FStrictMode;
   const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
   Func.Body := Body;
+  MarkSuspendableBody(Body, IsGenerator, IsAsync);
 
   if Body.DeclaresStrictMode then
   begin
@@ -2661,6 +3412,186 @@ begin
 
   CheckStrictFunctionHeader(FuncName, Func.Params, Func.ParameterInfo);
   FStrictMode := OldStrictMode;
+end;
+
+function TJSParser.IsYieldKeyword: Boolean;
+begin
+  Result := (FInGenerator and CurrentToken.IsIdentifierNamed(YIELD_NAME));
+end;
+
+function TJSParser.StartsYieldOperand: Boolean;
+begin
+  const HasLineBreak = CurrentToken.LineTerminatorBefore;
+  if HasLineBreak then
+    Exit(False);
+
+  const EndsExpression = CheckAny([TJSTokenType.RightParen, TJSTokenType.RightBracket, TJSTokenType.RightBrace,
+                                   TJSTokenType.Comma, TJSTokenType.Semicolon, TJSTokenType.Colon,
+                                   TJSTokenType.EndOfFile, TJSTokenType.KeywordIn]);
+  const ContinuesTemplate = (Check(TJSTokenType.TemplateChunk) and (not CurrentToken.IsTemplateHead));
+  Result := not (EndsExpression or ContinuesTemplate);
+end;
+
+function TJSParser.ParseYieldExpression: TJSExpression;
+begin
+  const YieldToken = CurrentToken;
+  if FYieldForbidden then
+    raise TJSErrorFactory.SyntaxError(YIELD_IN_PARAMETERS_MESSAGE, YieldToken.Line, YieldToken.Column);
+
+  if YieldToken.HasEscape then
+    raise TJSErrorFactory.SyntaxError(YIELD_ESCAPE_MESSAGE, YieldToken.Line, YieldToken.Column);
+
+  Advance;
+
+  var IsDelegate := False;
+  var Argument: TJSExpression := nil;
+
+  const HasLineBreak = CurrentToken.LineTerminatorBefore;
+  if (not HasLineBreak) and Match(TJSTokenType.Multiply) then
+  begin
+    IsDelegate := True;
+    Argument := ParseAssignmentOperand;
+  end
+  else if StartsYieldOperand then
+  begin
+    Argument := ParseAssignmentOperand;
+  end;
+
+  Result := TJSYieldExpression.Create(Argument, IsDelegate);
+  Result.Line := YieldToken.Line;
+  Result.Column := YieldToken.Column;
+end;
+
+procedure TJSParser.MarkSuspendableBody(const Body: TJSBlockStatement; const IsGenerator: Boolean;
+                                      const IsAsync: Boolean);
+begin
+  if not (IsGenerator or IsAsync) then
+    Exit;
+
+  Body.IsGeneratorBody := IsGenerator;
+  Body.IsAsyncBody := IsAsync;
+  TJSSuspensionAnalysis.Mark(Body);
+end;
+
+function TJSParser.IsAwaitKeyword: Boolean;
+begin
+  Result := (FInAsync and CurrentToken.IsIdentifierNamed(AWAIT_NAME));
+end;
+
+function TJSParser.ParseAwaitExpression: TJSExpression;
+begin
+  const AwaitToken = CurrentToken;
+  if FAwaitForbidden then
+    raise TJSErrorFactory.SyntaxError(AWAIT_IN_PARAMETERS_MESSAGE, AwaitToken.Line, AwaitToken.Column);
+
+  if AwaitToken.HasEscape then
+    raise TJSErrorFactory.SyntaxError(AWAIT_ESCAPE_MESSAGE, AwaitToken.Line, AwaitToken.Column);
+
+  Advance;
+
+  const Argument = ParseUnaryOperand;
+  Result := TJSAwaitExpression.Create(Argument);
+  Result.Line := AwaitToken.Line;
+  Result.Column := AwaitToken.Column;
+end;
+
+function TJSParser.IsAsyncWord: Boolean;
+begin
+  Result := (CurrentToken.IsIdentifierNamed(ASYNC_NAME) and (not CurrentToken.HasEscape));
+end;
+
+function TJSParser.StartsAsyncModifier: Boolean;
+begin
+  if not IsAsyncWord then
+    Exit(False);
+
+  const NextToken = FLexer.PeekToken(1);
+  const EndsMemberName = (NextToken.TokenType in [TJSTokenType.LeftParen, TJSTokenType.Colon, TJSTokenType.Comma,
+                                                  TJSTokenType.RightBrace, TJSTokenType.Assign,
+                                                  TJSTokenType.Semicolon]);
+  Result := (not EndsMemberName) and (not NextToken.LineTerminatorBefore);
+end;
+
+function TJSParser.StartsAsyncFunction: Boolean;
+begin
+  if not IsAsyncWord then
+    Exit(False);
+
+  const NextToken = FLexer.PeekToken(1);
+  Result := (NextToken.TokenType = TJSTokenType.KeywordFunction) and (not NextToken.LineTerminatorBefore);
+end;
+
+function TJSParser.StartsAsyncArrowFunction: Boolean;
+begin
+  if not IsAsyncWord then
+    Exit(False);
+
+  const NextToken = FLexer.PeekToken(1);
+  if NextToken.LineTerminatorBefore then
+    Exit(False);
+
+  const IsSingleParameter = (NextToken.TokenType = TJSTokenType.Identifier);
+  if IsSingleParameter then
+  begin
+    const ThirdToken = FLexer.PeekToken(2);
+    Result := (ThirdToken.TokenType = TJSTokenType.Arrow);
+    Exit;
+  end;
+
+  const StartsParameterList = (NextToken.TokenType = TJSTokenType.LeftParen);
+  if not StartsParameterList then
+    Exit(False);
+
+  const ClosingOffset = FindClosingParenthesisOffset(1);
+  const HasClosingParenthesis = (ClosingOffset >= 0);
+  if not HasClosingParenthesis then
+    Exit(False);
+
+  const TokenAfterParameters = FLexer.PeekToken(ClosingOffset + 1);
+  Result := (TokenAfterParameters.TokenType = TJSTokenType.Arrow);
+end;
+
+function TJSParser.SaveFunctionState: TJSFunctionState;
+begin
+  Result.Context := FContext;
+  Result.InGenerator := FInGenerator;
+  Result.YieldForbidden := FYieldForbidden;
+  Result.InAsync := FInAsync;
+  Result.AwaitForbidden := FAwaitForbidden;
+end;
+
+procedure TJSParser.RestoreFunctionState(const State: TJSFunctionState);
+begin
+  FContext := State.Context;
+  FInGenerator := State.InGenerator;
+  FYieldForbidden := State.YieldForbidden;
+  FInAsync := State.InAsync;
+  FAwaitForbidden := State.AwaitForbidden;
+end;
+
+procedure TJSParser.EnterFunction(const Context: TJSFunctionContext; const IsGenerator: Boolean;
+                                  const IsAsync: Boolean);
+begin
+  FContext.AllowNewTarget := True;
+  FContext.AllowSuperProperty := (Context <> TJSFunctionContext.Ordinary);
+  FContext.AllowSuperCall := (Context = TJSFunctionContext.DerivedConstructor);
+
+  FInGenerator := IsGenerator;
+  FYieldForbidden := IsGenerator;
+  FInAsync := IsAsync;
+  FAwaitForbidden := IsAsync;
+end;
+
+procedure TJSParser.RaiseAtCurrentToken(const Message: string);
+begin
+  raise TJSErrorFactory.SyntaxError(Message, CurrentToken.Line, CurrentToken.Column);
+end;
+
+procedure TJSParser.RejectAsyncGenerator(const IsGenerator: Boolean; const IsAsync: Boolean);
+begin
+  const IsAsyncGenerator = (IsGenerator and IsAsync);
+  if IsAsyncGenerator then
+    RaiseAtCurrentToken(ASYNC_GENERATOR_MESSAGE);
 end;
 
 function TJSParser.ParseFormalParameters(const Params: TObjectList<TJSIdentifier>): TJSParameterInfo;
@@ -2814,10 +3745,10 @@ begin
   Result := (TokenType = TJSTokenType.Assign) or (TokenType = TJSTokenType.Ellipsis);
 end;
 
-function TJSParser.FindClosingParenthesisOffset: Integer;
+function TJSParser.FindClosingParenthesisOffset(const StartOffset: Integer): Integer;
 begin
   var Depth := 0;
-  var Offset := 0;
+  var Offset := StartOffset;
 
   while True do
   begin
@@ -2889,11 +3820,15 @@ begin
   Result := (FLexer.PeekToken(ClosingOffset + 1).TokenType = TJSTokenType.Arrow);
 end;
 
-function TJSParser.ParseArrowFunction: TJSFunctionExpression;
+function TJSParser.ParseArrowFunction(const IsAsync: Boolean): TJSFunctionExpression;
 begin
   const SourceStart = CurrentToken.StartOffset;
+  if IsAsync then
+    Advance;
+
   Result := TJSFunctionExpression.Create;
   Result.IsArrow := True;
+  Result.IsAsync := IsAsync;
 
   try
     ParseArrowParameters(Result);
@@ -2915,14 +3850,23 @@ end;
 
 procedure TJSParser.ParseArrowParameters(const Func: TJSFunctionExpression);
 begin
-  const IsParenthesized = Check(TJSTokenType.LeftParen);
-  if not IsParenthesized then
-  begin
-    ParseArrowParameter(Func);
-    Exit;
+  const OuterState = SaveFunctionState;
+  FInAsync := (FInAsync or Func.IsAsync);
+  FAwaitForbidden := FInAsync;
+  try
+    const IsParenthesized = Check(TJSTokenType.LeftParen);
+    if not IsParenthesized then
+    begin
+      ParseArrowParameter(Func);
+      Exit;
+    end;
+
+    FYieldForbidden := FInGenerator;
+    Func.ParameterInfo := ParseFormalParameters(Func.Params);
+  finally
+    RestoreFunctionState(OuterState);
   end;
 
-  Func.ParameterInfo := ParseFormalParameters(Func.Params);
   RejectDuplicateArrowParameters(Func.Params);
 end;
 
@@ -2942,27 +3886,43 @@ end;
 procedure TJSParser.ParseArrowBody(const Func: TJSFunctionExpression);
 begin
   const OldStrictMode = FStrictMode;
+  const OuterState = SaveFunctionState;
+  FInGenerator := False;
+  FInAsync := Func.IsAsync;
+  FAwaitForbidden := False;
+  try
+    const HasBlockBody = Check(TJSTokenType.LeftBrace);
+    if HasBlockBody then
+      ParseArrowBlockBody(Func)
+    else
+      ParseArrowConciseBody(Func);
 
-  if Check(TJSTokenType.LeftBrace) then
-  begin
-    const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
-    Func.Body := Body;
-
-    if Body.DeclaresStrictMode then
-    begin
-      Func.IsStrict := True;
-      FStrictMode := True;
-    end;
-  end
-  else
-  begin
-    const Body = ParseConciseBody;
-    Body.ParameterInfo := Func.ParameterInfo;
-    Func.Body := Body;
+    CheckStrictFunctionHeader('', Func.Params, Func.ParameterInfo);
+  finally
+    FStrictMode := OldStrictMode;
+    RestoreFunctionState(OuterState);
   end;
+end;
 
-  CheckStrictFunctionHeader('', Func.Params, Func.ParameterInfo);
-  FStrictMode := OldStrictMode;
+procedure TJSParser.ParseArrowBlockBody(const Func: TJSFunctionExpression);
+begin
+  const Body = ParseFunctionBodyBlock(Func.Params, Func.ParameterInfo);
+  Func.Body := Body;
+  MarkSuspendableBody(Body, NOT_A_GENERATOR, Func.IsAsync);
+
+  if Body.DeclaresStrictMode then
+  begin
+    Func.IsStrict := True;
+    FStrictMode := True;
+  end;
+end;
+
+procedure TJSParser.ParseArrowConciseBody(const Func: TJSFunctionExpression);
+begin
+  const Body = ParseConciseBody;
+  Body.ParameterInfo := Func.ParameterInfo;
+  Func.Body := Body;
+  MarkSuspendableBody(Body, NOT_A_GENERATOR, Func.IsAsync);
 end;
 
 function TJSParser.ParseConciseBody: TJSBlockStatement;
@@ -2971,7 +3931,7 @@ begin
   Result.IsFunctionBody := True;
 
   try
-    const Argument = ParseAssignmentExpression;
+    const Argument = ParseAssignmentOperand;
     const ReturnStatement = TJSReturnStatement.Create(Argument);
     Result.Body.Add(ReturnStatement);
   except
@@ -3055,13 +4015,23 @@ end;
 
 function TJSParser.ParseBindingTarget(const Kind: TJSBindingKind): TJSExpression;
 begin
-  if Check(TJSTokenType.LeftBracket) then
-    Exit(ParseArrayBindingPattern(Kind));
+  const IsArrayPattern = Check(TJSTokenType.LeftBracket);
+  const IsPattern = (IsArrayPattern or Check(TJSTokenType.LeftBrace));
+  if not IsPattern then
+  begin
+    Result := ParseBindingIdentifier(Kind);
+    Exit;
+  end;
 
-  if Check(TJSTokenType.LeftBrace) then
-    Exit(ParseObjectBindingPattern(Kind));
-
-  Result := ParseBindingIdentifier(Kind);
+  EnterNesting;
+  try
+    if IsArrayPattern then
+      Result := ParseArrayBindingPattern(Kind)
+    else
+      Result := ParseObjectBindingPattern(Kind);
+  finally
+    LeaveNesting;
+  end;
 end;
 
 function TJSParser.ParseBindingElement(const Kind: TJSBindingKind): TJSExpression;
@@ -3488,7 +4458,7 @@ function TJSParser.IsStrictModeReservedWord(const Name: string): Boolean;
 begin
   Result := ((Name = 'implements') or (Name = 'interface') or (Name = 'let') or
              (Name = 'package') or (Name = 'private') or (Name = 'protected') or
-             (Name = 'public') or (Name = 'static') or (Name = 'yield'));
+             (Name = 'public') or (Name = 'static') or (Name = YIELD_NAME));
 end;
 
 procedure TJSParser.CheckStrictModeReservedWord(const Name: string);
@@ -3496,6 +4466,14 @@ begin
   if FStrictMode and IsStrictModeReservedWord(Name) then
     raise TJSErrorFactory.SyntaxError('Use of future reserved word in strict mode: ' + Name,
       CurrentToken.Line, CurrentToken.Column);
+
+  const IsYieldInGenerator = (FInGenerator and (Name = YIELD_NAME));
+  if IsYieldInGenerator then
+    RaiseAtCurrentToken(YIELD_IDENTIFIER_MESSAGE);
+
+  const IsAwaitInAsync = (FInAsync and (Name = AWAIT_NAME));
+  if IsAwaitInAsync then
+    RaiseAtCurrentToken(AWAIT_IDENTIFIER_MESSAGE);
 end;
 
 function TJSParser.IsRestrictedStrictName(const Name: string): Boolean;

@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type
@@ -27,8 +28,8 @@ type
     class function IsCallable(const Value: TJSValue): Boolean; static;
     class function AsFunction(const Value: TJSValue): IJSFunction; static;
     class function IsRegExp(const Value: TJSValue): Boolean; static;
-    class function FindMethod(const Source: TJSValue; const Key: string): IJSFunction; static;
-    class procedure PutProperty(const Target: IJSObject; const Key: string; const Value: TJSValue); static;
+    class function FindMethod(const Source: TJSValue; const Key: TJSPropertyKey): IJSFunction; static;
+    class procedure PutProperty(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue); static;
   end;
 
 implementation
@@ -105,7 +106,7 @@ begin
   Result := Supports(Value.ToObject, IJSRegExp);
 end;
 
-class function TJSConversions.FindMethod(const Source: TJSValue; const Key: string): IJSFunction;
+class function TJSConversions.FindMethod(const Source: TJSValue; const Key: TJSPropertyKey): IJSFunction;
 begin
   const Method = Source.ToObject.GetProperty(Key);
   if Method.IsNullOrUndefined then
@@ -113,13 +114,13 @@ begin
 
   Result := AsFunction(Method);
   if not Assigned(Result) then
-    raise TJSErrorFactory.TypeError(Format(NOT_CALLABLE, [Key]));
+    raise TJSErrorFactory.TypeError(Format(NOT_CALLABLE, [Key.Text]));
 end;
 
-class procedure TJSConversions.PutProperty(const Target: IJSObject; const Key: string; const Value: TJSValue);
+class procedure TJSConversions.PutProperty(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
 begin
   if not TJSPropertyDescriptors.CanPut(Target, Key) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Key]));
+    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [Key.Text]));
 
   Target.SetProperty(Key, Value);
 end;

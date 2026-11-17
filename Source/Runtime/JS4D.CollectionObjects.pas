@@ -7,7 +7,9 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.ObjectHeap,
   JS4D.Types,
+  JS4D.ObjectRegistry,
   JS4D.IteratorProtocol,
   JS4D.OrderedStore;
 
@@ -31,39 +33,26 @@ type
     property SourceKind: TJSCollectionKind read GetSourceKind;
   end;
 
-  TJSCollectionRegistry = class;
-
   // A Map, Set, WeakMap or WeakSet. Weak collections hold their keys strongly: the registry empties every
   // collection when its engine goes away, so entries cannot keep objects alive past the engine.
-  TJSCollectionObject = class(TJSObjectImpl, IJSCollection)
+  TJSCollectionObject = class(TJSRegisteredObject, IJSCollection)
   private
     FKind: TJSCollectionKind;
     FStore: TJSOrderedStore;
-    FRegistry: TJSCollectionRegistry;
-    FRegistryIndex: Integer;
 
     function GetKind: TJSCollectionKind;
     function GetStore: TJSOrderedStore;
 
-  public
-    constructor Create(const Kind: TJSCollectionKind; const Registry: TJSCollectionRegistry);
-    destructor Destroy; override;
-  end;
-
-  // Remembers every live collection of one engine, so that cycles through collections (a map that contains
-  // itself) can be broken when the engine is freed.
-  TJSCollectionRegistry = class
-  private
-    FCollections: TList<TJSCollectionObject>;
-
-    procedure Add(const Collection: TJSCollectionObject);
-    procedure Remove(const Collection: TJSCollectionObject);
+  protected
+    procedure ReleaseReferences; override;
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
 
   public
-    constructor Create;
+    constructor Create(const Kind: TJSCollectionKind; const Registry: TJSObjectRegistry);
     destructor Destroy; override;
 
-    procedure ClearAll;
+    procedure ReleaseHeldValues; override;
   end;
 
   TJSCollectionIterator = class(TJSObjectImpl, IJSCollectionIterator)
@@ -78,7 +67,13 @@ type
     function GetSourceKind: TJSCollectionKind;
     function CreateEntry(const Key: TJSValue; const Value: TJSValue): TJSValue;
     function Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
-    procedure Finish;
+    procedure ReleaseCollection;
+
+  protected
+    procedure EnumerateHeapReferences(const Visit: TJSHeapVisitor); override;
+    procedure ReleaseReferences; override;
+    function HoldsNested: Boolean; override;
+    procedure DetachNested(const Pending: TList<IJSObject>); override;
 
   public
     constructor Create(const Collection: IJSCollection; const Kind: TJSCollectionIterationKind;
@@ -92,23 +87,44 @@ implementation
 
 { TJSCollectionObject }
 
-constructor TJSCollectionObject.Create(const Kind: TJSCollectionKind; const Registry: TJSCollectionRegistry);
+constructor TJSCollectionObject.Create(const Kind: TJSCollectionKind; const Registry: TJSObjectRegistry);
 begin
-  inherited Create;
+  inherited Create(Registry);
 
   FKind := Kind;
   FStore := TJSOrderedStore.Create;
-  FRegistry := Registry;
-  FRegistry.Add(Self);
 end;
 
 destructor TJSCollectionObject.Destroy;
 begin
-  if Assigned(FRegistry) then
-    FRegistry.Remove(Self);
-
-  FStore.Free;
+  ReleaseNested;
+  FreeAndNil(FStore);
   inherited;
+end;
+
+procedure TJSCollectionObject.ReleaseHeldValues;
+begin
+  FStore.Clear;
+end;
+
+procedure TJSCollectionObject.ReleaseReferences;
+begin
+  ReleaseNested;
+  FStore.Clear;
+  inherited;
+end;
+
+function TJSCollectionObject.HoldsNested: Boolean;
+begin
+  Result := (Assigned(FStore) and FStore.HoldsNestedObjects) or inherited HoldsNested;
+end;
+
+procedure TJSCollectionObject.DetachNested(const Pending: TList<IJSObject>);
+begin
+  if Assigned(FStore) then
+    FStore.DetachNestedObjects(Pending);
+
+  inherited DetachNested(Pending);
 end;
 
 function TJSCollectionObject.GetKind: TJSCollectionKind;
@@ -119,54 +135,6 @@ end;
 function TJSCollectionObject.GetStore: TJSOrderedStore;
 begin
   Result := FStore;
-end;
-
-{ TJSCollectionRegistry }
-
-constructor TJSCollectionRegistry.Create;
-begin
-  inherited Create;
-
-  FCollections := TList<TJSCollectionObject>.Create;
-end;
-
-destructor TJSCollectionRegistry.Destroy;
-begin
-  for var Collection in FCollections do
-  begin
-    Collection.FRegistry := nil;
-  end;
-
-  FCollections.Free;
-  inherited;
-end;
-
-procedure TJSCollectionRegistry.Add(const Collection: TJSCollectionObject);
-begin
-  Collection.FRegistryIndex := FCollections.Count;
-  FCollections.Add(Collection);
-end;
-
-procedure TJSCollectionRegistry.Remove(const Collection: TJSCollectionObject);
-begin
-  const LastIndex = FCollections.Count - 1;
-  const Moved = FCollections[LastIndex];
-  FCollections[Collection.FRegistryIndex] := Moved;
-  Moved.FRegistryIndex := Collection.FRegistryIndex;
-  FCollections.Delete(LastIndex);
-end;
-
-procedure TJSCollectionRegistry.ClearAll;
-begin
-  while FCollections.Count > 0 do
-  begin
-    const Collection = FCollections.Last;
-    Collection.FRegistry := nil;
-    FCollections.Delete(FCollections.Count - 1);
-
-    const Held: IJSObject = Collection;
-    Collection.FStore.Clear;
-  end;
 end;
 
 { TJSCollectionIterator }
@@ -186,8 +154,39 @@ end;
 
 destructor TJSCollectionIterator.Destroy;
 begin
+  ReleaseNested;
   FCursor.Free;
   inherited;
+end;
+
+procedure TJSCollectionIterator.EnumerateHeapReferences(const Visit: TJSHeapVisitor);
+begin
+  inherited;
+  ReportReference(Visit, FCollection);
+  ReportReference(Visit, FArrayPrototype);
+  ReportReference(Visit, FObjectPrototype);
+end;
+
+procedure TJSCollectionIterator.ReleaseReferences;
+begin
+  ReleaseCollection;
+  FArrayPrototype := nil;
+  FObjectPrototype := nil;
+  inherited;
+end;
+
+function TJSCollectionIterator.HoldsNested: Boolean;
+begin
+  Result := Assigned(FCollection) or inherited HoldsNested;
+end;
+
+procedure TJSCollectionIterator.DetachNested(const Pending: TList<IJSObject>);
+begin
+  if Assigned(FCollection) then
+    Pending.Add(FCollection);
+
+  ReleaseCollection;
+  inherited DetachNested(Pending);
 end;
 
 function TJSCollectionIterator.GetSourceKind: TJSCollectionKind;
@@ -216,7 +215,7 @@ begin
   end;
 end;
 
-procedure TJSCollectionIterator.Finish;
+procedure TJSCollectionIterator.ReleaseCollection;
 begin
   FreeAndNil(FCursor);
   FCollection := nil;
@@ -233,7 +232,7 @@ begin
     Exit(TJSIteratorResults.CreateResult(FObjectPrototype, Picked, False));
   end;
 
-  Finish;
+  ReleaseCollection;
   Result := TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True);
 end;
 

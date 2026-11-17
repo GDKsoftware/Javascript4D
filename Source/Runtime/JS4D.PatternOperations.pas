@@ -5,6 +5,7 @@ unit JS4D.PatternOperations;
 interface
 
 uses
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type

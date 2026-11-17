@@ -6,8 +6,13 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors;
+
+const
+  DONE_PROPERTY = 'done';
+  VALUE_PROPERTY = 'value';
 
 type
   // An iterator obtained through the iterator protocol. HasNext asks the iterator for its next value and
@@ -19,6 +24,7 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
   TJSIteratorRecord = class(TInterfacedObject, IJSIteratorRecord)
@@ -26,8 +32,6 @@ type
     const
       NEXT_PROPERTY = 'next';
       RETURN_PROPERTY = 'return';
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
       NEXT_NOT_CALLABLE = 'The iterator''s next method is not a function';
       RESULT_NOT_AN_OBJECT = 'The iterator result is not an object';
       RETURN_NOT_CALLABLE = 'The iterator''s return method is not a function';
@@ -51,14 +55,10 @@ type
     function Next: TJSValue;
     procedure Close;
     procedure CloseAfterThrow;
+    procedure EnumerateReferences(const Visit: TJSReferenceVisitor);
   end;
 
   TJSIteratorResults = class
-  private
-    const
-      DONE_PROPERTY = 'done';
-      VALUE_PROPERTY = 'value';
-
   public
     class function CreateResult(const ObjectPrototype: IJSObject; const Value: TJSValue;
                           const IsDone: Boolean): TJSValue; static;
@@ -124,6 +124,17 @@ begin
   Result := FPendingValue;
   FPendingValue := TJSValue.CreateUndefined;
   FHasPendingValue := False;
+end;
+
+procedure TJSIteratorRecord.EnumerateReferences(const Visit: TJSReferenceVisitor);
+begin
+  Visit(FIterator);
+
+  if FNextMethod.IsObject then
+    Visit(FNextMethod.ToObject);
+
+  if FPendingValue.IsObject then
+    Visit(FPendingValue.ToObject);
 end;
 
 function TJSIteratorRecord.FindReturnMethod: IJSFunction;

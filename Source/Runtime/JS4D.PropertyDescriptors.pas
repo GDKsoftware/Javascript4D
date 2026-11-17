@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors;
 
@@ -34,13 +35,13 @@ type
     class function ToDefinition(const Value: TJSValue): TJSPropertyDefinition; static;
     class function ToDescriptorObject(const Descriptor: TJSPropertyDescriptor;
                                       const ObjectPrototype: IJSObject): IJSObject; static;
-    class function WithCheckedLength(const Target: IJSObject; const Name: string;
+    class function WithCheckedLength(const Target: IJSObject; const Name: TJSPropertyKey;
                                      const Definition: TJSPropertyDefinition;
                                      const Limits: TJSLimits): TJSPropertyDefinition; static;
-    class procedure Define(const Target: IJSObject; const Name: string;
+    class procedure Define(const Target: IJSObject; const Name: TJSPropertyKey;
                            const Definition: TJSPropertyDefinition; const Limits: TJSLimits); static;
     class procedure DefineAll(const Target: IJSObject; const Properties: TJSValue; const Limits: TJSLimits); static;
-    class function CanPut(const Target: IJSObject; const Name: string): Boolean; static;
+    class function CanPut(const Target: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
 implementation
@@ -114,7 +115,7 @@ begin
   Result.SetProperty(ATTRIBUTE_CONFIGURABLE, TJSValue.CreateBoolean(Descriptor.Configurable));
 end;
 
-class function TJSPropertyDescriptors.WithCheckedLength(const Target: IJSObject; const Name: string;
+class function TJSPropertyDescriptors.WithCheckedLength(const Target: IJSObject; const Name: TJSPropertyKey;
                                                         const Definition: TJSPropertyDefinition;
                                                         const Limits: TJSLimits): TJSPropertyDefinition;
 begin
@@ -135,14 +136,14 @@ begin
   Limits.EnsureArrayLength(RequestedLength);
 end;
 
-class procedure TJSPropertyDescriptors.Define(const Target: IJSObject; const Name: string;
+class procedure TJSPropertyDescriptors.Define(const Target: IJSObject; const Name: TJSPropertyKey;
                                               const Definition: TJSPropertyDefinition;
                                               const Limits: TJSLimits);
 begin
   const CheckedDefinition = WithCheckedLength(Target, Name, Definition, Limits);
 
   if not Target.DefineOwnProperty(Name, CheckedDefinition) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_REDEFINE, [Name]));
+    raise TJSErrorFactory.TypeError(Format(CANNOT_REDEFINE, [Name.Text]));
 end;
 
 class procedure TJSPropertyDescriptors.DefineAll(const Target: IJSObject; const Properties: TJSValue;
@@ -155,7 +156,7 @@ begin
     Exit;
 
   const Source = Properties.ToObject;
-  var Names: TArray<string> := nil;
+  var Names: TArray<TJSPropertyKey> := nil;
   var Definitions: TArray<TJSPropertyDefinition> := nil;
 
   for var Name in TJSObjectKeys.All(Source) do
@@ -175,7 +176,7 @@ begin
   end;
 end;
 
-class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name: string): Boolean;
+class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name: TJSPropertyKey): Boolean;
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not Target.TryGetPropertyDescriptor(Name, Descriptor) then

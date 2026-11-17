@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
@@ -91,7 +92,7 @@ type
     function Search(const Receiver: IJSObject; const Text: string): TJSValue;
     function CreateMethod(const Name: string; const ParameterCount: Integer;
                           const Method: TNativeFunction): IJSFunction;
-    procedure DefineMethod(const Target: IJSObject; const Key: string; const Name: string;
+    procedure DefineMethod(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                            const ParameterCount: Integer; const Method: TNativeFunction);
 
   public
@@ -663,7 +664,7 @@ begin
   FInterpreter.RegisterFunction(Result);
 end;
 
-procedure TJSRegExpProtocol.DefineMethod(const Target: IJSObject; const Key: string; const Name: string;
+procedure TJSRegExpProtocol.DefineMethod(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                                          const ParameterCount: Integer; const Method: TNativeFunction);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(CreateMethod(Name, ParameterCount, Method)));

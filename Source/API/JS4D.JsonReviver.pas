@@ -6,13 +6,15 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types;
 
 type
   TJSJsonReviver = class
   private
     class function Walk(const Holder: IJSObject; const Name: string; const Reviver: IJSFunction): TJSValue; static;
-    class procedure WalkMembers(const Container: IJSObject; const Reviver: IJSFunction); static;
+    class procedure WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
+                                const Reviver: IJSFunction); static;
     class procedure WalkMember(const Container: IJSObject; const Name: string; const Reviver: IJSFunction); static;
 
   public
@@ -23,17 +25,19 @@ type
 implementation
 
 uses
+  JS4D.Json,
   JS4D.ArrayLike,
-  JS4D.ObjectKeys;
+  JS4D.ObjectKeys,
+  JS4D.ObjectOperations;
 
 class function TJSJsonReviver.Revive(const Parsed: TJSValue; const Reviver: IJSFunction;
                                      const ObjectPrototype: IJSObject): TJSValue;
 begin
   const Root: IJSObject = TJSObject.Create;
   Root.Prototype := ObjectPrototype;
-  Root.SetProperty('', Parsed);
+  TJSObjectOperations.CreateDataProperty(Root, JSON_ROOT_KEY, Parsed);
 
-  Result := Walk(Root, '', Reviver);
+  Result := Walk(Root, JSON_ROOT_KEY, Reviver);
 end;
 
 class function TJSJsonReviver.Walk(const Holder: IJSObject; const Name: string;
@@ -41,15 +45,18 @@ class function TJSJsonReviver.Walk(const Holder: IJSObject; const Name: string;
 begin
   const Value = Holder.GetProperty(Name);
   if Value.IsObject then
-    WalkMembers(Value.ToObject, Reviver);
+  begin
+    const IsArrayValue = TJSObjectOperations.IsArray(Value);
+    WalkMembers(Value.ToObject, IsArrayValue, Reviver);
+  end;
 
   Result := Reviver.Call(Holder, [TJSValue.CreateString(Name), Value]);
 end;
 
-class procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const Reviver: IJSFunction);
+class procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
+                                           const Reviver: IJSFunction);
 begin
-  var ContainerArray: IJSArray;
-  if Supports(Container, IJSArray, ContainerArray) then
+  if IsArrayContainer then
   begin
     const Count = TJSArrayLike.ToLength(Container);
     for var Index: Int64 := 0 to Count - 1 do

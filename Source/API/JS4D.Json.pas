@@ -6,8 +6,12 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   System.Generics.Collections,
   JS4D.Types;
+
+const
+  JSON_ROOT_KEY = '';
 
 type
   TJSJsonWriter = class
@@ -430,10 +434,10 @@ begin
 
   const Holder: IJSObject = TJSObject.Create;
   Holder.Prototype := FObjectPrototype;
-  Holder.SetProperty('', Value);
+  TJSObjectOperations.CreateDataProperty(Holder, JSON_ROOT_KEY, Value);
 
   var Prepared: TJSValue;
-  Result := TryPrepare('', Holder, Prepared);
+  Result := TryPrepare(JSON_ROOT_KEY, Holder, Prepared);
   if not Result then
     Exit;
 

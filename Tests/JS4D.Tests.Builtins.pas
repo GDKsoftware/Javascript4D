@@ -8,6 +8,7 @@ uses
   System.Math,
   System.SysUtils,
   DUnitX.TestFramework,
+  JS4D.ControlFlow,
   JS4D.Interpreter,
   JS4D.Types,
   JS4D.Builtins,

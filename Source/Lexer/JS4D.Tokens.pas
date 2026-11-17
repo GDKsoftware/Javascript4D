@@ -8,6 +8,9 @@ uses
   System.SysUtils,
   System.Generics.Collections;
 
+const
+  YIELD_NAME = 'yield';
+
 type
   TJSTokenType = (
     EndOfFile,
@@ -62,6 +65,7 @@ type
     LogicalAnd,
     LogicalOr,
     LogicalNot,
+    NullishCoalesce,
 
     BitwiseAnd,
     BitwiseOr,
@@ -109,7 +113,10 @@ type
     KeywordThrow,
     KeywordWith,
     KeywordDebugger,
-    KeywordConst
+    KeywordConst,
+    KeywordClass,
+    KeywordExtends,
+    KeywordSuper
   );
 
   TJSToken = class
@@ -133,6 +140,7 @@ type
   public
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer); overload;
     constructor Create(const TokenType: TJSTokenType; const Value: string; const Line: Integer; const Column: Integer; const SourcePosition: Integer); overload;
+    function IsIdentifierNamed(const Name: string): Boolean;
 
     property TokenType: TJSTokenType read FTokenType;
     property Value: string read FValue write FValue;
@@ -175,7 +183,7 @@ uses
   System.StrUtils;
 
 const
-  UnusedReservedWords: array[0..3] of string = ('enum', 'export', 'extends', 'import');
+  UnusedReservedWords: array[0..2] of string = ('enum', 'export', 'import');
   KeywordVar = 'var';
   KeywordFunction = 'function';
   KeywordReturn = 'return';
@@ -203,6 +211,9 @@ const
   KeywordWith = 'with';
   KeywordDebugger = 'debugger';
   KeywordConst = 'const';
+  KeywordClass = 'class';
+  KeywordExtends = 'extends';
+  KeywordSuper = 'super';
   KeywordTrue = 'true';
   KeywordFalse = 'false';
   KeywordNull = 'null';
@@ -231,6 +242,11 @@ begin
   FSourcePosition := SourcePosition;
 end;
 
+function TJSToken.IsIdentifierNamed(const Name: string): Boolean;
+begin
+  Result := ((FTokenType = TJSTokenType.Identifier) and (FValue = Name));
+end;
+
 { TJSKeywords }
 
 class constructor TJSKeywords.Create;
@@ -249,7 +265,7 @@ end;
 
 class procedure TJSKeywords.InitializeFutureReservedWords;
 begin
-  FFutureReservedWords.AddRange(['class', 'enum', 'export', 'extends', 'import', 'super']);
+  FFutureReservedWords.AddRange(['enum', 'export', 'import']);
 end;
 
 class procedure TJSKeywords.InitializeKeywords;
@@ -281,6 +297,9 @@ begin
   FKeywords.Add(KeywordWith, TJSTokenType.KeywordWith);
   FKeywords.Add(KeywordDebugger, TJSTokenType.KeywordDebugger);
   FKeywords.Add(KeywordConst, TJSTokenType.KeywordConst);
+  FKeywords.Add(KeywordClass, TJSTokenType.KeywordClass);
+  FKeywords.Add(KeywordExtends, TJSTokenType.KeywordExtends);
+  FKeywords.Add(KeywordSuper, TJSTokenType.KeywordSuper);
   FKeywords.Add(KeywordTrue, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordFalse, TJSTokenType.BooleanLiteral);
   FKeywords.Add(KeywordNull, TJSTokenType.NullLiteral);

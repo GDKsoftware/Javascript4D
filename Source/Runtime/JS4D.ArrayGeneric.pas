@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Errors,
   JS4D.SymbolRegistry,

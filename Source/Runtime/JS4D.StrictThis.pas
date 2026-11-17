@@ -1,0 +1,50 @@
+unit JS4D.StrictThis;
+
+{$SCOPEDENUMS ON}
+
+interface
+
+uses
+  JS4D.Types;
+
+type
+  TJSStrictThis = class(TJSObjectImpl)
+  private
+    FValue: TJSValue;
+
+  public
+    class function ValueOf(const ThisObj: IJSObject): TJSValue; static;
+    class function IsNonObject(const ThisObj: IJSObject): Boolean; static;
+
+    constructor Create(const Value: TJSValue);
+
+    property Value: TJSValue read FValue;
+  end;
+
+implementation
+
+{ TJSStrictThis }
+
+class function TJSStrictThis.ValueOf(const ThisObj: IJSObject): TJSValue;
+begin
+  if not Assigned(ThisObj) then
+    Exit(TJSValue.CreateUndefined);
+
+  if ThisObj is TJSStrictThis then
+    Exit(TJSStrictThis(ThisObj).Value);
+
+  Result := TJSValue.CreateObject(ThisObj);
+end;
+
+class function TJSStrictThis.IsNonObject(const ThisObj: IJSObject): Boolean;
+begin
+  Result := (not Assigned(ThisObj)) or (ThisObj is TJSStrictThis);
+end;
+
+constructor TJSStrictThis.Create(const Value: TJSValue);
+begin
+  inherited Create;
+  FValue := Value;
+end;
+
+end.

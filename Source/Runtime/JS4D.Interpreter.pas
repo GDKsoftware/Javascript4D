@@ -1,4 +1,4 @@
-unit JS4D.Interpreter;
+﻿unit JS4D.Interpreter;
 
 {$SCOPEDENUMS ON}
 
@@ -10,17 +10,18 @@ uses
   System.StrUtils,
   System.SyncObjs,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ObjectHeap,
   JS4D.AST,
+  JS4D.SourceContext,
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ObjectScope,
   JS4D.ArgumentsObject,
   JS4D.GlobalScope,
   JS4D.PropertyDescriptors,
-  JS4D.LexicalStates,
   JS4D.ArrayIteration,
-  JS4D.ArrayIterator,
   JS4D.IteratorProtocol,
   JS4D.StringIterator,
   JS4D.ArrayStatics,
@@ -31,167 +32,61 @@ uses
   JS4D.BinaryData,
   JS4D.ProxyObjects,
   JS4D.SymbolRegistry,
-  JS4D.Operators;
+  JS4D.GeneratorObjects,
+  JS4D.AsyncHost,
+  JS4D.ObjectRegistry,
+  JS4D.Operators,
+  JS4D.StrictThis,
+  JS4D.StackGuard,
+  JS4D.Scope,
+  JS4D.ControlFlow,
+  JS4D.IterationSource,
+  JS4D.StatementFrame,
+  JS4D.IntrinsicCache,
+  JS4D.ResumableExecution,
+  JS4D.ClassEvaluation;
 
 type
-  TJSScope = class(TInterfacedObject, IJSScope)
-  private
-    FVariables: TDictionary<string, TJSValue>;
-    FParent: IJSScope;
-    FLexicalStates: TJSLexicalStates;
-    FDeletableNames: TDictionary<string, Byte>;
+  PJSValue = ^TJSValue;
 
-    function HasLexicalState(const Name: string): Boolean;
-    function IsDeletableName(const Name: string): Boolean;
+  TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean;
+                                           const Context: TJSSourceContext): TJSProgram;
 
-  protected
-    function GetParent: IJSScope;
-
-  public
-    constructor Create(const Parent: IJSScope);
-    destructor Destroy; override;
-
-    function HasVariable(const Name: string): Boolean;
-    function GetVariable(const Name: string): TJSValue;
-    function TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
-    procedure SetVariable(const Name: string; const Value: TJSValue);
-    procedure DeclareVariable(const Name: string; const Value: TJSValue);
-    procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-    procedure AssignVariable(const Name: string; const Value: TJSValue);
-    procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
-    procedure InitializeLexical(const Name: string; const Value: TJSValue);
-    function CloneForIteration: TJSScope;
-    function IsLexicalBinding(const Name: string): Boolean;
-    function DeleteVariable(const Name: string): Boolean;
-    function Resolve(const Name: string): IJSScope;
-    procedure Clear;
-    function GetOwnVariables: TArray<TJSValue>;
-    procedure ReleaseReferences;
-
-    property Parent: IJSScope read GetParent;
-  end;
-
-  TJSFunctionNameScope = class(TJSScope);
-
-  EJSControlFlowSignal = class(EAbort);
-
-  TJSJumpSignal = class(EJSControlFlowSignal)
-  private
-    FTargetLabel: string;
-
-  public
-    constructor Create(const TargetLabel: string);
-
-    function IsLabelled: Boolean;
-    function AppliesTo(const OwnLabels: TArray<string>): Boolean;
-
-    property TargetLabel: string read FTargetLabel;
-  end;
-
-  TJSBreakSignal = class(TJSJumpSignal);
-  TJSContinueSignal = class(TJSJumpSignal);
-
-  TJSReturnSignal = class(EJSControlFlowSignal)
-  private
-    FValue: TJSValue;
-
-  public
-    constructor Create(const Value: TJSValue);
-
-    property Value: TJSValue read FValue;
-  end;
-
-  TJSThrowSignal = class(Exception)
-  private
-    FValue: TJSValue;
-
-  public
-    constructor Create(const Value: TJSValue);
-
-    property Value: TJSValue read FValue;
-  end;
-
-  TJSStrictThis = class(TJSObjectImpl)
-  private
-    FValue: TJSValue;
-
-  public
-    constructor Create(const Value: TJSValue);
-
-    property Value: TJSValue read FValue;
-  end;
-
-  TJSProgramParser = reference to function(const Source: string; const IsStrictContext: Boolean): TJSProgram;
+  TJSGCRootProvider = reference to procedure(const MarkValue: TJSValueVisitor);
 
   TJSBoundFunction = record
     Target: IJSFunction;
     Arguments: TArray<TJSValue>;
   end;
 
+  TJSInterpreter = class;
+
   TJSMemberReference = record
     Base: TJSValue;
     Key: TJSValue;
-    KeyText: string;
+    NamedKey: PJSPropertyKey;
+    ComputedKey: TJSPropertyKey;
     HasKeyText: Boolean;
+    IsSuper: Boolean;
+    SuperBaseObject: IJSObject;
+
+    function KeyPointer: PJSPropertyKey; inline;
+    procedure ResolveKey(const Limits: TJSLimits); inline;
+    procedure Prepare(const Interpreter: TJSInterpreter);
+  end;
+
+  TJSEvaluatedKey = record
+    Key: TJSPropertyKey;
+    LiveSymbol: TJSValue;
   end;
 
   TJSBindingMode = (Assign, Variable, Lexical);
-
-  // The groups of built-in methods that a call expression runs directly, as long as the method that the
-  // property lookup finds is still the built-in one.
-  TJSIntrinsicGroup = (ArrayMethod, FunctionMethod, ObjectMethod);
 
   TJSPatternTarget = record
     Target: TJSExpression;
     Default: TJSExpression;
     Binding: IJSScope;
     Reference: TJSMemberReference;
-  end;
-
-  // The built-in functions and prototypes that the iteration fast paths compare against, to see that a
-  // script has not replaced the iterator protocol of arrays, arguments objects or strings.
-  TJSIterationIntrinsics = record
-    ArrayIteratorPrototype: IJSObject;
-    ArrayValues: IInterface;
-    ArrayIteratorNext: IInterface;
-    StringIteratorPrototype: IJSObject;
-    StringIterator: IInterface;
-    StringIteratorNext: IInterface;
-  end;
-
-  // Remembers where a built-in method sits in the property storage of its holder, so that checking it again
-  // costs no hash lookup while the holder keeps the same layout.
-  TJSIntrinsicSlot = record
-    Holder: TJSObjectImpl;
-    Version: Cardinal;
-    Slot: PJSPropertyDescriptor;
-  end;
-
-  // Remembers where push or pop sits in Array.prototype and which function is the built-in one, so that
-  // calling it on a plain array needs neither a hash lookup nor a property read.
-  TJSMutatorCache = record
-    Holder: TJSObjectImpl;
-    Prototype: IJSObject;
-    Version: Cardinal;
-    Slot: PJSPropertyDescriptor;
-    Original: IJSObject;
-    PrototypeElements: IJSArray;
-  end;
-
-  // Where the values of an iterable come from: the elements of an array or arguments object and the code
-  // points of a string are read directly, anything else goes through the iterator protocol.
-  TJSIterationSource = record
-    Elements: IJSArray;
-    ArrayLike: IJSObject;
-    Protocol: IJSIteratorRecord;
-    Items: TArray<TJSValue>;
-    Position: Integer;
-
-    function HasNext: Boolean;
-    function Next: TJSValue;
-    function Remaining: TArray<TJSValue>;
-    procedure Close;
-    procedure CloseAfterThrow;
   end;
 
   TJSInterpreter = class(TJSCallHandler)
@@ -223,6 +118,8 @@ type
     FOrdinaryHasInstance: IJSFunction;
     FArrayConstructor: IJSFunction;
     FArraySpeciesGetter: IJSFunction;
+    FHeap: TJSHeap;
+    FHeapEntries: Integer;
     FFunctionRegistry: TList<IJSFunction>;
     FScopeRegistry: TList<IJSScope>;
     FFunctionPrograms: TDictionary<Pointer, TObject>;
@@ -236,7 +133,11 @@ type
     FStepsUntilCheck: Integer;
     FLimits: TJSLimits;
     FCallDepth: Integer;
+    FStackFloor: NativeUInt;
     FProgramParser: TJSProgramParser;
+    FGCRootProvider: TJSGCRootProvider;
+    FJobRunner: TProc;
+    FJobDiscarder: TProc;
     FEvalFunction: IJSFunction;
     FDirectEvalCall: Boolean;
     FEvalVariableScope: IJSScope;
@@ -245,17 +146,23 @@ type
     FEvalCallerScope: IJSScope;
     FParameterInitScope: IJSScope;
     FLoopLabels: TArray<string>;
+    FContext: TJSCallContext;
+    FGenerator: TJSGeneratorObject;
+    FBypassNode: TJSASTNode;
+    FGenerators: TJSObjectRegistry;
+    FGeneratorFunctionPrototype: IJSObject;
+    FGeneratorPrototype: IJSObject;
+    FAsyncFunctionPrototype: IJSObject;
+    FAsyncHost: TJSAsyncHost;
+    FGeneratorEngine: TJSResumableExecution;
+    FClassBuilder: TJSClassEvaluation;
 
     procedure SetFunctionPrototype(const Value: IJSObject);
-    procedure PushScope;
     procedure PopScope;
-    procedure RegisterScope(const Scope: IJSScope);
     procedure AttachPrototype(const Func: IJSFunction);
     function ReferencesArguments(const Func: IJSFunction): Boolean;
     function CreateArgumentsObject(const Args: TArray<TJSValue>; const Func: IJSFunction): IJSObject;
     procedure DefineArgumentsIterator(const ArgumentsObject: IJSObject);
-    procedure AssignParameters(const Func: TJSFunction; const Params: TObjectList<TJSIdentifier>;
-                               const Info: TJSParameterInfo);
     function ParameterInfoOf(const Func: IJSFunction): TJSParameterInfo;
     function BindParametersWithExpressions(const Func: IJSFunction; const Args: TArray<TJSValue>;
                                            const Info: TJSParameterInfo): IJSScope;
@@ -267,25 +174,23 @@ type
     procedure CopyParametersToBodyScope(const Func: IJSFunction; const ParameterScope: IJSScope;
                                         const Info: TJSParameterInfo);
     procedure CopyParameterToBodyScope(const Name: string; const ParameterScope: IJSScope);
-    procedure BindTarget(const Target: TJSExpression; const Value: TJSValue; const Mode: TJSBindingMode);
     function ResolvePatternTarget(const Element: TJSExpression; const Mode: TJSBindingMode): TJSPatternTarget;
     procedure StorePatternTarget(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure StoreIdentifier(const Target: TJSPatternTarget; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue; const Mode: TJSBindingMode);
+    procedure BindResumableArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
+                                        const Mode: TJSBindingMode);
+    procedure BindResumableElements(const Pattern: TJSArrayPattern; const Frame: TJSStatementFrame;
+                                    const Mode: TJSBindingMode);
     procedure BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue; const Mode: TJSBindingMode);
     procedure BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
                                 const Mode: TJSBindingMode);
     function OpenIterationSource(const Value: TJSValue): TJSIterationSource;
-    function TryOpenIterationSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
     function TryOpenFastSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
     function TryOpenProtocolSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
-    function FindIteratorMethod(const Value: TJSValue; out IteratorFunction: IJSFunction): Boolean;
     function OpenProtocolSource(const Value: TJSValue; const IteratorFunction: IJSFunction): TJSIterationSource;
-    function IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean;
-    function IsIntrinsicProperty(const Start: IJSObject; const Key: string; const Original: IInterface): Boolean;
-    function HoldsIntrinsic(var Cache: TJSIntrinsicSlot; const Holder: IJSObject; const Key: string;
-                            const Original: IInterface): Boolean;
-    function HasPlainArrayPrototype(const Target: IJSObject; const Key: string): Boolean;
+    function IsIntrinsicProperty(const Start: IJSObject; const Key: TJSPropertyKey; const Original: IInterface): Boolean;
+    function InheritsKeyFromArrayPrototype(const Target: IJSObject; const Key: TJSPropertyKey): Boolean;
     function HasUntouchedArrayIteration(const Target: IJSObject): Boolean;
     function HasUntouchedStringIteration: Boolean;
     function RunForOfLoop(const Node: TJSForOfStatement; const OuterScope: IJSScope;
@@ -310,6 +215,38 @@ type
     function EvaluateInstanceOf(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function EvaluateIn(const Left: TJSValue; const Right: TJSValue; const Node: TJSBinaryExpression): Boolean;
     function CreateInstanceFor(const Constructor_: IJSFunction): IJSObject;
+    function InvokeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject;
+                            const NewTarget: IJSFunction; const Binding: IJSThisBinding): TJSValue;
+    procedure EnterContext(const Func: IJSFunction; const NewTarget: IJSFunction; const Binding: IJSThisBinding);
+    function CaptureFrame: IJSFrame;
+    function CurrentThisValue: TJSValue;
+    function ReadBoundThis(const Binding: IJSThisBinding): TJSValue;
+    function VisitNewTargetExpression: TJSValue;
+    function CurrentSourceContext: TJSSourceContext;
+    procedure RequireSuperHome;
+    function SuperBase: IJSObject;
+    function ReadSuperMember(const Reference: TJSMemberReference): TJSValue;
+    procedure WriteSuperMember(const Reference: TJSMemberReference; const Value: TJSValue);
+    function CallSuperMethod(const Node: TJSCallExpression; const MemberExpr: TJSMemberExpression): TJSValue;
+    function VisitSuperCall(const Node: TJSCallExpression): TJSValue;
+    function ConstructScript(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                             const NewTarget: IJSFunction): TJSValue;
+    function ConstructBase(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                           const NewTarget: IJSFunction): TJSValue;
+    function ConstructDerived(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                              const NewTarget: IJSFunction): TJSValue;
+    function ConstructThroughParent(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                    const NewTarget: IJSFunction): TJSValue;
+    function ConstructNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                             const NewTarget: IJSFunction): TJSValue;
+    procedure AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
+    function ParentConstructorOf(const Func: IJSFunction): IJSFunction;
+    function CallFromHost(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
+    function CallNative(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
+    procedure RejectClassConstructorCall(const Func: IJSFunction);
+    function CallBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>; const BoundThis: IJSObject): TJSValue;
+    function ConstructBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                  const NewTarget: IJSFunction): TJSValue;
     procedure RequireLiveProxy(const Constructor_: IJSFunction);
     function PrimitivePrototypeFor(const Value: TJSValue): IJSObject;
     function ArgumentsFromList(const ArgumentList: TJSValue): TArray<TJSValue>;
@@ -318,19 +255,16 @@ type
                                  const BoundArgs: TArray<TJSValue>): IJSFunction;
 
     procedure BeginExecution;
-    procedure ConsumeStep; inline;
+    procedure DrainJobs;
+    procedure DiscardPendingJobs;
     procedure ReachStepCheckpoint;
     procedure OpenStepSlice;
     function IsCancelRequested: Boolean;
     function GetStepCount: Int64;
-    function ExecuteStatement(const Node: TJSStatement): TJSValue;
-    procedure GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
-    procedure GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
-    procedure GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
     function ErrorConstructorName(const Error: Exception): string;
     function CreateErrorValue(const Error: Exception): TJSValue;
 
-    function Visit(const Node: TJSASTNode): TJSValue;
+
 
     function VisitProgram(const Node: TJSProgram): TJSValue;
     procedure InstantiateTopLevel(const Statements: TObjectList<TJSStatement>; const ScopeInfo: TJSScopeInfo);
@@ -342,19 +276,16 @@ type
     procedure HoistVarNames(const Node: TJSASTNode);
     procedure HoistVariable(const Name: string);
     procedure EnsureNoEvalLexicalConflict(const Name: string);
-    procedure EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
+    function FindSwitchStart(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): Integer;
+    function RunSwitchFrom(const Node: TJSSwitchStatement; const StartIndex: Integer): TJSValue;
     function VisitScopedBlock(const Node: TJSBlockStatement): TJSValue;
     function CreateFunctionObject(const Node: TJSFunctionDeclaration): IJSFunction;
     function VisitFunctionDeclaration(const Node: TJSFunctionDeclaration): TJSValue;
-    function IsLexicalDeclaration(const Node: TJSASTNode): Boolean;
     function VisitLexicalForStatement(const Node: TJSForStatement; const OwnLabels: TArray<string>): TJSValue;
     function RunForLoop(const Node: TJSForStatement; const OwnLabels: TArray<string>;
                         const CopiesIterationScope: Boolean): TJSValue;
     procedure AdvanceForLoop(const Node: TJSForStatement; const CopiesIterationScope: Boolean);
-    procedure CopyIterationScope;
     function EvaluateForInSubject(const Node: TJSForInStatement): TJSValue;
-    function CollectEnumerableKeys(const Subject: IJSObject): TArray<string>;
-    procedure AssignLoopVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const Value: TJSValue);
     procedure BindLexicalLoopVariable(const Node: TJSForInStatement; const Declaration: TJSVariableDeclaration;
                                       const OuterScope: IJSScope; const Value: TJSValue);
     function RunLoopBody(const Body: TJSStatement; const OwnLabels: TArray<string>; out KeepLooping: Boolean): TJSValue;
@@ -373,8 +304,6 @@ type
     procedure GuardGlobalVariableDeclarations(const Node: TJSProgram);
     procedure DeclareGlobalFunction(const Name: string; const Value: TJSValue);
     function VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
-    function TakeLoopLabels: TArray<string>;
-    function ToScopeObject(const Value: TJSValue): IJSObject;
     function WithArrayPrototype(const Value: TJSValue): TJSValue;
     function VisitCalleeIdentifier(const Identifier: TJSIdentifier; out ThisObj: IJSObject): TJSValue;
     function VisitForStatement(const Node: TJSForStatement): TJSValue;
@@ -400,28 +329,28 @@ type
     function VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
     function VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
     procedure DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
-    function LiteralPropertyName(const Prop: TJSObjectProperty; out KeyHolder: TJSValue): string;
-    class function FunctionNameForKey(const Key: string): string; static;
-    procedure DefineLiteralData(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
-    procedure DefineLiteralMethod(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
-    procedure DefineLiteralAccessor(const Target: IJSObject; const Name: string; const Prop: TJSObjectProperty);
+    procedure DefineLiteralData(const Target: IJSObject; const Name: TJSPropertyKey; const Prop: TJSObjectProperty);
+    procedure DefineLiteralMethod(const Target: IJSObject; const Name: TJSPropertyKey; const Prop: TJSObjectProperty);
+    procedure DefineLiteralAccessor(const Target: IJSObject; const Name: TJSPropertyKey; const Prop: TJSObjectProperty);
     procedure AssignLiteralPrototype(const Target: IJSObject; const Prop: TJSObjectProperty);
-    function VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
     function VisitAssigned(const Value: TJSExpression; const Target: TJSIdentifier): TJSValue;
     function IsAnonymousFunctionDefinition(const Node: TJSExpression): Boolean;
-    function CreateMethodFunction(const Node: TJSFunctionExpression; const Name: string): IJSFunction;
     function CreateOrdinaryFunction(const Node: TJSFunctionExpression): IJSFunction;
     function VisitFunctionExpression(const Node: TJSFunctionExpression): TJSValue;
     function VisitUnaryExpression(const Node: TJSUnaryExpression): TJSValue;
     function VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
     function DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
     function DeleteProxyMember(const Node: TJSUnaryExpression; const Proxy: IJSProxy;
-                               const PropName: string): TJSValue;
+                               const PropName: TJSPropertyKey): TJSValue;
     function IsUndeclaredIdentifier(const Node: TJSExpression): Boolean;
     function DeleteIdentifier(const Name: string): Boolean;
     procedure DeclareBinding(const Name: string; const Value: TJSValue);
     function VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
+    function VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;
+    function ApplyBinary(const Node: TJSBinaryExpression; const Left: TJSValue; const Right: TJSValue): TJSValue;
     function VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
+    function VisitLogicalChain(const Node: TJSLogicalExpression): TJSValue;
+    function ApplyLogical(const Node: TJSLogicalExpression; const Left: TJSValue): TJSValue;
     function VisitAssignmentExpression(const Node: TJSAssignmentExpression): TJSValue;
     function GlobalDataSlot(const Identifier: TJSIdentifier): PJSPropertyDescriptor;
     procedure StoreGlobalVariable(const Identifier: TJSIdentifier; const Value: TJSValue);
@@ -440,20 +369,42 @@ type
     function UpdateMember(const Node: TJSUpdateExpression): TJSValue;
     function VisitConditionalExpression(const Node: TJSConditionalExpression): TJSValue;
     function VisitCallExpression(const Node: TJSCallExpression): TJSValue;
+    function EvaluateCall(const Node: TJSCallExpression; const Base: PJSValue): TJSValue;
+    function OperandOrBase(const Operand: TJSExpression; const Base: PJSValue): TJSValue; inline;
     function VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
+    function VisitValueChain(const Node: TJSExpression; const ChainLength: Integer): TJSValue;
+    function ChainOperand(const Link: TJSExpression): TJSExpression;
+    function IsChainLink(const Node: TJSExpression): Boolean;
+    function CreateMemberReference(const Node: TJSMemberExpression; const Base: TJSValue;
+                                   const IsSuper: Boolean): TJSMemberReference; inline;
+    procedure RaiseStackExhausted;
     procedure RequireObjectCoercible(const Value: TJSValue; const PropName: string);
+    procedure RequireCoercibleBase(const Reference: TJSMemberReference);
     function ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
     function DescribeReferenceKey(const Reference: TJSMemberReference): string;
-    function ToPropertyKey(const Key: TJSValue): string;
-    procedure ResolveReferenceKey(var Reference: TJSMemberReference);
-    function GetReferenceValue(var Reference: TJSMemberReference): TJSValue;
-    procedure PutReferenceValue(var Reference: TJSMemberReference; const Value: TJSValue);
-    function ReadMember(const Base: TJSValue; const PropName: string): TJSValue;
+    function ToPropertyKey(const Key: TJSValue): TJSPropertyKey;
+    function GetReferenceValue(const Reference: TJSMemberReference): TJSValue;
+    procedure PutReferenceValue(const Reference: TJSMemberReference; const Value: TJSValue);
+    function ReadMember(const Base: TJSValue; const PropName: TJSPropertyKey): TJSValue;
     function ReadPrimitiveMember(const Base: TJSValue; const PrimitivePrototype: IJSObject;
-                                 const PropName: string): TJSValue;
-    function StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;
-    procedure WriteMember(const Base: TJSValue; const PropName: string; const Value: TJSValue);
-    procedure WriteArrayMember(const Target: IJSArray; const PropName: string; const Value: TJSValue;
+                                 const PropName: TJSPropertyKey): TJSValue;
+    procedure RaiseCannotAssign(const PropName: TJSPropertyKey);
+    procedure RaiseCannotDelete(const Node: TJSUnaryExpression; const PropName: TJSPropertyKey);
+    procedure RequireBoundThis;
+    function CollectChain(const First: TJSExpression; const ChainLength: Integer): TArray<TJSExpression>;
+    function NextChainLink(const Link: TJSExpression): TJSExpression;
+    function EvaluateChainLinks(const Links: TArray<TJSExpression>; const FirstLink: Integer;
+                                const Start: TJSValue): TJSValue;
+    function ConstructBound(const Bound: TJSBoundFunction; const Args: TArray<TJSValue>; const Func: IJSFunction;
+                            const NewTarget: IJSFunction): TJSValue;
+    function ConstructNativeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                     const NewTarget: IJSFunction): TJSValue;
+    class function IsSameObject(const First: IInterface; const Second: IInterface): Boolean; static;
+    procedure EnterArrowContext(const Func: IJSFunction);
+    procedure ReleaseFunctionContents(const Func: IJSFunction);
+    class function IsLongChain(const ChainLength: Integer): Boolean; static; inline;
+    procedure WriteMember(const Base: TJSValue; const PropName: TJSPropertyKey; const Value: TJSValue);
+    procedure WriteArrayMember(const Target: IJSArray; const PropName: TJSPropertyKey; const Value: TJSValue;
                                out IsHandled: Boolean);
     function VisitNewExpression(const Node: TJSNewExpression): TJSValue;
     function VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
@@ -467,17 +418,16 @@ type
 
     function ToText(const Value: TJSValue): string;
     function VisitText(const Node: TJSASTNode): string;
-    function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
     procedure AssignArrayLength(const Target: IJSArray; const Value: TJSValue);
-    procedure DeleteArrayElement(const Target: IJSObject; const PropName: string);
+    procedure DeleteArrayElement(const Target: IJSObject; const PropName: TJSPropertyKey);
     function CreateCallbackExecutor(const MethodName: string; const Args: TArray<TJSValue>): TJSCallbackExecutor;
     function AbstractEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    function CallsReplacedJoin(const Arr: IJSArray; const MethodName: string): Boolean;
     function ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteArrayIterationMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                                              const BeforeElements: TProc): TJSValue;
     function ExecuteSpeciesIterationMethod(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
     function ExecuteGenericArrayMethodCore(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
-    function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
     function PrototypeHoldsElements: Boolean;
     function CreatesSpeciesResult(const MethodName: string): Boolean;
     function ResolveArraySpecies(const Target: IJSObject; const MethodName: string): IJSFunction;
@@ -490,17 +440,19 @@ type
     destructor Destroy; override;
 
     function Execute(const Program_: TJSProgram): TJSValue;
+    procedure RunPendingJobs;
+    function ExceptionToValue(const Error: Exception): TJSValue;
     function CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue; override;
+    function EnterHeap: TJSHeap;
+    procedure LeaveHeap(const Previous: TJSHeap);
     procedure Cancel;
     procedure RegisterFunction(const Func: IJSFunction);
     procedure RegisterIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Method: IJSObject);
     function IsIntrinsicMethod(const Group: TJSIntrinsicGroup; const Name: string; const Callee: TJSValue): Boolean;
-    function TryCallMutator(var Cache: TJSMutatorCache; const StoresNewElements: Boolean; const Arr: IJSArray;
-                            const Name: string; const Args: TArray<TJSValue>; out Value: TJSValue): Boolean;
+    function CallMutator(const Cache: TJSMutatorCache; const StoresNewElements: Boolean; const Arr: IJSArray;
+                         const Name: string; const Args: TArray<TJSValue>): TJSValue;
     function TryCallRegisteredMethod(const Arr: IJSArray; const Name: string; const Args: TArray<TJSValue>;
                                      out Value: TJSValue): Boolean;
-    function HoldsMutator(var Cache: TJSMutatorCache; const Name: string): Boolean;
-    function FillMutatorCache(var Cache: TJSMutatorCache; const Name: string): Boolean;
     function TryCallUntouchedArrayMethod(const Target: TJSValue; const Name: string; const Args: TArray<TJSValue>;
                                          out Value: TJSValue): Boolean;
     function OrdinaryHasInstance(const Constructor_: IJSFunction; const Value: TJSValue;
@@ -526,7 +478,64 @@ type
                                 out Closer: TJSSequenceCloser): Boolean;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
+    function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
 
+    function ActiveBinding: IJSThisBinding;
+    function ActiveCallee: IJSFunction;
+    function ActiveNewTarget: IJSFunction;
+    procedure AssignLoopVariable(const Node: TJSForInStatement; const OuterScope: IJSScope; const Value: TJSValue);
+    procedure BindFunctionParameters(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                     const Body: TJSBlockStatement);
+    procedure BindTarget(const Target: TJSExpression; const Value: TJSValue; const Mode: TJSBindingMode);
+    function CollectEnumerableKeys(const Subject: IJSObject): TArray<string>;
+    procedure CopyIterationScope;
+    procedure DeclareCatchBinding(const Handler: TJSCatchClause; const Thrown: TJSValue);
+    procedure EnsureCallDepthAvailable;
+    procedure EnsureWithAllowed(const Node: TJSWithStatement);
+    procedure EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
+    procedure EnterLoopScope(const MayCaptureScope: Boolean; const Declaration: TJSVariableDeclaration);
+    procedure EnterWithScope(const Target: TJSValue);
+    function ExecuteStatement(const Node: TJSStatement): TJSValue;
+    function FindIteratorMethod(const Value: TJSValue; out IteratorFunction: IJSFunction): Boolean;
+    function IsLexicalDeclaration(const Node: TJSASTNode): Boolean;
+    procedure PushScope;
+    function ResolveLoopJump(const Signal: TJSJumpSignal; const OwnLabels: TArray<string>): TJSLoopJump;
+    procedure SetContext(const Callee: IJSFunction; const NewTarget: IJSFunction; const Binding: IJSThisBinding);
+    function StrictEquals(const Left: TJSValue; const Right: TJSValue): Boolean;
+    function StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;
+    function TakeLoopLabels: TArray<string>;
+    function ToScopeObject(const Value: TJSValue): IJSObject;
+    function TryOpenIterationSource(const Value: TJSValue; out Source: TJSIterationSource): Boolean;
+    function Visit(const Node: TJSASTNode): TJSValue;
+    function VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
+
+    property BypassNode: TJSASTNode read FBypassNode write FBypassNode;
+    property CallDepth: Integer read FCallDepth write FCallDepth;
+    property Context: TJSCallContext read FContext write FContext;
+    property CurrentScope: IJSScope read FCurrentScope write FCurrentScope;
+    property Generator: TJSGeneratorObject read FGenerator write FGenerator;
+    property Generators: TJSObjectRegistry read FGenerators write FGenerators;
+    property LoopLabels: TArray<string> read FLoopLabels write FLoopLabels;
+    property StrictMode: Boolean read FStrictMode write FStrictMode;
+    property ThisPrimitive: TJSStrictThis read FThisPrimitive write FThisPrimitive;
+    property ThisValue: IJSObject read FThisValue write FThisValue;
+    property VarScope: IJSScope read FVarScope write FVarScope;
+    property GeneratorEngine: TJSResumableExecution read FGeneratorEngine;
+    procedure AssignParameters(const Func: TJSFunction; const Params: TObjectList<TJSIdentifier>;
+                               const Info: TJSParameterInfo);
+    function CreateMethodFunction(const Node: TJSFunctionExpression; const Name: string): IJSFunction;
+    function EvaluatePropertyKey(const Computed: Boolean; const KeyNode: TJSASTNode): TJSEvaluatedKey;
+    class function FunctionNameForKey(const Key: TJSPropertyKey): string; static;
+    procedure RegisterScope(const Scope: IJSScope);
+
+    property ClassBuilder: TJSClassEvaluation read FClassBuilder;
+    property GeneratorFunctionPrototype: IJSObject read FGeneratorFunctionPrototype write FGeneratorFunctionPrototype;
+    property GeneratorPrototype: IJSObject read FGeneratorPrototype write FGeneratorPrototype;
+    property AsyncFunctionPrototype: IJSObject read FAsyncFunctionPrototype write FAsyncFunctionPrototype;
+    property AsyncHost: TJSAsyncHost read FAsyncHost write FAsyncHost;
+    property GCRootProvider: TJSGCRootProvider read FGCRootProvider write FGCRootProvider;
+    property JobRunner: TProc read FJobRunner write FJobRunner;
+    property JobDiscarder: TProc read FJobDiscarder write FJobDiscarder;
     property GlobalScope: IJSScope read FGlobalScope;
     property GlobalObject: IJSObject read FGlobalObject;
     property ObjectPrototype: IJSObject read FObjectPrototype write FObjectPrototype;
@@ -541,6 +550,8 @@ type
     property OrdinaryHasInstanceFunction: IJSFunction read FOrdinaryHasInstance write FOrdinaryHasInstance;
     property ArrayConstructor: IJSFunction read FArrayConstructor write FArrayConstructor;
     property ArraySpeciesGetter: IJSFunction read FArraySpeciesGetter write FArraySpeciesGetter;
+    procedure ConsumeStep; inline;
+
     property Limits: TJSLimits read FLimits;
     property StepBudget: Int64 read FStepBudget write FStepBudget;
     property StepCount: Int64 read GetStepCount;
@@ -551,8 +562,17 @@ type
 
 implementation
 
+uses
+  JS4D.GarbageMarker,
+  JS4D.PropertyNames,
+  JS4D.CallFrames,
+  JS4D.GeneratorEngine,
+  JS4D.ClassBuilder;
+
 const
+  ITERATIVE_CHAIN_LENGTH = 64;
   NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
+  ARRAY_TO_STRING_METHOD = 'toString';
   UNDEFINED_TYPE = 'undefined';
   SYMBOL_TYPE = 'symbol';
   OBJECT_TYPE = 'object';
@@ -561,10 +581,7 @@ const
   STRING_TYPE = 'string';
   FUNCTION_TYPE = 'function';
   LENGTH_PROPERTY = 'length';
-  NAME_PROPERTY = 'name';
   BOUND_NAME_PREFIX = 'bound ';
-  GETTER_NAME_FORMAT = 'get %s';
-  SETTER_NAME_FORMAT = 'set %s';
   SYMBOL_FUNCTION_NAME = '[%s]';
   METHOD_PUSH = 'push';
   METHOD_POP = 'pop';
@@ -573,8 +590,6 @@ const
   METHOD_FLAT = 'flat';
   METHOD_FLAT_MAP = 'flatMap';
   RAW_PROPERTY = 'raw';
-  PROTOTYPE_PROPERTY = 'prototype';
-  CONSTRUCTOR_PROPERTY = 'constructor';
   ARGUMENTS_NAME = 'arguments';
   READ_ONLY_LENGTH = 'Cannot assign to read only property ''length''';
   EVAL_NAME = 'eval';
@@ -592,6 +607,9 @@ const
   METHOD_BIND = 'bind';
   ARGUMENT_LIST_NOT_OBJECT = 'Function.prototype.apply requires an array-like object as argument list';
 
+  CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s'' of object';
+  WITH_IN_STRICT_MODE = 'with statement is not allowed in strict mode';
+
   CONSTRUCTOR_ERROR = 'Error';
   CONSTRUCTOR_TYPE_ERROR = 'TypeError';
   CONSTRUCTOR_RANGE_ERROR = 'RangeError';
@@ -605,6 +623,23 @@ const
   CONSTRUCTOR_DATE = 'Date';
 
   STEP_CHECK_INTERVAL = 1024;
+  OPERATORS_OF_NUMBERS = [TJSBinaryOperator.Add,
+                          TJSBinaryOperator.Subtract,
+                          TJSBinaryOperator.Multiply,
+                          TJSBinaryOperator.Divide,
+                          TJSBinaryOperator.Modulo,
+                          TJSBinaryOperator.Exponent,
+                          TJSBinaryOperator.LessThan,
+                          TJSBinaryOperator.LessThanOrEqual,
+                          TJSBinaryOperator.GreaterThan,
+                          TJSBinaryOperator.GreaterThanOrEqual,
+                          TJSBinaryOperator.BitwiseAnd,
+                          TJSBinaryOperator.BitwiseOr,
+                          TJSBinaryOperator.BitwiseXor,
+                          TJSBinaryOperator.LeftShift,
+                          TJSBinaryOperator.RightShift,
+                          TJSBinaryOperator.UnsignedRightShift];
+
   EMPTY_COMPLETION_NODES = [TJSASTNodeType.VariableDeclaration,
                             TJSASTNodeType.FunctionDeclaration,
                             TJSASTNodeType.EmptyStatement];
@@ -613,7 +648,6 @@ const
   CANNOT_DECLARE_GLOBAL_VARIABLE = 'Cannot declare global variable %s';
   ASSIGN_TO_READ_ONLY_GLOBAL = 'Cannot assign to read only global variable %s';
   NOT_ITERABLE = 'Spread syntax requires an iterable value';
-  NOT_ITERABLE_LOOP = 'Value is not iterable';
   INSTANCEOF_NOT_OBJECT = 'Right-hand side of instanceof is not an object';
   INSTANCEOF_NOT_CALLABLE = 'Right-hand side of instanceof is not callable';
   HAS_INSTANCE_NOT_CALLABLE = 'Symbol.hasInstance is not a function';
@@ -621,344 +655,27 @@ const
   IN_NOT_OBJECT = 'Cannot use the in operator to search for a property in a non-object';
   PATTERN_NOT_ITERABLE = 'Value is not iterable and cannot be destructured';
   ITERATOR_METHOD_NOT_CALLABLE = 'The Symbol.iterator property is not a function';
-  ITERATOR_NOT_AN_OBJECT = 'The Symbol.iterator method did not return an object';
-  ITERATOR_NEXT_PROPERTY = 'next';
   CANNOT_DESTRUCTURE = 'Cannot destructure a value that is %s';
-
-{ TJSScope }
-
-constructor TJSScope.Create(const Parent: IJSScope);
-begin
-  inherited Create;
-  FVariables := TDictionary<string, TJSValue>.Create;
-  FParent := Parent;
-end;
-
-function TJSScope.GetParent: IJSScope;
-begin
-  Result := FParent;
-end;
-
-destructor TJSScope.Destroy;
-begin
-  Clear;
-  FVariables.Free;
-  FLexicalStates.Free;
-  FDeletableNames.Free;
-  inherited;
-end;
-
-procedure TJSScope.Clear;
-begin
-  for var Pair in FVariables do
-  begin
-    if Pair.Value.IsFunction then
-    begin
-      var Func: IJSFunction;
-      if Supports(Pair.Value.ToObject, IJSFunction, Func) then
-        Func.ClosureScope := nil;
-    end;
-  end;
-
-  FVariables.Clear;
-  FParent := nil;
-end;
-
-function TJSScope.GetOwnVariables: TArray<TJSValue>;
-begin
-  SetLength(Result, FVariables.Count);
-  var Index := 0;
-  for var Pair in FVariables do
-  begin
-    Result[Index] := Pair.Value;
-    Inc(Index);
-  end;
-end;
-
-procedure TJSScope.ReleaseReferences;
-begin
-  FVariables.Clear;
-
-  if Assigned(FLexicalStates) then
-    FLexicalStates.Clear;
-
-  FParent := nil;
-end;
-
-function TJSScope.HasLexicalState(const Name: string): Boolean;
-begin
-  Result := Assigned(FLexicalStates) and FLexicalStates.Contains(Name);
-end;
-
-function TJSScope.HasVariable(const Name: string): Boolean;
-begin
-  Result := FVariables.ContainsKey(Name) or HasLexicalState(Name);
-
-  if (not Result) and Assigned(FParent) then
-    Result := FParent.HasVariable(Name);
-end;
-
-function TJSScope.GetVariable(const Name: string): TJSValue;
-begin
-  if FVariables.TryGetValue(Name, Result) then
-    Exit;
-
-  if Assigned(FLexicalStates) then
-    FLexicalStates.EnsureInitialized(Name);
-
-  if Assigned(FParent) then
-    Exit(FParent.GetVariable(Name));
-
-  Result := TJSValue.CreateUndefined;
-end;
-
-function TJSScope.TryGetVariable(const Name: string; out Value: TJSValue): Boolean;
-begin
-  Result := FVariables.TryGetValue(Name, Value);
-  if Result then
-    Exit;
-
-  if Assigned(FLexicalStates) then
-    FLexicalStates.EnsureInitialized(Name);
-
-  if Assigned(FParent) then
-    Result := FParent.TryGetVariable(Name, Value);
-end;
-
-procedure TJSScope.SetVariable(const Name: string; const Value: TJSValue);
-begin
-  const ResolvedScope = Resolve(Name);
-
-  if Assigned(ResolvedScope) then
-    ResolvedScope.AssignVariable(Name, Value)
-  else if Assigned(FParent) then
-    FParent.SetVariable(Name, Value)
-  else
-    FVariables.AddOrSetValue(Name, Value);
-end;
-
-procedure TJSScope.DeclareVariable(const Name: string; const Value: TJSValue);
-begin
-  FVariables.AddOrSetValue(Name, Value);
-end;
-
-procedure TJSScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-begin
-  const IsExisting = FVariables.ContainsKey(Name);
-  DeclareVariable(Name, Value);
-  if IsExisting then
-    Exit;
-
-  if not Assigned(FDeletableNames) then
-    FDeletableNames := TDictionary<string, Byte>.Create;
-
-  FDeletableNames.AddOrSetValue(Name, 0);
-end;
-
-procedure TJSScope.AssignVariable(const Name: string; const Value: TJSValue);
-begin
-  if Assigned(FLexicalStates) then
-    FLexicalStates.EnsureAssignable(Name);
-
-  FVariables.AddOrSetValue(Name, Value);
-end;
-
-procedure TJSScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
-begin
-  if not Assigned(FLexicalStates) then
-    FLexicalStates := TJSLexicalStates.Create;
-
-  FLexicalStates.Declare(Name, IsConstant);
-end;
-
-procedure TJSScope.InitializeLexical(const Name: string; const Value: TJSValue);
-begin
-  FVariables.AddOrSetValue(Name, Value);
-
-  if Assigned(FLexicalStates) then
-    FLexicalStates.MarkInitialized(Name);
-end;
-
-function TJSScope.CloneForIteration: TJSScope;
-begin
-  Result := TJSScope.Create(FParent);
-
-  for var Pair in FVariables do
-  begin
-    Result.FVariables.Add(Pair.Key, Pair.Value);
-  end;
-
-  if Assigned(FLexicalStates) then
-  begin
-    Result.FLexicalStates := TJSLexicalStates.Create;
-    Result.FLexicalStates.CopyFrom(FLexicalStates);
-  end;
-end;
-
-function TJSScope.IsLexicalBinding(const Name: string): Boolean;
-begin
-  Result := HasLexicalState(Name);
-end;
-
-function TJSScope.IsDeletableName(const Name: string): Boolean;
-begin
-  Result := Assigned(FDeletableNames) and FDeletableNames.ContainsKey(Name);
-end;
-
-function TJSScope.DeleteVariable(const Name: string): Boolean;
-begin
-  if IsDeletableName(Name) then
-  begin
-    FDeletableNames.Remove(Name);
-    FVariables.Remove(Name);
-    Exit(True);
-  end;
-
-  Result := (not FVariables.ContainsKey(Name)) and (not HasLexicalState(Name));
-end;
-
-function TJSScope.Resolve(const Name: string): IJSScope;
-begin
-  if FVariables.ContainsKey(Name) or HasLexicalState(Name) then
-    Exit(Self);
-
-  if Assigned(FParent) then
-    Exit(FParent.Resolve(Name));
-
-  Result := nil;
-end;
-
-{ TJSJumpSignal }
-
-constructor TJSJumpSignal.Create(const TargetLabel: string);
-begin
-  inherited Create('');
-  FTargetLabel := TargetLabel;
-end;
-
-function TJSJumpSignal.IsLabelled: Boolean;
-begin
-  Result := not FTargetLabel.IsEmpty;
-end;
-
-function TJSJumpSignal.AppliesTo(const OwnLabels: TArray<string>): Boolean;
-begin
-  Result := (not IsLabelled) or MatchStr(FTargetLabel, OwnLabels);
-end;
-
-{ TJSReturnSignal }
-
-constructor TJSReturnSignal.Create(const Value: TJSValue);
-begin
-  inherited Create('');
-  FValue := Value;
-end;
-
-{ TJSStrictThis }
-
-constructor TJSStrictThis.Create(const Value: TJSValue);
-begin
-  inherited Create;
-  FValue := Value;
-end;
-
-{ TJSThrowSignal }
-
-constructor TJSThrowSignal.Create(const Value: TJSValue);
-begin
-  var Msg := Value.ToString;
-
-  if Value.IsObject then
-  begin
-    var Error: IJSError;
-
-    if Supports(Value.AsObject, IJSError, Error) then
-      Msg := Error.Message;
-  end;
-
-  inherited Create(Msg);
-  FValue := Value;
-end;
-
-{ TJSIterationSource }
-
-function TJSIterationSource.HasNext: Boolean;
-begin
-  if Assigned(Protocol) then
-    Exit(Protocol.HasNext);
-
-  if Assigned(Elements) then
-    Exit(Position < Elements.Length);
-
-  if Assigned(ArrayLike) then
-    Exit(Position < TJSArrayLike.ToLength(ArrayLike));
-
-  Result := (Position < Length(Items));
-end;
-
-function TJSIterationSource.Next: TJSValue;
-begin
-  if Assigned(Protocol) then
-    Exit(Protocol.Next);
-
-  Result := TJSValue.CreateUndefined;
-
-  if HasNext then
-  begin
-    if Assigned(Elements) then
-    begin
-      if Elements.HasElement(Position) then
-        Result := Elements.GetElement(Position)
-      else
-        Result := Elements.GetProperty(TJSArrayLike.IndexName(Position));
-    end
-    else if Assigned(ArrayLike) then
-    begin
-      Result := ArrayLike.GetProperty(TJSArrayLike.IndexName(Position));
-    end
-    else
-    begin
-      Result := Items[Position];
-    end;
-  end;
-
-  Inc(Position);
-end;
-
-function TJSIterationSource.Remaining: TArray<TJSValue>;
-begin
-  const Values = TList<TJSValue>.Create;
-  try
-    while HasNext do
-    begin
-      Values.Add(Next);
-    end;
-
-    Result := Values.ToArray;
-  finally
-    Values.Free;
-  end;
-end;
-
-procedure TJSIterationSource.Close;
-begin
-  if Assigned(Protocol) then
-    Protocol.Close;
-end;
-
-procedure TJSIterationSource.CloseAfterThrow;
-begin
-  if Assigned(Protocol) then
-    Protocol.CloseAfterThrow;
-end;
+  CLASS_CONSTRUCTOR_CALL = 'Class constructor %s cannot be invoked without ''new''';
+  THIS_BEFORE_SUPER = 'Must call super constructor in derived class before accessing ''this'' or returning from derived constructor';
+  SUPER_CALLED_TWICE = 'Super constructor may only be called once';
+  SUPER_NOT_CONSTRUCTOR = 'Super constructor is not a constructor';
+  SUPER_OUTSIDE_METHOD = '''super'' keyword unexpected here';
+  SUPER_BASE_NOT_OBJECT = 'Cannot read properties of the super base, which is null';
+  DELETE_SUPER_REFERENCE = 'Unsupported reference to ''super''';
+  DERIVED_RETURN_VALUE = 'Derived constructors may only return object or undefined';
 
 { TJSInterpreter }
 
 constructor TJSInterpreter.Create;
 begin
   inherited Create;
+  FHeap := TJSHeap.Create;
   FFunctionRegistry := TList<IJSFunction>.Create;
   FScopeRegistry := TList<IJSScope>.Create;
+  FGenerators := TJSObjectRegistry.Create;
+  FGeneratorEngine := TJSGeneratorEngine.Create(Self);
+  FClassBuilder := TJSClassBuilder.Create(Self);
   FFunctionPrograms := TDictionary<Pointer, TObject>.Create;
   FBoundFunctions := TDictionary<Pointer, TJSBoundFunction>.Create;
   FCurrentProgram := nil;
@@ -970,8 +687,15 @@ begin
   FStepsUntilCheck := 0;
   FLimits := TJSLimits.Default;
   FCallDepth := 0;
-  FGlobalObject := TJSObject.Create;
-  FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
+  FStackFloor := TJSStackGuard.CurrentFloor;
+  const PreviousHeap = EnterHeap;
+  try
+    FGlobalObject := TJSObject.Create;
+    FGlobalBindings := TJSGlobalScope.Create(FGlobalObject);
+  finally
+    LeaveHeap(PreviousHeap);
+  end;
+
   FGlobalScope := FGlobalBindings;
   FScopeRegistry.Add(FGlobalScope);
   FCurrentScope := FGlobalScope;
@@ -981,15 +705,16 @@ end;
 
 destructor TJSInterpreter.Destroy;
 begin
+  FGenerator := nil;
+  FGenerators.ReleaseAll;
+
   if Assigned(FThrowTypeError) then
     FThrowTypeError.Prototype := nil;
 
   for var Func in FFunctionRegistry do
   begin
-    Func.ClosureScope := nil;
-    Func.NativeFunction := nil;
     Func.Prototype := nil;
-    DetachProperties(Func);
+    ReleaseFunctionContents(Func);
   end;
   FFunctionRegistry.Free;
 
@@ -998,12 +723,22 @@ begin
     Scope.Clear;
   end;
   FScopeRegistry.Free;
+  FGenerators.Free;
+  FGeneratorEngine.Free;
+  FClassBuilder.Free;
   FFunctionPrograms.Free;
   FBoundFunctions.Free;
+  FGeneratorFunctionPrototype := nil;
+  FGeneratorPrototype := nil;
+  FAsyncFunctionPrototype := nil;
+  FAsyncHost := nil;
   FEvalVariableScope := nil;
   FEvalFunction := nil;
   FThrowTypeError := nil;
   FProgramParser := nil;
+  FGCRootProvider := nil;
+  FJobRunner := nil;
+  FJobDiscarder := nil;
 
   FCurrentScope := nil;
   FVarScope := nil;
@@ -1019,6 +754,10 @@ begin
   FFunctionPrototype := nil;
   FRegExpPrototype := nil;
   FSymbolPrototype := nil;
+  FStringPrototype := nil;
+  FNumberPrototype := nil;
+  FBooleanPrototype := nil;
+  FParameterInitScope := nil;
   FIteration := Default(TJSIterationIntrinsics);
   for var Group := Low(TJSIntrinsicGroup) to High(TJSIntrinsicGroup) do
   begin
@@ -1027,6 +766,8 @@ begin
   FOrdinaryHasInstance := nil;
   FArrayConstructor := nil;
   FArraySpeciesGetter := nil;
+  FHeap.ReleaseAll;
+  FHeap.Free;
   inherited;
 end;
 
@@ -1060,17 +801,15 @@ end;
 
 procedure TJSInterpreter.AttachPrototype(const Func: IJSFunction);
 begin
-  const PrototypeObj: IJSObject = TJSObject.Create;
-  PrototypeObj.Prototype := FObjectPrototype;
+  const PrototypeObject: IJSObject = TJSObject.Create;
+  PrototypeObject.Prototype := FObjectPrototype;
 
-  var ConstructorDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Func as IJSObject));
+  const FunctionValue = TJSValue.CreateObject(Func as IJSObject);
+  var ConstructorDescriptor := TJSPropertyDescriptor.Create(FunctionValue);
   ConstructorDescriptor.Enumerable := False;
-  PrototypeObj.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
+  PrototypeObject.DefineProperty(CONSTRUCTOR_PROPERTY, ConstructorDescriptor);
 
-  var PrototypeDescriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(PrototypeObj));
-  PrototypeDescriptor.Enumerable := False;
-  PrototypeDescriptor.Configurable := False;
-  Func.DefineProperty(PROTOTYPE_PROPERTY, PrototypeDescriptor);
+  FGeneratorEngine.DefinePrototypeProperty(Func, PrototypeObject, True);
 end;
 
 function TJSInterpreter.CreateThrowTypeError: IJSFunction;
@@ -1306,7 +1045,10 @@ function TJSInterpreter.EvaluateArguments(const Nodes: TObjectList<TJSExpression
                                           const HasSpread: Boolean): TArray<TJSValue>;
 begin
   if HasSpread then
-    Exit(EvaluateSpreadArguments(Nodes));
+  begin
+    Result := EvaluateSpreadArguments(Nodes);
+    Exit;
+  end;
 
   SetLength(Result, Nodes.Count);
 
@@ -1491,14 +1233,29 @@ end;
 function TJSInterpreter.ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
 begin
   if ThisValue.IsObject then
-    Exit(ThisValue.ToObject);
+  begin
+    Result := ThisValue.ToObject;
+    Exit;
+  end;
+
+  if Func.ReceivesRawThis then
+  begin
+    if ThisValue.IsUndefined then
+      Exit(nil);
+
+    Result := TJSStrictThis.Create(ThisValue);
+    Exit;
+  end;
 
   const SeesObjectThis = Func.IsNative or (not Func.IsStrict);
   if SeesObjectThis then
   begin
     const IsPrimitive = not ThisValue.IsNullOrUndefined;
     if IsPrimitive then
-      Exit(WrapPrimitive(ThisValue));
+    begin
+      Result := WrapPrimitive(ThisValue);
+      Exit;
+    end;
 
     Exit(nil);
   end;
@@ -1522,6 +1279,7 @@ end;
 
 procedure TJSInterpreter.BeginExecution;
 begin
+  FStackFloor := TJSStackGuard.CurrentFloor;
   FStepsCompleted := 0;
   OpenStepSlice;
 end;
@@ -1585,28 +1343,89 @@ begin
   if FExecutionDepth = 0 then
     BeginExecution;
 
-  const OuterScope = FCurrentScope;
-  const OuterVarScope = FVarScope;
-  const OuterThis = FThisValue;
-  const OuterThisPrimitive = FThisPrimitive;
-  const OuterStrictMode = FStrictMode;
+  const OuterState = FGeneratorEngine.CaptureExecutionState;
 
   Inc(FExecutionDepth);
+  const PreviousHeap = EnterHeap;
   FCurrentScope := FGlobalScope;
   FVarScope := FGlobalScope;
   FThisValue := nil;
   FThisPrimitive := nil;
+  FContext := Default(TJSCallContext);
   try
     FCurrentProgram := Program_;
-    Result := Visit(Program_);
+    try
+      Result := Visit(Program_);
+    except
+      on EJSExecutionInterrupted do
+      begin
+        DiscardPendingJobs;
+        raise;
+      end;
+      on Exception do
+      begin
+        DrainJobs;
+        raise;
+      end;
+    end;
+
+    DrainJobs;
   finally
-    FCurrentScope := OuterScope;
-    FVarScope := OuterVarScope;
-    FThisValue := OuterThis;
-    FThisPrimitive := OuterThisPrimitive;
-    FStrictMode := OuterStrictMode;
+    FGeneratorEngine.RestoreExecutionState(OuterState);
+    LeaveHeap(PreviousHeap);
     Dec(FExecutionDepth);
   end;
+end;
+
+procedure TJSInterpreter.DrainJobs;
+begin
+  const IsOutermostScript = (FExecutionDepth = 1);
+  if (not IsOutermostScript) or (not Assigned(FJobRunner)) then
+    Exit;
+
+  try
+    FJobRunner;
+  except
+    on EJSExecutionInterrupted do
+    begin
+      DiscardPendingJobs;
+      raise;
+    end;
+  end;
+end;
+
+procedure TJSInterpreter.DiscardPendingJobs;
+begin
+  if Assigned(FJobDiscarder) then
+    FJobDiscarder;
+end;
+
+procedure TJSInterpreter.RunPendingJobs;
+begin
+  const IsScriptRunning = (FExecutionDepth > 0);
+  if IsScriptRunning or (not Assigned(FJobRunner)) then
+    Exit;
+
+  BeginExecution;
+  Inc(FExecutionDepth);
+  const PreviousHeap = EnterHeap;
+  try
+    DrainJobs;
+  finally
+    LeaveHeap(PreviousHeap);
+    Dec(FExecutionDepth);
+  end;
+end;
+
+function TJSInterpreter.ExceptionToValue(const Error: Exception): TJSValue;
+begin
+  if Error is TJSThrowSignal then
+  begin
+    Result := TJSThrowSignal(Error).Value;
+    Exit;
+  end;
+
+  Result := CreateErrorValue(Error);
 end;
 
 function TJSInterpreter.ExecuteStatement(const Node: TJSStatement): TJSValue;
@@ -1617,94 +1436,125 @@ end;
 
 function TJSInterpreter.Visit(const Node: TJSASTNode): TJSValue;
 begin
+  const ParameterStackAddress = NativeUInt(@Node);
+  const IsStackExhausted = (ParameterStackAddress < FStackFloor);
+  if IsStackExhausted then
+    RaiseStackExhausted;
+
   if Node = nil then
   begin
     Result := TJSValue.CreateUndefined;
     Exit;
   end;
 
-  case Node.NodeType of
-    TJSASTNodeType.Program_:
-      Result := VisitProgram(TJSProgram(Node));
-    TJSASTNodeType.BlockStatement:
-      Result := VisitBlockStatement(TJSBlockStatement(Node));
-    TJSASTNodeType.VariableDeclaration:
-      Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
-    TJSASTNodeType.FunctionDeclaration:
-      Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
-    TJSASTNodeType.ExpressionStatement:
-      Result := VisitExpressionStatement(TJSExpressionStatement(Node));
-    TJSASTNodeType.IfStatement:
-      Result := VisitIfStatement(TJSIfStatement(Node));
-    TJSASTNodeType.WhileStatement:
-      Result := VisitWhileStatement(TJSWhileStatement(Node));
-    TJSASTNodeType.DoWhileStatement:
-      Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
-    TJSASTNodeType.WithStatement:
-      Result := VisitWithStatement(TJSWithStatement(Node));
-    TJSASTNodeType.LabeledStatement:
-      Result := VisitLabeledStatement(TJSLabeledStatement(Node));
-    TJSASTNodeType.ForStatement:
-      Result := VisitForStatement(TJSForStatement(Node));
-    TJSASTNodeType.ForInStatement:
-      Result := VisitForInStatement(TJSForInStatement(Node));
-    TJSASTNodeType.ForOfStatement:
-      Result := VisitForOfStatement(TJSForOfStatement(Node));
-    TJSASTNodeType.ReturnStatement:
-      Result := VisitReturnStatement(TJSReturnStatement(Node));
-    TJSASTNodeType.BreakStatement:
-      Result := VisitBreakStatement(TJSBreakStatement(Node));
-    TJSASTNodeType.ContinueStatement:
-      Result := VisitContinueStatement(TJSContinueStatement(Node));
-    TJSASTNodeType.SwitchStatement:
-      Result := VisitSwitchStatement(TJSSwitchStatement(Node));
-    TJSASTNodeType.ThrowStatement:
-      Result := VisitThrowStatement(TJSThrowStatement(Node));
-    TJSASTNodeType.TryStatement:
-      Result := VisitTryStatement(TJSTryStatement(Node));
-    TJSASTNodeType.EmptyStatement:
-      Result := TJSValue.CreateUndefined;
-    TJSASTNodeType.DebuggerStatement:
-      Result := TJSValue.CreateUndefined;
-    TJSASTNodeType.Identifier:
-      Result := VisitIdentifier(TJSIdentifier(Node));
-    TJSASTNodeType.Literal:
-      Result := VisitLiteral(TJSLiteral(Node));
-    TJSASTNodeType.ArrayExpression:
-      Result := VisitArrayExpression(TJSArrayExpression(Node));
-    TJSASTNodeType.ObjectExpression:
-      Result := VisitObjectExpression(TJSObjectExpression(Node));
-    TJSASTNodeType.FunctionExpression:
-      Result := VisitFunctionExpression(TJSFunctionExpression(Node));
-    TJSASTNodeType.UnaryExpression:
-      Result := VisitUnaryExpression(TJSUnaryExpression(Node));
-    TJSASTNodeType.BinaryExpression:
-      Result := VisitBinaryExpression(TJSBinaryExpression(Node));
-    TJSASTNodeType.LogicalExpression:
-      Result := VisitLogicalExpression(TJSLogicalExpression(Node));
-    TJSASTNodeType.AssignmentExpression:
-      Result := VisitAssignmentExpression(TJSAssignmentExpression(Node));
-    TJSASTNodeType.UpdateExpression:
-      Result := VisitUpdateExpression(TJSUpdateExpression(Node));
-    TJSASTNodeType.ConditionalExpression:
-      Result := VisitConditionalExpression(TJSConditionalExpression(Node));
-    TJSASTNodeType.CallExpression:
-      Result := VisitCallExpression(TJSCallExpression(Node));
-    TJSASTNodeType.MemberExpression:
-      Result := VisitMemberExpression(TJSMemberExpression(Node));
-    TJSASTNodeType.NewExpression:
-      Result := VisitNewExpression(TJSNewExpression(Node));
-    TJSASTNodeType.SequenceExpression:
-      Result := VisitSequenceExpression(TJSSequenceExpression(Node));
-    TJSASTNodeType.ThisExpression:
-      Result := VisitThisExpression(TJSThisExpression(Node));
-    TJSASTNodeType.TemplateLiteral:
-      Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
-    TJSASTNodeType.TemplateObject:
-      Result := VisitTemplateObject(TJSTemplateObject(Node));
-    else
-      Result := TJSValue.CreateUndefined;
-  end;
+  var Kind := Node.DispatchType;
+
+  repeat
+    case Kind of
+      TJSASTNodeType.Program_:
+        Result := VisitProgram(TJSProgram(Node));
+      TJSASTNodeType.BlockStatement:
+        Result := VisitBlockStatement(TJSBlockStatement(Node));
+      TJSASTNodeType.VariableDeclaration:
+        Result := VisitVariableDeclaration(TJSVariableDeclaration(Node));
+      TJSASTNodeType.FunctionDeclaration:
+        Result := VisitFunctionDeclaration(TJSFunctionDeclaration(Node));
+      TJSASTNodeType.ExpressionStatement:
+        Result := VisitExpressionStatement(TJSExpressionStatement(Node));
+      TJSASTNodeType.IfStatement:
+        Result := VisitIfStatement(TJSIfStatement(Node));
+      TJSASTNodeType.WhileStatement:
+        Result := VisitWhileStatement(TJSWhileStatement(Node));
+      TJSASTNodeType.DoWhileStatement:
+        Result := VisitDoWhileStatement(TJSDoWhileStatement(Node));
+      TJSASTNodeType.WithStatement:
+        Result := VisitWithStatement(TJSWithStatement(Node));
+      TJSASTNodeType.LabeledStatement:
+        Result := VisitLabeledStatement(TJSLabeledStatement(Node));
+      TJSASTNodeType.ForStatement:
+        Result := VisitForStatement(TJSForStatement(Node));
+      TJSASTNodeType.ForInStatement:
+        Result := VisitForInStatement(TJSForInStatement(Node));
+      TJSASTNodeType.ForOfStatement:
+        Result := VisitForOfStatement(TJSForOfStatement(Node));
+      TJSASTNodeType.ReturnStatement:
+        Result := VisitReturnStatement(TJSReturnStatement(Node));
+      TJSASTNodeType.BreakStatement:
+        Result := VisitBreakStatement(TJSBreakStatement(Node));
+      TJSASTNodeType.ContinueStatement:
+        Result := VisitContinueStatement(TJSContinueStatement(Node));
+      TJSASTNodeType.SwitchStatement:
+        Result := VisitSwitchStatement(TJSSwitchStatement(Node));
+      TJSASTNodeType.ThrowStatement:
+        Result := VisitThrowStatement(TJSThrowStatement(Node));
+      TJSASTNodeType.TryStatement:
+        Result := VisitTryStatement(TJSTryStatement(Node));
+      TJSASTNodeType.EmptyStatement:
+        Result := TJSValue.CreateUndefined;
+      TJSASTNodeType.DebuggerStatement:
+        Result := TJSValue.CreateUndefined;
+      TJSASTNodeType.Identifier:
+        Result := VisitIdentifier(TJSIdentifier(Node));
+      TJSASTNodeType.Literal:
+        Result := VisitLiteral(TJSLiteral(Node));
+      TJSASTNodeType.ArrayExpression:
+        Result := VisitArrayExpression(TJSArrayExpression(Node));
+      TJSASTNodeType.ObjectExpression:
+        Result := VisitObjectExpression(TJSObjectExpression(Node));
+      TJSASTNodeType.FunctionExpression:
+        Result := VisitFunctionExpression(TJSFunctionExpression(Node));
+      TJSASTNodeType.UnaryExpression:
+        Result := VisitUnaryExpression(TJSUnaryExpression(Node));
+      TJSASTNodeType.BinaryExpression:
+        Result := VisitBinaryExpression(TJSBinaryExpression(Node));
+      TJSASTNodeType.LogicalExpression:
+        Result := VisitLogicalExpression(TJSLogicalExpression(Node));
+      TJSASTNodeType.AssignmentExpression:
+        Result := VisitAssignmentExpression(TJSAssignmentExpression(Node));
+      TJSASTNodeType.UpdateExpression:
+        Result := VisitUpdateExpression(TJSUpdateExpression(Node));
+      TJSASTNodeType.ConditionalExpression:
+        Result := VisitConditionalExpression(TJSConditionalExpression(Node));
+      TJSASTNodeType.CallExpression:
+        Result := VisitCallExpression(TJSCallExpression(Node));
+      TJSASTNodeType.MemberExpression:
+        Result := VisitMemberExpression(TJSMemberExpression(Node));
+      TJSASTNodeType.NewExpression:
+        Result := VisitNewExpression(TJSNewExpression(Node));
+      TJSASTNodeType.SequenceExpression:
+        Result := VisitSequenceExpression(TJSSequenceExpression(Node));
+      TJSASTNodeType.ThisExpression:
+        Result := VisitThisExpression(TJSThisExpression(Node));
+      TJSASTNodeType.ClassExpression:
+        Result := FClassBuilder.VisitClassExpression(TJSClassExpression(Node), EMPTY_NAME);
+      TJSASTNodeType.NewTargetExpression:
+        Result := VisitNewTargetExpression;
+      TJSASTNodeType.TemplateLiteral:
+        Result := VisitTemplateLiteral(TJSTemplateLiteral(Node));
+      TJSASTNodeType.TemplateObject:
+        Result := VisitTemplateObject(TJSTemplateObject(Node));
+      TJSASTNodeType.YieldExpression:
+        Result := FGeneratorEngine.VisitYield(TJSYieldExpression(Node));
+      TJSASTNodeType.AwaitExpression:
+        Result := FGeneratorEngine.VisitAwait(TJSAwaitExpression(Node));
+      TJSASTNodeType.Remembered:
+        begin
+          const IsBypassed = (Node = FBypassNode);
+          if IsBypassed then
+          begin
+            FBypassNode := nil;
+            Kind := Node.NodeType;
+            Continue;
+          end;
+
+          Result := FGeneratorEngine.VisitRemembered(Node);
+        end;
+      else
+        Result := TJSValue.CreateUndefined;
+    end;
+
+    Break;
+  until False;
 end;
 
 function TJSInterpreter.VisitProgram(const Node: TJSProgram): TJSValue;
@@ -1778,12 +1628,28 @@ end;
 function TJSInterpreter.EvaluateSource(const Source: string; const IsDirect: Boolean): TJSValue;
 begin
   const IsStrictContext = (IsDirect and FStrictMode);
-  Result := EvaluateProgram(FProgramParser(Source, IsStrictContext), IsDirect);
+
+  var Context := Default(TJSSourceContext);
+  if IsDirect then
+    Context := CurrentSourceContext;
+
+  Result := EvaluateProgram(FProgramParser(Source, IsStrictContext, Context), IsDirect);
+end;
+
+function TJSInterpreter.CurrentSourceContext: TJSSourceContext;
+begin
+  const Callee = ActiveCallee;
+  const HasCallee = Assigned(Callee);
+
+  Result.AllowNewTarget := (FCallDepth > 0);
+  Result.AllowSuperProperty := HasCallee and Assigned(Callee.HomeObject);
+  Result.AllowSuperCall := HasCallee and (Callee.Kind = TJSFunctionKind.DerivedConstructor);
 end;
 
 function TJSInterpreter.CreateFunctionFromSource(const Source: string): TJSValue;
 begin
-  const Program_ = FProgramParser(Source, False);
+  const EvalContext = Default(TJSSourceContext);
+  const Program_ = FProgramParser(Source, False, EvalContext);
 
   const HasSingleStatement = (Program_.Body.Count = 1);
   const IsExpressionStatement = HasSingleStatement and (Program_.Body[0] is TJSExpressionStatement);
@@ -1799,13 +1665,9 @@ function TJSInterpreter.EvaluateProgram(const Program_: TJSProgram; const IsDire
 begin
   const IsStrictSource = (Program_.IsStrict or (IsDirect and FStrictMode));
 
-  const OldScope = FCurrentScope;
-  const OldThis = FThisValue;
-  const OldThisPrimitive = FThisPrimitive;
-  const OldStrictMode = FStrictMode;
+  const OldState = FGeneratorEngine.CaptureExecutionState;
   const OldProgram = FCurrentProgram;
   const OldEvalVariableScope = FEvalVariableScope;
-  const OldVarScope = FVarScope;
   const OldEvalCallerScope = FEvalCallerScope;
   FEvalCallerScope := nil;
   if IsDirect and (not IsStrictSource) then
@@ -1835,18 +1697,15 @@ begin
   begin
     FThisValue := FGlobalObject;
     FThisPrimitive := nil;
+    FContext := Default(TJSCallContext);
   end;
   try
     Result := RunProgramBody(Program_);
   finally
+    FGeneratorEngine.RestoreExecutionState(OldState);
     FCurrentProgram := OldProgram;
     FEvalVariableScope := OldEvalVariableScope;
-    FVarScope := OldVarScope;
     FEvalCallerScope := OldEvalCallerScope;
-    FStrictMode := OldStrictMode;
-    FThisValue := OldThis;
-    FThisPrimitive := OldThisPrimitive;
-    FCurrentScope := OldScope;
   end;
 end;
 
@@ -2022,7 +1881,10 @@ begin
   EnsureNoGlobalLexicalConflict(Name);
   EnsureNoEvalLexicalConflict(Name);
 
-  if FVarScope.Resolve(Name) <> FVarScope then
+  const IsGlobalScope = (FVarScope = FGlobalScope);
+  const IsDeclared = (IsGlobalScope and FGlobalObject.HasOwnProperty(Name)) or
+                     ((not IsGlobalScope) and (FVarScope.Resolve(Name) = FVarScope));
+  if not IsDeclared then
     DeclareBinding(Name, TJSValue.CreateUndefined);
 end;
 
@@ -2092,6 +1954,15 @@ begin
   end;
 end;
 
+procedure TJSInterpreter.EnterLoopScope(const MayCaptureScope: Boolean; const Declaration: TJSVariableDeclaration);
+begin
+  FCurrentScope := TJSScope.Create(FCurrentScope);
+  if MayCaptureScope then
+    RegisterScope(FCurrentScope);
+
+  DeclareLexicalNames(Declaration);
+end;
+
 procedure TJSInterpreter.EnterLexicalScope(const ScopeInfo: TJSScopeInfo);
 begin
   FCurrentScope := TJSScope.Create(FCurrentScope);
@@ -2159,40 +2030,9 @@ function TJSInterpreter.VisitVariableDeclaration(const Node: TJSVariableDeclarat
 begin
   Result := TJSValue.CreateUndefined;
 
-  if Node.Kind <> TJSDeclarationKind.Var_ then
-  begin
-    for var Declarator in Node.Declarations do
-    begin
-      if Assigned(Declarator.Pattern) then
-      begin
-        const BoundValue = Visit(Declarator.Init);
-        BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Lexical);
-        Continue;
-      end;
-
-      var InitialValue := TJSValue.CreateUndefined;
-
-      if Assigned(Declarator.Init) then
-        InitialValue := VisitNamed(Declarator.Init, Declarator.Id.Name);
-
-      FCurrentScope.InitializeLexical(Declarator.Id.Name, InitialValue);
-    end;
-
-    Exit;
-  end;
-
   for var Declarator in Node.Declarations do
   begin
-    if not Assigned(Declarator.Init) then
-      Continue;
-
-    if Assigned(Declarator.Pattern) then
-    begin
-      const BoundValue = Visit(Declarator.Init);
-      BindTarget(Declarator.Pattern, BoundValue, TJSBindingMode.Variable);
-    end
-    else
-      FCurrentScope.SetVariable(Declarator.Id.Name, VisitNamed(Declarator.Init, Declarator.Id.Name));
+    FGeneratorEngine.InitializeDeclarator(Node, Declarator);
   end;
 end;
 
@@ -2208,7 +2048,20 @@ begin
 
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
-  AttachPrototype(Func);
+
+  if Node.IsGenerator then
+  begin
+    FGeneratorEngine.ConvertToGeneratorFunction(Func);
+    FGeneratorEngine.AttachGeneratorPrototype(Func);
+  end
+  else if Node.IsAsync then
+  begin
+    FGeneratorEngine.ConvertToAsyncFunction(Func);
+  end
+  else
+  begin
+    AttachPrototype(Func);
+  end;
 
   Result := Func;
 end;
@@ -2255,27 +2108,41 @@ begin
     raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
 
   if Value.IsObject then
-    Exit(Value.ToObject);
+  begin
+    Result := Value.ToObject;
+    Exit;
+  end;
 
   Result := WrapPrimitive(Value);
 end;
 
 function TJSInterpreter.VisitWithStatement(const Node: TJSWithStatement): TJSValue;
 begin
-  if FStrictMode then
-    raise TJSErrorFactory.SyntaxError('with statement is not allowed in strict mode', Node.Line, Node.Column);
+  EnsureWithAllowed(Node);
 
   const TargetValue = Visit(Node.Target);
-  const ScopeObject = ToScopeObject(TargetValue);
   const OuterScope = FCurrentScope;
 
-  FCurrentScope := TJSObjectScope.Create(OuterScope, ScopeObject, @FStrictMode);
-  RegisterScope(FCurrentScope);
+  EnterWithScope(TargetValue);
   try
     Result := ExecuteStatement(Node.Body);
   finally
     FCurrentScope := OuterScope;
   end;
+end;
+
+procedure TJSInterpreter.EnsureWithAllowed(const Node: TJSWithStatement);
+begin
+  if FStrictMode then
+    raise TJSErrorFactory.SyntaxError(WITH_IN_STRICT_MODE, Node.Line, Node.Column);
+end;
+
+procedure TJSInterpreter.EnterWithScope(const Target: TJSValue);
+begin
+  const ScopeObject = ToScopeObject(Target);
+
+  FCurrentScope := TJSObjectScope.Create(FCurrentScope, ScopeObject, @FStrictMode);
+  RegisterScope(FCurrentScope);
 end;
 
 function TJSInterpreter.VisitCalleeIdentifier(const Identifier: TJSIdentifier; out ThisObj: IJSObject): TJSValue;
@@ -2284,7 +2151,10 @@ begin
 
   const IsGlobalCode = (FCurrentScope = FGlobalScope);
   if IsGlobalCode then
-    Exit(VisitIdentifier(Identifier));
+  begin
+    Result := VisitIdentifier(Identifier);
+    Exit;
+  end;
 
   const DeclaringScope = FCurrentScope.Resolve(Identifier.Name);
   if not Assigned(DeclaringScope) then
@@ -2294,7 +2164,8 @@ begin
   if Supports(DeclaringScope, IJSObjectScope, ObjectScope) then
   begin
     ThisObj := ObjectScope.BindingObject;
-    Exit(ObjectScope.GetBindingValue(Identifier.Name, FStrictMode));
+    Result := ObjectScope.GetBindingValue(Identifier.Name, FStrictMode);
+    Exit;
   end;
 
   if not DeclaringScope.TryGetVariable(Identifier.Name, Result) then
@@ -2303,14 +2174,9 @@ end;
 
 function TJSInterpreter.VisitLabeledStatement(const Node: TJSLabeledStatement): TJSValue;
 begin
-  const BodyIsLoop = (Node.Body.NodeType in [TJSASTNodeType.WhileStatement,
-                                             TJSASTNodeType.DoWhileStatement,
-                                             TJSASTNodeType.ForStatement,
-                                             TJSASTNodeType.ForInStatement,
-                                             TJSASTNodeType.ForOfStatement]);
-  const BodyIsLabeled = (Node.Body.NodeType = TJSASTNodeType.LabeledStatement);
+  const BodyIsLoop = (Node.Body.NodeType in LABELED_LOOP_TYPES);
 
-  if BodyIsLoop or BodyIsLabeled then
+  if BodyIsLoop then
     FLoopLabels := FLoopLabels + [Node.LabelName]
   else
     FLoopLabels := nil;
@@ -2348,19 +2214,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
   end;
@@ -2375,19 +2238,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
   until not Visit(Node.Test).ToBoolean;
@@ -2419,12 +2279,8 @@ begin
   const OuterScope = FCurrentScope;
   const Declaration = TJSVariableDeclaration(Node.Init);
 
-  FCurrentScope := TJSScope.Create(OuterScope);
-  if Node.MayCaptureScope then
-    RegisterScope(FCurrentScope);
-
   try
-    DeclareLexicalNames(Declaration);
+    EnterLoopScope(Node.MayCaptureScope, Declaration);
     Visit(Declaration);
 
     if Node.MayCaptureScope then
@@ -2454,20 +2310,16 @@ begin
     try
       Result := ExecuteStatement(Node.Body);
     except
-      on Signal: TJSBreakSignal do
+      on Signal: TJSJumpSignal do
       begin
-        if Signal.IsLabelled then
+        const Jump = ResolveLoopJump(Signal, OwnLabels);
+        const MustPropagate = (Jump = TJSLoopJump.Propagate);
+        if MustPropagate then
           raise;
 
-        Break;
-      end;
-      on Signal: TJSContinueSignal do
-      begin
-        if not Signal.AppliesTo(OwnLabels) then
-          raise;
-
-        AdvanceForLoop(Node, CopiesIterationScope);
-        Continue;
+        const MustStop = (Jump = TJSLoopJump.Stop);
+        if MustStop then
+          Break;
       end;
     end;
 
@@ -2502,12 +2354,8 @@ begin
 
   const OuterScope = FCurrentScope;
 
-  FCurrentScope := TJSScope.Create(OuterScope);
-  if Node.MayCaptureScope then
-    RegisterScope(FCurrentScope);
-
   try
-    DeclareLexicalNames(TJSVariableDeclaration(Node.Left));
+    EnterLoopScope(Node.MayCaptureScope, TJSVariableDeclaration(Node.Left));
     Result := Visit(TJSExpression(Node.Right));
   finally
     FCurrentScope := OuterScope;
@@ -2603,19 +2451,35 @@ begin
   try
     Result := ExecuteStatement(Body);
   except
-    on Signal: TJSBreakSignal do
+    on Signal: TJSJumpSignal do
     begin
-      if Signal.IsLabelled then
+      const Jump = ResolveLoopJump(Signal, OwnLabels);
+      const MustPropagate = (Jump = TJSLoopJump.Propagate);
+      if MustPropagate then
         raise;
 
-      KeepLooping := False;
-    end;
-    on Signal: TJSContinueSignal do
-    begin
-      if not Signal.AppliesTo(OwnLabels) then
-        raise;
+      KeepLooping := (Jump <> TJSLoopJump.Stop);
     end;
   end;
+end;
+
+function TJSInterpreter.ResolveLoopJump(const Signal: TJSJumpSignal; const OwnLabels: TArray<string>): TJSLoopJump;
+begin
+  const IsBreak = (Signal is TJSBreakSignal);
+  if IsBreak then
+  begin
+    if Signal.IsLabelled then
+      Result := TJSLoopJump.Propagate
+    else
+      Result := TJSLoopJump.Stop;
+
+    Exit;
+  end;
+
+  if Signal.AppliesTo(OwnLabels) then
+    Result := TJSLoopJump.Proceed
+  else
+    Result := TJSLoopJump.Propagate;
 end;
 
 function TJSInterpreter.VisitForInStatement(const Node: TJSForInStatement): TJSValue;
@@ -2693,14 +2557,9 @@ begin
   except
     on EJSExecutionInterrupted do
       raise;
-    on EJSControlFlowSignal do
+    on Error: Exception do
     begin
-      Source.Close;
-      raise;
-    end;
-    on Exception do
-    begin
-      Source.CloseAfterThrow;
+      Source.CloseForException(Error);
       raise;
     end;
   end;
@@ -2756,10 +2615,20 @@ end;
 
 function TJSInterpreter.ExecuteSwitchCases(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): TJSValue;
 begin
-  Result := TJSValue.CreateUndefined;
+  const StartIndex = FindSwitchStart(Node, DiscriminantValue);
+  const HasStart = (StartIndex <> NO_CASE);
+  if not HasStart then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
-  var Matched := False;
-  var DefaultCaseIndex := -1;
+  Result := RunSwitchFrom(Node, StartIndex);
+end;
+
+function TJSInterpreter.FindSwitchStart(const Node: TJSSwitchStatement; const DiscriminantValue: TJSValue): Integer;
+begin
+  var DefaultCaseIndex := NO_CASE;
 
   for var CaseIndex := 0 to Node.Cases.Count - 1 do
   begin
@@ -2772,56 +2641,33 @@ begin
     end;
 
     const TestValue = Visit(SwitchCase.Test);
-
     if StrictEquals(DiscriminantValue, TestValue) then
     begin
-      Matched := True;
-
-      try
-        for var StatementIndex := CaseIndex to Node.Cases.Count - 1 do
-        begin
-          const CurrentCase = Node.Cases[StatementIndex];
-
-          for var Statement in CurrentCase.Consequent do
-          begin
-            Result := ExecuteStatement(Statement);
-          end;
-        end;
-      except
-        on Signal: TJSBreakSignal do
-        begin
-          if Signal.IsLabelled then
-            raise;
-
-          Exit;
-        end;
-      end;
-
-      Break;
+      Result := CaseIndex;
+      Exit;
     end;
   end;
 
-  const ShouldRunDefault = (not Matched) and (DefaultCaseIndex >= 0);
-  if ShouldRunDefault then
-  begin
-    try
-      for var StatementIndex := DefaultCaseIndex to Node.Cases.Count - 1 do
-      begin
-        const CurrentCase = Node.Cases[StatementIndex];
+  Result := DefaultCaseIndex;
+end;
 
-        for var Statement in CurrentCase.Consequent do
-        begin
-          Result := ExecuteStatement(Statement);
-        end;
-      end;
-    except
-      on Signal: TJSBreakSignal do
-      begin
-        if Signal.IsLabelled then
-          raise;
+function TJSInterpreter.RunSwitchFrom(const Node: TJSSwitchStatement; const StartIndex: Integer): TJSValue;
+begin
+  Result := TJSValue.CreateUndefined;
 
-        Exit;
+  try
+    for var CaseIndex := StartIndex to Node.Cases.Count - 1 do
+    begin
+      for var Statement in Node.Cases[CaseIndex].Consequent do
+      begin
+        Result := ExecuteStatement(Statement);
       end;
+    end;
+  except
+    on Signal: TJSBreakSignal do
+    begin
+      if Signal.IsLabelled then
+        raise;
     end;
   end;
 end;
@@ -2844,17 +2690,10 @@ begin
         raise;
       on EJSControlFlowSignal do
         raise;
-      on E: TJSThrowSignal do
-      begin
-        if Assigned(Node.Handler) then
-          Result := VisitCatchClause(Node.Handler, E.Value)
-        else
-          raise;
-      end;
       on E: Exception do
       begin
         if Assigned(Node.Handler) then
-          Result := VisitCatchClause(Node.Handler, CreateErrorValue(E))
+          Result := VisitCatchClause(Node.Handler, ExceptionToValue(E))
         else
           raise;
       end;
@@ -2895,13 +2734,19 @@ begin
   const ErrorName = ErrorConstructorName(Error);
   const IsKnownError = (not ErrorName.IsEmpty) and FGlobalScope.HasVariable(ErrorName);
   if not IsKnownError then
-    Exit(TJSValue.CreateString(Error.Message));
+  begin
+    Result := TJSValue.CreateString(Error.Message);
+    Exit;
+  end;
 
   var Func: IJSFunction;
   const ConstructorValue = FGlobalScope.GetVariable(ErrorName);
   const IsCallable = ConstructorValue.IsFunction and Supports(ConstructorValue.ToObject, IJSFunction, Func);
   if not IsCallable then
-    Exit(TJSValue.CreateString(Error.Message));
+  begin
+    Result := TJSValue.CreateString(Error.Message);
+    Exit;
+  end;
 
   const Prefix = ErrorName + ': ';
   var Message := Error.Message;
@@ -2915,24 +2760,28 @@ function TJSInterpreter.VisitCatchClause(const Handler: TJSCatchClause; const Th
 begin
   PushScope;
   try
-    if Assigned(Handler.Pattern) then
-    begin
-      for var Name in TJSPatternNames.Of_(Handler.Pattern) do
-      begin
-        FCurrentScope.DeclareLexical(Name, False);
-      end;
-
-      BindTarget(Handler.Pattern, Thrown, TJSBindingMode.Lexical);
-    end
-    else
-    begin
-      FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
-    end;
+    DeclareCatchBinding(Handler, Thrown);
 
     Result := Visit(Handler.Body);
   finally
     PopScope;
   end;
+end;
+
+procedure TJSInterpreter.DeclareCatchBinding(const Handler: TJSCatchClause; const Thrown: TJSValue);
+begin
+  if not Assigned(Handler.Pattern) then
+  begin
+    FCurrentScope.DeclareVariable(Handler.Param.Name, Thrown);
+    Exit;
+  end;
+
+  for var Name in TJSPatternNames.Of_(Handler.Pattern) do
+  begin
+    FCurrentScope.DeclareLexical(Name, False);
+  end;
+
+  BindTarget(Handler.Pattern, Thrown, TJSBindingMode.Lexical);
 end;
 
 procedure TJSInterpreter.RunFinalizer(const Node: TJSTryStatement);
@@ -2945,7 +2794,10 @@ function TJSInterpreter.VisitIdentifier(const Node: TJSIdentifier): TJSValue;
 begin
   const GlobalSlot = GlobalDataSlot(Node);
   if Assigned(GlobalSlot) then
-    Exit(GlobalSlot.Value);
+  begin
+    Result := GlobalSlot.Value;
+    Exit;
+  end;
 
   if not FCurrentScope.TryGetVariable(Node.Name, Result) then
     raise TJSErrorFactory.UndefinedVariable(Node.Name, Node.Line, Node.Column);
@@ -2966,9 +2818,9 @@ begin
       Result := TJSValue.CreateString(Node.StringValue);
     TJSLiteralType.RegExp:
       begin
-        const RegExpObj: IJSRegExp = TJSRegExp.Create(Node.RegExpPattern, Node.RegExpFlags);
-        RegExpObj.Prototype := FRegExpPrototype;
-        Result := TJSValue.CreateObject(RegExpObj);
+        const RegExpObject: IJSRegExp = TJSRegExp.Create(Node.RegExpPattern, Node.RegExpFlags);
+        RegExpObject.Prototype := FRegExpPrototype;
+        Result := TJSValue.CreateObject(RegExpObject);
       end;
     else
       Result := TJSValue.CreateUndefined;
@@ -2978,7 +2830,10 @@ end;
 function TJSInterpreter.VisitArrayExpression(const Node: TJSArrayExpression): TJSValue;
 begin
   if Node.HasSpread then
-    Exit(VisitArrayWithSpread(Node));
+  begin
+    Result := VisitArrayWithSpread(Node);
+    Exit;
+  end;
 
   FLimits.EnsureArrayLength(Node.Elements.Count);
 
@@ -3016,53 +2871,55 @@ end;
 
 procedure TJSInterpreter.DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
 begin
-  if Prop.Kind = TJSPropertyKind.Spread then
+  const IsSpread = (Prop.Kind = TJSPropertyKind.Spread);
+  if IsSpread then
   begin
     const SpreadSource = Visit(Prop.Value);
     CopyDataProperties(Target, SpreadSource, nil);
     Exit;
   end;
 
-  var KeyHolder: TJSValue;
-  const KeyName = LiteralPropertyName(Prop, KeyHolder);
+  const Evaluated = EvaluatePropertyKey(Prop.Computed, Prop.Key);
 
   case Prop.Kind of
     TJSPropertyKind.Getter,
-    TJSPropertyKind.Setter : DefineLiteralAccessor(Target, KeyName, Prop);
-    TJSPropertyKind.Method : DefineLiteralMethod(Target, KeyName, Prop);
+    TJSPropertyKind.Setter : DefineLiteralAccessor(Target, Evaluated.Key, Prop);
+    TJSPropertyKind.Method : DefineLiteralMethod(Target, Evaluated.Key, Prop);
   else
     if Prop.SetsPrototype then
       AssignLiteralPrototype(Target, Prop)
     else
-      DefineLiteralData(Target, KeyName, Prop);
+      DefineLiteralData(Target, Evaluated.Key, Prop);
   end;
 end;
 
-function TJSInterpreter.LiteralPropertyName(const Prop: TJSObjectProperty; out KeyHolder: TJSValue): string;
+function TJSInterpreter.EvaluatePropertyKey(const Computed: Boolean; const KeyNode: TJSASTNode): TJSEvaluatedKey;
 begin
-  KeyHolder := TJSValue.CreateUndefined;
+  Result.LiveSymbol := TJSValue.CreateUndefined;
 
-  if Prop.Computed then
+  if Computed then
   begin
-    // A symbol key stays registered only while the symbol lives, so the caller keeps it until the property exists.
-    KeyHolder := Visit(Prop.Key);
-    Exit(ToPropertyKey(KeyHolder));
+    Result.LiveSymbol := Visit(KeyNode);
+    Result.Key := ToPropertyKey(Result.LiveSymbol);
+  end
+  else if KeyNode is TJSIdentifier then
+  begin
+    Result.Key := TJSIdentifier(KeyNode).Name;
+  end
+  else
+  begin
+    Result.Key := VisitText(KeyNode);
   end;
-
-  if Prop.Key is TJSIdentifier then
-    Exit(TJSIdentifier(Prop.Key).Name);
-
-  Result := VisitText(Prop.Key);
 end;
 
-class function TJSInterpreter.FunctionNameForKey(const Key: string): string;
+class function TJSInterpreter.FunctionNameForKey(const Key: TJSPropertyKey): string;
 begin
-  Result := Key;
+  Result := Key.Text;
 
-  if not TJSSymbolRegistry.IsKey(Key) then
+  if not Key.IsSymbol then
     Exit;
 
-  const Found = TJSSymbolRegistry.Find(Key);
+  const Found = TJSSymbolRegistry.Find(Key.SymbolId);
   const IsLiveSymbol = Found is TJSSymbolImpl;
   const HasDescription = IsLiveSymbol and TJSSymbolImpl(Found).HasDescription;
   if HasDescription then
@@ -3071,17 +2928,18 @@ begin
     Result := '';
 end;
 
-procedure TJSInterpreter.DefineLiteralData(const Target: IJSObject; const Name: string;
+procedure TJSInterpreter.DefineLiteralData(const Target: IJSObject; const Name: TJSPropertyKey;
                                            const Prop: TJSObjectProperty);
 begin
   const Value = VisitNamed(Prop.Value, FunctionNameForKey(Name));
   Target.DefineProperty(Name, TJSPropertyDescriptor.Create(Value));
 end;
 
-procedure TJSInterpreter.DefineLiteralMethod(const Target: IJSObject; const Name: string;
+procedure TJSInterpreter.DefineLiteralMethod(const Target: IJSObject; const Name: TJSPropertyKey;
                                              const Prop: TJSObjectProperty);
 begin
   const Method = CreateMethodFunction(TJSFunctionExpression(Prop.Value), FunctionNameForKey(Name));
+  FClassBuilder.BindHomeObject(Method, Target);
   Target.DefineProperty(Name, TJSPropertyDescriptor.Create(TJSValue.CreateObject(Method)));
 end;
 
@@ -3110,6 +2968,14 @@ end;
 
 function TJSInterpreter.VisitNamed(const Node: TJSExpression; const Name: string): TJSValue;
 begin
+  const IsAnonymousClass = (Node.NodeType = TJSASTNodeType.ClassExpression) and
+                           (not Assigned(TJSClassExpression(Node).Id));
+  if IsAnonymousClass then
+  begin
+    Result := FClassBuilder.VisitClassExpression(TJSClassExpression(Node), Name);
+    Exit;
+  end;
+
   Result := Visit(Node);
 
   if IsAnonymousFunctionDefinition(Node) then
@@ -3119,7 +2985,7 @@ begin
   end;
 end;
 
-procedure TJSInterpreter.DefineLiteralAccessor(const Target: IJSObject; const Name: string;
+procedure TJSInterpreter.DefineLiteralAccessor(const Target: IJSObject; const Name: TJSPropertyKey;
                                                const Prop: TJSObjectProperty);
 begin
   var Definition := Default(TJSPropertyDefinition);
@@ -3132,6 +2998,7 @@ begin
   const NameFormat = IfThen(IsGetter, GETTER_NAME_FORMAT, SETTER_NAME_FORMAT);
   const AccessorName = Format(NameFormat, [FunctionNameForKey(Name)]);
   const AccessorFunction = CreateMethodFunction(TJSFunctionExpression(Prop.Value), AccessorName);
+  FClassBuilder.BindHomeObject(AccessorFunction, Target);
   const Accessor = TJSValue.CreateObject(AccessorFunction);
 
   if IsGetter then
@@ -3170,7 +3037,11 @@ begin
   Func.ClosureScope := FCurrentScope;
   Func.IsArrow := True;
   Func.IsConstructor := False;
+  if Node.IsAsync then
+    FGeneratorEngine.ConvertToAsyncFunction(Func);
+
   Func.LexicalThis := CurrentThisObject;
+  Func.Frame := CaptureFrame;
 
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
@@ -3187,7 +3058,10 @@ begin
   end;
 
   const Func = CreateOrdinaryFunction(Node);
-  AttachPrototype(Func);
+  if Node.IsGenerator then
+    FGeneratorEngine.AttachGeneratorPrototype(Func)
+  else if not Node.IsAsync then
+    AttachPrototype(Func);
 
   if Assigned(Node.Id) then
     BindFunctionName(Func, Node.Id.Name);
@@ -3220,6 +3094,11 @@ begin
   AssignParameters(Func, Node.Params, Node.ParameterInfo);
   RegisterFunction(Func);
 
+  if Node.IsGenerator then
+    FGeneratorEngine.ConvertToGeneratorFunction(Func)
+  else if Node.IsAsync then
+    FGeneratorEngine.ConvertToAsyncFunction(Func);
+
   Result := Func;
 end;
 
@@ -3228,6 +3107,9 @@ begin
   Result := CreateOrdinaryFunction(Node);
   Result.IsConstructor := False;
   Result.Name := Name;
+
+  if Node.IsGenerator then
+    FGeneratorEngine.AttachGeneratorPrototype(Result);
 end;
 
 function TJSInterpreter.VisitDeleteExpression(const Node: TJSUnaryExpression): TJSValue;
@@ -3255,6 +3137,12 @@ end;
 
 function TJSInterpreter.DeleteMember(const Node: TJSUnaryExpression; const MemberExpr: TJSMemberExpression): TJSValue;
 begin
+  if MemberExpr.IsSuper then
+  begin
+    RequireBoundThis;
+    raise TJSErrorFactory.ReferenceError(DELETE_SUPER_REFERENCE, Node.Line, Node.Column);
+  end;
+
   const ObjValue = Visit(MemberExpr.Object_);
   if ObjValue.IsNullOrUndefined then
     raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT, Node.Line, Node.Column);
@@ -3262,7 +3150,7 @@ begin
   if not ObjValue.IsObject then
     Exit(TJSValue.CreateBoolean(False));
 
-  var PropName: string;
+  var PropName: TJSPropertyKey;
 
   if MemberExpr.Computed then
     PropName := ToPropertyKey(Visit(MemberExpr.Property_))
@@ -3279,8 +3167,7 @@ begin
   const IsLocked = Obj.HasOwnProperty(PropName) and ((not OwnDescriptor.Configurable) or
                                                      TJSBinaryKeys.IsElementKey(Obj, PropName));
   if IsLocked and FStrictMode then
-    raise TJSErrorFactory.TypeError(Format('Cannot delete property ''%s'' of object', [PropName]),
-      Node.Line, Node.Column);
+    RaiseCannotDelete(Node, PropName);
 
   if IsLocked then
     Exit(TJSValue.CreateBoolean(False));
@@ -3290,13 +3177,41 @@ begin
   Result := TJSValue.CreateBoolean(True);
 end;
 
+procedure TJSInterpreter.RaiseCannotDelete(const Node: TJSUnaryExpression; const PropName: TJSPropertyKey);
+begin
+  const Message = Format(CANNOT_DELETE_PROPERTY, [PropName.Text]);
+
+  raise TJSErrorFactory.TypeError(Message, Node.Line, Node.Column);
+end;
+
+class function TJSInterpreter.IsLongChain(const ChainLength: Integer): Boolean;
+begin
+  Result := (ChainLength >= ITERATIVE_CHAIN_LENGTH);
+end;
+
+procedure TJSInterpreter.ReleaseFunctionContents(const Func: IJSFunction);
+begin
+  Func.ClosureScope := nil;
+  Func.LexicalThis := nil;
+  Func.NativeFunction := nil;
+  Func.ReleaseCapturedContext;
+  DetachProperties(Func);
+end;
+
+procedure TJSInterpreter.RequireBoundThis;
+begin
+  const HasBinding = Assigned(FContext.Binding);
+  const IsUnbound = (HasBinding and (not Assigned(ActiveBinding.Value)));
+  if IsUnbound then
+    raise TJSErrorFactory.ReferenceError(THIS_BEFORE_SUPER);
+end;
+
 function TJSInterpreter.DeleteProxyMember(const Node: TJSUnaryExpression; const Proxy: IJSProxy;
-                                          const PropName: string): TJSValue;
+                                          const PropName: TJSPropertyKey): TJSValue;
 begin
   const IsRemoved = Proxy.DeleteOwnProperty(PropName);
   if (not IsRemoved) and FStrictMode then
-    raise TJSErrorFactory.TypeError(Format('Cannot delete property ''%s'' of object', [PropName]),
-      Node.Line, Node.Column);
+    RaiseCannotDelete(Node, PropName);
 
   Result := TJSValue.CreateBoolean(IsRemoved);
 end;
@@ -3488,27 +3403,91 @@ end;
 
 function TJSInterpreter.VisitBinaryExpression(const Node: TJSBinaryExpression): TJSValue;
 begin
+  if IsLongChain(Node.ChainLength) then
+  begin
+    Result := VisitBinaryChain(Node);
+    Exit;
+  end;
+
   const Left = Visit(Node.Left);
   const Right = Visit(Node.Right);
 
+  const IsNumberOperator = (Node.Operator in OPERATORS_OF_NUMBERS);
+  if IsNumberOperator then
+  begin
+    Result := TJSOperators.Apply(Node.Operator, Left, Right, FLimits);
+  end
+  else
+  begin
+    Result := ApplyBinary(Node, Left, Right);
+  end;
+end;
+
+function TJSInterpreter.CollectChain(const First: TJSExpression; const ChainLength: Integer): TArray<TJSExpression>;
+begin
+  SetLength(Result, ChainLength + 1);
+
+  var Count := 0;
+  var Link := First;
+  while Assigned(Link) do
+  begin
+    Result[Count] := Link;
+    Inc(Count);
+
+    Link := NextChainLink(Link);
+  end;
+
+  SetLength(Result, Count);
+end;
+
+function TJSInterpreter.NextChainLink(const Link: TJSExpression): TJSExpression;
+begin
+  const IsAccessLink = (Link.ChainKind = TJSChainKind.Access);
+  if IsAccessLink then
+  begin
+    const Operand = ChainOperand(Link);
+    const ContinuesAccessChain = (Assigned(Operand) and IsChainLink(Operand));
+    if ContinuesAccessChain then
+      Result := Operand
+    else
+      Result := nil;
+
+    Exit;
+  end;
+
+  const Next = Link.ChainChild;
+  const ContinuesChain = (Assigned(Next) and (Next.ChainKind = Link.ChainKind) and (not Next.IsRemembered));
+  if ContinuesChain then
+    Result := Next
+  else
+    Result := nil;
+end;
+
+function TJSInterpreter.VisitBinaryChain(const Node: TJSBinaryExpression): TJSValue;
+begin
+  const Links = CollectChain(Node, Node.ChainLength);
+
+  const LastLink = TJSBinaryExpression(Links[High(Links)]);
+  Result := Visit(LastLink.Left);
+  for var Index := High(Links) downto 0 do
+  begin
+    const Current = TJSBinaryExpression(Links[Index]);
+    const Right = Visit(Current.Right);
+    Result := ApplyBinary(Current, Result, Right);
+  end;
+end;
+
+function TJSInterpreter.ApplyBinary(const Node: TJSBinaryExpression; const Left: TJSValue;
+                                    const Right: TJSValue): TJSValue;
+begin
+  const IsNumberOperator = (Node.Operator in OPERATORS_OF_NUMBERS);
+  if IsNumberOperator then
+  begin
+    Result := TJSOperators.Apply(Node.Operator, Left, Right, FLimits);
+    Exit;
+  end;
+
   case Node.Operator of
-    TJSBinaryOperator.Add,
-    TJSBinaryOperator.Subtract,
-    TJSBinaryOperator.Multiply,
-    TJSBinaryOperator.Divide,
-    TJSBinaryOperator.Modulo,
-    TJSBinaryOperator.Exponent,
-    TJSBinaryOperator.LessThan,
-    TJSBinaryOperator.LessThanOrEqual,
-    TJSBinaryOperator.GreaterThan,
-    TJSBinaryOperator.GreaterThanOrEqual,
-    TJSBinaryOperator.BitwiseAnd,
-    TJSBinaryOperator.BitwiseOr,
-    TJSBinaryOperator.BitwiseXor,
-    TJSBinaryOperator.LeftShift,
-    TJSBinaryOperator.RightShift,
-    TJSBinaryOperator.UnsignedRightShift:
-      Result := TJSOperators.Apply(Node.Operator, Left, Right, FLimits);
     TJSBinaryOperator.Equal:
       Result := TJSValue.CreateBoolean(AbstractEquals(Left, Right));
     TJSBinaryOperator.NotEqual:
@@ -3528,8 +3507,31 @@ end;
 
 function TJSInterpreter.VisitLogicalExpression(const Node: TJSLogicalExpression): TJSValue;
 begin
+  if IsLongChain(Node.ChainLength) then
+  begin
+    Result := VisitLogicalChain(Node);
+    Exit;
+  end;
+
   const Left = Visit(Node.Left);
 
+  Result := ApplyLogical(Node, Left);
+end;
+
+function TJSInterpreter.VisitLogicalChain(const Node: TJSLogicalExpression): TJSValue;
+begin
+  const Links = CollectChain(Node, Node.ChainLength);
+
+  const LastLink = TJSLogicalExpression(Links[High(Links)]);
+  Result := Visit(LastLink.Left);
+  for var Index := High(Links) downto 0 do
+  begin
+    Result := ApplyLogical(TJSLogicalExpression(Links[Index]), Result);
+  end;
+end;
+
+function TJSInterpreter.ApplyLogical(const Node: TJSLogicalExpression; const Left: TJSValue): TJSValue;
+begin
   case Node.Operator of
     TJSLogicalOperator.And_:
       begin
@@ -3541,6 +3543,13 @@ begin
     TJSLogicalOperator.Or_:
       begin
         if Left.ToBoolean then
+          Exit(Left);
+
+        Result := Visit(Node.Right);
+      end;
+    TJSLogicalOperator.Nullish:
+      begin
+        if not Left.IsNullOrUndefined then
           Exit(Left);
 
         Result := Visit(Node.Right);
@@ -3642,6 +3651,7 @@ begin
     TJSASTNodeType.MemberExpression:
       begin
         var Reference := Target.Reference;
+        Reference.Prepare(Self);
         PutReferenceValue(Reference, StoredValue);
       end;
     TJSASTNodeType.ArrayPattern:
@@ -3675,6 +3685,13 @@ end;
 procedure TJSInterpreter.BindArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
                                           const Mode: TJSBindingMode);
 begin
+  const IsResumable = Assigned(FGenerator) and Pattern.ContainsSuspension;
+  if IsResumable then
+  begin
+    BindResumableArrayPattern(Pattern, Value, Mode);
+    Exit;
+  end;
+
   var Source := OpenIterationSource(Value);
 
   try
@@ -3692,6 +3709,82 @@ begin
   end;
 
   Source.Close;
+end;
+
+procedure TJSInterpreter.BindResumableArrayPattern(const Pattern: TJSArrayPattern; const Value: TJSValue;
+                                                   const Mode: TJSBindingMode);
+begin
+  const Frame = FGeneratorEngine.FrameFor(Pattern);
+  try
+    if Frame.IsAt(TJSFrameStage.Fresh) then
+    begin
+      Frame.Source := OpenIterationSource(Value);
+      Frame.MoveTo(TJSFrameStage.PatternElement);
+    end;
+
+    try
+      BindResumableElements(Pattern, Frame, Mode);
+    except
+      on TJSYieldSignal do
+        raise;
+      on EJSExecutionInterrupted do
+        raise;
+      on Error: Exception do
+      begin
+        Frame.Source.CloseForException(Error);
+        raise;
+      end;
+    end;
+
+    Frame.Source.Close;
+  finally
+    FGenerator.ReleaseFrame(Pattern);
+  end;
+end;
+
+procedure TJSInterpreter.BindResumableElements(const Pattern: TJSArrayPattern; const Frame: TJSStatementFrame;
+                                               const Mode: TJSBindingMode);
+begin
+
+  while Frame.Index < Pattern.Elements.Count do
+  begin
+    const Element = Pattern.Elements[Frame.Index];
+    const IsHole = (Element = nil);
+    if IsHole then
+    begin
+      Frame.Source.Next;
+      Inc(Frame.Index);
+      Continue;
+    end;
+
+    const IsRest = (Element is TJSSpreadElement);
+    var Target := Element;
+    if IsRest then
+      Target := TJSSpreadElement(Element).Argument;
+
+    const Resolved = ResolvePatternTarget(Target, Mode);
+    if (not Frame.IsAt(TJSFrameStage.PatternValueFetched)) then
+    begin
+      if IsRest then
+      begin
+        const RemainingValues = Frame.Source.Remaining;
+        Frame.Current := CreateRestArray(RemainingValues, 0);
+      end
+      else
+      begin
+        Frame.Current := Frame.Source.Next;
+      end;
+
+      Frame.MoveTo(TJSFrameStage.PatternValueFetched);
+    end;
+
+    StorePatternTarget(Resolved, Frame.Current, Mode);
+    Frame.MoveTo(TJSFrameStage.PatternElement);
+    Inc(Frame.Index);
+
+    if IsRest then
+      Break;
+  end;
 end;
 
 procedure TJSInterpreter.BindArrayElements(const Pattern: TJSArrayPattern; var Source: TJSIterationSource;
@@ -3806,12 +3899,7 @@ begin
   Result.Protocol := TJSIteratorRecord.Create(Self, IteratorValue.ToObject);
 end;
 
-function TJSInterpreter.IsIntrinsic(const Candidate: TJSValue; const Original: IInterface): Boolean;
-begin
-  Result := Assigned(Original) and Candidate.IsObject and ((Candidate.ToObject as IInterface) = Original);
-end;
-
-function TJSInterpreter.IsIntrinsicProperty(const Start: IJSObject; const Key: string;
+function TJSInterpreter.IsIntrinsicProperty(const Start: IJSObject; const Key: TJSPropertyKey;
                                             const Original: IInterface): Boolean;
 begin
   Result := False;
@@ -3827,35 +3915,16 @@ begin
 
     var Slot: PJSPropertyDescriptor;
     if TJSObjectImpl(Current).TryGetOwnSlot(Key, Slot) then
-      Exit((not Slot.IsAccessor) and IsIntrinsic(Slot.Value, Original));
+    begin
+      Result := TJSIntrinsicSlot.IsIntrinsic(Slot, Original);
+      Exit;
+    end;
 
     Current := Current.Prototype;
   end;
 end;
 
-function TJSInterpreter.HoldsIntrinsic(var Cache: TJSIntrinsicSlot; const Holder: IJSObject; const Key: string;
-                                       const Original: IInterface): Boolean;
-begin
-  const IsOrdinaryObject = Assigned(Original) and (Holder is TJSObjectImpl);
-  if not IsOrdinaryObject then
-    Exit(False);
-
-  const HolderObject = TJSObjectImpl(Holder);
-  const IsCached = (Cache.Holder = HolderObject) and (Cache.Version = HolderObject.PropertyLayoutVersion);
-  if not IsCached then
-  begin
-    Cache.Holder := nil;
-    if not HolderObject.TryGetOwnSlot(Key, Cache.Slot) then
-      Exit(False);
-
-    Cache.Holder := HolderObject;
-    Cache.Version := HolderObject.PropertyLayoutVersion;
-  end;
-
-  Result := (not Cache.Slot.IsAccessor) and IsIntrinsic(Cache.Slot.Value, Original);
-end;
-
-function TJSInterpreter.HasPlainArrayPrototype(const Target: IJSObject; const Key: string): Boolean;
+function TJSInterpreter.InheritsKeyFromArrayPrototype(const Target: IJSObject; const Key: TJSPropertyKey): Boolean;
 begin
   Result := False;
 
@@ -3863,30 +3932,29 @@ begin
   if not (HasArrayPrototype and (Target is TJSObjectImpl)) then
     Exit;
 
-  var OwnSlot: PJSPropertyDescriptor;
-  Result := not TJSObjectImpl(Target).TryGetOwnSlot(Key, OwnSlot);
+  Result := not TJSObjectImpl(Target).HasOwnSlot(Key);
 end;
 
 function TJSInterpreter.HasUntouchedArrayIteration(const Target: IJSObject): Boolean;
 begin
   const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
 
-  const IsOriginalValues = (HasPlainArrayPrototype(Target, IteratorKey) and
-                            HoldsIntrinsic(FArrayValuesSlot, FArrayPrototype, IteratorKey, FIteration.ArrayValues)) or
+  const IsOriginalValues = (InheritsKeyFromArrayPrototype(Target, IteratorKey) and
+                            FArrayValuesSlot.Holds(FArrayPrototype, IteratorKey, FIteration.ArrayValues)) or
                            IsIntrinsicProperty(Target, IteratorKey, FIteration.ArrayValues);
 
   Result := IsOriginalValues and
-            HoldsIntrinsic(FArrayNextSlot, FIteration.ArrayIteratorPrototype, ITERATOR_NEXT_PROPERTY,
-                           FIteration.ArrayIteratorNext);
+            FArrayNextSlot.Holds(FIteration.ArrayIteratorPrototype, ITERATOR_NEXT_PROPERTY,
+                                 FIteration.ArrayIteratorNext);
 end;
 
 function TJSInterpreter.HasUntouchedStringIteration: Boolean;
 begin
   const IteratorKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
 
-  Result := HoldsIntrinsic(FStringIteratorSlot, FStringPrototype, IteratorKey, FIteration.StringIterator) and
-            HoldsIntrinsic(FStringNextSlot, FIteration.StringIteratorPrototype, ITERATOR_NEXT_PROPERTY,
-                           FIteration.StringIteratorNext);
+  Result := FStringIteratorSlot.Holds(FStringPrototype, IteratorKey, FIteration.StringIterator) and
+            FStringNextSlot.Holds(FIteration.StringIteratorPrototype, ITERATOR_NEXT_PROPERTY,
+                                  FIteration.StringIteratorNext);
 end;
 
 function TJSInterpreter.OpenStringSource(const Text: string): TJSIterationSource;
@@ -3901,6 +3969,7 @@ begin
     Items.Free;
   end;
 end;
+
 procedure TJSInterpreter.BindObjectPattern(const Pattern: TJSObjectPattern; const Value: TJSValue;
                                            const Mode: TJSBindingMode);
 begin
@@ -3914,13 +3983,12 @@ begin
 
     for var Prop in Pattern.Properties do
     begin
-      var KeyHolder: TJSValue;
-      const KeyName = LiteralPropertyName(Prop, KeyHolder);
+      const Evaluated = EvaluatePropertyKey(Prop.Computed, Prop.Key);
       if Assigned(Excluded) then
-        Excluded.Add(KeyName);
+        Excluded.Add(Evaluated.Key.Stored);
 
       const Resolved = ResolvePatternTarget(Prop.Value, Mode);
-      const PropertyValue = ReadMember(Value, KeyName);
+      const PropertyValue = ReadMember(Value, Evaluated.Key);
       StorePatternTarget(Resolved, PropertyValue, Mode);
     end;
 
@@ -3970,7 +4038,7 @@ begin
 
   for var PropName in TJSObjectKeys.All(Obj) do
   begin
-    const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName);
+    const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName.Stored);
     if IsExcluded or (not Obj.GetOwnPropertyDescriptor(PropName).Enumerable) then
       Continue;
 
@@ -4071,11 +4139,17 @@ begin
   const BindingObject = Binding as TObject;
   const IsPlainScope = (BindingObject.ClassType = TJSScope);
   if IsPlainScope then
-    Exit(Binding.GetVariable(Name));
+  begin
+    Result := Binding.GetVariable(Name);
+    Exit;
+  end;
 
   var ObjectScope: IJSObjectScope;
   if Supports(Binding, IJSObjectScope, ObjectScope) then
-    Exit(ObjectScope.GetBindingValue(Name, FStrictMode));
+  begin
+    Result := ObjectScope.GetBindingValue(Name, FStrictMode);
+    Exit;
+  end;
 
   Result := Binding.GetVariable(Name);
 end;
@@ -4145,9 +4219,11 @@ begin
   if Node.Operator = TJSAssignmentOperator.Assign then
   begin
     NewValue := Visit(Node.Right);
+    Reference.Prepare(Self);
   end
   else
   begin
+    Reference.Prepare(Self);
     const Current = GetReferenceValue(Reference);
     const Right = Visit(Node.Right);
     const BinaryOperator = TJSOperators.BinaryOperatorFor(Node.Operator);
@@ -4220,6 +4296,7 @@ end;
 function TJSInterpreter.UpdateMember(const Node: TJSUpdateExpression): TJSValue;
 begin
   var Reference := ResolveMemberReference(TJSMemberExpression(Node.Argument));
+  Reference.Prepare(Self);
   const OldValue = GetReferenceValue(Reference);
   const OldNumber = TJSOperators.ToNumber(OldValue);
 
@@ -4248,24 +4325,52 @@ end;
 
 function TJSInterpreter.VisitCallExpression(const Node: TJSCallExpression): TJSValue;
 begin
+  if IsLongChain(Node.ChainLength) then
+  begin
+    Result := VisitValueChain(Node, Node.ChainLength);
+    Exit;
+  end;
+
+  Result := EvaluateCall(Node, nil);
+end;
+
+function TJSInterpreter.OperandOrBase(const Operand: TJSExpression; const Base: PJSValue): TJSValue;
+begin
+  if Assigned(Base) then
+    Result := Base^
+  else
+    Result := Visit(Operand);
+end;
+
+function TJSInterpreter.EvaluateCall(const Node: TJSCallExpression; const Base: PJSValue): TJSValue;
+begin
   var ThisObj: IJSObject := nil;
   var ThisValue := TJSValue.CreateUndefined;
   var Args: TArray<TJSValue>;
   var ArgsEvaluated := False;
   var CalleeValue := TJSValue.CreateUndefined;
   var MethodName := '';
+  var MethodKey: TJSPropertyKey;
 
   const IsMemberCall = Node.Callee is TJSMemberExpression;
   if IsMemberCall then
   begin
     const MemberExpr = TJSMemberExpression(Node.Callee);
-    const ObjValue = Visit(MemberExpr.Object_);
+    if MemberExpr.IsSuper then
+    begin
+      Result := CallSuperMethod(Node, MemberExpr);
+      Exit;
+    end;
+
+    const ObjValue = OperandOrBase(MemberExpr.Object_, Base);
     ThisValue := ObjValue;
 
     if MemberExpr.Computed then
-      MethodName := ToPropertyKey(Visit(MemberExpr.Property_))
+      MethodKey := ToPropertyKey(Visit(MemberExpr.Property_))
     else
-      MethodName := TJSIdentifier(MemberExpr.Property_).Name;
+      MethodKey := TJSIdentifier(MemberExpr.Property_).Key;
+
+    MethodName := MethodKey.Text;
 
     Args := EvaluateArguments(Node.Arguments, Node.HasSpread);
     ArgsEvaluated := True;
@@ -4276,7 +4381,7 @@ begin
     if TryCallUntouchedArrayMethod(ObjValue, MethodName, Args, ArrayResult) then
       Exit(ArrayResult);
 
-    CalleeValue := ReadMember(ObjValue, MethodName);
+    CalleeValue := ReadMember(ObjValue, MethodKey);
 
     if ObjValue.IsArray and IsIntrinsicMethod(TJSIntrinsicGroup.ArrayMethod, MethodName, CalleeValue) then
     begin
@@ -4302,9 +4407,14 @@ begin
   begin
     CalleeValue := VisitCalleeIdentifier(TJSIdentifier(Node.Callee), ThisObj);
   end
+  else if Node.Callee is TJSSuperExpression then
+  begin
+    Result := VisitSuperCall(Node);
+    Exit;
+  end
   else
   begin
-    CalleeValue := Visit(Node.Callee);
+    CalleeValue := OperandOrBase(Node.Callee, Base);
   end;
 
   if not CalleeValue.IsFunction then
@@ -4359,15 +4469,34 @@ begin
     Exit;
 
   var Arr: IJSArray;
-  const IsPlainArray = Supports(Target.ToObject, IJSArray, Arr) and HasPlainArrayPrototype(Arr, Name);
+  const TargetObject = Target.ToObject;
+  const IsPlainArray = Supports(TargetObject, IJSArray, Arr) and InheritsKeyFromArrayPrototype(Arr, Name);
   if not IsPlainArray then
     Exit;
 
+  const ArrayMethods = FIntrinsicMethods[TJSIntrinsicGroup.ArrayMethod];
+
   if Name = METHOD_PUSH then
-    Exit(TryCallMutator(FPushCache, True, Arr, Name, Args, Value));
+  begin
+    Result := FPushCache.Holds(Name, FArrayPrototype, ArrayMethods);
+    if Result then
+    begin
+      Value := CallMutator(FPushCache, True, Arr, Name, Args);
+    end;
+
+    Exit;
+  end;
 
   if Name = METHOD_POP then
-    Exit(TryCallMutator(FPopCache, False, Arr, Name, Args, Value));
+  begin
+    Result := FPopCache.Holds(Name, FArrayPrototype, ArrayMethods);
+    if Result then
+    begin
+      Value := CallMutator(FPopCache, False, Arr, Name, Args);
+    end;
+
+    Exit;
+  end;
 
   Result := TryCallRegisteredMethod(Arr, Name, Args, Value);
 end;
@@ -4395,60 +4524,22 @@ end;
 
 // push and pop on a dense array need none of the species, callback and property-level checks, which
 // would otherwise cost more than the operation itself.
-function TJSInterpreter.TryCallMutator(var Cache: TJSMutatorCache; const StoresNewElements: Boolean;
-                                       const Arr: IJSArray; const Name: string; const Args: TArray<TJSValue>;
-                                       out Value: TJSValue): Boolean;
+function TJSInterpreter.CallMutator(const Cache: TJSMutatorCache; const StoresNewElements: Boolean;
+                                    const Arr: IJSArray; const Name: string;
+                                    const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := False;
-
-  if not HoldsMutator(Cache, Name) then
-    Exit;
-
   const WouldStoreIntoPrototype = StoresNewElements and Assigned(Cache.PrototypeElements) and
                                   (Cache.PrototypeElements.Length > 0);
-  if Arr.IsDenseAndMutable and (not WouldStoreIntoPrototype) then
-    Value := TJSBuiltins.CallArrayMethod(Arr, Name, Args, FLimits)
+  const IsPlainPush = (Arr.IsDenseAndMutable and (not WouldStoreIntoPrototype));
+
+  if IsPlainPush then
+  begin
+    Result := TJSBuiltins.CallArrayMethod(Arr, Name, Args, FLimits);
+  end
   else
-    Value := ExecuteArrayMethod(Arr, Name, Args);
-
-  Result := True;
-end;
-
-function TJSInterpreter.HoldsMutator(var Cache: TJSMutatorCache; const Name: string): Boolean;
-begin
-  Result := False;
-
-  const IsCurrent = Assigned(Cache.Holder) and (Cache.Prototype = FArrayPrototype) and
-                    (Cache.Version = Cache.Holder.PropertyLayoutVersion);
-  if (not IsCurrent) and (not FillMutatorCache(Cache, Name)) then
-    Exit;
-
-  Result := (not Cache.Slot.IsAccessor) and Cache.Slot.Value.IsObject and (Cache.Slot.Value.ToObject = Cache.Original);
-end;
-
-function TJSInterpreter.FillMutatorCache(var Cache: TJSMutatorCache; const Name: string): Boolean;
-begin
-  Cache := Default(TJSMutatorCache);
-
-  const Methods = FIntrinsicMethods[TJSIntrinsicGroup.ArrayMethod];
-  var Original: IJSObject;
-  const IsKnownMethod = Assigned(Methods) and Methods.TryGetValue(Name, Original) and
-                        (FArrayPrototype is TJSObjectImpl);
-  if not IsKnownMethod then
-    Exit(False);
-
-  const Holder = TJSObjectImpl(FArrayPrototype);
-  var Slot: PJSPropertyDescriptor;
-  if not Holder.TryGetOwnSlot(Name, Slot) then
-    Exit(False);
-
-  Cache.Holder := Holder;
-  Cache.Prototype := FArrayPrototype;
-  Cache.Version := Holder.PropertyLayoutVersion;
-  Cache.Slot := Slot;
-  Cache.Original := Original;
-  Supports(FArrayPrototype, IJSArray, Cache.PrototypeElements);
-  Result := True;
+  begin
+    Result := ExecuteArrayMethod(Arr, Name, Args);
+  end;
 end;
 
 procedure TJSInterpreter.RequireObjectCoercible(const Value: TJSValue; const PropName: string);
@@ -4457,28 +4548,268 @@ begin
     raise TJSErrorFactory.TypeError(Format(CANNOT_ACCESS_PROPERTY, [PropName]));
 end;
 
+function TJSMemberReference.KeyPointer: PJSPropertyKey;
+begin
+  if Assigned(NamedKey) then
+    Exit(NamedKey);
+
+  Result := @ComputedKey;
+end;
+
+procedure TJSMemberReference.ResolveKey(const Limits: TJSLimits);
+begin
+  if HasKeyText then
+    Exit;
+
+  ComputedKey := Key.ToPropertyKey(Limits);
+  HasKeyText := True;
+end;
+
+procedure TJSMemberReference.Prepare(const Interpreter: TJSInterpreter);
+begin
+  if IsSuper then
+  begin
+    SuperBaseObject := Interpreter.SuperBase;
+  end
+  else
+  begin
+    Interpreter.RequireCoercibleBase(Self);
+  end;
+
+  ResolveKey(Interpreter.Limits);
+end;
+
+procedure TJSInterpreter.RequireCoercibleBase(const Reference: TJSMemberReference);
+begin
+  if Reference.Base.IsNullOrUndefined then
+  begin
+    const KeyDescription = DescribeReferenceKey(Reference);
+    RequireObjectCoercible(Reference.Base, KeyDescription);
+  end;
+end;
+
+function TJSInterpreter.CreateMemberReference(const Node: TJSMemberExpression; const Base: TJSValue;
+                                              const IsSuper: Boolean): TJSMemberReference;
+begin
+  Result.IsSuper := IsSuper;
+  Result.Base := Base;
+  Result.HasKeyText := not Node.Computed;
+
+  if Node.Computed then
+  begin
+    Result.NamedKey := nil;
+    Result.Key := Visit(Node.Property_);
+  end
+  else
+  begin
+    Result.NamedKey := TJSIdentifier(Node.Property_).KeyPointer;
+  end;
+end;
+
 function TJSInterpreter.VisitMemberExpression(const Node: TJSMemberExpression): TJSValue;
 begin
+  if IsLongChain(Node.ChainLength) then
+  begin
+    Result := VisitValueChain(Node, Node.ChainLength);
+    Exit;
+  end;
+
   var Reference := ResolveMemberReference(Node);
+  Reference.Prepare(Self);
 
   Result := GetReferenceValue(Reference);
 end;
 
+function TJSInterpreter.VisitValueChain(const Node: TJSExpression; const ChainLength: Integer): TJSValue;
+begin
+  const Links = CollectChain(Node, ChainLength);
+
+  const LastLink = Links[High(Links)];
+  const FirstOperand = ChainOperand(LastLink);
+
+  var FirstLink := High(Links);
+  var Start: TJSValue;
+  if Assigned(FirstOperand) then
+  begin
+    Start := Visit(FirstOperand);
+  end
+  else
+  begin
+    Start := EvaluateCall(TJSCallExpression(LastLink), nil);
+    Dec(FirstLink);
+  end;
+
+  Result := EvaluateChainLinks(Links, FirstLink, Start);
+end;
+
+function TJSInterpreter.EvaluateChainLinks(const Links: TArray<TJSExpression>; const FirstLink: Integer;
+                                           const Start: TJSValue): TJSValue;
+begin
+  Result := Start;
+
+  for var Index := FirstLink downto 0 do
+  begin
+    const Current = Links[Index];
+    var Previous := Result;
+    if Current is TJSCallExpression then
+    begin
+      Result := EvaluateCall(TJSCallExpression(Current), @Previous);
+    end
+    else
+    begin
+      var Reference := CreateMemberReference(TJSMemberExpression(Current), Previous, False);
+      Reference.Prepare(Self);
+
+      Result := GetReferenceValue(Reference);
+    end;
+  end;
+end;
+
+function TJSInterpreter.ChainOperand(const Link: TJSExpression): TJSExpression;
+begin
+  if Link is TJSMemberExpression then
+  begin
+    Result := TJSMemberExpression(Link).Object_;
+    Exit;
+  end;
+
+  const Callee = TJSCallExpression(Link).Callee;
+  if Callee is TJSCallExpression then
+    Exit(Callee);
+
+  const IsMemberCallee = (Callee is TJSMemberExpression) and IsChainLink(Callee);
+  if IsMemberCallee then
+  begin
+    Result := TJSMemberExpression(Callee).Object_;
+    Exit;
+  end;
+
+  Result := nil;
+end;
+
+function TJSInterpreter.IsChainLink(const Node: TJSExpression): Boolean;
+begin
+  if Node.IsRemembered then
+    Exit(False);
+
+  if Node is TJSMemberExpression then
+  begin
+    Result := not TJSMemberExpression(Node).IsSuper;
+    Exit;
+  end;
+
+  Result := Node is TJSCallExpression;
+end;
+
 function TJSInterpreter.ResolveMemberReference(const Node: TJSMemberExpression): TJSMemberReference;
 begin
-  Result.Base := Visit(Node.Object_);
-  Result.HasKeyText := not Node.Computed;
-
-  if Node.Computed then
-    Result.Key := Visit(Node.Property_)
+  var Base: TJSValue;
+  if Node.IsSuper then
+  begin
+    Base := CurrentThisValue;
+  end
   else
-    Result.KeyText := TJSIdentifier(Node.Property_).Name;
+  begin
+    Base := Visit(Node.Object_);
+  end;
+
+  Result := CreateMemberReference(Node, Base, Node.IsSuper);
+end;
+
+procedure TJSInterpreter.RaiseStackExhausted;
+begin
+  raise TJSErrorFactory.StackExhausted;
+end;
+
+procedure TJSInterpreter.RequireSuperHome;
+begin
+  const Callee = ActiveCallee;
+  const HasHome = Assigned(Callee) and Assigned(Callee.HomeObject);
+  if not HasHome then
+    raise TJSErrorFactory.SyntaxError(SUPER_OUTSIDE_METHOD);
+end;
+
+function TJSInterpreter.SuperBase: IJSObject;
+begin
+  RequireSuperHome;
+
+  Result := ActiveCallee.HomeObject.Prototype;
+end;
+
+function TJSInterpreter.ReadSuperMember(const Reference: TJSMemberReference): TJSValue;
+begin
+  const Base = Reference.SuperBaseObject;
+
+  if not Assigned(Base) then
+    raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
+
+  Result := TJSObjectOperations.GetWithReceiver(Base, Reference.KeyPointer^, Reference.Base);
+end;
+
+procedure TJSInterpreter.WriteSuperMember(const Reference: TJSMemberReference; const Value: TJSValue);
+begin
+  const Base = Reference.SuperBaseObject;
+
+  if not Assigned(Base) then
+    raise TJSErrorFactory.TypeError(SUPER_BASE_NOT_OBJECT);
+
+  const IsStored = TJSObjectOperations.SetWithReceiver(Base, Reference.KeyPointer^, Value, Reference.Base);
+  if (not IsStored) and FStrictMode then
+    RaiseCannotAssign(Reference.KeyPointer^);
+end;
+
+function TJSInterpreter.CallSuperMethod(const Node: TJSCallExpression;
+                                        const MemberExpr: TJSMemberExpression): TJSValue;
+begin
+  var Reference := ResolveMemberReference(MemberExpr);
+  Reference.Prepare(Self);
+  const CalleeValue = GetReferenceValue(Reference);
+  const Args = EvaluateArguments(Node.Arguments, Node.HasSpread);
+
+  var Func: IJSFunction;
+  const CalleeObject = CalleeValue.ToObject;
+  const IsCallable = (CalleeValue.IsFunction and Supports(CalleeObject, IJSFunction, Func));
+  if not IsCallable then
+  begin
+    const CalleeDescription = GetCalleeDescription(Node.Callee, CalleeValue);
+    raise TJSErrorFactory.NotAFunction(CalleeDescription, Node.Line, Node.Column);
+  end;
+
+  const Receiver = ThisObjectFor(Func, Reference.Base);
+  Result := CallFunction(Func, Args, Receiver);
+end;
+
+function TJSInterpreter.VisitSuperCall(const Node: TJSCallExpression): TJSValue;
+begin
+  const Callee = ActiveCallee;
+  const Binding = ActiveBinding;
+  const NewTarget = ActiveNewTarget;
+  const HasSuperContext = (Assigned(Callee) and Assigned(Binding) and Assigned(NewTarget));
+  if not HasSuperContext then
+    raise TJSErrorFactory.SyntaxError(SUPER_OUTSIDE_METHOD);
+
+  const ParentFunction = ParentConstructorOf(Callee);
+  const Args = EvaluateArguments(Node.Arguments, Node.HasSpread);
+
+  if not Assigned(ParentFunction) then
+    raise TJSErrorFactory.TypeError(SUPER_NOT_CONSTRUCTOR, Node.Line, Node.Column);
+
+  const Created = Construct(ParentFunction, Args, NewTarget);
+
+  if Assigned(Binding.Value) then
+    raise TJSErrorFactory.ReferenceError(SUPER_CALLED_TWICE);
+
+  Binding.Value := Created.ToObject;
+  Result := Created;
 end;
 
 function TJSInterpreter.DescribeReferenceKey(const Reference: TJSMemberReference): string;
 begin
   if Reference.HasKeyText then
-    Exit(Reference.KeyText);
+  begin
+    Result := Reference.KeyPointer.Text;
+    Exit;
+  end;
 
   if Reference.Key.IsObject then
     Exit(OBJECT_KEY_DESCRIPTION);
@@ -4489,37 +4820,36 @@ begin
   Result := ToText(Reference.Key);
 end;
 
-function TJSInterpreter.ToPropertyKey(const Key: TJSValue): string;
+function TJSInterpreter.ToPropertyKey(const Key: TJSValue): TJSPropertyKey;
 begin
   Result := Key.ToPropertyKey(FLimits);
 end;
 
-procedure TJSInterpreter.ResolveReferenceKey(var Reference: TJSMemberReference);
+function TJSInterpreter.GetReferenceValue(const Reference: TJSMemberReference): TJSValue;
 begin
-  if Reference.HasKeyText then
-    Exit;
-
-  Reference.KeyText := ToPropertyKey(Reference.Key);
-  Reference.HasKeyText := True;
+  if Reference.IsSuper then
+  begin
+    Result := ReadSuperMember(Reference);
+  end
+  else
+  begin
+    Result := ReadMember(Reference.Base, Reference.KeyPointer^);
+  end;
 end;
 
-function TJSInterpreter.GetReferenceValue(var Reference: TJSMemberReference): TJSValue;
+procedure TJSInterpreter.PutReferenceValue(const Reference: TJSMemberReference; const Value: TJSValue);
 begin
-  RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
-  ResolveReferenceKey(Reference);
-
-  Result := ReadMember(Reference.Base, Reference.KeyText);
+  if Reference.IsSuper then
+  begin
+    WriteSuperMember(Reference, Value);
+  end
+  else
+  begin
+    WriteMember(Reference.Base, Reference.KeyPointer^, Value);
+  end;
 end;
 
-procedure TJSInterpreter.PutReferenceValue(var Reference: TJSMemberReference; const Value: TJSValue);
-begin
-  RequireObjectCoercible(Reference.Base, DescribeReferenceKey(Reference));
-  ResolveReferenceKey(Reference);
-
-  WriteMember(Reference.Base, Reference.KeyText, Value);
-end;
-
-function TJSInterpreter.ReadMember(const Base: TJSValue; const PropName: string): TJSValue;
+function TJSInterpreter.ReadMember(const Base: TJSValue; const PropName: TJSPropertyKey): TJSValue;
 begin
   if Base.IsArray then
   begin
@@ -4534,7 +4864,7 @@ begin
 
       var Index: Integer;
 
-      const IsPlainElement = TryStrToInt(PropName, Index) and ArrIntf.HasElement(Index);
+      const IsPlainElement = TryStrToInt(PropName.Stored, Index) and ArrIntf.HasElement(Index);
       if IsPlainElement then
       begin
         Result := ArrIntf[Index];
@@ -4555,7 +4885,7 @@ begin
 
     var Index: Integer;
 
-    if TryStrToInt(PropName, Index) then
+    if TryStrToInt(PropName.Stored, Index) then
     begin
       if (Index >= 0) and (Index < Length(Str)) then
       begin
@@ -4582,7 +4912,7 @@ begin
 end;
 
 function TJSInterpreter.ReadPrimitiveMember(const Base: TJSValue; const PrimitivePrototype: IJSObject;
-                                            const PropName: string): TJSValue;
+                                            const PropName: TJSPropertyKey): TJSValue;
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not PrimitivePrototype.TryGetPropertyDescriptor(PropName, Descriptor) then
@@ -4629,24 +4959,186 @@ begin
   var Bound: TJSBoundFunction;
   if FBoundFunctions.TryGetValue(Pointer(Func as IInterface), Bound) then
   begin
-    const IsOwnTarget = ((NewTarget as IInterface) = (Func as IInterface));
-    if IsOwnTarget then
-      Exit(Construct(Bound.Target, Bound.Arguments + Args, Bound.Target));
-
-    Exit(Construct(Bound.Target, Bound.Arguments + Args, NewTarget));
+    Result := ConstructBound(Bound, Args, Func, NewTarget);
+    Exit;
   end;
 
-  var NativeConstructor: IJSNativeConstructor;
-  if Func.IsNative and Supports(Func, IJSNativeConstructor, NativeConstructor) then
-    Exit(NativeConstructor.ConstructWith(Args, NewTarget));
+  if Func.IsNative then
+  begin
+    Result := ConstructNativeFunction(Func, Args, NewTarget);
+    Exit;
+  end;
 
-  const NewObj = CreateInstanceFor(NewTarget);
-  const ReturnValue = CallFunction(Func, Args, NewObj);
+  Result := ConstructScript(Func, Args, NewTarget);
+end;
+
+function TJSInterpreter.ConstructBound(const Bound: TJSBoundFunction; const Args: TArray<TJSValue>;
+                                       const Func: IJSFunction; const NewTarget: IJSFunction): TJSValue;
+begin
+  const AllArguments = Bound.Arguments + Args;
+
+  var ForwardedTarget := NewTarget;
+  if IsSameObject(NewTarget, Func) then
+  begin
+    ForwardedTarget := Bound.Target;
+  end;
+
+  Result := ConstructBoundTarget(Bound.Target, AllArguments, ForwardedTarget);
+end;
+
+function TJSInterpreter.ConstructNativeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                                const NewTarget: IJSFunction): TJSValue;
+begin
+  var NativeConstructor: IJSNativeConstructor;
+  if Supports(Func, IJSNativeConstructor, NativeConstructor) then
+  begin
+    Result := NativeConstructor.ConstructWith(Args, NewTarget);
+  end
+  else
+  begin
+    Result := ConstructNative(Func, Args, NewTarget);
+  end;
+end;
+
+class function TJSInterpreter.IsSameObject(const First: IInterface; const Second: IInterface): Boolean;
+begin
+  Result := ((First as IInterface) = (Second as IInterface));
+end;
+
+function TJSInterpreter.ConstructScript(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                        const NewTarget: IJSFunction): TJSValue;
+begin
+  const IsDerived = (Func.Kind = TJSFunctionKind.DerivedConstructor);
+  if IsDerived then
+  begin
+    Result := ConstructDerived(Func, Args, NewTarget);
+    Exit;
+  end;
+
+  const IsBase = (Func.Kind = TJSFunctionKind.BaseConstructor);
+  if IsBase then
+  begin
+    Result := ConstructBase(Func, Args, NewTarget);
+    Exit;
+  end;
+
+  const Instance = CreateInstanceFor(NewTarget);
+  const ReturnValue = InvokeFunction(Func, Args, Instance, NewTarget, nil);
 
   if ReturnValue.IsObject then
     Result := ReturnValue
   else
-    Result := TJSValue.CreateObject(NewObj);
+    Result := TJSValue.CreateObject(Instance);
+end;
+
+function TJSInterpreter.ConstructBase(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                      const NewTarget: IJSFunction): TJSValue;
+begin
+  const Instance = CreateInstanceFor(NewTarget);
+  if Func.IsDefaultConstructor then
+  begin
+    Result := TJSValue.CreateObject(Instance);
+    Exit;
+  end;
+
+  const ReturnValue = InvokeFunction(Func, Args, Instance, NewTarget, nil);
+  if ReturnValue.IsObject then
+    Result := ReturnValue
+  else
+    Result := TJSValue.CreateObject(Instance);
+end;
+
+function TJSInterpreter.ConstructDerived(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                         const NewTarget: IJSFunction): TJSValue;
+begin
+  if Func.IsDefaultConstructor then
+  begin
+    Result := ConstructThroughParent(Func, Args, NewTarget);
+    Exit;
+  end;
+
+  const Binding: IJSThisBinding = TJSThisBinding.Create;
+  const ReturnValue = InvokeFunction(Func, Args, nil, NewTarget, Binding);
+  if ReturnValue.IsObject then
+  begin
+    Result := ReturnValue;
+    Exit;
+  end;
+
+  if not ReturnValue.IsUndefined then
+    raise TJSErrorFactory.TypeError(DERIVED_RETURN_VALUE);
+
+  const BoundThis = Binding.Value;
+  if not Assigned(BoundThis) then
+    raise TJSErrorFactory.ReferenceError(THIS_BEFORE_SUPER);
+
+  Result := TJSValue.CreateObject(BoundThis);
+end;
+
+function TJSInterpreter.ParentConstructorOf(const Func: IJSFunction): IJSFunction;
+begin
+  Result := nil;
+
+  const Parent = Func.Prototype;
+  var ParentFunction: IJSFunction;
+  const IsConstructor = Assigned(Parent) and Supports(Parent, IJSFunction, ParentFunction) and
+                        ParentFunction.IsConstructor;
+  if IsConstructor then
+    Result := ParentFunction;
+end;
+
+function TJSInterpreter.ConstructThroughParent(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                               const NewTarget: IJSFunction): TJSValue;
+begin
+  ConsumeStep;
+  EnsureCallDepthAvailable;
+
+  const Parent = ParentConstructorOf(Func);
+  if not Assigned(Parent) then
+    raise TJSErrorFactory.TypeError(SUPER_NOT_CONSTRUCTOR);
+
+  Inc(FCallDepth);
+  try
+    Result := Construct(Parent, Args, NewTarget);
+  finally
+    Dec(FCallDepth);
+  end;
+end;
+
+function TJSInterpreter.ConstructNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                        const NewTarget: IJSFunction): TJSValue;
+begin
+  const Instance = CreateInstanceFor(Func);
+  const ReturnValue = InvokeFunction(Func, Args, Instance, nil, nil);
+
+  const IsOwnTarget = IsSameObject(NewTarget, Func);
+  if IsOwnTarget then
+  begin
+    if ReturnValue.IsObject then
+      Result := ReturnValue
+    else
+      Result := TJSValue.CreateObject(Instance);
+
+    Exit;
+  end;
+
+  const IsReplacementObject = (ReturnValue.IsObject and (not IsSameObject(ReturnValue.ToObject, Instance)));
+  const IsObjectConstructor = IsSameObject(Instance.Prototype, FObjectPrototype);
+  var Subject := Instance;
+  if IsReplacementObject and (not IsObjectConstructor) then
+    Subject := ReturnValue.ToObject;
+
+  AdoptNewTargetPrototype(Subject, NewTarget);
+  Result := TJSValue.CreateObject(Subject);
+end;
+
+procedure TJSInterpreter.AdoptNewTargetPrototype(const Instance: IJSObject; const NewTarget: IJSFunction);
+begin
+  const Candidate = NewTarget.GetProperty(PROTOTYPE_PROPERTY);
+  if Candidate.IsObject then
+    Instance.Prototype := Candidate.ToObject
+  else
+    RequireLiveProxy(NewTarget);
 end;
 
 function TJSInterpreter.VisitSequenceExpression(const Node: TJSSequenceExpression): TJSValue;
@@ -4661,6 +5153,35 @@ end;
 
 function TJSInterpreter.VisitThisExpression(const Node: TJSThisExpression): TJSValue;
 begin
+  Result := CurrentThisValue;
+end;
+
+function TJSInterpreter.ReadBoundThis(const Binding: IJSThisBinding): TJSValue;
+begin
+  const Value = Binding.Value;
+  if not Assigned(Value) then
+    raise TJSErrorFactory.ReferenceError(THIS_BEFORE_SUPER);
+
+  Result := TJSValue.CreateObject(Value);
+end;
+
+function TJSInterpreter.VisitNewTargetExpression: TJSValue;
+begin
+  const NewTarget = ActiveNewTarget;
+  if Assigned(NewTarget) then
+    Result := TJSValue.CreateObject(NewTarget)
+  else
+    Result := TJSValue.CreateUndefined;
+end;
+
+function TJSInterpreter.CurrentThisValue: TJSValue;
+begin
+  if Assigned(FContext.Binding) then
+  begin
+    Result := ReadBoundThis(ActiveBinding);
+    Exit;
+  end;
+
   if Assigned(FThisPrimitive) then
     Result := FThisPrimitive.Value
   else if Assigned(FThisValue) then
@@ -4765,26 +5286,188 @@ begin
     Arr.Prototype := FArrayPrototype;
 end;
 
+function TJSInterpreter.EnterHeap: TJSHeap;
+begin
+  Result := TJSHeap.Switch(FHeap);
+  Inc(FHeapEntries);
+end;
+
+procedure TJSInterpreter.LeaveHeap(const Previous: TJSHeap);
+begin
+  Dec(FHeapEntries);
+  TJSHeap.Switch(Previous);
+end;
+
 function TJSInterpreter.CallFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject): TJSValue;
+begin
+  const IsCalledByHost = (FHeapEntries = 0);
+  if IsCalledByHost then
+  begin
+    Result := CallFromHost(Func, Args, ThisObj);
+    Exit;
+  end;
+
+  if Func.IsNative then
+  begin
+    Result := CallNative(Func, Args, ThisObj);
+    Exit;
+  end;
+
+  RejectClassConstructorCall(Func);
+  Result := InvokeFunction(Func, Args, ThisObj, nil, nil);
+end;
+
+function TJSInterpreter.CallNative(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                   const ThisObj: IJSObject): TJSValue;
+begin
+  ConsumeStep;
+
+  const NativeResult = Func.NativeFunction(ThisObj, Args);
+  Result := WithArrayPrototype(NativeResult);
+end;
+
+function TJSInterpreter.CallFromHost(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                     const ThisObj: IJSObject): TJSValue;
+begin
+  const PreviousHeap = EnterHeap;
+  try
+    Result := CallFunction(Func, Args, ThisObj);
+  finally
+    LeaveHeap(PreviousHeap);
+  end;
+end;
+
+procedure TJSInterpreter.RejectClassConstructorCall(const Func: IJSFunction);
+begin
+  const IsClassConstructor = Func.Kind in [TJSFunctionKind.BaseConstructor, TJSFunctionKind.DerivedConstructor];
+  if IsClassConstructor then
+  begin
+    const Message = Format(CLASS_CONSTRUCTOR_CALL, [Func.Name]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
+end;
+
+procedure TJSInterpreter.EnsureCallDepthAvailable;
+begin
+  const IsDepthLimited = (FLimits.MaxCallDepth > 0);
+  const IsDepthExhausted = (IsDepthLimited and (FCallDepth >= FLimits.MaxCallDepth));
+  if IsDepthExhausted then
+    raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
+end;
+
+function TJSInterpreter.CallBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                        const BoundThis: IJSObject): TJSValue;
+begin
+  EnsureCallDepthAvailable;
+
+  Inc(FCallDepth);
+  try
+    Result := CallFunction(Target, Args, BoundThis);
+  finally
+    Dec(FCallDepth);
+  end;
+end;
+
+function TJSInterpreter.ConstructBoundTarget(const Target: IJSFunction; const Args: TArray<TJSValue>;
+                                             const NewTarget: IJSFunction): TJSValue;
+begin
+  EnsureCallDepthAvailable;
+
+  Inc(FCallDepth);
+  try
+    Result := Construct(Target, Args, NewTarget);
+  finally
+    Dec(FCallDepth);
+  end;
+end;
+
+procedure TJSInterpreter.EnterContext(const Func: IJSFunction; const NewTarget: IJSFunction;
+                                      const Binding: IJSThisBinding);
+begin
+  const NeedsContext = (Func.Kind <> TJSFunctionKind.Plain) or Assigned(NewTarget) or Assigned(Binding);
+  if NeedsContext then
+  begin
+    SetContext(Func, NewTarget, Binding);
+  end
+  else
+  begin
+    FContext := Default(TJSCallContext);
+  end;
+end;
+
+procedure TJSInterpreter.SetContext(const Callee: IJSFunction; const NewTarget: IJSFunction;
+                                    const Binding: IJSThisBinding);
+begin
+  FContext.Callee := Pointer(Callee);
+  FContext.NewTarget := Pointer(NewTarget);
+  FContext.Binding := Pointer(Binding);
+end;
+
+procedure TJSInterpreter.EnterArrowContext(const Func: IJSFunction);
+begin
+  FThisValue := Func.LexicalThis;
+
+  const Captured = Func.Frame;
+  if Assigned(Captured) then
+  begin
+    SetContext(Captured.Callee, Captured.NewTarget, Captured.ThisBinding);
+  end
+  else
+  begin
+    FContext := Default(TJSCallContext);
+  end;
+end;
+
+function TJSInterpreter.ActiveCallee: IJSFunction;
+begin
+  Result := IJSFunction(FContext.Callee);
+end;
+
+function TJSInterpreter.ActiveNewTarget: IJSFunction;
+begin
+  Result := IJSFunction(FContext.NewTarget);
+end;
+
+function TJSInterpreter.ActiveBinding: IJSThisBinding;
+begin
+  Result := IJSThisBinding(FContext.Binding);
+end;
+
+function TJSInterpreter.CaptureFrame: IJSFrame;
+begin
+  const HasContext = Assigned(FContext.Callee) or Assigned(FContext.NewTarget) or Assigned(FContext.Binding);
+  if HasContext then
+    Result := TJSFrame.Create(ActiveCallee, ActiveNewTarget, ActiveBinding)
+  else
+    Result := nil;
+end;
+
+function TJSInterpreter.InvokeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>; const ThisObj: IJSObject;
+                                       const NewTarget: IJSFunction; const Binding: IJSThisBinding): TJSValue;
 begin
   ConsumeStep;
 
   if Func.IsNative then
     Exit(WithArrayPrototype(Func.NativeFunction(ThisObj, Args)));
 
-  if (FLimits.MaxCallDepth > 0) and (FCallDepth >= FLimits.MaxCallDepth) then
-    raise EJSCallDepthExceeded.Create(FLimits.MaxCallDepth);
+  EnsureCallDepthAvailable;
 
   const OldThis = FThisValue;
   const OldThisPrimitive = FThisPrimitive;
   const OldStrictMode = FStrictMode;
   const OldScope = FCurrentScope;
   const OldVarScope = FVarScope;
+  const OldContext = FContext;
   const IsArrow = Func.IsArrow;
   if IsArrow then
-    FThisValue := Func.LexicalThis
+  begin
+    EnterArrowContext(Func);
+  end
   else
+  begin
     FThisValue := ThisObj;
+    EnterContext(Func, NewTarget, Binding);
+  end;
   FStrictMode := Func.IsStrict;
   FThisPrimitive := StrictPrimitiveThis(FThisValue, Func.IsStrict);
 
@@ -4805,28 +5488,19 @@ begin
     end;
 
     const FunctionBody = TJSBlockStatement(Func.BodyNode);
-    const ParameterInfo = FunctionBody.ParameterInfo;
-    var ParameterScope: IJSScope := nil;
-
-    if Assigned(ParameterInfo) then
+    if FunctionBody.IsAsyncBody then
     begin
-      ParameterScope := BindParametersWithExpressions(Func, Args, ParameterInfo);
-    end
-    else
-    begin
-      for var Index := 0 to Length(Func.Parameters) - 1 do
-      begin
-        if Index < Length(Args) then
-          FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
-        else
-          FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
-      end;
+      Result := FGeneratorEngine.StartAsyncFunction(Func, Args, FunctionBody);
+      Exit;
     end;
 
-    InstantiateTopLevel(FunctionBody.Body, FunctionBody.ScopeInfo);
+    BindFunctionParameters(Func, Args, FunctionBody);
 
-    if Assigned(ParameterScope) then
-      CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
+    if FunctionBody.IsGeneratorBody then
+    begin
+      Result := FGeneratorEngine.CreateGeneratorObject(Func);
+      Exit;
+    end;
 
     try
       Visit(TJSASTNode(Func.BodyNode));
@@ -4842,7 +5516,36 @@ begin
     FThisValue := OldThis;
     FThisPrimitive := OldThisPrimitive;
     FStrictMode := OldStrictMode;
+    FContext := OldContext;
   end;
+end;
+
+procedure TJSInterpreter.BindFunctionParameters(const Func: IJSFunction; const Args: TArray<TJSValue>;
+                                                const Body: TJSBlockStatement);
+begin
+  const ParameterInfo = Body.ParameterInfo;
+  var ParameterScope: IJSScope := nil;
+
+  if Assigned(ParameterInfo) then
+  begin
+    ParameterScope := BindParametersWithExpressions(Func, Args, ParameterInfo);
+  end
+  else
+  begin
+    for var Index := 0 to Length(Func.Parameters) - 1 do
+    begin
+      const HasArgument = (Index < Length(Args));
+      if HasArgument then
+        FCurrentScope.DeclareVariable(Func.Parameters[Index], Args[Index])
+      else
+        FCurrentScope.DeclareVariable(Func.Parameters[Index], TJSValue.CreateUndefined);
+    end;
+  end;
+
+  InstantiateTopLevel(Body.Body, Body.ScopeInfo);
+
+  if Assigned(ParameterScope) then
+    CopyParametersToBodyScope(Func, ParameterScope, ParameterInfo);
 end;
 
 function TJSInterpreter.StrictPrimitiveThis(const ThisObj: IJSObject; const IsStrict: Boolean): TJSStrictThis;
@@ -4967,12 +5670,19 @@ begin
     Result := CopyToSpeciesResult(Species, Result, MethodName);
 end;
 
+function TJSInterpreter.CallsReplacedJoin(const Arr: IJSArray; const MethodName: string): Boolean;
+begin
+  Result := (MethodName = ARRAY_TO_STRING_METHOD) and
+            (not TJSValue.CreateObject(Arr).HasUntouchedArrayConversion(TJSPrimitiveHint.String_));
+end;
+
 function TJSInterpreter.ExecuteArrayMethodCore(const Arr: IJSArray; const MethodName: string; const Args: TArray<TJSValue>): TJSValue;
 begin
   if TJSArrayIteration.Handles(MethodName) then
     Exit(ExecuteArrayIterationMethodCore(Arr, MethodName, Args, nil));
 
   const UsesPropertySemantics = (not Arr.IsDenseAndMutable) or TJSArrayGeneric.AlwaysUsesPropertySemantics(MethodName) or
+                                CallsReplacedJoin(Arr, MethodName) or
                                 TJSArrayGeneric.ConcatsCustomItems(MethodName, Arr, Args) or
                                 (TJSArrayGeneric.StoresNewElements(MethodName) and PrototypeHoldsElements);
   const NeedsPropertyLevelSemantics = UsesPropertySemantics and TJSArrayGeneric.Handles(MethodName);
@@ -5149,7 +5859,7 @@ begin
     function(const This: IJSObject; const CallArgs: TArray<TJSValue>): TJSValue
     begin
       const AllArgs = BoundArgs + CallArgs;
-      Result := Interp.CallFunction(Target, AllArgs, BoundThis);
+      Result := Interp.CallBoundTarget(Target, AllArgs, BoundThis);
     end);
 
   Result.ClosureScope := nil;
@@ -5198,12 +5908,19 @@ begin
   end;
 end;
 
-procedure TJSInterpreter.WriteMember(const Base: TJSValue; const PropName: string; const Value: TJSValue);
+procedure TJSInterpreter.RaiseCannotAssign(const PropName: TJSPropertyKey);
+begin
+  const Message = Format(CANNOT_ASSIGN_PROPERTY, [PropName.Text]);
+
+  raise TJSErrorFactory.TypeError(Message);
+end;
+
+procedure TJSInterpreter.WriteMember(const Base: TJSValue; const PropName: TJSPropertyKey; const Value: TJSValue);
 begin
   if not Base.IsObject then
   begin
     if FStrictMode then
-      raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+      RaiseCannotAssign(PropName);
 
     Exit;
   end;
@@ -5224,19 +5941,19 @@ begin
   if IsStrictProxy then
   begin
     if not Proxy.SetWithReceiver(PropName, Value, Base) then
-      raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+      RaiseCannotAssign(PropName);
 
     Exit;
   end;
 
   const IsRejected = FStrictMode and (not TJSPropertyDescriptors.CanPut(Target, PropName));
   if IsRejected then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+    RaiseCannotAssign(PropName);
 
   Target.SetProperty(PropName, Value);
 end;
 
-procedure TJSInterpreter.WriteArrayMember(const Target: IJSArray; const PropName: string; const Value: TJSValue;
+procedure TJSInterpreter.WriteArrayMember(const Target: IJSArray; const PropName: TJSPropertyKey; const Value: TJSValue;
                                           out IsHandled: Boolean);
 begin
   IsHandled := True;
@@ -5267,7 +5984,7 @@ begin
   if not CanWrite then
   begin
     if FStrictMode then
-      raise TJSErrorFactory.TypeError(Format(CANNOT_ASSIGN_PROPERTY, [PropName]));
+      RaiseCannotAssign(PropName);
 
     Exit;
   end;
@@ -5297,12 +6014,12 @@ begin
     raise TJSErrorFactory.TypeError(READ_ONLY_LENGTH);
 end;
 
-procedure TJSInterpreter.DeleteArrayElement(const Target: IJSObject; const PropName: string);
+procedure TJSInterpreter.DeleteArrayElement(const Target: IJSObject; const PropName: TJSPropertyKey);
 begin
   var TargetArray: IJSArray;
   var Index: Integer;
 
-  const IsElement = Supports(Target, IJSArray, TargetArray) and TryStrToInt(PropName, Index);
+  const IsElement = Supports(Target, IJSArray, TargetArray) and TryStrToInt(PropName.Stored, Index);
   if IsElement then
     TargetArray.DeleteElement(Index);
 end;
@@ -5420,108 +6137,41 @@ begin
   Result := FGlobalScope.GetVariable(Name);
 end;
 
-procedure TJSInterpreter.GCMark(const Item: IInterface; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
-begin
-  if Item = nil then
-    Exit;
-
-  const Id = Pointer(Item as IInterface);
-  if Live.ContainsKey(Id) then
-    Exit;
-
-  Live.Add(Id, 0);
-  Work.Add(Item);
-end;
-
-procedure TJSInterpreter.GCMarkValue(const Value: TJSValue; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
-begin
-  if Value.IsObject then
-    GCMark(Value.ToObject, Live, Work);
-end;
-
-procedure TJSInterpreter.GCMarkOwnProperties(const Obj: IJSObject; const Live: TDictionary<Pointer, Byte>; const Work: TList<IInterface>);
-begin
-  for var PropName in TJSObjectKeys.All(Obj) do
-  begin
-    const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
-
-    GCMarkValue(Descriptor.Value, Live, Work);
-    GCMarkValue(Descriptor.Getter, Live, Work);
-    GCMarkValue(Descriptor.Setter, Live, Work);
-  end;
-end;
-
 procedure TJSInterpreter.CollectGarbage;
 begin
-  const Live = TDictionary<Pointer, Byte>.Create;
-  const Work = TList<IInterface>.Create;
+  const Marker = TJSGarbageMarker.Create;
   try
-    GCMark(FGlobalScope, Live, Work);
-    GCMark(FCurrentScope, Live, Work);
-    GCMark(FVarScope, Live, Work);
-    GCMark(FThisValue, Live, Work);
-    GCMark(FGlobalObject, Live, Work);
+    Marker.Mark(FGlobalScope);
+    Marker.Mark(FCurrentScope);
+    Marker.Mark(FVarScope);
+    Marker.MarkGenerator(FGenerator);
+    Marker.Mark(FThisValue);
+    Marker.Mark(FGlobalObject);
+    Marker.Mark(ActiveCallee);
+    Marker.Mark(ActiveNewTarget);
+    Marker.MarkBinding(ActiveBinding);
+    if Assigned(FGCRootProvider) then
+    begin
+      FGCRootProvider(
+        procedure(const Value: TJSValue)
+        begin
+          Marker.MarkValue(Value);
+        end);
+    end;
+
     for var Func in FFunctionRegistry do
       if Func.IsNative then
-        GCMark(Func, Live, Work);
+        Marker.Mark(Func);
 
-    while Work.Count > 0 do
-    begin
-      const Item = Work.Last;
-      Work.Delete(Work.Count - 1);
-
-      var Scope: IJSScope;
-      var Func: IJSFunction;
-      var Proxy: IJSProxy;
-      var Arr: IJSArray;
-      var Obj: IJSObject;
-
-      if Supports(Item, IJSScope, Scope) then
-      begin
-        GCMark(Scope.Parent, Live, Work);
-        for var Value in Scope.GetOwnVariables do
-          GCMarkValue(Value, Live, Work);
-      end
-      else if Supports(Item, IJSProxy, Proxy) then
-      begin
-        GCMark(Proxy.ProxyTarget, Live, Work);
-        GCMark(Proxy.ProxyHandler, Live, Work);
-      end
-      else if Supports(Item, IJSFunction, Func) then
-      begin
-        GCMark(Func.ClosureScope, Live, Work);
-        GCMark(Func.LexicalThis, Live, Work);
-        GCMark(Func.Prototype, Live, Work);
-        GCMarkOwnProperties(Func, Live, Work);
-      end
-      else if Supports(Item, IJSArray, Arr) then
-      begin
-        for var ElementIndex := 0 to Arr.Length - 1 do
-          GCMarkValue(Arr.Elements[ElementIndex], Live, Work);
-        GCMark(Arr.Prototype, Live, Work);
-        GCMarkOwnProperties(Arr, Live, Work);
-      end
-      else if Supports(Item, IJSObject, Obj) then
-      begin
-        var ArgumentsScope: IJSArgumentsScope;
-        if Supports(Obj, IJSArgumentsScope, ArgumentsScope) then
-          GCMark(ArgumentsScope.MappedScope, Live, Work);
-
-        GCMark(Obj.Prototype, Live, Work);
-        GCMarkOwnProperties(Obj, Live, Work);
-      end;
-    end;
+    Marker.TraceReferences;
 
     for var Index := FFunctionRegistry.Count - 1 downto 0 do
     begin
       const Func = FFunctionRegistry[Index];
-      if not Live.ContainsKey(Pointer(Func as IInterface)) then
+      if not Marker.IsLive(Func) then
       begin
         FFunctionPrograms.Remove(Pointer(Func as IInterface));
-        Func.ClosureScope := nil;
-        Func.LexicalThis := nil;
-        Func.NativeFunction := nil;
-        DetachProperties(Func);
+        ReleaseFunctionContents(Func);
         FFunctionRegistry.Delete(Index);
       end;
     end;
@@ -5529,15 +6179,14 @@ begin
     for var Index := FScopeRegistry.Count - 1 downto 0 do
     begin
       const Scope = FScopeRegistry[Index];
-      if not Live.ContainsKey(Pointer(Scope as IInterface)) then
+      if not Marker.IsLive(Scope) then
       begin
         Scope.ReleaseReferences;
         FScopeRegistry.Delete(Index);
       end;
     end;
   finally
-    Work.Free;
-    Live.Free;
+    Marker.Free;
   end;
 end;
 

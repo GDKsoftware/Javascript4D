@@ -62,6 +62,12 @@ type
     [TestCase('ForwardModification', 'JSON.parse("{\"a\":1,\"b\":2}", function (k, v) { if (k === "a") { this.b = 5; } return v; }).b@5', '@')]
     [TestCase('NonConfigurableDelete', 'JSON.parse("{\"a\":1,\"b\":2}", function (k, v) { if (k === "a") { Object.defineProperty(this, "b", {"configurable": false}); } return k === "b" ? undefined : v; }).b@2', '@')]
     [TestCase('NonConfigurableMember','JSON.parse("[1,2]", function (k, v) { if (k === "0") { Object.defineProperty(this, "1", {"configurable": false}); } return k === "1" ? 9 : v; })[1]@2', '@')]
+    [TestCase('ProxyForArrayIsWalkedAsArray', 'var seen = false; var p = new Proxy([], {}); p.other = 0; JSON.parse("[null,null]", function (k, v) { if (k === "other") { seen = true; } this[1] = p; return v; }); seen@false', '@')]
+    [TestCase('ProxyForObjectIsWalkedAsObject', 'var seen = false; var p = new Proxy({length: 0, other: 0}, {}); JSON.parse("[null,null]", function (k, v) { if (k === "other") { seen = true; } if (this !== p) { this[1] = p; } return v; }); seen@true', '@')]
+    [TestCase('LengthGetThrows', '(function () { var bad = new Proxy([], { get: function (t, n) { if (n === "length") { throw "boom"; } } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); return "none"; } catch (e) { return e; } })()@boom', '@')]
+    [TestCase('LengthCoercionThrows', '(function () { var bad = new Proxy([], { get: function (t, n) { return n === "length" ? { valueOf: function () { throw "boom"; } } : undefined; } }); try { JSON.parse("[0,0]", function () { this[1] = bad; }); return "none"; } catch (e) { return e; } })()@boom', '@')]
+    [TestCase('Parse', 'Object.defineProperty(Object.prototype, "", { set: function () { throw "setter called"; }, configurable: true }); var r = JSON.parse("2", function (k, v) { return v; }); delete Object.prototype[""]; r@2', '@')]
+    [TestCase('Stringify', 'Object.defineProperty(Object.prototype, "", { set: function () { throw "setter called"; }, configurable: true }); var r = JSON.stringify(2, function (k, v) { return v; }); delete Object.prototype[""]; r@2', '@')]
     procedure Parse_Reviver_RespectsObjectChanges(const Script, Expected: string);
 
     [Test]

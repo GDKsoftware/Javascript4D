@@ -6,9 +6,11 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter,
+  JS4D.ObjectRegistry,
   JS4D.OrderedStore,
   JS4D.CollectionObjects;
 
@@ -22,7 +24,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FRegistry: TJSCollectionRegistry;
+      FRegistry: TJSObjectRegistry;
       FPrototypes: array[TJSCollectionKind] of IJSObject;
       FMapIteratorPrototype: IJSObject;
       FSetIteratorPrototype: IJSObject;
@@ -30,14 +32,14 @@ type
     class function IsWeak(const Kind: TJSCollectionKind): Boolean; static;
     class function KindName(const Kind: TJSCollectionKind): string; static;
     class function AdderName(const Kind: TJSCollectionKind): string; static;
-    class procedure DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                  const IsWritable: Boolean); static;
     class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
     function CreateMethod(const Name: string; const ParameterCount: Integer;
                           const Method: TNativeFunction): IJSFunction;
     function DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
                           const Method: TNativeFunction): IJSFunction;
-    procedure DefineGetter(const Target: IJSObject; const Key: string; const Name: string;
+    procedure DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                            const Method: TNativeFunction);
     procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
     procedure DefineSpeciesGetter(const Constructor_: IJSObject);
@@ -122,7 +124,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FRegistry := TJSCollectionRegistry.Create;
+  FRegistry := TJSObjectRegistry.Create;
 end;
 
 destructor TJSCollectionBuiltins.Destroy;
@@ -134,7 +136,7 @@ end;
 
 procedure TJSCollectionBuiltins.ReleaseCollections;
 begin
-  FRegistry.ClearAll;
+  FRegistry.ReleaseAll;
 end;
 
 class function TJSCollectionBuiltins.IsWeak(const Kind: TJSCollectionKind): Boolean;
@@ -166,7 +168,7 @@ begin
   end;
 end;
 
-class procedure TJSCollectionBuiltins.DefineMember(const Target: IJSObject; const Key: string;
+class procedure TJSCollectionBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey;
                                                    const Value: TJSValue; const IsWritable: Boolean);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);
@@ -203,7 +205,7 @@ begin
   DefineMember(Target, Name, TJSValue.CreateObject(Result), True);
 end;
 
-procedure TJSCollectionBuiltins.DefineGetter(const Target: IJSObject; const Key: string; const Name: string;
+procedure TJSCollectionBuiltins.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const Name: string;
                                              const Method: TNativeFunction);
 begin
   var Descriptor := Default(TJSPropertyDescriptor);

@@ -5,6 +5,7 @@ unit JS4D.LocaleArguments;
 interface
 
 uses
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.BuiltInLocales,
   JS4D.LocaleNumberFormat,

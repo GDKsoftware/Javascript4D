@@ -6,8 +6,10 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
+  JS4D.IntrinsicCache,
   JS4D.Interpreter;
 
 type
@@ -18,7 +20,7 @@ type
     FInterpreter: TJSInterpreter;
     FArrayIteratorPrototype: IJSObject;
 
-    class procedure DefineMember(const Target: IJSObject; const Key: string; const Value: TJSValue;
+    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                  const IsWritable: Boolean); static;
     class function AsFunction(const Value: TJSValue): IJSFunction; static;
     function CreateMethod(const Name: string; const Method: TNativeFunction): IJSFunction;
@@ -60,7 +62,7 @@ begin
   FArrayIteratorPrototype := ArrayIteratorPrototype;
 end;
 
-class procedure TJSIteratorBuiltins.DefineMember(const Target: IJSObject; const Key: string;
+class procedure TJSIteratorBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey;
                                                  const Value: TJSValue; const IsWritable: Boolean);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);

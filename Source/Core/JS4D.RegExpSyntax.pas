@@ -11,6 +11,7 @@ type
     FPosition: Integer;
     FIsUnicode: Boolean;
     FGroupCount: Integer;
+    FGroupDepth: Integer;
     FLine: Integer;
     FColumn: Integer;
 
@@ -70,6 +71,7 @@ uses
   JS4D.Errors;
 
 const
+  MAX_GROUP_DEPTH = 250;
   ValidFlagCharacters = 'gimuy';
   EmptyPatternSource = '(?:)';
   ClassSetEscapes = 'dDsSwW';
@@ -85,6 +87,7 @@ begin
   FPattern := Pattern;
   FIsUnicode := (Pos('u', Flags) > 0);
   FGroupCount := 0;
+  FGroupDepth := 0;
   FPosition := 1;
   FLine := Line;
   FColumn := Column;
@@ -346,7 +349,17 @@ begin
     Inc(FPosition);
   end;
 
-  ParseDisjunction;
+  const IsTooDeep = (FGroupDepth >= MAX_GROUP_DEPTH);
+  if IsTooDeep then
+    Fail;
+
+  Inc(FGroupDepth);
+  try
+    ParseDisjunction;
+  finally
+    Dec(FGroupDepth);
+  end;
+
   Expect(')');
 end;
 

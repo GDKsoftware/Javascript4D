@@ -20,6 +20,7 @@ type
     FSource: string;
     FPosition: Integer;
     FLine: Integer;
+    FAllowNumericSeparators: Boolean;
     FColumn: Integer;
     FLineStart: Integer;
     FTokens: TObjectList<TJSToken>;
@@ -67,6 +68,7 @@ type
     function DigitValueInRadix(const Ch: Char; const Radix: Integer): Integer;
     function ParseRadixNumber(const Radix: Integer): Double;
     function ParseOctalNumber: Double;
+    procedure ConsumeSeparatorBeforeDigit(const Radix: Integer);
     function ReadDigits: string;
     function ReadExponent: string;
     function ParseDecimalNumber: Double;
@@ -165,6 +167,7 @@ const
   BINARY_RADIX = 2;
   NO_RADIX = 0;
   NOT_A_DIGIT = -1;
+  DECIMAL_RADIX = 10;
   LETTER_DIGIT_OFFSET = 10;
   ZERO_CHAR = '0';
   UNDERSCORE = '_';
@@ -202,6 +205,7 @@ const
   SInvalidIdentifierEscape = 'Unicode escape is not a valid identifier character';
   SMissingRadixDigits = 'Numeric literal has no digits after its radix prefix';
   SMissingExponentDigits = 'Numeric literal exponent has no digits';
+  SMisplacedNumericSeparator = 'Numeric separators are only allowed between digits';
 
 { TJSLexer }
 
@@ -477,6 +481,10 @@ begin
     Exit;
   end;
 
+  const SeparatorAfterZero = (CurrentChar = ZERO_CHAR) and (PeekChar = UNDERSCORE);
+  if SeparatorAfterZero then
+    raise TJSErrorFactory.SyntaxError(SMisplacedNumericSeparator, FLine, FColumn);
+
   const HasLeadingZero = (CurrentChar = ZERO_CHAR) and IsDigit(PeekChar);
   if HasLeadingZero and IsLegacyOctalLiteral then
   begin
@@ -487,6 +495,7 @@ begin
     Exit;
   end;
 
+  FAllowNumericSeparators := (not HasLeadingZero);
   const NumberValue = ParseDecimalNumber;
   Result := TJSToken.Create(TJSTokenType.NumberLiteral, '', FLine, StartColumn);
   Result.NumberValue := NumberValue;
@@ -552,6 +561,10 @@ begin
 
   while not IsAtEnd do
   begin
+    const IsSeparator = (CurrentChar = UNDERSCORE) and (DigitCount > 0);
+    if IsSeparator then
+      ConsumeSeparatorBeforeDigit(Radix);
+
     const Digit = DigitValueInRadix(CurrentChar, Radix);
     const IsDigitOfRadix = (Digit <> NOT_A_DIGIT);
     if not IsDigitOfRadix then
@@ -583,12 +596,28 @@ begin
   Result := Value;
 end;
 
+procedure TJSLexer.ConsumeSeparatorBeforeDigit(const Radix: Integer);
+begin
+  const IsDigitAhead = (DigitValueInRadix(PeekChar, Radix) <> NOT_A_DIGIT);
+  if not IsDigitAhead then
+    raise TJSErrorFactory.SyntaxError(SMisplacedNumericSeparator, FLine, FColumn);
+
+  Advance;
+end;
+
 function TJSLexer.ReadDigits: string;
 begin
   Result := '';
 
-  while (not IsAtEnd) and IsDigit(CurrentChar) do
+  while not IsAtEnd do
   begin
+    const IsSeparator = (FAllowNumericSeparators and (CurrentChar = UNDERSCORE) and (not Result.IsEmpty));
+    if IsSeparator then
+      ConsumeSeparatorBeforeDigit(DECIMAL_RADIX);
+
+    if not IsDigit(CurrentChar) then
+      Break;
+
     Result := Result + CurrentChar;
     Advance;
   end;
@@ -1377,7 +1406,18 @@ begin
         end;
       end;
     QUESTION_CHAR:
-      Result := TJSToken.Create(TJSTokenType.Question, '?', FLine, StartColumn);
+      begin
+        const IsNullishCoalesce = (CurrentChar = QUESTION_CHAR);
+        if IsNullishCoalesce then
+        begin
+          Advance;
+          Result := TJSToken.Create(TJSTokenType.NullishCoalesce, '??', FLine, StartColumn);
+        end
+        else
+        begin
+          Result := TJSToken.Create(TJSTokenType.Question, '?', FLine, StartColumn);
+        end;
+      end;
   else
     raise TJSErrorFactory.UnexpectedToken(Ch, FLine, StartColumn);
   end;

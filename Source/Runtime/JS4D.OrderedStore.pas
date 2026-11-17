@@ -76,6 +76,8 @@ type
       FIndex: TDictionary<TJSStoreKey, Integer>;
       FCursors: TList<TJSStoreCursor>;
 
+    class function IsNestedObject(const Value: TJSValue): Boolean; static;
+
     function GetCount: Integer;
     procedure Append(const Identity: TJSStoreKey; const Key: TJSValue; const Value: TJSValue);
     procedure CompactIfSparse;
@@ -97,6 +99,9 @@ type
     procedure Put(const Key: TJSValue; const Value: TJSValue);
     function Remove(const Key: TJSValue): Boolean;
     procedure Clear;
+
+    function HoldsNestedObjects: Boolean;
+    procedure DetachNestedObjects(const Pending: TList<IJSObject>);
 
     property Count: Integer read GetCount;
   end;
@@ -148,7 +153,7 @@ begin
           Result.FNumber := Value.AsNumber;
       end;
     TJSValueType.String_  : Result.FText := Value.AsString;
-    TJSValueType.Symbol   : Result.FText := Value.AsSymbolKey;
+    TJSValueType.Symbol   : Result.FText := Value.AsSymbolKey.Stored;
     TJSValueType.Object_  : Result.FIdentity := Pointer(Value.AsObject as IInterface);
   end;
 
@@ -220,6 +225,11 @@ begin
   FIndex.Free;
   FCursors.Free;
   inherited;
+end;
+
+class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
+begin
+  Result := Value.IsObject and (not Value.IsFunction);
 end;
 
 function TJSOrderedStore.GetCount: Integer;
@@ -314,6 +324,38 @@ begin
   begin
     Cursor.FPosition := 0;
   end;
+end;
+
+function TJSOrderedStore.HoldsNestedObjects: Boolean;
+begin
+  for var Position := 0 to FUsed - 1 do
+  begin
+    const Entry = FEntries[Position];
+    const IsHeld = (Entry.IsLive and (IsNestedObject(Entry.Key) or IsNestedObject(Entry.Value)));
+    if IsHeld then
+      Exit(True);
+  end;
+
+  Result := False;
+end;
+
+procedure TJSOrderedStore.DetachNestedObjects(const Pending: TList<IJSObject>);
+begin
+  for var Position := 0 to FUsed - 1 do
+  begin
+    if not FEntries[Position].IsLive then
+      Continue;
+
+    const Key = FEntries[Position].Key;
+    if IsNestedObject(Key) then
+      Pending.Add(Key.ToObject);
+
+    const Value = FEntries[Position].Value;
+    if IsNestedObject(Value) then
+      Pending.Add(Value.ToObject);
+  end;
+
+  Clear;
 end;
 
 procedure TJSOrderedStore.CompactIfSparse;

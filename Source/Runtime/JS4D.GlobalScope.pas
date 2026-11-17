@@ -6,6 +6,7 @@ interface
 
 uses
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types,
   JS4D.AST,
   JS4D.ObjectScope,
@@ -21,6 +22,8 @@ type
     FHasLexicals: Boolean;
 
     function TryGetLexical(const Name: string; out Value: TJSValue): Boolean;
+    procedure SetGlobalProperty(const Name: string; const Value: TJSValue);
+    function CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 
   public
     constructor Create(const GlobalObject: IJSObject);
@@ -161,11 +164,16 @@ end;
 
 function TJSGlobalScope.FindOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
 begin
-  const IsCacheCurrent = (Cache.Owner = FGlobalStorage) and
-                         (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion);
+  const IsCacheCurrent = ((Cache.Owner = FGlobalStorage) and
+                          (Cache.LayoutVersion = FGlobalStorage.PropertyLayoutVersion));
   if IsCacheCurrent then
     Exit(Cache.Slot);
 
+  Result := CacheOwnSlot(Cache, Name);
+end;
+
+function TJSGlobalScope.CacheOwnSlot(var Cache: TJSBindingCache; const Name: string): PJSPropertyDescriptor;
+begin
   if not FGlobalStorage.TryGetOwnSlot(Name, Result) then
     Exit(nil);
 
@@ -174,12 +182,24 @@ begin
   Cache.Slot          := Result;
 end;
 
+procedure TJSGlobalScope.SetGlobalProperty(const Name: string; const Value: TJSValue);
+begin
+  var Slot: PJSPropertyDescriptor;
+  const HasSlot = FGlobalStorage.TryGetOwnSlot(Name, Slot);
+  const IsWritableData = (HasSlot and (not Slot.IsAccessor) and Slot.Writable);
+
+  if IsWritableData then
+    Slot.Value := Value
+  else
+    FGlobalObject.SetProperty(Name, Value);
+end;
+
 procedure TJSGlobalScope.SetVariable(const Name: string; const Value: TJSValue);
 begin
   if HasLexical(Name) then
     AssignVariable(Name, Value)
   else
-    FGlobalObject.SetProperty(Name, Value);
+    SetGlobalProperty(Name, Value);
 end;
 
 procedure TJSGlobalScope.AssignVariable(const Name: string; const Value: TJSValue);
@@ -224,7 +244,11 @@ end;
 
 procedure TJSGlobalScope.DeclareDeletableVariable(const Name: string; const Value: TJSValue);
 begin
-  FGlobalObject.SetProperty(Name, Value);
+  if FGlobalObject.TryAssignOwnProperty(Name, Value) then
+    Exit;
+
+  const Descriptor = TJSPropertyDescriptor.Create(Value);
+  FGlobalObject.DefineProperty(Name, Descriptor);
 end;
 
 function TJSGlobalScope.DeleteVariable(const Name: string): Boolean;

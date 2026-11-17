@@ -69,6 +69,11 @@ type
     procedure Execute_RecursionThroughBind_RaisesCallDepthExceeded;
 
     [Test]
+    [TestCase('Call', 'var f = function () { return 1; }; for (var i = 0; i < 1000; i++) { f = f.bind(null); } f();')]
+    [TestCase('Construct', 'var f = function () { }; for (var i = 0; i < 1000; i++) { f = f.bind(null); } new f();')]
+    procedure Execute_LongBoundChain_RaisesCallDepthExceeded(const Script: string);
+
+    [Test]
     procedure Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;
   end;
 
@@ -577,6 +582,11 @@ end;
 procedure TCallDepthLimitTests.Execute_RecursionThroughBind_RaisesCallDepthExceeded;
 begin
   AssertRecursionStopped(RecursionThroughBindScript);
+end;
+
+procedure TCallDepthLimitTests.Execute_LongBoundChain_RaisesCallDepthExceeded(const Script: string);
+begin
+  AssertRecursionStopped(Script);
 end;
 
 procedure TCallDepthLimitTests.Execute_ArrayNestedPastCallDepth_RaisesCallDepthExceeded;

@@ -6,8 +6,10 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.PropertyKey,
   JS4D.Types,
-  JS4D.Interpreter;
+  JS4D.Interpreter,
+  JS4D.BinarySupport;
 
 type
   TJSObjectBuiltins = class
@@ -16,6 +18,10 @@ type
       OBJECT_NAME = 'Object';
       HAS_OWN_NAME = 'hasOwn';
       SET_PROTOTYPE_OF_NAME = 'setPrototypeOf';
+      PROTO_PROPERTY = '__proto__';
+      PROTO_GETTER_NAME = 'get __proto__';
+      PROTO_SETTER_NAME = 'set __proto__';
+      PROTOTYPE_PROPERTY = 'prototype';
       FROM_ENTRIES_NAME = 'fromEntries';
       KEY_PROPERTY = '0';
       VALUE_PROPERTY = '1';
@@ -27,16 +33,23 @@ type
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBinarySupport;
 
     function ObjectFor(const Value: TJSValue): IJSObject;
     function HasOwn(const Args: TArray<TJSValue>): TJSValue;
     function SetPrototypeOf(const Args: TArray<TJSValue>): TJSValue;
+    function ReadPrototypeOf(const This: IJSObject): TJSValue;
+    function WritePrototypeOf(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+    function CreateProtoGetter: IJSFunction;
+    function CreateProtoSetter: IJSFunction;
+    procedure DefineProtoAccessor(const ObjectPrototype: IJSObject);
     procedure AddEntry(const Target: IJSObject; const Entry: TJSValue);
     function FromEntries(const Args: TArray<TJSValue>): TJSValue;
     procedure DefineStatic(const ObjectConstructor: IJSObject; const Name: string; const Method: TNativeFunction);
 
   public
     constructor Create(const Interpreter: TJSInterpreter);
+    destructor Destroy; override;
 
     procedure Register;
   end;
@@ -55,6 +68,13 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBinarySupport.Create(Interpreter);
+end;
+
+destructor TJSObjectBuiltins.Destroy;
+begin
+  FSupport.Free;
+  inherited;
 end;
 
 function TJSObjectBuiltins.ObjectFor(const Value: TJSValue): IJSObject;
@@ -97,6 +117,68 @@ begin
 
   if not TJSObjectOperations.SetPrototypeOf(Target, Prototype) then
     raise TJSErrorFactory.TypeError(SET_PROTOTYPE_FAILED);
+end;
+
+function TJSObjectBuiltins.ReadPrototypeOf(const This: IJSObject): TJSValue;
+begin
+  if not Assigned(This) then
+    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+
+  const Prototype = This.Prototype;
+  if Assigned(Prototype) then
+    Result := TJSValue.CreateObject(Prototype)
+  else
+    Result := TJSValue.CreateNull;
+end;
+
+function TJSObjectBuiltins.WritePrototypeOf(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+begin
+  if not Assigned(This) then
+    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+
+  Result := TJSValue.CreateUndefined;
+
+  const NewPrototype = TJSArrayLike.Argument(Args, 0);
+  const IsValidPrototype = NewPrototype.IsNull or NewPrototype.IsObject;
+  if not IsValidPrototype then
+    Exit;
+
+  const NewPrototypeObject = NewPrototype.ToObject;
+  const IsChanged = TJSObjectOperations.SetPrototypeOf(This, NewPrototypeObject);
+  if not IsChanged then
+    raise TJSErrorFactory.TypeError(SET_PROTOTYPE_FAILED);
+end;
+
+function TJSObjectBuiltins.CreateProtoGetter: IJSFunction;
+begin
+  Result := FSupport.CreateMethod(PROTO_GETTER_NAME, 0,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := ReadPrototypeOf(This);
+    end);
+end;
+
+function TJSObjectBuiltins.CreateProtoSetter: IJSFunction;
+begin
+  Result := FSupport.CreateMethod(PROTO_SETTER_NAME, 1,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := WritePrototypeOf(This, Args);
+    end);
+end;
+
+procedure TJSObjectBuiltins.DefineProtoAccessor(const ObjectPrototype: IJSObject);
+begin
+  const Getter = CreateProtoGetter;
+  const Setter = CreateProtoSetter;
+
+  var Descriptor := Default(TJSPropertyDescriptor);
+  Descriptor.IsAccessor := True;
+  Descriptor.Enumerable := False;
+  Descriptor.Configurable := True;
+  Descriptor.Getter := TJSValue.CreateObject(Getter);
+  Descriptor.Setter := TJSValue.CreateObject(Setter);
+  ObjectPrototype.DefineProperty(PROTO_PROPERTY, Descriptor);
 end;
 
 procedure TJSObjectBuiltins.AddEntry(const Target: IJSObject; const Entry: TJSValue);
@@ -164,6 +246,10 @@ end;
 procedure TJSObjectBuiltins.Register;
 begin
   const ObjectConstructor = FInterpreter.GetGlobalVariable(OBJECT_NAME).ToObject;
+
+  const PrototypeValue = ObjectConstructor.GetProperty(PROTOTYPE_PROPERTY);
+  const ObjectPrototype = PrototypeValue.ToObject;
+  DefineProtoAccessor(ObjectPrototype);
 
   DefineStatic(ObjectConstructor, HAS_OWN_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue

@@ -6,7 +6,8 @@ interface
 
 uses
   System.SysUtils,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  JS4D.PropertyKey;
 
 type
   TJSASTNode = class;
@@ -44,6 +45,7 @@ type
     ArrayExpression,
     ObjectExpression,
     ObjectProperty,
+    ClassMember,
     FunctionExpression,
     UnaryExpression,
     BinaryExpression,
@@ -61,7 +63,13 @@ type
     SpreadElement,
     ArrayPattern,
     ObjectPattern,
-    AssignmentPattern
+    AssignmentPattern,
+    SuperExpression,
+    NewTargetExpression,
+    ClassExpression,
+    YieldExpression,
+    AwaitExpression,
+    Remembered
   );
 
   TJSASTNode = class
@@ -69,21 +77,53 @@ type
     FNodeType: TJSASTNodeType;
     FLine: Integer;
     FColumn: Integer;
+    FContainsSuspension: Boolean;
+    FIsRemembered: Boolean;
+    FIsDetached: Boolean;
+    FDispatchType: TJSASTNodeType;
+
+    procedure SetIsRemembered(const Value: Boolean);
+    class procedure ReleaseTree(const Root: TJSASTNode); static;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); virtual;
+    class procedure Collect(const Child: TJSASTNode; const Sink: TList<TJSASTNode>); static;
+    class procedure DetachAll<T: TJSASTNode>(const Children: TObjectList<T>; const Sink: TList<TJSASTNode>); static;
 
   public
     constructor Create(const NodeType: TJSASTNodeType);
+    procedure BeforeDestruction; override;
 
     property NodeType: TJSASTNodeType read FNodeType;
     property Line: Integer read FLine write FLine;
     property Column: Integer read FColumn write FColumn;
+    property ContainsSuspension: Boolean read FContainsSuspension write FContainsSuspension;
+    property IsRemembered: Boolean read FIsRemembered write SetIsRemembered;
+    property DispatchType: TJSASTNodeType read FDispatchType;
   end;
+
+  TJSChainKind = (
+    None,
+    Binary,
+    Logical,
+    Access
+  );
 
   TJSExpression = class(TJSASTNode)
   private
     FIsParenthesized: Boolean;
+    FChainKind: TJSChainKind;
+    FChainLength: Integer;
+
+  protected
+    procedure ContinueChain(const Kind: TJSChainKind; const Operand: TJSExpression);
 
   public
+    function ChainChild: TJSExpression; virtual;
+
     property IsParenthesized: Boolean read FIsParenthesized write FIsParenthesized;
+    property ChainKind: TJSChainKind read FChainKind;
+    property ChainLength: Integer read FChainLength;
   end;
 
   TJSStatement = class(TJSASTNode);
@@ -113,6 +153,9 @@ type
     FIsStrict: Boolean;
     FScopeInfo: TJSScopeInfo;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -131,13 +174,16 @@ type
   TJSIdentifier = class(TJSExpression)
   private
     FName: string;
+    FKey: TJSPropertyKey;
 
   public
     BindingCache: TJSBindingCache;
 
     constructor Create(const Name: string);
+    function KeyPointer: PJSPropertyKey; inline;
 
     property Name: string read FName;
+    property Key: TJSPropertyKey read FKey;
   end;
 
   TJSLiteralType = (
@@ -180,6 +226,9 @@ type
     FHasSpread: Boolean;
     FSpreadFollowedByComma: Boolean;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -201,6 +250,9 @@ type
 
     function IsPrototypeKey: Boolean;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Key: TJSExpression; const Value: TJSExpression; const Computed: Boolean = False;
                        const Kind: TJSPropertyKind = TJSPropertyKind.Data);
@@ -219,6 +271,9 @@ type
     FSpreadFollowedByComma: Boolean;
     FHasDuplicatePrototype: Boolean;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -232,6 +287,9 @@ type
   private
     FArgument: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Argument: TJSExpression);
     destructor Destroy; override;
@@ -243,6 +301,9 @@ type
   private
     FTarget: TJSExpression;
     FDefault: TJSExpression;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Target: TJSExpression; const Default: TJSExpression);
@@ -256,6 +317,9 @@ type
   private
     FElements: TObjectList<TJSExpression>;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -267,6 +331,9 @@ type
   private
     FProperties: TObjectList<TJSObjectProperty>;
     FRest: TJSExpression;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create;
@@ -282,8 +349,6 @@ type
     class function Of_(const Target: TJSASTNode): TArray<string>; static;
   end;
 
-  // Default values and rest parameter of a function. Only created when a function has at least one
-  // of them; Defaults has one entry per name in Params, nil where the parameter has no default.
   TJSParameterInfo = class
   private
     FDefaults: TObjectList<TJSExpression>;
@@ -299,8 +364,12 @@ type
     function GetNeedsParameterScope: Boolean;
 
   public
+    class procedure DetachSignature(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo;
+                                    const Sink: TList<TJSASTNode>); static;
+
     constructor Create;
     destructor Destroy; override;
+    procedure DetachChildren(const Sink: TList<TJSASTNode>);
 
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property Defaults: TObjectList<TJSExpression> read FDefaults;
@@ -322,7 +391,12 @@ type
     FBody: TJSStatement;
     FIsStrict: Boolean;
     FIsArrow: Boolean;
+    FIsGenerator: Boolean;
+    FIsAsync: Boolean;
     FSourceText: string;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create;
@@ -334,6 +408,8 @@ type
     property Body: TJSStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property IsArrow: Boolean read FIsArrow write FIsArrow;
+    property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
+    property IsAsync: Boolean read FIsAsync write FIsAsync;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
@@ -352,6 +428,9 @@ type
     FOperator: TJSUnaryOperator;
     FArgument: TJSExpression;
     FPrefix: Boolean;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Op: TJSUnaryOperator; const Argument: TJSExpression; const Prefix: Boolean = True);
@@ -393,9 +472,13 @@ type
     FLeft: TJSExpression;
     FRight: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Op: TJSBinaryOperator; const Left: TJSExpression; const Right: TJSExpression);
     destructor Destroy; override;
+    function ChainChild: TJSExpression; override;
 
     property Operator: TJSBinaryOperator read FOperator;
     property Left: TJSExpression read FLeft;
@@ -404,7 +487,8 @@ type
 
   TJSLogicalOperator = (
     And_,
-    Or_
+    Or_,
+    Nullish
   );
 
   TJSLogicalExpression = class(TJSExpression)
@@ -413,9 +497,13 @@ type
     FLeft: TJSExpression;
     FRight: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Op: TJSLogicalOperator; const Left: TJSExpression; const Right: TJSExpression);
     destructor Destroy; override;
+    function ChainChild: TJSExpression; override;
 
     property Operator: TJSLogicalOperator read FOperator;
     property Left: TJSExpression read FLeft;
@@ -444,6 +532,9 @@ type
     FLeft: TJSExpression;
     FRight: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Op: TJSAssignmentOperator; const Left: TJSExpression; const Right: TJSExpression);
     destructor Destroy; override;
@@ -467,6 +558,9 @@ type
     FArgument: TJSExpression;
     FPrefix: Boolean;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Op: TJSUpdateOperator; const Argument: TJSExpression; const Prefix: Boolean);
     destructor Destroy; override;
@@ -481,6 +575,9 @@ type
     FTest: TJSExpression;
     FConsequent: TJSExpression;
     FAlternate: TJSExpression;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Test: TJSExpression; const Consequent: TJSExpression; const Alternate: TJSExpression);
@@ -497,9 +594,13 @@ type
     FArguments: TObjectList<TJSExpression>;
     FHasSpread: Boolean;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Callee: TJSExpression);
     destructor Destroy; override;
+    function ChainChild: TJSExpression; override;
 
     property Callee: TJSExpression read FCallee;
     property Arguments: TObjectList<TJSExpression> read FArguments;
@@ -513,14 +614,20 @@ type
     FObject_: TJSExpression;
     FProperty_: TJSExpression;
     FComputed: Boolean;
+    FIsSuper: Boolean;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Obj: TJSExpression; const Prop: TJSExpression; const Computed: Boolean);
     destructor Destroy; override;
+    function ChainChild: TJSExpression; override;
 
     property Object_: TJSExpression read FObject_;
     property Property_: TJSExpression read FProperty_;
     property Computed: Boolean read FComputed;
+    property IsSuper: Boolean read FIsSuper;
   end;
 
   TJSNewExpression = class(TJSExpression)
@@ -528,6 +635,9 @@ type
     FCallee: TJSExpression;
     FArguments: TObjectList<TJSExpression>;
     FHasSpread: Boolean;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Callee: TJSExpression);
@@ -542,6 +652,9 @@ type
   private
     FExpressions: TObjectList<TJSExpression>;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -554,6 +667,91 @@ type
     constructor Create;
   end;
 
+  TJSSuperExpression = class(TJSExpression)
+  public
+    constructor Create;
+  end;
+
+  TJSNewTargetExpression = class(TJSExpression)
+  public
+    constructor Create;
+  end;
+
+  TJSClassMember = class(TJSASTNode)
+  private
+    FKey: TJSExpression;
+    FValue: TJSFunctionExpression;
+    FComputed: Boolean;
+    FIsStatic: Boolean;
+    FKind: TJSPropertyKind;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
+  public
+    constructor Create(const Key: TJSExpression; const Value: TJSFunctionExpression; const Computed: Boolean;
+                       const IsStatic: Boolean; const Kind: TJSPropertyKind);
+    destructor Destroy; override;
+
+    property Key: TJSExpression read FKey;
+    property Value: TJSFunctionExpression read FValue;
+    property Computed: Boolean read FComputed;
+    property IsStatic: Boolean read FIsStatic;
+    property Kind: TJSPropertyKind read FKind;
+  end;
+
+  TJSClassExpression = class(TJSExpression)
+  private
+    FId: TJSIdentifier;
+    FSuperClass: TJSExpression;
+    FConstructor: TJSFunctionExpression;
+    FMembers: TObjectList<TJSClassMember>;
+    FSourceText: string;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Id: TJSIdentifier read FId write FId;
+    property SuperClass: TJSExpression read FSuperClass write FSuperClass;
+    property Constructor_: TJSFunctionExpression read FConstructor write FConstructor;
+    property Members: TObjectList<TJSClassMember> read FMembers;
+    property SourceText: string read FSourceText write FSourceText;
+  end;
+
+  TJSYieldExpression = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+    FIsDelegate: Boolean;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
+  public
+    constructor Create(const Argument: TJSExpression; const IsDelegate: Boolean);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument;
+    property IsDelegate: Boolean read FIsDelegate;
+  end;
+
+  TJSAwaitExpression = class(TJSExpression)
+  private
+    FArgument: TJSExpression;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
+  public
+    constructor Create(const Argument: TJSExpression);
+    destructor Destroy; override;
+
+    property Argument: TJSExpression read FArgument;
+  end;
+
   TJSTemplatePart = record
     Cooked: string;
     Raw: string;
@@ -564,6 +762,9 @@ type
   private
     FParts: TList<TJSTemplatePart>;
     FExpressions: TObjectList<TJSExpression>;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create;
@@ -592,14 +793,21 @@ type
     FReferencesArguments: Boolean;
     FDeclaresStrictMode: Boolean;
     FIsFunctionBody: Boolean;
+    FIsGeneratorBody: Boolean;
+    FIsAsyncBody: Boolean;
     FScopeInfo: TJSScopeInfo;
     FParameterInfo: TJSParameterInfo;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create;
     destructor Destroy; override;
 
     property Body: TObjectList<TJSStatement> read FBody;
+    property IsGeneratorBody: Boolean read FIsGeneratorBody write FIsGeneratorBody;
+    property IsAsyncBody: Boolean read FIsAsyncBody write FIsAsyncBody;
     property ParameterInfo: TJSParameterInfo read FParameterInfo write FParameterInfo;
     property ReferencesArguments: Boolean read FReferencesArguments write FReferencesArguments;
     property DeclaresStrictMode: Boolean read FDeclaresStrictMode write FDeclaresStrictMode;
@@ -613,6 +821,9 @@ type
     FPattern: TJSExpression;
     FInit: TJSExpression;
     FBoundNames: TArray<string>;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Id: TJSIdentifier; const Init: TJSExpression);
@@ -631,6 +842,9 @@ type
     FDeclarations: TObjectList<TJSVariableDeclarator>;
     FKind: TJSDeclarationKind;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create;
     destructor Destroy; override;
@@ -647,7 +861,12 @@ type
     FBody: TJSBlockStatement;
     FIsStrict: Boolean;
     FHoistsToVar: Boolean;
+    FIsGenerator: Boolean;
+    FIsAsync: Boolean;
     FSourceText: string;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Id: TJSIdentifier);
@@ -659,12 +878,17 @@ type
     property Body: TJSBlockStatement read FBody write FBody;
     property IsStrict: Boolean read FIsStrict write FIsStrict;
     property HoistsToVar: Boolean read FHoistsToVar write FHoistsToVar;
+    property IsGenerator: Boolean read FIsGenerator write FIsGenerator;
+    property IsAsync: Boolean read FIsAsync write FIsAsync;
     property SourceText: string read FSourceText write FSourceText;
   end;
 
   TJSExpressionStatement = class(TJSStatement)
   private
     FExpression: TJSExpression;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Expression: TJSExpression);
@@ -678,6 +902,9 @@ type
     FTest: TJSExpression;
     FConsequent: TJSStatement;
     FAlternate: TJSStatement;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Test: TJSExpression; const Consequent: TJSStatement; const Alternate: TJSStatement);
@@ -693,6 +920,9 @@ type
     FTest: TJSExpression;
     FBody: TJSStatement;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Test: TJSExpression; const Body: TJSStatement);
     destructor Destroy; override;
@@ -706,6 +936,9 @@ type
     FTarget: TJSExpression;
     FBody: TJSStatement;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Target: TJSExpression; const Body: TJSStatement);
     destructor Destroy; override;
@@ -718,6 +951,9 @@ type
   private
     FTest: TJSExpression;
     FBody: TJSStatement;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Body: TJSStatement; const Test: TJSExpression);
@@ -734,6 +970,9 @@ type
     FUpdate: TJSExpression;
     FBody: TJSStatement;
     FMayCaptureScope: Boolean;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Init: TJSASTNode; const Test: TJSExpression; const Update: TJSExpression; const Body: TJSStatement);
@@ -756,6 +995,7 @@ type
   protected
     constructor CreateOfType(const NodeType: TJSASTNodeType; const Left: TJSASTNode; const Right: TJSExpression;
                              const Body: TJSStatement);
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
@@ -776,6 +1016,9 @@ type
   private
     FArgument: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Argument: TJSExpression);
     destructor Destroy; override;
@@ -786,6 +1029,9 @@ type
   TJSBreakStatement = class(TJSStatement)
   private
     FLabel: TJSIdentifier;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const LabelId: TJSIdentifier);
@@ -798,6 +1044,9 @@ type
   private
     FLabel: TJSIdentifier;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const LabelId: TJSIdentifier);
     destructor Destroy; override;
@@ -809,6 +1058,9 @@ type
   private
     FTest: TJSExpression;
     FConsequent: TObjectList<TJSStatement>;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Test: TJSExpression);
@@ -824,6 +1076,9 @@ type
     FCases: TObjectList<TJSSwitchCase>;
     FScopeInfo: TJSScopeInfo;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Discriminant: TJSExpression);
     destructor Destroy; override;
@@ -837,6 +1092,9 @@ type
   private
     FArgument: TJSExpression;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Argument: TJSExpression);
     destructor Destroy; override;
@@ -849,6 +1107,9 @@ type
     FParam: TJSIdentifier;
     FPattern: TJSExpression;
     FBody: TJSBlockStatement;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const Param: TJSIdentifier; const Body: TJSBlockStatement);
@@ -866,6 +1127,9 @@ type
     FHandler: TJSCatchClause;
     FFinalizer: TJSBlockStatement;
 
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
+
   public
     constructor Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause; const Finalizer: TJSBlockStatement);
     destructor Destroy; override;
@@ -879,6 +1143,9 @@ type
   private
     FLabelName: string;
     FBody: TJSStatement;
+
+  protected
+    procedure DetachChildren(const Sink: TList<TJSASTNode>); override;
 
   public
     constructor Create(const LabelName: string; const Body: TJSStatement);
@@ -909,6 +1176,72 @@ constructor TJSASTNode.Create(const NodeType: TJSASTNodeType);
 begin
   inherited Create;
   FNodeType := NodeType;
+  FDispatchType := NodeType;
+end;
+
+procedure TJSASTNode.SetIsRemembered(const Value: Boolean);
+begin
+  FIsRemembered := Value;
+
+  if Value then
+    FDispatchType := TJSASTNodeType.Remembered
+  else
+    FDispatchType := FNodeType;
+end;
+
+procedure TJSASTNode.BeforeDestruction;
+begin
+  inherited;
+
+  if not FIsDetached then
+    ReleaseTree(Self);
+end;
+
+class procedure TJSASTNode.ReleaseTree(const Root: TJSASTNode);
+begin
+  const Pending = TList<TJSASTNode>.Create;
+  try
+    Root.DetachChildren(Pending);
+
+    while Pending.Count > 0 do
+    begin
+      const LastIndex = Pending.Count - 1;
+      const Node = Pending[LastIndex];
+      Pending.Delete(LastIndex);
+
+      Node.DetachChildren(Pending);
+      Node.FIsDetached := True;
+      Node.Free;
+    end;
+  finally
+    Pending.Free;
+  end;
+end;
+
+procedure TJSASTNode.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+end;
+
+class procedure TJSASTNode.Collect(const Child: TJSASTNode; const Sink: TList<TJSASTNode>);
+begin
+  if Assigned(Child) then
+    Sink.Add(Child);
+end;
+
+class procedure TJSASTNode.DetachAll<T>(const Children: TObjectList<T>; const Sink: TList<TJSASTNode>);
+begin
+  Children.OwnsObjects := False;
+  try
+    for var Child in Children do
+    begin
+      if Assigned(Child) then
+        Sink.Add(Child);
+    end;
+
+    Children.Clear;
+  finally
+    Children.OwnsObjects := True;
+  end;
 end;
 
 { TJSScopeInfo }
@@ -940,12 +1273,39 @@ begin
   inherited;
 end;
 
+procedure TJSProgram.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSStatement>(FBody, Sink);
+end;
+
+{ TJSExpression }
+
+procedure TJSExpression.ContinueChain(const Kind: TJSChainKind; const Operand: TJSExpression);
+begin
+  FChainKind := Kind;
+
+  const IsContinued = (Assigned(Operand) and (Operand.ChainKind = Kind));
+  if IsContinued then
+    FChainLength := Operand.ChainLength + 1;
+end;
+
+function TJSExpression.ChainChild: TJSExpression;
+begin
+  Result := nil;
+end;
+
 { TJSIdentifier }
 
 constructor TJSIdentifier.Create(const Name: string);
 begin
   inherited Create(TJSASTNodeType.Identifier);
   FName := Name;
+  FKey := Name;
+end;
+
+function TJSIdentifier.KeyPointer: PJSPropertyKey;
+begin
+  Result := @FKey;
 end;
 
 { TJSLiteral }
@@ -1005,6 +1365,11 @@ begin
   inherited;
 end;
 
+procedure TJSArrayExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSExpression>(FElements, Sink);
+end;
+
 { TJSAssignmentPattern }
 
 constructor TJSAssignmentPattern.Create(const Target: TJSExpression; const Default: TJSExpression);
@@ -1021,6 +1386,14 @@ begin
   inherited;
 end;
 
+procedure TJSAssignmentPattern.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FDefault, Sink);
+  FDefault := nil;
+  Collect(FTarget, Sink);
+  FTarget := nil;
+end;
+
 { TJSArrayPattern }
 
 constructor TJSArrayPattern.Create;
@@ -1033,6 +1406,11 @@ destructor TJSArrayPattern.Destroy;
 begin
   FElements.Free;
   inherited;
+end;
+
+procedure TJSArrayPattern.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSExpression>(FElements, Sink);
 end;
 
 { TJSObjectPattern }
@@ -1048,6 +1426,13 @@ begin
   FRest.Free;
   FProperties.Free;
   inherited;
+end;
+
+procedure TJSObjectPattern.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FRest, Sink);
+  FRest := nil;
+  DetachAll<TJSObjectProperty>(FProperties, Sink);
 end;
 
 { TJSPatternNames }
@@ -1123,6 +1508,14 @@ begin
   inherited;
 end;
 
+procedure TJSObjectProperty.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FKey, Sink);
+  FKey := nil;
+  Collect(FValue, Sink);
+  FValue := nil;
+end;
+
 { TJSObjectExpression }
 
 constructor TJSObjectExpression.Create;
@@ -1135,6 +1528,11 @@ destructor TJSObjectExpression.Destroy;
 begin
   FProperties.Free;
   inherited;
+end;
+
+procedure TJSObjectExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSObjectProperty>(FProperties, Sink);
 end;
 
 { TJSFunctionExpression }
@@ -1154,6 +1552,56 @@ begin
   inherited;
 end;
 
+procedure TJSFunctionExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FId, Sink);
+  FId := nil;
+  TJSParameterInfo.DetachSignature(FParams, FParameterInfo, Sink);
+  Collect(FBody, Sink);
+  FBody := nil;
+end;
+
+{ TJSYieldExpression }
+
+constructor TJSYieldExpression.Create(const Argument: TJSExpression; const IsDelegate: Boolean);
+begin
+  inherited Create(TJSASTNodeType.YieldExpression);
+  FArgument := Argument;
+  FIsDelegate := IsDelegate;
+end;
+
+destructor TJSYieldExpression.Destroy;
+begin
+  FArgument.Free;
+  inherited;
+end;
+
+procedure TJSYieldExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
+end;
+
+{ TJSAwaitExpression }
+
+constructor TJSAwaitExpression.Create(const Argument: TJSExpression);
+begin
+  inherited Create(TJSASTNodeType.AwaitExpression);
+  FArgument := Argument;
+end;
+
+destructor TJSAwaitExpression.Destroy;
+begin
+  FArgument.Free;
+  inherited;
+end;
+
+procedure TJSAwaitExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
+end;
+
 { TJSSpreadElement }
 
 constructor TJSSpreadElement.Create(const Argument: TJSExpression);
@@ -1168,7 +1616,22 @@ begin
   inherited;
 end;
 
+procedure TJSSpreadElement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
+end;
+
 { TJSParameterInfo }
+
+class procedure TJSParameterInfo.DetachSignature(const Params: TObjectList<TJSIdentifier>; const Info: TJSParameterInfo;
+                                                 const Sink: TList<TJSASTNode>);
+begin
+  TJSASTNode.DetachAll<TJSIdentifier>(Params, Sink);
+
+  if Assigned(Info) then
+    Info.DetachChildren(Sink);
+end;
 
 constructor TJSParameterInfo.Create;
 begin
@@ -1184,6 +1647,16 @@ begin
   FRestPattern.Free;
   FRest.Free;
   inherited;
+end;
+
+procedure TJSParameterInfo.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  TJSASTNode.DetachAll<TJSExpression>(FDefaults, Sink);
+  TJSASTNode.DetachAll<TJSExpression>(FPatterns, Sink);
+  TJSASTNode.Collect(FRestPattern, Sink);
+  FRestPattern := nil;
+  TJSASTNode.Collect(FRest, Sink);
+  FRest := nil;
 end;
 
 function TJSParameterInfo.GetNeedsParameterScope: Boolean;
@@ -1207,6 +1680,12 @@ begin
   inherited;
 end;
 
+procedure TJSUnaryExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
+end;
+
 { TJSBinaryExpression }
 
 constructor TJSBinaryExpression.Create(const Op: TJSBinaryOperator; const Left: TJSExpression; const Right: TJSExpression);
@@ -1215,6 +1694,7 @@ begin
   FOperator := Op;
   FLeft := Left;
   FRight := Right;
+  ContinueChain(TJSChainKind.Binary, Left);
 end;
 
 destructor TJSBinaryExpression.Destroy;
@@ -1222,6 +1702,19 @@ begin
   FLeft.Free;
   FRight.Free;
   inherited;
+end;
+
+procedure TJSBinaryExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLeft, Sink);
+  FLeft := nil;
+  Collect(FRight, Sink);
+  FRight := nil;
+end;
+
+function TJSBinaryExpression.ChainChild: TJSExpression;
+begin
+  Result := FLeft;
 end;
 
 { TJSLogicalExpression }
@@ -1232,6 +1725,7 @@ begin
   FOperator := Op;
   FLeft := Left;
   FRight := Right;
+  ContinueChain(TJSChainKind.Logical, Left);
 end;
 
 destructor TJSLogicalExpression.Destroy;
@@ -1239,6 +1733,19 @@ begin
   FLeft.Free;
   FRight.Free;
   inherited;
+end;
+
+procedure TJSLogicalExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLeft, Sink);
+  FLeft := nil;
+  Collect(FRight, Sink);
+  FRight := nil;
+end;
+
+function TJSLogicalExpression.ChainChild: TJSExpression;
+begin
+  Result := FLeft;
 end;
 
 { TJSAssignmentExpression }
@@ -1270,6 +1777,14 @@ begin
   inherited;
 end;
 
+procedure TJSAssignmentExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLeft, Sink);
+  FLeft := nil;
+  Collect(FRight, Sink);
+  FRight := nil;
+end;
+
 { TJSUpdateExpression }
 
 constructor TJSUpdateExpression.Create(const Op: TJSUpdateOperator; const Argument: TJSExpression; const Prefix: Boolean);
@@ -1284,6 +1799,12 @@ destructor TJSUpdateExpression.Destroy;
 begin
   FArgument.Free;
   inherited;
+end;
+
+procedure TJSUpdateExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
 end;
 
 { TJSConditionalExpression }
@@ -1304,6 +1825,16 @@ begin
   inherited;
 end;
 
+procedure TJSConditionalExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTest, Sink);
+  FTest := nil;
+  Collect(FConsequent, Sink);
+  FConsequent := nil;
+  Collect(FAlternate, Sink);
+  FAlternate := nil;
+end;
+
 { TJSCallExpression }
 
 constructor TJSCallExpression.Create(const Callee: TJSExpression);
@@ -1311,6 +1842,7 @@ begin
   inherited Create(TJSASTNodeType.CallExpression);
   FCallee := Callee;
   FArguments := TObjectList<TJSExpression>.Create(True);
+  ContinueChain(TJSChainKind.Access, Callee);
 end;
 
 destructor TJSCallExpression.Destroy;
@@ -1318,6 +1850,18 @@ begin
   FCallee.Free;
   FArguments.Free;
   inherited;
+end;
+
+procedure TJSCallExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FCallee, Sink);
+  FCallee := nil;
+  DetachAll<TJSExpression>(FArguments, Sink);
+end;
+
+function TJSCallExpression.ChainChild: TJSExpression;
+begin
+  Result := FCallee;
 end;
 
 { TJSMemberExpression }
@@ -1328,6 +1872,8 @@ begin
   FObject_ := Obj;
   FProperty_ := Prop;
   FComputed := Computed;
+  FIsSuper := (Obj is TJSSuperExpression);
+  ContinueChain(TJSChainKind.Access, Obj);
 end;
 
 destructor TJSMemberExpression.Destroy;
@@ -1335,6 +1881,19 @@ begin
   FObject_.Free;
   FProperty_.Free;
   inherited;
+end;
+
+procedure TJSMemberExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FObject_, Sink);
+  FObject_ := nil;
+  Collect(FProperty_, Sink);
+  FProperty_ := nil;
+end;
+
+function TJSMemberExpression.ChainChild: TJSExpression;
+begin
+  Result := FObject_;
 end;
 
 { TJSNewExpression }
@@ -1353,6 +1912,13 @@ begin
   inherited;
 end;
 
+procedure TJSNewExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FCallee, Sink);
+  FCallee := nil;
+  DetachAll<TJSExpression>(FArguments, Sink);
+end;
+
 { TJSSequenceExpression }
 
 constructor TJSSequenceExpression.Create;
@@ -1367,11 +1933,86 @@ begin
   inherited;
 end;
 
+procedure TJSSequenceExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSExpression>(FExpressions, Sink);
+end;
+
 { TJSThisExpression }
 
 constructor TJSThisExpression.Create;
 begin
   inherited Create(TJSASTNodeType.ThisExpression);
+end;
+
+{ TJSSuperExpression }
+
+constructor TJSSuperExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.SuperExpression);
+end;
+
+{ TJSNewTargetExpression }
+
+constructor TJSNewTargetExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.NewTargetExpression);
+end;
+
+{ TJSClassMember }
+
+constructor TJSClassMember.Create(const Key: TJSExpression; const Value: TJSFunctionExpression;
+                                  const Computed: Boolean; const IsStatic: Boolean; const Kind: TJSPropertyKind);
+begin
+  inherited Create(TJSASTNodeType.ClassMember);
+  FKey := Key;
+  FValue := Value;
+  FComputed := Computed;
+  FIsStatic := IsStatic;
+  FKind := Kind;
+end;
+
+destructor TJSClassMember.Destroy;
+begin
+  FKey.Free;
+  FValue.Free;
+  inherited;
+end;
+
+procedure TJSClassMember.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FKey, Sink);
+  FKey := nil;
+  Collect(FValue, Sink);
+  FValue := nil;
+end;
+
+{ TJSClassExpression }
+
+constructor TJSClassExpression.Create;
+begin
+  inherited Create(TJSASTNodeType.ClassExpression);
+  FMembers := TObjectList<TJSClassMember>.Create(True);
+end;
+
+destructor TJSClassExpression.Destroy;
+begin
+  FId.Free;
+  FSuperClass.Free;
+  FConstructor.Free;
+  FMembers.Free;
+  inherited;
+end;
+
+procedure TJSClassExpression.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FId, Sink);
+  FId := nil;
+  Collect(FSuperClass, Sink);
+  FSuperClass := nil;
+  Collect(FConstructor, Sink);
+  FConstructor := nil;
+  DetachAll<TJSClassMember>(FMembers, Sink);
 end;
 
 { TJSTemplateLiteral }
@@ -1388,6 +2029,11 @@ begin
   FExpressions.Free;
   FParts.Free;
   inherited;
+end;
+
+procedure TJSTemplateLiteral.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSExpression>(FExpressions, Sink);
 end;
 
 { TJSTemplateObject }
@@ -1420,6 +2066,11 @@ begin
   inherited;
 end;
 
+procedure TJSBlockStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSStatement>(FBody, Sink);
+end;
+
 { TJSVariableDeclarator }
 
 constructor TJSVariableDeclarator.Create(const Id: TJSIdentifier; const Init: TJSExpression);
@@ -1442,6 +2093,16 @@ begin
   FPattern.Free;
   FInit.Free;
   inherited;
+end;
+
+procedure TJSVariableDeclarator.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FId, Sink);
+  FId := nil;
+  Collect(FPattern, Sink);
+  FPattern := nil;
+  Collect(FInit, Sink);
+  FInit := nil;
 end;
 
 function TJSVariableDeclarator.BoundNames: TArray<string>;
@@ -1471,6 +2132,11 @@ begin
   inherited;
 end;
 
+procedure TJSVariableDeclaration.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  DetachAll<TJSVariableDeclarator>(FDeclarations, Sink);
+end;
+
 { TJSFunctionDeclaration }
 
 constructor TJSFunctionDeclaration.Create(const Id: TJSIdentifier);
@@ -1489,6 +2155,15 @@ begin
   inherited;
 end;
 
+procedure TJSFunctionDeclaration.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FId, Sink);
+  FId := nil;
+  TJSParameterInfo.DetachSignature(FParams, FParameterInfo, Sink);
+  Collect(FBody, Sink);
+  FBody := nil;
+end;
+
 { TJSExpressionStatement }
 
 constructor TJSExpressionStatement.Create(const Expression: TJSExpression);
@@ -1501,6 +2176,12 @@ destructor TJSExpressionStatement.Destroy;
 begin
   FExpression.Free;
   inherited;
+end;
+
+procedure TJSExpressionStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FExpression, Sink);
+  FExpression := nil;
 end;
 
 { TJSIfStatement }
@@ -1521,6 +2202,16 @@ begin
   inherited;
 end;
 
+procedure TJSIfStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTest, Sink);
+  FTest := nil;
+  Collect(FConsequent, Sink);
+  FConsequent := nil;
+  Collect(FAlternate, Sink);
+  FAlternate := nil;
+end;
+
 { TJSWhileStatement }
 
 constructor TJSWhileStatement.Create(const Test: TJSExpression; const Body: TJSStatement);
@@ -1535,6 +2226,14 @@ begin
   FTest.Free;
   FBody.Free;
   inherited;
+end;
+
+procedure TJSWhileStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTest, Sink);
+  FTest := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
 end;
 
 { TJSWithStatement }
@@ -1553,6 +2252,14 @@ begin
   inherited;
 end;
 
+procedure TJSWithStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTarget, Sink);
+  FTarget := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
+end;
+
 { TJSDoWhileStatement }
 
 constructor TJSDoWhileStatement.Create(const Body: TJSStatement; const Test: TJSExpression);
@@ -1567,6 +2274,14 @@ begin
   FTest.Free;
   FBody.Free;
   inherited;
+end;
+
+procedure TJSDoWhileStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTest, Sink);
+  FTest := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
 end;
 
 { TJSForStatement }
@@ -1587,6 +2302,18 @@ begin
   FUpdate.Free;
   FBody.Free;
   inherited;
+end;
+
+procedure TJSForStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FInit, Sink);
+  FInit := nil;
+  Collect(FTest, Sink);
+  FTest := nil;
+  Collect(FUpdate, Sink);
+  FUpdate := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
 end;
 
 { TJSForInStatement }
@@ -1613,6 +2340,16 @@ begin
   inherited;
 end;
 
+procedure TJSForInStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLeft, Sink);
+  FLeft := nil;
+  Collect(FRight, Sink);
+  FRight := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
+end;
+
 { TJSForOfStatement }
 
 constructor TJSForOfStatement.Create(const Left: TJSASTNode; const Right: TJSExpression; const Body: TJSStatement);
@@ -1634,6 +2371,12 @@ begin
   inherited;
 end;
 
+procedure TJSReturnStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
+end;
+
 { TJSBreakStatement }
 
 constructor TJSBreakStatement.Create(const LabelId: TJSIdentifier);
@@ -1646,6 +2389,12 @@ destructor TJSBreakStatement.Destroy;
 begin
   FLabel.Free;
   inherited;
+end;
+
+procedure TJSBreakStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLabel, Sink);
+  FLabel := nil;
 end;
 
 { TJSContinueStatement }
@@ -1662,6 +2411,12 @@ begin
   inherited;
 end;
 
+procedure TJSContinueStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FLabel, Sink);
+  FLabel := nil;
+end;
+
 { TJSSwitchCase }
 
 constructor TJSSwitchCase.Create(const Test: TJSExpression);
@@ -1676,6 +2431,13 @@ begin
   FTest.Free;
   FConsequent.Free;
   inherited;
+end;
+
+procedure TJSSwitchCase.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FTest, Sink);
+  FTest := nil;
+  DetachAll<TJSStatement>(FConsequent, Sink);
 end;
 
 { TJSSwitchStatement }
@@ -1695,6 +2457,13 @@ begin
   inherited;
 end;
 
+procedure TJSSwitchStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FDiscriminant, Sink);
+  FDiscriminant := nil;
+  DetachAll<TJSSwitchCase>(FCases, Sink);
+end;
+
 { TJSThrowStatement }
 
 constructor TJSThrowStatement.Create(const Argument: TJSExpression);
@@ -1707,6 +2476,12 @@ destructor TJSThrowStatement.Destroy;
 begin
   FArgument.Free;
   inherited;
+end;
+
+procedure TJSThrowStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FArgument, Sink);
+  FArgument := nil;
 end;
 
 { TJSCatchClause }
@@ -1733,6 +2508,16 @@ begin
   inherited;
 end;
 
+procedure TJSCatchClause.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FPattern, Sink);
+  FPattern := nil;
+  Collect(FParam, Sink);
+  FParam := nil;
+  Collect(FBody, Sink);
+  FBody := nil;
+end;
+
 { TJSTryStatement }
 
 constructor TJSTryStatement.Create(const Block: TJSBlockStatement; const Handler: TJSCatchClause; const Finalizer: TJSBlockStatement);
@@ -1751,6 +2536,16 @@ begin
   inherited;
 end;
 
+procedure TJSTryStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FBlock, Sink);
+  FBlock := nil;
+  Collect(FHandler, Sink);
+  FHandler := nil;
+  Collect(FFinalizer, Sink);
+  FFinalizer := nil;
+end;
+
 { TJSLabeledStatement }
 
 constructor TJSLabeledStatement.Create(const LabelName: string; const Body: TJSStatement);
@@ -1764,6 +2559,12 @@ destructor TJSLabeledStatement.Destroy;
 begin
   FBody.Free;
   inherited;
+end;
+
+procedure TJSLabeledStatement.DetachChildren(const Sink: TList<TJSASTNode>);
+begin
+  Collect(FBody, Sink);
+  FBody := nil;
 end;
 
 { TJSEmptyStatement }
