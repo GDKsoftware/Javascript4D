@@ -6,13 +6,14 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 
 type
-  TJSStringPatternMethods = class
+  TJSStringPatternMethods = class(TJSBuiltinSet)
   private
     const
       MATCH_NAME = 'match';
@@ -48,7 +49,7 @@ type
   public
     constructor Create(const Interpreter: TJSInterpreter);
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

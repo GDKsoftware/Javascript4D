@@ -68,6 +68,10 @@ type
     EvalError
   );
 
+  TJSErrorTypeHelper = record helper for TJSErrorType
+    function Name: string;
+  end;
+
   TJSLimits = record
   public
     const
@@ -237,6 +241,9 @@ type
     Writable: Boolean;
     Enumerable: Boolean;
     Configurable: Boolean;
+
+    class function ForValue(const Value: TJSValue): TJSPropertyDefinition; static;
+    class function ForDataProperty(const Value: TJSValue): TJSPropertyDefinition; static;
 
     function IsAccessorDefinition: Boolean;
     function IsDataDefinition: Boolean;
@@ -912,6 +919,23 @@ uses
   JS4D.RegExpSyntax,
   JS4D.RegExpTranslator;
 
+{ TJSErrorTypeHelper }
+
+function TJSErrorTypeHelper.Name: string;
+begin
+  case Self of
+    TJSErrorType.Error          : Result := 'Error';
+    TJSErrorType.TypeError      : Result := 'TypeError';
+    TJSErrorType.RangeError     : Result := 'RangeError';
+    TJSErrorType.ReferenceError : Result := 'ReferenceError';
+    TJSErrorType.SyntaxError    : Result := 'SyntaxError';
+    TJSErrorType.URIError       : Result := 'URIError';
+    TJSErrorType.EvalError      : Result := 'EvalError';
+  else
+    raise ENotSupportedException.CreateFmt('Unsupported error type: %d', [Ord(Self)]);
+  end;
+end;
+
 { TJSLimits }
 
 class function TJSLimits.Default: TJSLimits;
@@ -1055,6 +1079,24 @@ begin
 end;
 
 { TJSPropertyDefinition }
+
+class function TJSPropertyDefinition.ForValue(const Value: TJSValue): TJSPropertyDefinition;
+begin
+  Result := Default(TJSPropertyDefinition);
+  Result.HasValue := True;
+  Result.Value := Value;
+end;
+
+class function TJSPropertyDefinition.ForDataProperty(const Value: TJSValue): TJSPropertyDefinition;
+begin
+  Result := ForValue(Value);
+  Result.HasWritable := True;
+  Result.Writable := True;
+  Result.HasEnumerable := True;
+  Result.Enumerable := True;
+  Result.HasConfigurable := True;
+  Result.Configurable := True;
+end;
 
 function TJSPropertyDefinition.IsAccessorDefinition: Boolean;
 begin
@@ -3726,22 +3768,7 @@ end;
 
 function TJSErrorImpl.GetErrorName: string;
 begin
-  case FErrorType of
-    TJSErrorType.Error:
-      Result := 'Error';
-    TJSErrorType.TypeError:
-      Result := 'TypeError';
-    TJSErrorType.RangeError:
-      Result := 'RangeError';
-    TJSErrorType.ReferenceError:
-      Result := 'ReferenceError';
-    TJSErrorType.SyntaxError:
-      Result := 'SyntaxError';
-    TJSErrorType.URIError:
-      Result := 'URIError';
-    TJSErrorType.EvalError:
-      Result := 'EvalError';
-  end;
+  Result := FErrorType.Name;
 end;
 
 constructor TJSDateImpl.Create(const Time: Double);

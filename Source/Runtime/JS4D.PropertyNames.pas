@@ -14,6 +14,10 @@ const
   FUNCTION_NAME = 'Function';
   ANONYMOUS_NAME = 'anonymous';
   NEXT_PROPERTY = 'next';
+  RAW_PROPERTY = 'raw';
+  KEYS_PROPERTY = 'keys';
+  VALUES_PROPERTY = 'values';
+  ENTRIES_PROPERTY = 'entries';
   SPECIES_GETTER_NAME = 'get [Symbol.species]';
   GETTER_NAME_FORMAT = 'get %s';
   CONSTRUCTOR_REQUIRES_NEW = 'Constructor %s requires ''new''';

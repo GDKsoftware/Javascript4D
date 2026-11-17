@@ -6,13 +6,14 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BuiltinSupport;
 
 type
-  TJSObjectBuiltins = class
+  TJSObjectBuiltins = class(TJSBuiltinSet)
   private
     const
       OBJECT_NAME = 'Object';
@@ -24,7 +25,6 @@ type
       FROM_ENTRIES_NAME = 'fromEntries';
       KEY_PROPERTY = '0';
       VALUE_PROPERTY = '1';
-      NOT_COERCIBLE = 'Cannot convert undefined or null to object';
       PROTOTYPE_NOT_AN_OBJECT = 'Object prototype may only be an Object or null';
       SET_PROTOTYPE_FAILED = 'Cannot set the prototype of this object: it is not extensible or the prototype chain ' +
                              'would be cyclic';
@@ -51,7 +51,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
@@ -80,7 +80,7 @@ end;
 function TJSObjectBuiltins.ObjectFor(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if Value.IsObject then
     Exit(Value.ToObject);
@@ -102,7 +102,7 @@ begin
   const NewPrototype = TJSArrayLike.Argument(Args, 1);
 
   if Subject.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   const IsValidPrototype = NewPrototype.IsNull or NewPrototype.IsObject;
   if not IsValidPrototype then
@@ -122,7 +122,7 @@ end;
 function TJSObjectBuiltins.ReadPrototypeOf(const This: IJSObject): TJSValue;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   const Prototype = This.Prototype;
   if Assigned(Prototype) then
@@ -134,7 +134,7 @@ end;
 function TJSObjectBuiltins.WritePrototypeOf(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   Result := TJSValue.CreateUndefined;
 
@@ -190,15 +190,7 @@ begin
   const Key = EntryObject.GetProperty(KEY_PROPERTY);
   const Value = EntryObject.GetProperty(VALUE_PROPERTY);
 
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Value;
-  Definition.HasWritable := True;
-  Definition.Writable := True;
-  Definition.HasEnumerable := True;
-  Definition.Enumerable := True;
-  Definition.HasConfigurable := True;
-  Definition.Configurable := True;
+  const Definition = TJSPropertyDefinition.ForDataProperty(Value);
 
   TJSPropertyDescriptors.Define(Target, Key.ToPropertyKey(FInterpreter.Limits), Definition, FInterpreter.Limits);
 end;
@@ -207,7 +199,7 @@ function TJSObjectBuiltins.FromEntries(const Args: TArray<TJSValue>): TJSValue;
 begin
   const Source = TJSArrayLike.Argument(Args, 0);
   if Source.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NOT_COERCIBLE);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;

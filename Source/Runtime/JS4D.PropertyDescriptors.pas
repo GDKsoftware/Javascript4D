@@ -32,7 +32,6 @@ type
       ACCESSOR_NOT_CALLABLE = 'Getter and setter must be functions or undefined';
       MIXED_DESCRIPTOR = 'Invalid property descriptor. Cannot both specify accessors and a value or writable attribute';
       CANNOT_REDEFINE = 'Cannot redefine property: %s';
-      PROPERTIES_NOT_AN_OBJECT = 'Cannot convert undefined or null to object';
       LENGTH_NAME = 'length';
 
     class function ReadAccessor(const Source: IJSObject; const Name: string; out Accessor: TJSValue): Boolean; static;
@@ -157,7 +156,7 @@ class procedure TJSPropertyDescriptors.DefineAll(const Target: IJSObject; const 
                                                  const Limits: TJSLimits);
 begin
   if Properties.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(PROPERTIES_NOT_AN_OBJECT);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if not Properties.IsObject then
     Exit;

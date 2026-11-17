@@ -16,7 +16,8 @@ type
     FLimits: TJSLimits;
 
     function Walk(const Holder: IJSObject; const Name: string; const Depth: Integer): TJSValue;
-    procedure WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean; const Depth: Integer);
+    procedure WalkArrayMembers(const Container: IJSObject; const Depth: Integer);
+    procedure WalkObjectMembers(const Container: IJSObject; const Depth: Integer);
     procedure WalkMember(const Container: IJSObject; const Name: string; const Depth: Integer);
 
   public
@@ -29,7 +30,7 @@ type
 implementation
 
 uses
-  JS4D.Json,
+  JS4D.JsonRoot,
   JS4D.ArrayLike,
   JS4D.ObjectKeys,
   JS4D.ObjectOperations;
@@ -37,13 +38,11 @@ uses
 class function TJSJsonReviver.Revive(const Parsed: TJSValue; const Reviver: IJSFunction;
                                      const ObjectPrototype: IJSObject; const Limits: TJSLimits): TJSValue;
 begin
-  const Root: IJSObject = TJSObject.Create;
-  Root.Prototype := ObjectPrototype;
-  TJSObjectOperations.CreateDataProperty(Root, JSON_ROOT_KEY, Parsed);
+  const Root = TJSJsonRoot.CreateHolder(ObjectPrototype, Parsed);
 
   const Walker = TJSJsonReviver.Create(Reviver, Limits);
   try
-    Result := Walker.Walk(Root, JSON_ROOT_KEY, 0);
+    Result := Walker.Walk(Root, TJSJsonRoot.KEY, 0);
   finally
     Walker.Free;
   end;
@@ -64,29 +63,33 @@ begin
   const Value = Holder.GetProperty(Name);
   if Value.IsObject then
   begin
+    const Container = Value.ToObject;
     const IsArrayValue = TJSObjectOperations.IsArray(Value);
-    WalkMembers(Value.ToObject, IsArrayValue, Depth);
+
+    if IsArrayValue then
+      WalkArrayMembers(Container, Depth)
+    else
+      WalkObjectMembers(Container, Depth);
   end;
 
-  Result := FReviver.Call(Holder, [TJSValue.CreateString(Name), Value]);
+  const NameValue = TJSValue.CreateString(Name);
+  Result := FReviver.Call(Holder, [NameValue, Value]);
 end;
 
-procedure TJSJsonReviver.WalkMembers(const Container: IJSObject; const IsArrayContainer: Boolean;
-                                     const Depth: Integer);
+procedure TJSJsonReviver.WalkArrayMembers(const Container: IJSObject; const Depth: Integer);
 begin
-  if IsArrayContainer then
+  const Count = TJSArrayLike.ToLength(Container);
+  FLimits.EnsureArrayLength(Count);
+
+  for var Index: Int64 := 0 to Count - 1 do
   begin
-    const Count = TJSArrayLike.ToLength(Container);
-    FLimits.EnsureArrayLength(Count);
-
-    for var Index: Int64 := 0 to Count - 1 do
-    begin
-      WalkMember(Container, TJSArrayLike.IndexName(Index), Depth);
-    end;
-
-    Exit;
+    const IndexName = TJSArrayLike.IndexName(Index);
+    WalkMember(Container, IndexName, Depth);
   end;
+end;
 
+procedure TJSJsonReviver.WalkObjectMembers(const Container: IJSObject; const Depth: Integer);
+begin
   for var Name in TJSObjectKeys.Enumerable(Container) do
   begin
     WalkMember(Container, Name, Depth);

@@ -22,7 +22,7 @@ uses
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
   JS4D.PatternOperations in '..\Source\Runtime\JS4D.PatternOperations.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
-  JS4D.Json in '..\Source\API\JS4D.Json.pas',
+  JS4D.JsonWriter in '..\Source\API\JS4D.JsonWriter.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas';
 
 {$R *.res}

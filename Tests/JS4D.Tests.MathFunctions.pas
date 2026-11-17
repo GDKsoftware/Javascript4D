@@ -88,6 +88,17 @@ type
     [TestCase('PowPositiveInfinityNegativePower', 'Math.pow(Infinity, -2)#0', '#')]
     [TestCase('MaxConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.max(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
     [TestCase('MinConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.min(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
+    [TestCase('FloorUsesValueOf', 'Math.floor({ valueOf: function () { return 3.7; } })#3', '#')]
+    [TestCase('SqrtUsesValueOf', 'Math.sqrt({ valueOf: function () { return 16; } })#4', '#')]
+    [TestCase('AbsWithoutArguments', 'Math.abs()#NaN', '#')]
+    [TestCase('PowWithoutExponent', 'Math.pow(2)#NaN', '#')]
+    [TestCase('RandomIsInUnitInterval', '(function () { var r = Math.random(); return r >= 0 && r < 1; })()#true', '#')]
+    [TestCase('RandomChangesBetweenCalls', 'Math.random() !== Math.random()#true', '#')]
+    [TestCase('FromCharCodeOfNaN', 'String.fromCharCode(NaN).charCodeAt(0)#0', '#')]
+    [TestCase('FromCharCodeWrapsAround', 'String.fromCharCode(65601).charCodeAt(0)#65', '#')]
+    [TestCase('FromCodePointSurrogate', 'String.fromCodePoint(0xD800).charCodeAt(0)#55296', '#')]
+    [TestCase('FromCodePointSupplementary', 'String.fromCodePoint(0x1F600).length#2', '#')]
+    [TestCase('ArrayLengthOfInfinity', '(function () { try { new Array(Infinity); return "no error"; } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     procedure Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
 
   end;

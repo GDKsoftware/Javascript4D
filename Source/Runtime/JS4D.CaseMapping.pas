@@ -48,7 +48,8 @@ implementation
 
 uses
   System.SysUtils,
-  System.Character;
+  System.Character,
+  JS4D.Utf16;
 
 type
   TSpecialUpper = record
@@ -57,8 +58,6 @@ type
   end;
 
 const
-  FIRST_SURROGATE_CODE = $D800;
-  LAST_SURROGATE_CODE = $DFFF;
   SPECIAL_UPPER_MAPPINGS: array[0..101] of TSpecialUpper = (
     (Code: $00DF; Text: #$0053#$0053),
     (Code: $0149; Text: #$02BC#$004E),
@@ -585,7 +584,7 @@ end;
 
 class function TJSCaseMapping.CodePointToString(const Code: Integer): string;
 begin
-  const IsLoneSurrogate = ((Code >= FIRST_SURROGATE_CODE) and (Code <= LAST_SURROGATE_CODE));
+  const IsLoneSurrogate = ((Code >= HIGH_SURROGATE_FIRST) and (Code <= LOW_SURROGATE_LAST));
   if IsLoneSurrogate then
   begin
     Result := Char(Code);

@@ -117,7 +117,8 @@ type
 implementation
 
 uses
-  JS4D.NumberParse;
+  JS4D.NumberParse,
+  JS4D.Utf16;
 
 const
   NULL_CHAR = #0;
@@ -186,11 +187,6 @@ const
   BACKTICK = '`';
   MAX_CODE_POINT = $10FFFF;
   MAX_BASIC_PLANE_CODE_POINT = $FFFF;
-  SUPPLEMENTARY_PLANE_OFFSET = $10000;
-  HIGH_SURROGATE_BASE = $D800;
-  LOW_SURROGATE_BASE = $DC00;
-  SURROGATE_PAYLOAD_MASK = $3FF;
-  SURROGATE_PAYLOAD_BITS = 10;
 
   SUnterminatedTemplate = 'Unterminated template literal';
   SUnterminatedStringLiteral = 'Unterminated string literal';
@@ -1057,9 +1053,9 @@ begin
   if CodePoint <= MAX_BASIC_PLANE_CODE_POINT then
     Exit(Char(CodePoint));
 
-  const Offset = CodePoint - SUPPLEMENTARY_PLANE_OFFSET;
-  const HighSurrogate = Char(HIGH_SURROGATE_BASE + (Offset shr SURROGATE_PAYLOAD_BITS));
-  const LowSurrogate = Char(LOW_SURROGATE_BASE + (Offset and SURROGATE_PAYLOAD_MASK));
+  const Offset = CodePoint - FIRST_SUPPLEMENTARY_CODE_POINT;
+  const HighSurrogate = Char(HIGH_SURROGATE_FIRST + (Offset shr SURROGATE_PAYLOAD_BITS));
+  const LowSurrogate = Char(LOW_SURROGATE_FIRST + (Offset and SURROGATE_PAYLOAD_MASK));
 
   Result := HighSurrogate + LowSurrogate;
 end;

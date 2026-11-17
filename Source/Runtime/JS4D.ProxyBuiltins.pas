@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
@@ -14,7 +15,7 @@ uses
   JS4D.ProxyObjects;
 
 type
-  TJSProxyBuiltins = class
+  TJSProxyBuiltins = class(TJSBuiltinSet)
   private
     const
       PROXY_NAME = 'Proxy';
@@ -41,7 +42,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

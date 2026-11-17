@@ -18,12 +18,6 @@ type
 
   TJSStringIterator = class(TJSObjectImpl, IJSStringIterator)
   private
-    const
-      HIGH_SURROGATE_FIRST = $D800;
-      HIGH_SURROGATE_LAST = $DBFF;
-      LOW_SURROGATE_FIRST = $DC00;
-      LOW_SURROGATE_LAST = $DFFF;
-
     var
       FText: string;
       FObjectPrototype: IJSObject;
@@ -38,6 +32,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Utf16;
 
 class function TJSStringIterator.CodePointLength(const Text: string; const Position: Integer): Integer;
 begin

@@ -7,7 +7,9 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
+  JS4D.Errors,
   JS4D.JsonSyntax,
+  JS4D.JsonReader,
   JS4D.Engine;
 
 type
@@ -52,6 +54,13 @@ type
 
     [Test]
     procedure Parse_InvalidText_ThrowsSyntaxError;
+
+    [Test]
+    [TestCase('Truncated', '{"a":')]
+    [TestCase('Empty', '')]
+    [TestCase('UnterminatedString', '"abc')]
+    [TestCase('LoneEscape', '"abc\')]
+    procedure Read_InvalidText_RaisesSyntaxError(const Text: string);
   end;
 
 implementation
@@ -98,6 +107,16 @@ begin
   const IsValid = TJSJsonSyntax.IsValid(Text);
 
   Assert.IsFalse(IsValid);
+end;
+
+procedure TJsonParseTests.Read_InvalidText_RaisesSyntaxError(const Text: string);
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      TJSJsonReader.Read(Text, nil, nil);
+    end,
+    EJSSyntaxError);
 end;
 
 procedure TJsonParseTests.Parse_InvalidText_ThrowsSyntaxError;

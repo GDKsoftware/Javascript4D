@@ -68,7 +68,8 @@ implementation
 uses
   System.SysUtils,
   System.Character,
-  JS4D.Errors;
+  JS4D.Errors,
+  JS4D.Utf16;
 
 const
   MAX_GROUP_DEPTH = 250;
@@ -721,13 +722,14 @@ begin
 
   Result := ParseHexEscape(4, Ord('u'));
 
-  const IsLeadSurrogate = FIsUnicode and (Result >= $D800) and (Result <= $DBFF);
+  const IsLeadSurrogate = FIsUnicode and (Result >= HIGH_SURROGATE_FIRST) and (Result <= HIGH_SURROGATE_LAST);
   if not IsLeadSurrogate then
     Exit;
 
   var Trail: Integer;
   if TryReadTrailSurrogateEscape(Trail) then
-    Result := $10000 + ((Result - $D800) shl 10) + (Trail - $DC00);
+    Result := FIRST_SUPPLEMENTARY_CODE_POINT + ((Result - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS) +
+              (Trail - LOW_SURROGATE_FIRST);
 end;
 
 function TJSRegExpSyntax.ParseBracedCodePoint: Integer;
@@ -770,7 +772,7 @@ begin
   end;
 
   Trail := StrToInt(Format('$%s', [Copy(FPattern, FPosition + 2, 4)]));
-  Result := (Trail >= $DC00) and (Trail <= $DFFF);
+  Result := (Trail >= LOW_SURROGATE_FIRST) and (Trail <= LOW_SURROGATE_LAST);
 
   if Result then
     Inc(FPosition, 6);

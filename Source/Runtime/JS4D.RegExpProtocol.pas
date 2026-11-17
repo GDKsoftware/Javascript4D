@@ -8,13 +8,14 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   System.Math,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 
 type
-  TJSRegExpProtocol = class
+  TJSRegExpProtocol = class(TJSBuiltinSet)
   private
     const
       EXEC_PROPERTY = 'exec';
@@ -37,13 +38,8 @@ type
       MULTILINE_FLAG = 'm';
       INITIAL_MATCH_CAPACITY = 16;
       FIRST_CAPTURE_NAME = '0';
-      HIGH_SURROGATE_FIRST = $D800;
-      HIGH_SURROGATE_LAST = $DBFF;
-      LOW_SURROGATE_FIRST = $DC00;
-      LOW_SURROGATE_LAST = $DFFF;
       MAX_ARRAY_LENGTH = 4294967295;
       THIS_NOT_AN_OBJECT = 'RegExp.prototype.%s called on a value that is not an object';
-      NULL_TO_OBJECT = 'Cannot convert undefined or null to object';
       EXEC_RESULT_INVALID = 'The result of the exec method must be an object or null';
       NOT_A_REGEXP = 'RegExp.prototype.exec called on a value that is not a regular expression';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of a regular expression must be an object or undefined';
@@ -101,12 +97,13 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
 
 uses
+  JS4D.Utf16,
   JS4D.Errors,
   JS4D.Conversions,
   JS4D.ArrayLike,
@@ -155,7 +152,7 @@ begin
     Exit(Value.ToObject);
 
   if Value.IsNull then
-    raise TJSErrorFactory.TypeError(NULL_TO_OBJECT);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   Result := FInterpreter.WrapPrimitive(Value);
 end;

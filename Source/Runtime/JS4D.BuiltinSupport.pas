@@ -29,7 +29,6 @@ type
       DETACHED_BUFFER = 'Cannot perform %s on a detached ArrayBuffer';
       CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of the object is not an object';
       SPECIES_NOT_A_CONSTRUCTOR = 'The species of the constructor is not a constructor';
-      NULL_OR_UNDEFINED = 'Cannot convert undefined or null to object';
       NOT_A_FUNCTION = '%s is not a function';
 
     var
@@ -44,7 +43,7 @@ type
     class function IsCallable(const Value: TJSValue): Boolean; static;
     class function ReturnsThis: TNativeFunction; static;
     class procedure RequireNotDetached(const IsDetached: Boolean; const MethodName: string); static;
-    class function IsSameObject(const First: IJSObject; const Second: IJSObject): Boolean; static;
+    class function ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue; static;
     class function ArgumentsFrom(const Args: TArray<TJSValue>; const FirstPosition: Integer): TArray<TJSValue>; static;
 
     function ToObject(const Value: TJSValue): IJSObject;
@@ -120,7 +119,7 @@ end;
 function TJSBuiltinSupport.ToObject(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if Value.IsObject then
     Exit(Value.ToObject);
@@ -155,9 +154,13 @@ begin
     end;
 end;
 
-class function TJSBuiltinSupport.IsSameObject(const First: IJSObject; const Second: IJSObject): Boolean;
+class function TJSBuiltinSupport.ArgumentAt(const Args: TArray<TJSValue>; const Index: Integer): TJSValue;
 begin
-  Result := ((First as IInterface) = (Second as IInterface));
+  const HasArgument = (Index < Length(Args));
+  if HasArgument then
+    Result := Args[Index]
+  else
+    Result := TJSValue.CreateUndefined;
 end;
 
 class function TJSBuiltinSupport.ArgumentsFrom(const Args: TArray<TJSValue>;

@@ -20,12 +20,6 @@ type
       NEVER_MATCHES = '(?!)';
       CLASS_BRACKET_ESCAPE = '\[';
       HEX_DIGITS_PER_UNIT = 4;
-      HIGH_SURROGATE_FIRST = $D800;
-      HIGH_SURROGATE_LAST = $DBFF;
-      LOW_SURROGATE_FIRST = $DC00;
-      LOW_SURROGATE_LAST = $DFFF;
-      SURROGATE_OFFSET = $10000;
-      SURROGATE_SHIFT = 10;
       MAX_CODE_POINT = $10FFFF;
       ESCAPE_LENGTH = 2;
       CONTROL_ESCAPE_LENGTH = 3;
@@ -68,6 +62,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Utf16;
 
 { TJSRegExpTranslator }
 
@@ -259,7 +256,7 @@ begin
   if not IsLowSurrogate then
     Exit(False);
 
-  CodePoint := SURROGATE_OFFSET + ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_SHIFT) +
+  CodePoint := FIRST_SUPPLEMENTARY_CODE_POINT + ((HighSurrogate - HIGH_SURROGATE_FIRST) shl SURROGATE_PAYLOAD_BITS) +
                (Low - LOW_SURROGATE_FIRST);
   EscapeLength := 2 * (ESCAPE_LENGTH + HEX_DIGITS_PER_UNIT);
   Result := True;
@@ -268,7 +265,7 @@ end;
 procedure TJSRegExpTranslator.AppendCodePoint(const CodePoint: Integer);
 begin
   const IsSurrogate = (CodePoint >= HIGH_SURROGATE_FIRST) and (CodePoint <= LOW_SURROGATE_LAST);
-  const IsAstral = (CodePoint >= SURROGATE_OFFSET);
+  const IsAstral = (CodePoint >= FIRST_SUPPLEMENTARY_CODE_POINT);
   if IsAstral then
   begin
     FOutput.Append(Char.ConvertFromUtf32(CodePoint));

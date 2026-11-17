@@ -86,7 +86,7 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="rtl.dcp"/>
-        <DCCReference Include="..\..\Source\API\JS4D.Json.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonWriter.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpSyntax.pas"/>
@@ -198,6 +198,11 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorEngine.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ClassBuilder.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Interpreter.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BuiltinSet.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectStatics.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonGrammar.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonRoot.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.Utf16.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

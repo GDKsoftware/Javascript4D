@@ -76,6 +76,10 @@ type
     [TestCase('EmptyGap', 'JSON.stringify({"a":1}, null, "")@{"a":1}', '@')]
     [TestCase('IgnoredType', 'JSON.stringify({"a":1}, null, true)@{"a":1}', '@')]
     [TestCase('EmptyContainers', 'JSON.stringify({"a":[],"b":{}}, null, 1).split("\n").join("/")@{/ "a": [],/ "b": {}/}', '@')]
+    [TestCase('LoneHighSurrogate', 'JSON.stringify("\ud800")@"\ud800"', '@')]
+    [TestCase('LoneLowSurrogate', 'JSON.stringify("\udc00")@"\udc00"', '@')]
+    [TestCase('SurrogatePairIsKept', 'JSON.stringify("\ud83d\ude00").length@4', '@')]
+    [TestCase('ReversedSurrogatePair', 'JSON.stringify("\ude00\ud83d")@"\ude00\ud83d"', '@')]
     procedure Stringify_Script_ReturnsExpectedText(const Script, Expected: string);
 
     [Test]

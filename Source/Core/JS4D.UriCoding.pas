@@ -17,11 +17,6 @@ type
       RESERVED = [';', '/', '?', ':', '@', '&', '=', '+', '$', ',', '#'];
       ESCAPE_LENGTH = 3;
       MAX_CONTINUATION_BYTES = 3;
-      HIGH_SURROGATE_FIRST = $D800;
-      HIGH_SURROGATE_LAST = $DBFF;
-      LOW_SURROGATE_FIRST = $DC00;
-      LOW_SURROGATE_LAST = $DFFF;
-      FIRST_SUPPLEMENTARY_CODE_POINT = $10000;
       LAST_CODE_POINT = $10FFFF;
       MIN_CODE_POINT_BY_CONTINUATIONS: array[1..MAX_CONTINUATION_BYTES] of Integer = ($80, $800, $10000);
 
@@ -59,6 +54,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Utf16;
 
 const
   URIErrorPrefix = 'URIError: ';
@@ -333,8 +331,8 @@ begin
   end;
 
   const Offset = CodePoint - FIRST_SUPPLEMENTARY_CODE_POINT;
-  Builder.Append(Char(HIGH_SURROGATE_FIRST + (Offset shr 10)));
-  Builder.Append(Char(LOW_SURROGATE_FIRST + (Offset and $3FF)));
+  Builder.Append(Char(HIGH_SURROGATE_FIRST + (Offset shr SURROGATE_PAYLOAD_BITS)));
+  Builder.Append(Char(LOW_SURROGATE_FIRST + (Offset and SURROGATE_PAYLOAD_MASK)));
 end;
 
 end.

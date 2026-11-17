@@ -116,7 +116,7 @@
         <DCCReference Include="..\Source\Runtime\JS4D.Builtins.pas"/>
         <DCCReference Include="JS4D.Tests.Builtins.pas"/>
         <DCCReference Include="..\Source\Runtime\JS4D.Interpreter.pas"/>
-        <DCCReference Include="..\Source\API\JS4D.Json.pas"/>
+        <DCCReference Include="..\Source\API\JS4D.JsonWriter.pas"/>
         <DCCReference Include="..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="JS4D.Tests.Engine.pas"/>
         <DCCReference Include="JS4D.Tests.Lexer.pas"/>

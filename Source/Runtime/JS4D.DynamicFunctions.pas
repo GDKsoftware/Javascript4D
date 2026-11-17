@@ -18,7 +18,7 @@ type
   TJSDynamicFunctionFactory = class
   private
     const
-      SOURCE_FORMAT = '(%s (%s' + sLineBreak + ') {' + sLineBreak + '%s' + sLineBreak + '})';
+      SOURCE_FORMAT = '(%s (%s'#10') {'#10'%s'#10'})';
       TEXT_FORMAT = '%s anonymous(%s'#10') {'#10'%s'#10'}';
       PARAMETER_SEPARATOR = ',';
 

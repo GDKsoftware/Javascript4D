@@ -5,6 +5,7 @@ unit JS4D.BinaryBuiltins;
 interface
 
 uses
+  JS4D.BuiltinSet,
   JS4D.Interpreter,
   JS4D.BuiltinSupport,
   JS4D.ArrayBufferBuiltins,
@@ -13,7 +14,7 @@ uses
   JS4D.TypedArrayMethods;
 
 type
-  TJSBinaryBuiltins = class
+  TJSBinaryBuiltins = class(TJSBuiltinSet)
   private
     FSupport: TJSBuiltinSupport;
     FBuffers: TJSArrayBufferBuiltins;
@@ -25,7 +26,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

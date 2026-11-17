@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BuiltinSupport,
@@ -13,7 +14,7 @@ uses
   JS4D.GeneratorObjects;
 
 type
-  TJSGeneratorBuiltins = class
+  TJSGeneratorBuiltins = class(TJSBuiltinSet)
   private
     const
       GENERATOR_FUNCTION_NAME = 'GeneratorFunction';
@@ -49,7 +50,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter; const IteratorPrototype: IJSObject);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

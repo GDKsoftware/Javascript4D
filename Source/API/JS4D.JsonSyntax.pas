@@ -14,20 +14,24 @@ type
       MAX_NESTING = 1000;
       SIMPLE_ESCAPES = '"\/bfnrt';
       HEX_DIGITS = '0123456789abcdefABCDEF';
-      UNICODE_ESCAPE_DIGITS = 4;
       FIRST_PRINTABLE = #32;
 
     var
       FText: string;
       FPosition: Integer;
+      FStackFloor: NativeUInt;
 
     constructor Create(const Text: string);
 
+    class function IsDigit(const Value: Char): Boolean; static;
+
     function AtEnd: Boolean;
     function Current: Char;
+    function IsNext(const Expected: Char): Boolean;
     function TryConsume(const Expected: Char): Boolean;
-    function IsDigit(const Value: Char): Boolean;
+    procedure SkipOptional(const Expected: Char);
     procedure SkipWhitespace;
+    procedure EnsureStackAvailable;
 
     function ParseDocument: Boolean;
     function ParseValue(const Depth: Integer): Boolean;
@@ -36,6 +40,7 @@ type
     function ParseArray(const Depth: Integer): Boolean;
     function ParseString: Boolean;
     function ParseEscape: Boolean;
+    function ParseUnicodeDigits: Boolean;
     function ParseNumber: Boolean;
     function ParseDigits: Boolean;
     function ParseFraction: Boolean;
@@ -47,6 +52,11 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Errors,
+  JS4D.StackGuard,
+  JS4D.JsonGrammar;
 
 class function TJSJsonSyntax.IsValid(const Text: string): Boolean;
 begin
@@ -63,6 +73,12 @@ begin
   inherited Create;
   FText := Text;
   FPosition := 1;
+  FStackFloor := TJSStackGuard.CurrentFloor;
+end;
+
+class function TJSJsonSyntax.IsDigit(const Value: Char): Boolean;
+begin
+  Result := ((Value >= '0') and (Value <= '9'));
 end;
 
 function TJSJsonSyntax.AtEnd: Boolean;
@@ -75,24 +91,38 @@ begin
   Result := FText[FPosition];
 end;
 
+function TJSJsonSyntax.IsNext(const Expected: Char): Boolean;
+begin
+  Result := ((not AtEnd) and (Current = Expected));
+end;
+
 function TJSJsonSyntax.TryConsume(const Expected: Char): Boolean;
 begin
-  Result := (not AtEnd) and (Current = Expected);
+  Result := IsNext(Expected);
   if Result then
     Inc(FPosition);
 end;
 
-function TJSJsonSyntax.IsDigit(const Value: Char): Boolean;
+procedure TJSJsonSyntax.SkipOptional(const Expected: Char);
 begin
-  Result := (Value >= '0') and (Value <= '9');
+  if IsNext(Expected) then
+    Inc(FPosition);
 end;
 
 procedure TJSJsonSyntax.SkipWhitespace;
 begin
-  while (not AtEnd) and CharInSet(Current, [' ', #9, #10, #13]) do
+  while (not AtEnd) and CharInSet(Current, JSON_WHITE_SPACE) do
   begin
     Inc(FPosition);
   end;
+end;
+
+procedure TJSJsonSyntax.EnsureStackAvailable;
+begin
+  var StackMarker: Byte;
+  const IsStackExhausted = (NativeUInt(@StackMarker) < FStackFloor);
+  if IsStackExhausted then
+    raise TJSErrorFactory.StackExhausted;
 end;
 
 function TJSJsonSyntax.ParseDocument: Boolean;
@@ -113,12 +143,12 @@ begin
     Exit(False);
 
   case Current of
-    '{': Result := ParseObject(Depth);
-    '[': Result := ParseArray(Depth);
-    '"': Result := ParseString;
-    't': Result := ParseLiteral('true');
-    'f': Result := ParseLiteral('false');
-    'n': Result := ParseLiteral('null');
+    JSON_OBJECT_START : Result := ParseObject(Depth);
+    JSON_ARRAY_START  : Result := ParseArray(Depth);
+    JSON_QUOTE        : Result := ParseString;
+    JSON_TRUE_START   : Result := ParseLiteral(JSON_TRUE_LITERAL);
+    JSON_FALSE_START  : Result := ParseLiteral(JSON_FALSE_LITERAL);
+    JSON_NULL_START   : Result := ParseLiteral(JSON_NULL_LITERAL);
   else
     Result := ParseNumber;
   end;
@@ -126,10 +156,12 @@ end;
 
 function TJSJsonSyntax.ParseObject(const Depth: Integer): Boolean;
 begin
+  EnsureStackAvailable;
+
   Inc(FPosition);
   SkipWhitespace;
 
-  if TryConsume('}') then
+  if TryConsume(JSON_OBJECT_END) then
     Exit(True);
 
   repeat
@@ -137,22 +169,23 @@ begin
       Exit(False);
 
     SkipWhitespace;
-  until not TryConsume(',');
+  until not TryConsume(JSON_COMMA);
 
-  Result := TryConsume('}');
+  Result := TryConsume(JSON_OBJECT_END);
 end;
 
 function TJSJsonSyntax.ParseMember(const Depth: Integer): Boolean;
 begin
   SkipWhitespace;
-  if AtEnd or (Current <> '"') then
+  const StartsString = IsNext(JSON_QUOTE);
+  if not StartsString then
     Exit(False);
 
   if not ParseString then
     Exit(False);
 
   SkipWhitespace;
-  if not TryConsume(':') then
+  if not TryConsume(JSON_COLON) then
     Exit(False);
 
   SkipWhitespace;
@@ -161,10 +194,12 @@ end;
 
 function TJSJsonSyntax.ParseArray(const Depth: Integer): Boolean;
 begin
+  EnsureStackAvailable;
+
   Inc(FPosition);
   SkipWhitespace;
 
-  if TryConsume(']') then
+  if TryConsume(JSON_ARRAY_END) then
     Exit(True);
 
   repeat
@@ -173,9 +208,9 @@ begin
       Exit(False);
 
     SkipWhitespace;
-  until not TryConsume(',');
+  until not TryConsume(JSON_COMMA);
 
-  Result := TryConsume(']');
+  Result := TryConsume(JSON_ARRAY_END);
 end;
 
 function TJSJsonSyntax.ParseString: Boolean;
@@ -187,15 +222,21 @@ begin
     const Character = Current;
     Inc(FPosition);
 
-    if Character = '"' then
+    const IsClosingQuote = (Character = JSON_QUOTE);
+    if IsClosingQuote then
       Exit(True);
 
     const IsControlCharacter = (Character < FIRST_PRINTABLE);
     if IsControlCharacter then
       Exit(False);
 
-    if (Character = '\') and (not ParseEscape) then
-      Exit(False);
+    const StartsEscape = (Character = JSON_ESCAPE);
+    if StartsEscape then
+    begin
+      const IsValidEscape = ParseEscape;
+      if not IsValidEscape then
+        Exit(False);
+    end;
   end;
 
   Result := False;
@@ -213,16 +254,24 @@ begin
   if IsSimpleEscape then
     Exit(True);
 
-  if Escape <> 'u' then
+  const IsUnicodeEscape = (Escape = JSON_UNICODE_ESCAPE);
+  if not IsUnicodeEscape then
     Exit(False);
 
-  for var DigitIndex := 1 to UNICODE_ESCAPE_DIGITS do
+  Result := ParseUnicodeDigits;
+end;
+
+function TJSJsonSyntax.ParseUnicodeDigits: Boolean;
+begin
+  var Remaining := JSON_UNICODE_ESCAPE_DIGITS;
+  while Remaining > 0 do
   begin
-    const IsHexDigit = (not AtEnd) and (Pos(Current, HEX_DIGITS) > 0);
+    const IsHexDigit = ((not AtEnd) and (Pos(Current, HEX_DIGITS) > 0));
     if not IsHexDigit then
       Exit(False);
 
     Inc(FPosition);
+    Dec(Remaining);
   end;
 
   Result := True;
@@ -230,23 +279,24 @@ end;
 
 function TJSJsonSyntax.ParseNumber: Boolean;
 begin
-  TryConsume('-');
+  SkipOptional(JSON_MINUS);
 
-  if AtEnd or (not IsDigit(Current)) then
+  const StartsWithDigit = ((not AtEnd) and IsDigit(Current));
+  if not StartsWithDigit then
     Exit(False);
 
-  if TryConsume('0') then
+  if TryConsume(JSON_ZERO) then
     Result := True
   else
     Result := ParseDigits;
 
   if Result then
-    Result := ParseFraction and ParseExponent;
+    Result := (ParseFraction and ParseExponent);
 end;
 
 function TJSJsonSyntax.ParseDigits: Boolean;
 begin
-  Result := (not AtEnd) and IsDigit(Current);
+  Result := ((not AtEnd) and IsDigit(Current));
 
   while (not AtEnd) and IsDigit(Current) do
   begin
@@ -256,7 +306,7 @@ end;
 
 function TJSJsonSyntax.ParseFraction: Boolean;
 begin
-  if not TryConsume('.') then
+  if not TryConsume(JSON_DECIMAL_POINT) then
     Exit(True);
 
   Result := ParseDigits;
@@ -264,12 +314,12 @@ end;
 
 function TJSJsonSyntax.ParseExponent: Boolean;
 begin
-  const HasExponent = TryConsume('e') or TryConsume('E');
+  const HasExponent = (TryConsume(JSON_EXPONENT_LOWER) or TryConsume(JSON_EXPONENT_UPPER));
   if not HasExponent then
     Exit(True);
 
-  if not TryConsume('+') then
-    TryConsume('-');
+  if not TryConsume(JSON_PLUS) then
+    SkipOptional(JSON_MINUS);
 
   Result := ParseDigits;
 end;

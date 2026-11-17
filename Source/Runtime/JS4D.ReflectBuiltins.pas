@@ -6,13 +6,14 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 
 type
-  TJSReflectBuiltins = class
+  TJSReflectBuiltins = class(TJSBuiltinSet)
   private
     type
       TReflectMethod = function(const Args: TArray<TJSValue>): TJSValue of object;
@@ -72,7 +73,7 @@ type
   public
     constructor Create(const Interpreter: TJSInterpreter);
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

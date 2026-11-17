@@ -90,6 +90,7 @@ uses
   JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
+  JS4D.ObjectOperations,
   JS4D.PropertyNames,
   JS4D.CapabilityExecutor;
 
@@ -127,7 +128,7 @@ end;
 
 function TJSPromiseOperations.IsIntrinsicConstructor(const Candidate: IJSFunction): Boolean;
 begin
-  Result := (Assigned(FConstructor) and TJSBuiltinSupport.IsSameObject(Candidate, FConstructor));
+  Result := (Assigned(FConstructor) and TJSObjectOperations.IsSameObject(Candidate, FConstructor));
 end;
 
 function TJSPromiseOperations.CreatePromise(const Prototype: IJSObject): IJSPromise;
@@ -205,7 +206,7 @@ begin
     Exit;
   end;
 
-  const IsSelfResolution = TJSBuiltinSupport.IsSameObject(Resolution.ToObject, Promise);
+  const IsSelfResolution = TJSObjectOperations.IsSameObject(Resolution.ToObject, Promise);
   if IsSelfResolution then
   begin
     const CycleError = FSupport.TypeErrorValue(CHAINING_CYCLE);

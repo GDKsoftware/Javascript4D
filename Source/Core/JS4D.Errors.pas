@@ -91,6 +91,7 @@ type
     class function NotAConstructor(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function UndefinedVariable(const Name: string; const Line: Integer = 0; const Column: Integer = 0): EJSReferenceError;
     class function InvalidArrayLength(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
+    class function NotCoercibleToObject(const Line: Integer = 0; const Column: Integer = 0): EJSTypeError;
     class function StackExhausted(const Line: Integer = 0; const Column: Integer = 0): EJSRangeError;
     class function InvalidRegExp(const Pattern: string; const Line: Integer = 0; const Column: Integer = 0): EJSSyntaxError;
   end;
@@ -110,6 +111,7 @@ const
   NotAConstructorMessage = ' is not a constructor';
   NotDefinedMessage = ' is not defined';
   InvalidArrayLengthMessage = 'Invalid array length';
+  NotCoercibleToObjectMessage = 'Cannot convert undefined or null to object';
   InvalidRegExpMessage = 'Invalid regular expression: ';
   ExecutionCancelledMessage = 'Script execution was cancelled';
   StepBudgetExceededMessage = 'Script exceeded its step budget of %d steps';
@@ -186,6 +188,11 @@ end;
 class function TJSErrorFactory.RangeError(const Message: string; const Line: Integer; const Column: Integer): EJSRangeError;
 begin
   Result := EJSRangeError.Create(RangeErrorPrefix + Message, Line, Column);
+end;
+
+class function TJSErrorFactory.NotCoercibleToObject(const Line: Integer; const Column: Integer): EJSTypeError;
+begin
+  Result := TypeError(NotCoercibleToObjectMessage, Line, Column);
 end;
 
 class function TJSErrorFactory.UnexpectedToken(const Token: string; const Line: Integer; const Column: Integer): EJSSyntaxError;

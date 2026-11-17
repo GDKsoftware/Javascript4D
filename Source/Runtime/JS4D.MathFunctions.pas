@@ -46,7 +46,16 @@ type
     class function Round(const Value: Double): Double; static;
     class function Trunc(const Value: Double): Double; static;
     class function Sign(const Value: Double): Double; static;
+    class function AbsoluteValue(const Value: Double): Double; static;
     class function Sin(const Value: Double): Double; static;
+    class function Cosine(const Value: Double): Double; static;
+    class function ArcSine(const Value: Double): Double; static;
+    class function ArcCosine(const Value: Double): Double; static;
+    class function ArcTangent(const Value: Double): Double; static;
+    class function ArcTangent2(const Y, X: Double): Double; static;
+    class function Exponential(const Value: Double): Double; static;
+    class function NaturalLogarithm(const Value: Double): Double; static;
+    class function SquareRoot(const Value: Double): Double; static;
     class function Tan(const Value: Double): Double; static;
     class function Larger(const Left, Right: Double): Double; static;
     class function Smaller(const Left, Right: Double): Double; static;
@@ -66,6 +75,7 @@ type
     class function Fround(const Value: Double): Double; static;
     class function Imul(const Left, Right: Integer): Integer; static;
     class function Clz32(const Value: Cardinal): Integer; static;
+    class function IsFiniteNumber(const Value: Double): Boolean; static;
     class function IsInteger(const Value: Double): Boolean; static;
     class function IsSafeInteger(const Value: Double): Boolean; static;
   end;
@@ -181,6 +191,68 @@ begin
     Exit(NaN);
 
   Result := System.Sin(Value);
+end;
+
+class function TJSMathFunctions.AbsoluteValue(const Value: Double): Double;
+begin
+  Result := System.Abs(Value);
+end;
+
+class function TJSMathFunctions.Cosine(const Value: Double): Double;
+begin
+  Result := System.Cos(Value);
+end;
+
+class function TJSMathFunctions.ArcSine(const Value: Double): Double;
+begin
+  const IsOutsideDomain = ((Value < -1) or (Value > 1));
+  if IsOutsideDomain then
+    Exit(NaN);
+
+  Result := System.Math.ArcSin(Value);
+end;
+
+class function TJSMathFunctions.ArcCosine(const Value: Double): Double;
+begin
+  const IsOutsideDomain = ((Value < -1) or (Value > 1));
+  if IsOutsideDomain then
+    Exit(NaN);
+
+  Result := System.Math.ArcCos(Value);
+end;
+
+class function TJSMathFunctions.ArcTangent(const Value: Double): Double;
+begin
+  Result := System.ArcTan(Value);
+end;
+
+class function TJSMathFunctions.ArcTangent2(const Y, X: Double): Double;
+begin
+  Result := System.Math.ArcTan2(Y, X);
+end;
+
+class function TJSMathFunctions.Exponential(const Value: Double): Double;
+begin
+  Result := System.Exp(Value);
+end;
+
+class function TJSMathFunctions.NaturalLogarithm(const Value: Double): Double;
+begin
+  if Value = 0 then
+    Exit(NegInfinity);
+
+  if Value < 0 then
+    Exit(NaN);
+
+  Result := System.Ln(Value);
+end;
+
+class function TJSMathFunctions.SquareRoot(const Value: Double): Double;
+begin
+  if Value < 0 then
+    Exit(NaN);
+
+  Result := System.Sqrt(Value);
 end;
 
 class function TJSMathFunctions.Tan(const Value: Double): Double;
@@ -646,11 +718,14 @@ begin
   end;
 end;
 
+class function TJSMathFunctions.IsFiniteNumber(const Value: Double): Boolean;
+begin
+  Result := not (IsNaN(Value) or IsInfinite(Value));
+end;
+
 class function TJSMathFunctions.IsInteger(const Value: Double): Boolean;
 begin
-  const IsFiniteNumber = not (IsNaN(Value) or IsInfinite(Value));
-
-  Result := (IsFiniteNumber and (Frac(Value) = 0));
+  Result := (IsFiniteNumber(Value) and (Frac(Value) = 0));
 end;
 
 class function TJSMathFunctions.IsSafeInteger(const Value: Double): Boolean;

@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.PropertyNames,
   JS4D.Types,
@@ -15,7 +16,7 @@ uses
   JS4D.BuiltinSupport;
 
 type
-  TJSIteratorBuiltins = class
+  TJSIteratorBuiltins = class(TJSBuiltinSet)
   private
     const
       VALUES_PROPERTY = 'values';
@@ -42,7 +43,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter; const ArrayIteratorPrototype: IJSObject);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

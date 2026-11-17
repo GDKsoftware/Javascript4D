@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.Types,
   JS4D.ControlFlow,
   JS4D.Interpreter,
@@ -16,7 +17,7 @@ uses
   JS4D.PromiseCombinators;
 
 type
-  TJSPromiseBuiltins = class
+  TJSPromiseBuiltins = class(TJSBuiltinSet)
   private
     const
       PROMISE_NAME = 'Promise';
@@ -67,7 +68,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
     procedure ReleasePromises;
 
     property Operations: TJSPromiseOperations read FOperations;

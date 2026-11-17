@@ -400,7 +400,6 @@ type
                             const NewTarget: IJSFunction): TJSValue;
     function ConstructNativeFunction(const Func: IJSFunction; const Args: TArray<TJSValue>;
                                      const NewTarget: IJSFunction): TJSValue;
-    class function IsSameObject(const First: IInterface; const Second: IInterface): Boolean; static;
     procedure EnterArrowContext(const Func: IJSFunction);
     procedure ReleaseFunctionContents(const Func: IJSFunction);
     class function IsLongChain(const ChainLength: Integer): Boolean; static; inline;
@@ -413,7 +412,6 @@ type
     function VisitTemplateLiteral(const Node: TJSTemplateLiteral): TJSValue;
     function VisitTemplateObject(const Node: TJSTemplateObject): TJSValue;
     function CreateTemplateObject(const Node: TJSTemplateObject): IJSArray;
-    function ToStringCoerced(const Value: TJSValue): string;
     function CurrentThisObject: IJSObject;
     function CreateArrowFunction(const Node: TJSFunctionExpression): IJSFunction;
 
@@ -478,6 +476,7 @@ type
     function OpenSequenceReader(const Source: TJSValue; out Reader: TJSSequenceReader;
                                 out Closer: TJSSequenceCloser): Boolean;
     function WrapPrimitive(const Value: TJSValue): IJSObject;
+    function ToStringCoerced(const Value: TJSValue): string;
     function ThisObjectFor(const Func: IJSFunction; const ThisValue: TJSValue): IJSObject;
     function InvokeMethod(const Target: TJSValue; const MethodName: string): TJSValue;
 
@@ -572,7 +571,6 @@ uses
 
 const
   ITERATIVE_CHAIN_LENGTH = 64;
-  NULL_OR_UNDEFINED_TO_OBJECT = 'Cannot convert undefined or null to object';
   ARRAY_TO_STRING_METHOD = 'toString';
   UNDEFINED_TYPE = 'undefined';
   SYMBOL_TYPE = 'symbol';
@@ -590,7 +588,6 @@ const
   METHOD_CONCAT = 'concat';
   METHOD_FLAT = 'flat';
   METHOD_FLAT_MAP = 'flatMap';
-  RAW_PROPERTY = 'raw';
   ARGUMENTS_NAME = 'arguments';
   READ_ONLY_LENGTH = 'Cannot assign to read only property ''length''';
   EVAL_NAME = 'eval';
@@ -611,13 +608,6 @@ const
   CANNOT_DELETE_PROPERTY = 'Cannot delete property ''%s'' of object';
   WITH_IN_STRICT_MODE = 'with statement is not allowed in strict mode';
 
-  CONSTRUCTOR_ERROR = 'Error';
-  CONSTRUCTOR_TYPE_ERROR = 'TypeError';
-  CONSTRUCTOR_RANGE_ERROR = 'RangeError';
-  CONSTRUCTOR_REFERENCE_ERROR = 'ReferenceError';
-  CONSTRUCTOR_SYNTAX_ERROR = 'SyntaxError';
-  CONSTRUCTOR_URI_ERROR = 'URIError';
-  CONSTRUCTOR_EVAL_ERROR = 'EvalError';
   CONSTRUCTOR_ARRAY = 'Array';
   CONSTRUCTOR_FUNCTION = 'Function';
   CONSTRUCTOR_REGEXP = 'RegExp';
@@ -779,7 +769,7 @@ begin
 
   for var Func in FFunctionRegistry do
   begin
-    const IsPrototypeItself = (Pointer(Func as IInterface) = Pointer(Value as IInterface));
+    const IsPrototypeItself = TJSObjectOperations.IsSameObject(Func, Value);
     const NeedsPrototype = (not Assigned(Func.Prototype)) and (not IsPrototypeItself);
     if NeedsPrototype then
       Func.Prototype := Value;
@@ -793,7 +783,7 @@ begin
 
   if not IsRegistered then
     FFunctionRegistry.Add(Func);
-  FFunctionPrograms.AddOrSetValue(Pointer(Func as IInterface), FCurrentProgram);
+  FFunctionPrograms.AddOrSetValue(TJSObjectOperations.IdentityOf(Func), FCurrentProgram);
 end;
 
 procedure TJSInterpreter.RegisterScope(const Scope: IJSScope);
@@ -1106,8 +1096,8 @@ end;
 
 function TJSInterpreter.VisitArrayWithSpread(const Node: TJSArrayExpression): TJSValue;
 begin
-  const Arr: IJSArray = TJSArray.Create;
-  Arr.Prototype := FArrayPrototype;
+  const ArrayLiteral: IJSArray = TJSArray.Create;
+  ArrayLiteral.Prototype := FArrayPrototype;
 
   const Spread = TList<TJSValue>.Create;
   try
@@ -1115,30 +1105,30 @@ begin
     begin
       if not Assigned(Element) then
       begin
-        Arr.Push(TJSValue.CreateUndefined);
-        Arr.DeleteElement(Arr.Length - 1);
+        ArrayLiteral.Push(TJSValue.CreateUndefined);
+        ArrayLiteral.DeleteElement(ArrayLiteral.Length - 1);
       end
       else if Element is TJSSpreadElement then
       begin
         Spread.Clear;
         AppendSpreadValues(Visit(TJSSpreadElement(Element).Argument), Spread);
-        FLimits.EnsureArrayLength(Arr.Length + Spread.Count);
+        FLimits.EnsureArrayLength(ArrayLiteral.Length + Spread.Count);
 
         for var Value in Spread do
         begin
-          Arr.Push(Value);
+          ArrayLiteral.Push(Value);
         end;
       end
       else
       begin
-        Arr.Push(Visit(Element));
+        ArrayLiteral.Push(Visit(Element));
       end;
     end;
   finally
     Spread.Free;
   end;
 
-  Result := TJSValue.CreateObject(Arr);
+  Result := TJSValue.CreateObject(ArrayLiteral);
 end;
 
 procedure TJSInterpreter.DetachProperties(const Func: IJSFunction);
@@ -1161,7 +1151,7 @@ begin
   var Current := Instance.Prototype;
   while Assigned(Current) do
   begin
-    if (Current as IInterface) = (TargetPrototype as IInterface) then
+    if TJSObjectOperations.IsSameObject(Current, TargetPrototype) then
       Exit(True);
 
     Current := Current.Prototype;
@@ -2107,7 +2097,7 @@ end;
 function TJSInterpreter.ToScopeObject(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if Value.IsObject then
   begin
@@ -2496,14 +2486,14 @@ begin
     if RightValue.IsNullOrUndefined then
       Exit;
 
-    const Obj = ToScopeObject(RightValue);
+    const Subject = ToScopeObject(RightValue);
 
     var Proxy: IJSProxy;
-    const IsProxy = TJSObjectOperations.AsProxy(Obj, Proxy);
+    const IsProxy = TJSObjectOperations.AsProxy(Subject, Proxy);
 
-    for var PropName in CollectEnumerableKeys(Obj) do
+    for var PropName in CollectEnumerableKeys(Subject) do
     begin
-      const IsDeleted = (not IsProxy) and (not Obj.HasProperty(PropName));
+      const IsDeleted = (not IsProxy) and (not Subject.HasProperty(PropName));
       if IsDeleted then
         Continue;
 
@@ -2718,17 +2708,17 @@ begin
   Result := '';
 
   if Error is EJSTypeError then
-    Result := CONSTRUCTOR_TYPE_ERROR
+    Result := TJSErrorType.TypeError.Name
   else if Error is EJSReferenceError then
-    Result := CONSTRUCTOR_REFERENCE_ERROR
+    Result := TJSErrorType.ReferenceError.Name
   else if Error is EJSRangeError then
-    Result := CONSTRUCTOR_RANGE_ERROR
+    Result := TJSErrorType.RangeError.Name
   else if Error is EJSSyntaxError then
-    Result := CONSTRUCTOR_SYNTAX_ERROR
+    Result := TJSErrorType.SyntaxError.Name
   else if Error is EJSURIError then
-    Result := CONSTRUCTOR_URI_ERROR
+    Result := TJSErrorType.URIError.Name
   else if Error is EJSEvalError then
-    Result := CONSTRUCTOR_EVAL_ERROR;
+    Result := TJSErrorType.EvalError.Name;
 end;
 
 function TJSInterpreter.CreateErrorValue(const Error: Exception): TJSValue;
@@ -2839,36 +2829,36 @@ begin
 
   FLimits.EnsureArrayLength(Node.Elements.Count);
 
-  const Arr: IJSArray = TJSArray.Create;
-  Arr.Prototype := FArrayPrototype;
+  const ArrayLiteral: IJSArray = TJSArray.Create;
+  ArrayLiteral.Prototype := FArrayPrototype;
 
   for var Element in Node.Elements do
   begin
     if Assigned(Element) then
     begin
-      Arr.Push(Visit(Element));
+      ArrayLiteral.Push(Visit(Element));
     end
     else
     begin
-      Arr.Push(TJSValue.CreateUndefined);
-      Arr.DeleteElement(Arr.Length - 1);
+      ArrayLiteral.Push(TJSValue.CreateUndefined);
+      ArrayLiteral.DeleteElement(ArrayLiteral.Length - 1);
     end;
   end;
 
-  Result := TJSValue.CreateObject(Arr);
+  Result := TJSValue.CreateObject(ArrayLiteral);
 end;
 
 function TJSInterpreter.VisitObjectExpression(const Node: TJSObjectExpression): TJSValue;
 begin
-  const Obj: IJSObject = TJSObject.Create;
-  Obj.Prototype := FObjectPrototype;
+  const ObjectLiteral: IJSObject = TJSObject.Create;
+  ObjectLiteral.Prototype := FObjectPrototype;
 
   for var Prop in Node.Properties do
   begin
-    DefineLiteralProperty(Obj, Prop);
+    DefineLiteralProperty(ObjectLiteral, Prop);
   end;
 
-  Result := TJSValue.CreateObject(Obj);
+  Result := TJSValue.CreateObject(ObjectLiteral);
 end;
 
 procedure TJSInterpreter.DefineLiteralProperty(const Target: IJSObject; const Prop: TJSObjectProperty);
@@ -3147,7 +3137,7 @@ begin
 
   const ObjValue = Visit(MemberExpr.Object_);
   if ObjValue.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED_TO_OBJECT, Node.Line, Node.Column);
+    raise TJSErrorFactory.NotCoercibleToObject(Node.Line, Node.Column);
 
   if not ObjValue.IsObject then
     Exit(TJSValue.CreateBoolean(False));
@@ -3159,23 +3149,23 @@ begin
   else
     PropName := TJSIdentifier(MemberExpr.Property_).Name;
 
-  const Obj = ObjValue.ToObject;
+  const Target = ObjValue.ToObject;
 
   var Proxy: IJSProxy;
-  if TJSObjectOperations.AsProxy(Obj, Proxy) then
+  if TJSObjectOperations.AsProxy(Target, Proxy) then
     Exit(DeleteProxyMember(Node, Proxy, PropName));
 
-  const OwnDescriptor = Obj.GetOwnPropertyDescriptor(PropName);
-  const IsLocked = Obj.HasOwnProperty(PropName) and ((not OwnDescriptor.Configurable) or
-                                                     TJSBinaryKeys.IsElementKey(Obj, PropName));
+  const OwnDescriptor = Target.GetOwnPropertyDescriptor(PropName);
+  const IsLocked = Target.HasOwnProperty(PropName) and ((not OwnDescriptor.Configurable) or
+                                                     TJSBinaryKeys.IsElementKey(Target, PropName));
   if IsLocked and FStrictMode then
     RaiseCannotDelete(Node, PropName);
 
   if IsLocked then
     Exit(TJSValue.CreateBoolean(False));
 
-  DeleteArrayElement(Obj, PropName);
-  Obj.DeleteProperty(PropName);
+  DeleteArrayElement(Target, PropName);
+  Target.DeleteProperty(PropName);
   Result := TJSValue.CreateBoolean(True);
 end;
 
@@ -3318,14 +3308,9 @@ begin
   if not Supports(Instance, IJSError, ErrorIntf) then
     Exit;
 
-  const ErrorType = ErrorIntf.ErrorType;
-  Result := (ConstructorName = CONSTRUCTOR_ERROR) or
-            ((ConstructorName = CONSTRUCTOR_TYPE_ERROR) and (ErrorType = TJSErrorType.TypeError)) or
-            ((ConstructorName = CONSTRUCTOR_RANGE_ERROR) and (ErrorType = TJSErrorType.RangeError)) or
-            ((ConstructorName = CONSTRUCTOR_REFERENCE_ERROR) and (ErrorType = TJSErrorType.ReferenceError)) or
-            ((ConstructorName = CONSTRUCTOR_SYNTAX_ERROR) and (ErrorType = TJSErrorType.SyntaxError)) or
-            ((ConstructorName = CONSTRUCTOR_URI_ERROR) and (ErrorType = TJSErrorType.URIError)) or
-            ((ConstructorName = CONSTRUCTOR_EVAL_ERROR) and (ErrorType = TJSErrorType.EvalError));
+  const IsBaseErrorConstructor = (ConstructorName = TJSErrorType.Error.Name);
+  const IsOwnErrorConstructor = (ConstructorName = ErrorIntf.ErrorType.Name);
+  Result := (IsBaseErrorConstructor or IsOwnErrorConstructor);
 end;
 
 function TJSInterpreter.IsInstanceOfBuiltinConstructor(const Instance: IJSObject;
@@ -3355,7 +3340,7 @@ begin
     if not IsCallable then
       raise TJSErrorFactory.TypeError(HAS_INSTANCE_NOT_CALLABLE, Node.Line, Node.Column);
 
-    const IsOrdinary = Assigned(FOrdinaryHasInstance) and (HandlerFunc as IInterface = FOrdinaryHasInstance as IInterface);
+    const IsOrdinary = Assigned(FOrdinaryHasInstance) and TJSObjectOperations.IsSameObject(HandlerFunc, FOrdinaryHasInstance);
     if not IsOrdinary then
     begin
       const Verdict = CallFunction(HandlerFunc, [Left], RightObject);
@@ -4036,15 +4021,16 @@ begin
   if not Source.IsObject then
     Exit;
 
-  const Obj = Source.ToObject;
+  const SourceObject = Source.ToObject;
 
-  for var PropName in TJSObjectOperations.OwnKeys(Obj) do
+  for var PropName in TJSObjectOperations.OwnKeys(SourceObject) do
   begin
     const IsExcluded = Assigned(Excluded) and Excluded.Contains(PropName.Stored);
-    if IsExcluded or (not Obj.GetOwnPropertyDescriptor(PropName).Enumerable) then
+    if IsExcluded or (not SourceObject.GetOwnPropertyDescriptor(PropName).Enumerable) then
       Continue;
 
-    Target.DefineProperty(PropName, TJSPropertyDescriptor.Create(Obj.GetProperty(PropName)));
+    const PropertyValue = SourceObject.GetProperty(PropName);
+    Target.DefineProperty(PropName, TJSPropertyDescriptor.Create(PropertyValue));
   end;
 end;
 
@@ -4959,7 +4945,7 @@ function TJSInterpreter.Construct(const Func: IJSFunction; const Args: TArray<TJ
                                   const NewTarget: IJSFunction): TJSValue;
 begin
   var Bound: TJSBoundFunction;
-  if FBoundFunctions.TryGetValue(Pointer(Func as IInterface), Bound) then
+  if FBoundFunctions.TryGetValue(TJSObjectOperations.IdentityOf(Func), Bound) then
   begin
     Result := ConstructBound(Bound, Args, Func, NewTarget);
     Exit;
@@ -4980,7 +4966,7 @@ begin
   const AllArguments = Bound.Arguments + Args;
 
   var ForwardedTarget := NewTarget;
-  if IsSameObject(NewTarget, Func) then
+  if TJSObjectOperations.IsSameObject(NewTarget, Func) then
   begin
     ForwardedTarget := Bound.Target;
   end;
@@ -5000,11 +4986,6 @@ begin
   begin
     Result := ConstructNative(Func, Args, NewTarget);
   end;
-end;
-
-class function TJSInterpreter.IsSameObject(const First: IInterface; const Second: IInterface): Boolean;
-begin
-  Result := ((First as IInterface) = (Second as IInterface));
 end;
 
 function TJSInterpreter.ConstructScript(const Func: IJSFunction; const Args: TArray<TJSValue>;
@@ -5113,7 +5094,7 @@ begin
   const Instance = CreateInstanceFor(Func);
   const ReturnValue = InvokeFunction(Func, Args, Instance, nil, nil);
 
-  const IsOwnTarget = IsSameObject(NewTarget, Func);
+  const IsOwnTarget = TJSObjectOperations.IsSameObject(NewTarget, Func);
   if IsOwnTarget then
   begin
     if ReturnValue.IsObject then
@@ -5124,8 +5105,8 @@ begin
     Exit;
   end;
 
-  const IsReplacementObject = (ReturnValue.IsObject and (not IsSameObject(ReturnValue.ToObject, Instance)));
-  const IsObjectConstructor = IsSameObject(Instance.Prototype, FObjectPrototype);
+  const IsReplacementObject = (ReturnValue.IsObject and (not TJSObjectOperations.IsSameObject(ReturnValue.ToObject, Instance)));
+  const IsObjectConstructor = TJSObjectOperations.IsSameObject(Instance.Prototype, FObjectPrototype);
   var Subject := Instance;
   if IsReplacementObject and (not IsObjectConstructor) then
     Subject := ReturnValue.ToObject;
@@ -5254,14 +5235,14 @@ end;
 
 function TJSInterpreter.ToStringCoerced(const Value: TJSValue): string;
 begin
-  const NeedsConversion = Value.IsObject and (not Value.IsArray);
-  if NeedsConversion then
+  if Value.IsArray then
   begin
-    const Primitive = Value.ToPrimitive(True);
-    Exit(ToText(Primitive));
+    Result := Value.ToLimitedString(FLimits);
+    Exit;
   end;
 
-  Result := ToText(Value);
+  const Primitive = Value.ToPrimitive(True);
+  Result := Primitive.ToLimitedString(FLimits);
 end;
 
 function TJSInterpreter.ToText(const Value: TJSValue): string;
@@ -5606,14 +5587,7 @@ begin
   Result := Construct(Species, [TJSValue.CreateNumber(InitialLength)]);
 
   const Created = Result.ToObject;
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasWritable := True;
-  Definition.Writable := True;
-  Definition.HasEnumerable := True;
-  Definition.Enumerable := True;
-  Definition.HasConfigurable := True;
-  Definition.Configurable := True;
-  Definition.HasValue := True;
+  var Definition := TJSPropertyDefinition.ForDataProperty(TJSValue.CreateUndefined);
 
   for var Index := 0 to SourceLength - 1 do
   begin
@@ -5875,7 +5849,7 @@ begin
   var BoundInfo: TJSBoundFunction;
   BoundInfo.Target := Target;
   BoundInfo.Arguments := BoundArgs;
-  FBoundFunctions.Add(Pointer(Result as IInterface), BoundInfo);
+  FBoundFunctions.Add(TJSObjectOperations.IdentityOf(Result), BoundInfo);
 end;
 
 function TJSInterpreter.UnwrapBoundFunction(const Func: IJSFunction): IJSFunction;
@@ -5883,7 +5857,7 @@ begin
   Result := Func;
 
   var Bound: TJSBoundFunction;
-  while FBoundFunctions.TryGetValue(Pointer(Result as IInterface), Bound) do
+  while FBoundFunctions.TryGetValue(TJSObjectOperations.IdentityOf(Result), Bound) do
   begin
     Result := Bound.Target;
   end;
@@ -6008,9 +5982,7 @@ begin
     Exit;
   end;
 
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Value;
+  const Definition = TJSPropertyDefinition.ForValue(Value);
 
   const CheckedDefinition = TJSPropertyDescriptors.WithCheckedLength(Target, LENGTH_PROPERTY, Definition, FLimits);
   const IsAssigned = Target.DefineOwnProperty(LENGTH_PROPERTY, CheckedDefinition);
@@ -6174,7 +6146,7 @@ begin
       const Func = FFunctionRegistry[Index];
       if not Marker.IsLive(Func) then
       begin
-        FFunctionPrograms.Remove(Pointer(Func as IInterface));
+        FFunctionPrograms.Remove(TJSObjectOperations.IdentityOf(Func));
         ReleaseFunctionContents(Func);
         FFunctionRegistry.Delete(Index);
       end;

@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.BuiltinSupport,
@@ -14,7 +15,7 @@ uses
   JS4D.AsyncRunner;
 
 type
-  TJSAsyncFunctionBuiltins = class
+  TJSAsyncFunctionBuiltins = class(TJSBuiltinSet)
   private
     const
       ASYNC_FUNCTION_NAME = 'AsyncFunction';
@@ -37,7 +38,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

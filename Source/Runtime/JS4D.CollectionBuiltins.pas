@@ -6,6 +6,7 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
@@ -16,7 +17,7 @@ uses
   JS4D.CollectionObjects;
 
 type
-  TJSCollectionBuiltins = class
+  TJSCollectionBuiltins = class(TJSBuiltinSet)
   private
     var
       FInterpreter: TJSInterpreter;
@@ -69,7 +70,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
     procedure ReleaseCollections;
   end;
 

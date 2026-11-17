@@ -7,6 +7,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.SymbolRegistry,
@@ -15,7 +16,7 @@ uses
   JS4D.WellKnownSymbolHooks;
 
 type
-  TJSSymbolBuiltins = class
+  TJSSymbolBuiltins = class(TJSBuiltinSet)
   private
     const
       SYMBOL_NAME = 'Symbol';
@@ -54,7 +55,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation

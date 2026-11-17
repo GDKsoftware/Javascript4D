@@ -33,7 +33,7 @@ requires
   rtl;
 
 contains
-  JS4D.Json in '..\..\Source\API\JS4D.Json.pas',
+  JS4D.JsonWriter in '..\..\Source\API\JS4D.JsonWriter.pas',
   JS4D.Engine in '..\..\Source\API\JS4D.Engine.pas',
   JS4D.Errors in '..\..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\..\Source\Core\JS4D.RegExpSyntax.pas',
@@ -144,6 +144,11 @@ contains
   JS4D.ClassEvaluation in '..\..\Source\Runtime\JS4D.ClassEvaluation.pas',
   JS4D.GeneratorEngine in '..\..\Source\Runtime\JS4D.GeneratorEngine.pas',
   JS4D.ClassBuilder in '..\..\Source\Runtime\JS4D.ClassBuilder.pas',
-  JS4D.Interpreter in '..\..\Source\Runtime\JS4D.Interpreter.pas';
+  JS4D.Interpreter in '..\..\Source\Runtime\JS4D.Interpreter.pas',
+  JS4D.BuiltinSet in '..\..\Source\Runtime\JS4D.BuiltinSet.pas',
+  JS4D.ObjectStatics in '..\..\Source\Runtime\JS4D.ObjectStatics.pas',
+  JS4D.JsonGrammar in '..\..\Source\API\JS4D.JsonGrammar.pas',
+  JS4D.JsonRoot in '..\..\Source\API\JS4D.JsonRoot.pas',
+  JS4D.Utf16 in '..\..\Source\Core\JS4D.Utf16.pas';
 
 end.

@@ -120,15 +120,7 @@ begin
     Exit;
   end;
 
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Value;
-  Definition.HasWritable := True;
-  Definition.Writable := True;
-  Definition.HasEnumerable := True;
-  Definition.Enumerable := True;
-  Definition.HasConfigurable := True;
-  Definition.Configurable := True;
+  const Definition = TJSPropertyDefinition.ForDataProperty(Value);
 
   TJSPropertyDescriptors.Define(Target, TJSArrayLike.IndexName(Index), Definition, Context.Limits);
 end;

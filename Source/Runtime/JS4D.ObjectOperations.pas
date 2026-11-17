@@ -54,6 +54,8 @@ type
     class function SetPrototypeOf(const Target: IJSObject; const Prototype: IJSObject): Boolean; static;
     class function OwnKeys(const Target: IJSObject): TArray<TJSPropertyKey>; static;
     class function IsArray(const Value: TJSValue): Boolean; static;
+    class function IdentityOf(const Target: IInterface): Pointer; static;
+    class function IsSameObject(const First: IInterface; const Second: IInterface): Boolean; static;
   end;
 
 implementation
@@ -206,24 +208,14 @@ begin
   if Existing.IsAccessor or (not Existing.Writable) then
     Exit(False);
 
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Value;
+  const Definition = TJSPropertyDefinition.ForValue(Value);
   Result := ReceiverObject.DefineOwnProperty(Name, Definition);
 end;
 
 class function TJSObjectOperations.CreateDataProperty(const Target: IJSObject; const Name: TJSPropertyKey;
                                                       const Value: TJSValue): Boolean;
 begin
-  var Definition := Default(TJSPropertyDefinition);
-  Definition.HasValue := True;
-  Definition.Value := Value;
-  Definition.HasWritable := True;
-  Definition.Writable := True;
-  Definition.HasEnumerable := True;
-  Definition.Enumerable := True;
-  Definition.HasConfigurable := True;
-  Definition.Configurable := True;
+  const Definition = TJSPropertyDefinition.ForDataProperty(Value);
 
   Result := Target.DefineOwnProperty(Name, Definition);
 end;
@@ -322,6 +314,16 @@ begin
     Result[Next] := SymbolKey;
     Inc(Next);
   end;
+end;
+
+class function TJSObjectOperations.IdentityOf(const Target: IInterface): Pointer;
+begin
+  Result := Pointer(Target as IInterface);
+end;
+
+class function TJSObjectOperations.IsSameObject(const First: IInterface; const Second: IInterface): Boolean;
+begin
+  Result := (IdentityOf(First) = IdentityOf(Second));
 end;
 
 class function TJSObjectOperations.IsArray(const Value: TJSValue): Boolean;
