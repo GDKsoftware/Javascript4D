@@ -9,6 +9,8 @@ uses
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.RegExpObject,
+  JS4D.ArrayObject,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 

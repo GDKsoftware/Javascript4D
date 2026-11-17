@@ -8,6 +8,8 @@ uses
   System.SysUtils,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.SymbolObject,
+  JS4D.ArrayObject,
   JS4D.BinaryData,
   JS4D.SymbolRegistry;
 
@@ -299,7 +301,7 @@ begin
     Exit(Proxy.OwnKeys);
 
   const Names = Target.GetOwnPropertyNames;
-  const SymbolKeys = Target.GetOwnSymbolKeys;
+  const SymbolKeys = Target.GetOwnSymbolKeysInCreationOrder;
 
   SetLength(Result, Length(Names) + Length(SymbolKeys));
   var Next := 0;

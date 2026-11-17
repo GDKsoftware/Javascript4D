@@ -10,6 +10,7 @@ uses
   System.Generics.Collections,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors;
 
 type

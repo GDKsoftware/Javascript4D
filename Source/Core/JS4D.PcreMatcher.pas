@@ -43,7 +43,8 @@ type
 
     procedure EnsureCompiled;
     procedure ResetOffsets;
-    function ExecuteMatch(const Subject: string; const Start: Integer): Integer;
+    function TryExecute(const Subject: string; const Start: Integer; const ExecOptions: Integer): Boolean;
+    function ExecuteMatch(const Subject: string; const Start: Integer; const ExecOptions: Integer): Integer;
     function IsMatchResult(const Executed: Integer): Boolean;
 
     class function ClampQuantifierBounds(const Pattern: string): string; static;
@@ -61,6 +62,7 @@ type
     destructor Destroy; override;
 
     function TryMatch(const Subject: string; const Start: Integer): Boolean;
+    function TryMatchAtStart(const Subject: string; const Start: Integer): Boolean;
     function HasParticipated(const GroupIndex: Integer): Boolean;
     function GroupStart(const GroupIndex: Integer): Integer;
     function GroupEnd(const GroupIndex: Integer): Integer;
@@ -260,15 +262,16 @@ begin
   FillChar(FOffsets[0], Length(FOffsets) * SizeOf(Integer), UNSET_OFFSET_BYTE);
 end;
 
-function TJSPcreMatcher.ExecuteMatch(const Subject: string; const Start: Integer): Integer;
+function TJSPcreMatcher.ExecuteMatch(const Subject: string; const Start: Integer;
+                                     const ExecOptions: Integer): Integer;
 begin
   var MatchLimits := Default(TPCREExtra);
   MatchLimits.flags := PCRE_EXTRA_MATCH_LIMIT or PCRE_EXTRA_MATCH_LIMIT_RECURSION;
   MatchLimits.match_limit := MAX_MATCH_STEPS;
   MatchLimits.match_limit_recursion := RecursionLimit;
 
-  Result := pcre_exec(FCode, @MatchLimits, PCRE_STR(Subject), Length(Subject), Start, PCRE_NO_UTF8_CHECK,
-                      @FOffsets[0], Length(FOffsets));
+  Result := pcre_exec(FCode, @MatchLimits, PCRE_STR(Subject), Length(Subject), Start,
+                      PCRE_NO_UTF8_CHECK or ExecOptions, @FOffsets[0], Length(FOffsets));
 end;
 
 function TJSPcreMatcher.IsMatchResult(const Executed: Integer): Boolean;
@@ -289,14 +292,25 @@ begin
   end;
 end;
 
-function TJSPcreMatcher.TryMatch(const Subject: string; const Start: Integer): Boolean;
+function TJSPcreMatcher.TryExecute(const Subject: string; const Start: Integer;
+                                   const ExecOptions: Integer): Boolean;
 begin
   EnsureCompiled;
   ResetOffsets;
 
-  const Executed = ExecuteMatch(Subject, Start);
+  const Executed = ExecuteMatch(Subject, Start, ExecOptions);
 
   Result := IsMatchResult(Executed);
+end;
+
+function TJSPcreMatcher.TryMatch(const Subject: string; const Start: Integer): Boolean;
+begin
+  Result := TryExecute(Subject, Start, 0);
+end;
+
+function TJSPcreMatcher.TryMatchAtStart(const Subject: string; const Start: Integer): Boolean;
+begin
+  Result := TryExecute(Subject, Start, PCRE_ANCHORED);
 end;
 
 function TJSPcreMatcher.GroupStart(const GroupIndex: Integer): Integer;

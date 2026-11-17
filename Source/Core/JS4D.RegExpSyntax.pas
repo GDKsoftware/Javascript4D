@@ -6,6 +6,16 @@ uses
   JS4D.Errors;
 
 type
+  TJSRegExpFlags = record
+    IsGlobal: Boolean;
+    IgnoresCase: Boolean;
+    IsMultiline: Boolean;
+    IsUnicode: Boolean;
+    IsSticky: Boolean;
+
+    class function Parse(const Flags: string): TJSRegExpFlags; static;
+  end;
+
   TJSRegExpSyntax = class
   private
     class function LineTerminatorEscape(const Character: Char): string; static;
@@ -136,10 +146,25 @@ type
   end;
 
 const
+  GLOBAL_FLAG = 'g';
+  IGNORE_CASE_FLAG = 'i';
+  MULTILINE_FLAG = 'm';
   UNICODE_FLAG = 'u';
+  STICKY_FLAG = 'y';
   VALID_FLAG_CHARACTERS = 'gimuy';
   EMPTY_PATTERN_SOURCE = '(?:)';
   INVALID_FLAGS_MESSAGE = 'Invalid regular expression flags: %s';
+
+{ TJSRegExpFlags }
+
+class function TJSRegExpFlags.Parse(const Flags: string): TJSRegExpFlags;
+begin
+  Result.IsGlobal := (Pos(GLOBAL_FLAG, Flags) > 0);
+  Result.IgnoresCase := (Pos(IGNORE_CASE_FLAG, Flags) > 0);
+  Result.IsMultiline := (Pos(MULTILINE_FLAG, Flags) > 0);
+  Result.IsUnicode := (Pos(UNICODE_FLAG, Flags) > 0);
+  Result.IsSticky := (Pos(STICKY_FLAG, Flags) > 0);
+end;
 
 { TJSRegExpSyntax }
 
@@ -259,7 +284,8 @@ constructor TJSRegExpValidator.Create(const Pattern: string; const Flags: string
 begin
   inherited Create;
   FPattern := Pattern;
-  FIsUnicode := (Pos(UNICODE_FLAG, Flags) > 0);
+  const ParsedFlags = TJSRegExpFlags.Parse(Flags);
+  FIsUnicode := ParsedFlags.IsUnicode;
   FGroupCount := 0;
   FGroupDepth := 0;
   FPosition := 1;

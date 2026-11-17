@@ -9,6 +9,7 @@ uses
   System.Math,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors,
   JS4D.SymbolRegistry,
   JS4D.PropertyDescriptors,

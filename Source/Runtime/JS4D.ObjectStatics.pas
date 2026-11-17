@@ -9,6 +9,7 @@ uses
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Interpreter,
   JS4D.BuiltinSupport;
 
@@ -380,7 +381,7 @@ begin
   const Source = CoerceFirstArgument(Args);
   const Symbols = CreateResultArray;
 
-  for var SymbolKey in Source.GetOwnSymbolKeys do
+  for var SymbolKey in Source.GetOwnSymbolKeysInCreationOrder do
   begin
     const SymbolValue = TJSObjectOperations.KeyToValue(SymbolKey);
     Symbols.Push(SymbolValue);

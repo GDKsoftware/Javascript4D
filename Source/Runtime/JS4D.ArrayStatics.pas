@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors,
   JS4D.ArrayLike,
   JS4D.PropertyDescriptors;

@@ -76,13 +76,13 @@ end;
 
 destructor TJSArrayIterator.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   inherited;
 end;
 
 procedure TJSArrayIterator.ReleaseReferences;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   ClearTarget;
   FArrayPrototype := nil;
   FObjectPrototype := nil;

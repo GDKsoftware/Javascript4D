@@ -91,12 +91,16 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="..\Source\Core\JS4D.Types.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.ArrayObject.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.RegExpObject.pas"/>
+        <DCCReference Include="..\Source\Core\JS4D.SymbolObject.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.RegExpSyntax.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.RegExpTranslator.pas"/>
         <DCCReference Include="..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.Lexer.pas"/>
+        <DCCReference Include="..\Source\Lexer\JS4D.LexicalCharacters.pas"/>
         <DCCReference Include="..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.AST.pas"/>
         <DCCReference Include="..\Source\Parser\JS4D.Parser.pas"/>

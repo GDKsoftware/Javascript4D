@@ -10,6 +10,7 @@ uses
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.SymbolObject,
   JS4D.SymbolRegistry,
   JS4D.Interpreter,
   JS4D.BuiltinSupport,

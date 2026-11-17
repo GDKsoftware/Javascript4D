@@ -9,6 +9,7 @@ uses
   JS4D.PropertyKey,
   JS4D.PropertyNames,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors;
 
 const

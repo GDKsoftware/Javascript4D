@@ -9,6 +9,7 @@ Javascript4D follows the GDK Delphi coding standard, with the exceptions below. 
 - **Arrays.** `TArray<T>` is allowed. The host API passes arguments as `TArray<TJSValue>`, and the interpreter uses arrays on its hot paths.
 - **Units.** Units are named `JS4D.<Concept>.pas` and live in the folder of their part of the engine (`Core`, `Lexer`, `Parser`, `Runtime`, `API`) instead of the `Module.Entity.Purpose` layers of an application. Closely related types, such as an object class and the record it stores, may share a unit.
 - **Section markers.** The `{ TClassName }` line above the implementation of a class is allowed.
+- **Keyword clashes.** An enum value or identifier that has the name of a Delphi keyword or RTL type gets a trailing underscore, for example `TJSValueType.Boolean_`, `TJSValueType.String_` and `TJSValueType.Object_`. Other names get no suffix.
 
 ## Additions
 

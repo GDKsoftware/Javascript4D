@@ -97,7 +97,7 @@ end;
 
 destructor TJSCollectionObject.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FreeAndNil(FStore);
   inherited;
 end;
@@ -110,7 +110,7 @@ end;
 
 procedure TJSCollectionObject.ReleaseReferences;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   ReleaseHeldValues;
   inherited;
 end;
@@ -155,7 +155,7 @@ end;
 
 destructor TJSCollectionIterator.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FCursor.Free;
   inherited;
 end;

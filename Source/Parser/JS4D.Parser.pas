@@ -1228,11 +1228,11 @@ begin
     if DeclaresStrictMode and Assigned(ParameterInfo) then
       raise TJSErrorFactory.SyntaxError(STRICT_NON_SIMPLE_PARAMETERS_MESSAGE, CurrentToken.Line, CurrentToken.Column);
 
-    const StartPosition = FLexer.Position;
+    const StartTokenIndex = FLexer.TokenIndex;
     Result := ParseNestedBlockStatement(ParameterNames);
     Result.DeclaresStrictMode := DeclaresStrictMode;
     Result.ParameterInfo := ParameterInfo;
-    Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
+    Result.ReferencesArguments := FLexer.HasIdentifierBetween(StartTokenIndex, FLexer.TokenIndex,
                                                               [ARGUMENTS_NAME, EVAL_NAME]) or
                                   (Assigned(ParameterInfo) and ParameterInfo.ReferencesArguments);
   finally
@@ -3623,7 +3623,7 @@ function TJSParser.ParseFormalParameters(const Params: TObjectList<TJSIdentifier
 begin
   Expect(TJSTokenType.LeftParen);
 
-  const StartPosition = FLexer.Position;
+  const StartTokenIndex = FLexer.TokenIndex;
   const Info = TJSParameterInfo.Create;
   try
     while not Check(TJSTokenType.RightParen) do
@@ -3651,7 +3651,7 @@ begin
 
     CollectBoundNames(Params, Info);
     RejectDuplicateNonSimpleParameters(Info);
-    Info.ReferencesArguments := FLexer.HasIdentifierBetween(StartPosition, FLexer.Position,
+    Info.ReferencesArguments := FLexer.HasIdentifierBetween(StartTokenIndex, FLexer.TokenIndex,
                                                             [ARGUMENTS_NAME, EVAL_NAME]);
     Result := Info;
   except

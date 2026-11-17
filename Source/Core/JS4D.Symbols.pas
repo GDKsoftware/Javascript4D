@@ -6,6 +6,7 @@ interface
 
 uses
   JS4D.Types,
+  JS4D.SymbolObject,
   JS4D.SymbolRegistry;
 
 type

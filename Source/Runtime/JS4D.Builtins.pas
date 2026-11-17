@@ -12,6 +12,7 @@ uses
   System.RegularExpressions,
   System.Character,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.ArrayLike,
   JS4D.UnicodeNormalization;
 

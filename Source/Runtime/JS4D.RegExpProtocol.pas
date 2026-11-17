@@ -11,6 +11,7 @@ uses
   JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 
@@ -323,7 +324,7 @@ begin
   while Position <= Length(Text) do
   begin
     const Found = Pattern.MatchAt(Text, Position);
-    if not Found.Found then
+    if not Found.IsMatch then
       Break;
 
     FInterpreter.Limits.EnsureArrayLength(Int64(Count) + 1);
@@ -532,7 +533,7 @@ function TJSRegExpProtocol.TryUseReceiverAsSplitter(const Receiver: IJSObject; c
 begin
   const IsIntrinsicSpecies = Assigned(Species) and
                              ((Species as IInterface) = (FIntrinsicConstructor as IInterface));
-  const HasOnlyLastIndex = (Length(Receiver.GetOwnPropertyNames) = 1) and (Length(Receiver.GetOwnSymbolKeys) = 0);
+  const HasOnlyLastIndex = (Length(Receiver.GetOwnPropertyNames) = 1) and (Length(Receiver.GetOwnSymbolKeysInCreationOrder) = 0);
   const IsPristine = IsIntrinsicSpecies and HasOnlyLastIndex and UsesIntrinsicExec(Receiver, Pattern);
   if not IsPristine then
     Exit(False);
@@ -554,7 +555,7 @@ begin
   const Size = Length(Text);
   if Size = 0 then
   begin
-    if not Pattern.MatchAt(Text, 0).Found then
+    if not Pattern.MatchAt(Text, 0).IsMatch then
       Pieces.Push(TJSValue.CreateString(Text));
 
     Exit;
@@ -565,7 +566,7 @@ begin
   while Cursor < Size do
   begin
     const Found = Pattern.MatchAt(Text, Cursor);
-    const IsInsideText = Found.Found and (Found.Index < Size);
+    const IsInsideText = Found.IsMatch and (Found.Index < Size);
     if not IsInsideText then
       Break;
 

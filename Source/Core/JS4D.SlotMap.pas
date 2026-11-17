@@ -11,6 +11,21 @@ type
     type
       PSlot = ^T;
 
+      TSlotEnumerator = record
+      private
+        FMap: TJSSlotMap<T>;
+        FPosition: Integer;
+
+        function GetCurrent: PSlot;
+
+      public
+        constructor Create(const Map: TJSSlotMap<T>);
+
+        function MoveNext: Boolean;
+
+        property Current: PSlot read GetCurrent;
+      end;
+
   private
     const
       INITIAL_CAPACITY = 4;
@@ -49,6 +64,7 @@ type
     procedure AddOrSetValue(const Name: string; const Value: T);
     procedure Remove(const Name: string);
     procedure Clear;
+    function GetEnumerator: TSlotEnumerator;
     function Names: TArray<string>;
     function SlotAt(const Position: Integer): PSlot;
     function ValueAt(const Position: Integer): T;
@@ -66,10 +82,33 @@ uses
   System.SysUtils,
   System.Math;
 
+constructor TJSSlotMap<T>.TSlotEnumerator.Create(const Map: TJSSlotMap<T>);
+begin
+  FMap := Map;
+  FPosition := -1;
+end;
+
+function TJSSlotMap<T>.TSlotEnumerator.MoveNext: Boolean;
+begin
+  Inc(FPosition);
+
+  Result := (FPosition < FMap.Count);
+end;
+
+function TJSSlotMap<T>.TSlotEnumerator.GetCurrent: PSlot;
+begin
+  Result := FMap.SlotAt(FPosition);
+end;
+
 destructor TJSSlotMap<T>.Destroy;
 begin
   FIndexByName.Free;
-  inherited;
+  inherited Destroy;
+end;
+
+function TJSSlotMap<T>.GetEnumerator: TSlotEnumerator;
+begin
+  Result := TSlotEnumerator.Create(Self);
 end;
 
 class function TJSSlotMap<T>.FingerprintOf(const Name: string): Cardinal;

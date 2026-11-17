@@ -22,7 +22,6 @@ type
       MEMBER_SEPARATOR_WITH_GAP = ': ';
       UNICODE_ESCAPE_PREFIX = '\u';
       CIRCULAR_MESSAGE = 'Converting circular structure to JSON';
-      UNSUPPORTED_TYPE_MESSAGE = 'Unsupported value type: %d';
 
     var
       FLimits: TJSLimits;
@@ -487,7 +486,7 @@ end;
 
 procedure TJSJsonWriter.RaiseUnsupportedType(const ValueType: TJSValueType);
 begin
-  const Message = Format(UNSUPPORTED_TYPE_MESSAGE, [Ord(ValueType)]);
+  const Message = Format(UNSUPPORTED_VALUE_TYPE_MESSAGE, [Ord(ValueType)]);
 
   raise TJSErrorFactory.TypeError(Message);
 end;

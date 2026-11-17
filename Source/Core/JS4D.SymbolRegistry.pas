@@ -30,6 +30,7 @@ type
   private
     const
       FIRST_DYNAMIC_ID = 100;
+      WELL_KNOWN_ID_BASE = 1;
       WELL_KNOWN_DESCRIPTION_FORMAT = 'Symbol.%s';
 
     class var FLock: TCriticalSection;
@@ -44,6 +45,7 @@ type
   public
     class function WellKnownKey(const Which: TJSWellKnownSymbol): TJSPropertyKey; static; inline;
     class function WellKnownDescription(const Which: TJSWellKnownSymbol): string; static;
+    class function WellKnownId(const Which: TJSWellKnownSymbol): Integer; static;
     class function NextId: Integer; static;
     class procedure RegisterSymbol(const Id: Integer; const Symbol: TObject); static;
     class procedure UnregisterSymbol(const Id: Integer); static;
@@ -62,12 +64,14 @@ begin
   FLive := TDictionary<Integer, TObject>.Create;
   FLastId := FIRST_DYNAMIC_ID;
 
+  Assert(WellKnownId(High(TJSWellKnownSymbol)) < FIRST_DYNAMIC_ID);
+
   for var Which := Low(TJSWellKnownSymbol) to High(TJSWellKnownSymbol) do
   begin
     const EnumName = GetEnumName(TypeInfo(TJSWellKnownSymbol), Ord(Which));
     const PropertyName = EnumName.Substring(0, 1).ToLower + EnumName.Substring(1);
 
-    FWellKnownKeys[Which] := TJSPropertyKey.ForSymbol(Ord(Which) + 1);
+    FWellKnownKeys[Which] := TJSPropertyKey.ForSymbol(WellKnownId(Which));
     FWellKnownDescriptions[Which] := Format(WELL_KNOWN_DESCRIPTION_FORMAT, [PropertyName]);
   end;
 end;
@@ -86,6 +90,11 @@ end;
 class function TJSSymbolRegistry.WellKnownDescription(const Which: TJSWellKnownSymbol): string;
 begin
   Result := FWellKnownDescriptions[Which];
+end;
+
+class function TJSSymbolRegistry.WellKnownId(const Which: TJSWellKnownSymbol): Integer;
+begin
+  Result := Ord(Which) + WELL_KNOWN_ID_BASE;
 end;
 
 class function TJSSymbolRegistry.NextId: Integer;

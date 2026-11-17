@@ -34,7 +34,6 @@ type
       HEX_RADIX = 16;
       OCTAL_RADIX = 8;
       BINARY_RADIX = 2;
-      NOT_PREFIXED = 0;
       RADIX_UNSPECIFIED = 0;
       DEFAULT_RADIX = 10;
       MIN_RADIX = 2;
@@ -42,8 +41,6 @@ type
       MAX_EXPONENT_DIGITS = 9;
       HUGE_EXPONENT = 1000000000;
 
-    class function IsSign(const Ch: Char): Boolean; static;
-    class function IsExponentMark(const Ch: Char): Boolean; static;
     class function IsHexPrefix(const Text: string; const Position: Integer): Boolean; static;
     class function SplitSign(const Text: string): TSignedText; static;
     class function CountDigits(const Text: string; const Position: Integer): Integer; static;
@@ -51,7 +48,6 @@ type
                                       const Radix: Integer): Integer; static;
     class function ExponentLength(const Text: string; const Position: Integer): Integer; static;
     class function DecimalPrefixLength(const Text: string): Integer; static;
-    class function RadixOfPrefixMark(const Mark: Char): Integer; static;
     class function PrefixedLiteralRadix(const Text: string): Integer; static;
     class function ExponentMarkPosition(const Literal: string): Integer; static;
     class function ExponentOf(const Literal: string): Integer; static;
@@ -61,6 +57,12 @@ type
     class function ReadIntegerBody(const Unsigned: string; const RadixRule: TRadixRule): TIntegerBody; static;
 
   public
+    const
+      NOT_PREFIXED = 0;
+
+    class function IsSign(const Ch: Char): Boolean; static;
+    class function IsExponentMark(const Ch: Char): Boolean; static;
+    class function RadixOfPrefixMark(const Mark: Char): Integer; static;
     class function DecimalToDouble(const Literal: string): Double; static;
     class function StringToNumber(const Text: string): Double; static;
     class function ParseInt(const Text: string; const Radix: Integer): Double; static;

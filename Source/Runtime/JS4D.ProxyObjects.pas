@@ -246,7 +246,7 @@ type
     procedure DeleteProperty(const Name: TJSPropertyKey); override;
     function IsPropertyConfigurable(const Name: TJSPropertyKey): Boolean; override;
     function GetOwnPropertyNames: TArray<string>; override;
-    function GetOwnSymbolKeys: TArray<TJSPropertyKey>; override;
+    function GetOwnSymbolKeysInCreationOrder: TArray<TJSPropertyKey>; override;
     function IsFrozen: Boolean; override;
     function IsSealed: Boolean; override;
     function IsExtensible: Boolean; override;
@@ -290,7 +290,7 @@ type
     procedure DeleteProperty(const Name: TJSPropertyKey); override;
     function IsPropertyConfigurable(const Name: TJSPropertyKey): Boolean; override;
     function GetOwnPropertyNames: TArray<string>; override;
-    function GetOwnSymbolKeys: TArray<TJSPropertyKey>; override;
+    function GetOwnSymbolKeysInCreationOrder: TArray<TJSPropertyKey>; override;
     function IsFrozen: Boolean; override;
     function IsSealed: Boolean; override;
     function IsExtensible: Boolean; override;
@@ -1323,7 +1323,7 @@ end;
 
 destructor TJSProxyObject.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FCore := nil;
   FProxyRef := nil;
   inherited;
@@ -1414,7 +1414,7 @@ begin
   Result := TJSProxyShared.StringKeys(FCore.OwnKeys);
 end;
 
-function TJSProxyObject.GetOwnSymbolKeys: TArray<TJSPropertyKey>;
+function TJSProxyObject.GetOwnSymbolKeysInCreationOrder: TArray<TJSPropertyKey>;
 begin
   Result := TJSProxyShared.SymbolKeys(FCore.OwnKeys);
 end;
@@ -1507,7 +1507,7 @@ end;
 
 destructor TJSProxyFunction.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FCore := nil;
   FProxyRef := nil;
   inherited;
@@ -1608,7 +1608,7 @@ begin
   Result := TJSProxyShared.StringKeys(FCore.OwnKeys);
 end;
 
-function TJSProxyFunction.GetOwnSymbolKeys: TArray<TJSPropertyKey>;
+function TJSProxyFunction.GetOwnSymbolKeysInCreationOrder: TArray<TJSPropertyKey>;
 begin
   Result := TJSProxyShared.SymbolKeys(FCore.OwnKeys);
 end;

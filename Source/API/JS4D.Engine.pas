@@ -9,6 +9,8 @@ uses
   System.Generics.Collections,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.RegExpObject,
+  JS4D.ArrayObject,
   JS4D.AST,
   JS4D.SourceContext,
   JS4D.ArrayIterator,
@@ -1707,7 +1709,7 @@ begin
     QueueMemberObjects(Target, Name, Pending);
   end;
 
-  for var Key in Target.GetOwnSymbolKeys do
+  for var Key in Target.GetOwnSymbolKeysInCreationOrder do
   begin
     QueueMemberObjects(Target, Key, Pending);
   end;
