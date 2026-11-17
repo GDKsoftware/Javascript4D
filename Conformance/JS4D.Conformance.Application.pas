@@ -15,7 +15,9 @@ implementation
 uses
   System.SysUtils,
   JS4D.Conformance.Options,
-  JS4D.Conformance.Runner;
+  JS4D.Conformance.Runner,
+  JS4D.Conformance.ReportFormatter,
+  JS4D.Conformance.ReportWriter;
 
 const
   EXIT_SUCCESS = 0;
@@ -30,9 +32,9 @@ begin
       try
         Runner.Run;
         const Report = Runner.Report;
-        const Summary = Report.BuildSummary;
+        const Summary = TReportFormatter.BuildSummary(Report);
         Writeln(Summary);
-        Report.SaveTo(Options.ResultsDirectory, Summary);
+        TReportWriter.SaveTo(Options.ResultsDirectory, Report, Summary);
 
         const SavedMessage = Format('Results written to %s', [Options.ResultsDirectory]);
         Writeln(SavedMessage);

@@ -187,9 +187,8 @@ type
 
 implementation
 
-const
-  SyntaxErrorName = 'SyntaxError';
-  NoError = 'none';
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TRegExpSyntaxTests.Setup;
 begin
@@ -220,32 +219,32 @@ end;
 
 procedure TRegExpSyntaxTests.Constructor_InvalidPattern_ThrowsSyntaxError(const Pattern: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfConstructing(Pattern));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidPattern_DoesNotThrow(const Pattern: string);
 begin
-  Assert.AreEqual(NoError, ErrorNameOfConstructing(Pattern));
+  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_InvalidInput_ThrowsSyntaxError(const Pattern: string; const Flags: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfConstructing(Pattern, Flags));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern, Flags));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidFlags_DoesNotThrow;
 begin
-  Assert.AreEqual(NoError, ErrorNameOfConstructing('a', 'gim'));
+  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing('a', 'gim'));
 end;
 
 procedure TRegExpSyntaxTests.Literal_InvalidSource_IsEarlySyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidPatternWithUnicodeFlag_DoesNotThrow(const Pattern: string; const Flags: string);
 begin
-  Assert.AreEqual(NoError, ErrorNameOfConstructing(Pattern, Flags));
+  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern, Flags));
 end;
 
 procedure TRegExpSyntaxTests.Literal_ValidRegExp_StillMatches;
@@ -255,12 +254,12 @@ end;
 
 procedure TRegExpSyntaxTests.Literal_ContainingLineSeparator_IsSyntaxError;
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval('/a' + #$2028 + 'b/'));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval('/a' + #$2028 + 'b/'));
 end;
 
 procedure TRegExpSyntaxTests.Literal_ContainingParagraphSeparator_IsSyntaxError;
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval('/a' + #$2029 + 'b/'));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval('/a' + #$2029 + 'b/'));
 end;
 
 procedure TRegExpSyntaxTests.Literal_InvalidRegExpAfterStatement_RunsNothing;
@@ -300,14 +299,14 @@ procedure TRegExpSyntaxTests.Constructor_AstralRangeWithUnicodeFlag_DoesNotThrow
 begin
   const Pattern = '[' + #$D83D#$DCA9 + '-' + #$D83D#$DCAB + ']';
 
-  Assert.AreEqual(NoError, ErrorNameOfConstructing(Pattern, 'u'));
+  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern, 'u'));
 end;
 
 procedure TRegExpSyntaxTests.Constructor_AstralRangeWithoutUnicodeFlag_ThrowsSyntaxError;
 begin
   const Pattern = '[' + #$D83D#$DCA9 + '-' + #$D83D#$DCAB + ']';
 
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfConstructing(Pattern));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern));
 end;
 
 procedure TRegExpSyntaxTests.Match_UndefinedArgument_MatchesEmptyString;

@@ -29,7 +29,7 @@ type
   end;
 
   TVariantResult = record
-    Variant: TTestVariant;
+    TestVariant: TTestVariant;
     Outcome: TTestOutcome;
     Detail: string;
   end;

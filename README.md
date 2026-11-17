@@ -307,7 +307,7 @@ powershell -File Conformance/run-conformance.ps1
 
 `Conformance/results/baseline.txt` holds the pass rate per directory and the totals after a run.
 
-Tests that need features JS4D does not implement are skipped; `Conformance/exclusions.txt` lists the feature tags and `Conformance/excluded-paths.txt` the path prefixes. Tests with the `async` flag run: the engine drains the job queue when the script ends and the runner reads the result that `$DONE` printed. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
+Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists the skipped feature tags and `Conformance/excluded-paths.txt` the skipped path prefixes; together they are the roadmap: implement a feature, remove its entry, and its tests run. A few skip rules live in `Conformance/JS4D.Conformance.Selector.pas` instead: fixture files, the flags `module`, `CanBlockIsFalse` and `CanBlockIsTrue`, negative tests of the `resolution` phase, and tests that use the host members `$262.createRealm`, `$262.agent` or `$262.IsHTMLDDA`. The `baseline.txt` report counts each skipped test under its reason. Tests with the `async` flag run: the engine drains the job queue when the script ends and the runner reads the result that `$DONE` printed.
 
 Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` (one `path [variant] detail` line per failing test) and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
 

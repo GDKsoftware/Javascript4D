@@ -19,6 +19,7 @@ type
 
     function GetGroup: string;
     function GetIsFixture: Boolean;
+    function GetIsAsync: Boolean;
 
   public
     constructor Create(const FilePath: string; const RelativePath: string);
@@ -29,6 +30,7 @@ type
     property Metadata: TTestMetadata read FMetadata;
     property Group: string read GetGroup;
     property IsFixture: Boolean read GetIsFixture;
+    property IsAsync: Boolean read GetIsAsync;
   end;
 
 implementation
@@ -36,6 +38,7 @@ implementation
 const
   GROUP_DEPTH = 2;
   FIXTURE_MARKER = '_FIXTURE';
+  ASYNC_FLAG = 'async';
 
 constructor TTestCase.Create(const FilePath: string; const RelativePath: string);
 begin
@@ -64,6 +67,11 @@ end;
 function TTestCase.GetIsFixture: Boolean;
 begin
   Result := FRelativePath.Contains(FIXTURE_MARKER);
+end;
+
+function TTestCase.GetIsAsync: Boolean;
+begin
+  Result := FMetadata.HasFlag(ASYNC_FLAG);
 end;
 
 end.

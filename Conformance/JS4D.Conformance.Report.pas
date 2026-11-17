@@ -39,31 +39,21 @@ type
     FVariantPassed: array[TTestVariant] of Integer;
     FDurationMs: Int64;
 
-    function Totals: TGroupStats;
-    function FormatRate(const Passed: Integer; const RunCount: Integer): string;
-    function SortedKeys<T>(const Source: TDictionary<string, T>): TArray<string>;
-    function TopCounts(const Counts: TDictionary<string, Integer>): TArray<TPair<string, Integer>>;
-    function TopClusters(const Count: Integer): TArray<TFailureCluster>;
+    function SortedCounts(const Counts: TDictionary<string, Integer>): TArray<TPair<string, Integer>>;
     function NormalizeDetail(const Detail: string): string;
     function CutDetail(const Detail: string): string;
     function CollapseNumbers(const Text: string): string;
     function PickOutcome(const Results: TArray<TVariantResult>): TTestOutcome;
     function FirstFailure(const Results: TArray<TVariantResult>): TVariantResult;
+    function FormatResultLine(const TestCase: TTestCase; const VariantResult: TVariantResult): string;
+    function VariantNameOf(const TestVariant: TTestVariant): string;
 
     procedure AddToGroup(const Group: string; const Outcome: TTestOutcome);
     procedure AddVariants(const Results: TArray<TVariantResult>);
     procedure AddResultLines(const TestCase: TTestCase; const Results: TArray<TVariantResult>);
-    function FormatResultLine(const TestCase: TTestCase; const VariantResult: TVariantResult): string;
-    function VariantNameOf(const Variant: TTestVariant): string;
-    function SortedPassedLines: TArray<string>;
     procedure AddCluster(const TestCase: TTestCase; const Results: TArray<TVariantResult>);
     procedure AddRunFeatures(const TestCase: TTestCase);
     procedure AddCount(const Counts: TDictionary<string, Integer>; const Key: string);
-    procedure AppendTotals(const Lines: TList<string>);
-    procedure AppendSkipReasons(const Lines: TList<string>);
-    procedure AppendGroups(const Lines: TList<string>);
-    procedure AppendClusters(const Lines: TList<string>);
-    procedure AppendRunFeatures(const Lines: TList<string>);
 
   public
     constructor Create;
@@ -71,9 +61,16 @@ type
 
     procedure RecordSkipped(const TestCase: TTestCase; const Reason: string);
     procedure RecordRun(const TestCase: TTestCase; const Results: TArray<TVariantResult>);
-    procedure SaveTo(const Directory: string; const Summary: string);
 
-    function BuildSummary: string;
+    function Totals: TGroupStats;
+    function SortedGroups: TArray<TPair<string, TGroupStats>>;
+    function SkipReasons: TArray<TPair<string, Integer>>;
+    function RunFeatures: TArray<TPair<string, Integer>>;
+    function SortedClusters: TArray<TFailureCluster>;
+    function SortedPassedLines: TArray<string>;
+    function FailureLines: TArray<string>;
+    function VariantRunCount(const TestVariant: TTestVariant): Integer;
+    function VariantPassedCount(const TestVariant: TTestVariant): Integer;
 
     property DurationMs: Int64 read FDurationMs write FDurationMs;
   end;
@@ -82,27 +79,18 @@ implementation
 
 uses
   System.Character,
-  System.IOUtils,
   System.Math,
   System.TypInfo,
   System.Generics.Defaults;
 
 const
-  SUMMARY_FILE_NAME = 'baseline.txt';
-  FAILURES_FILE_NAME = 'failures.txt';
-  PASSED_FILE_NAME = 'passed.txt';
-  CLUSTER_COUNT = 15;
-  TOP_LIST_COUNT = 40;
   MAX_CLUSTER_KEY_LENGTH = 70;
   CLUSTER_CUT_MARKER = #$AB;
   NUMBER_PLACEHOLDER = '#';
   FAILURE_LINE_FORMAT = '%s [%s] %s';
   PASSED_LINE_FORMAT = '%s [%s]';
-  LIST_LINE_FORMAT = '  %7d  %s';
   DETAIL_CUT_SEPARATOR = ';';
   WORD_CONNECTOR = '_';
-  GROUP_HEADER_FORMAT = '%-48s %7s %7s %7s %7s %7s %8s';
-  GROUP_ROW_FORMAT = '%-48s %7d %7d %7d %7d %7d %8s';
 
 function TGroupStats.RunCount: Integer;
 begin
@@ -200,10 +188,10 @@ procedure TConformanceReport.AddVariants(const Results: TArray<TVariantResult>);
 begin
   for var VariantResult in Results do
   begin
-    Inc(FVariantRun[VariantResult.Variant]);
+    Inc(FVariantRun[VariantResult.TestVariant]);
     const HasPassed = (VariantResult.Outcome = TTestOutcome.Passed);
     if HasPassed then
-      Inc(FVariantPassed[VariantResult.Variant]);
+      Inc(FVariantPassed[VariantResult.TestVariant]);
   end;
 end;
 
@@ -226,7 +214,7 @@ end;
 
 function TConformanceReport.FormatResultLine(const TestCase: TTestCase; const VariantResult: TVariantResult): string;
 begin
-  const VariantName = VariantNameOf(VariantResult.Variant);
+  const VariantName = VariantNameOf(VariantResult.TestVariant);
   const HasPassed = (VariantResult.Outcome = TTestOutcome.Passed);
   if HasPassed then
   begin
@@ -238,9 +226,9 @@ begin
   end;
 end;
 
-function TConformanceReport.VariantNameOf(const Variant: TTestVariant): string;
+function TConformanceReport.VariantNameOf(const TestVariant: TTestVariant): string;
 begin
-  Result := LowerCase(GetEnumName(TypeInfo(TTestVariant), Ord(Variant)));
+  Result := LowerCase(GetEnumName(TypeInfo(TTestVariant), Ord(TestVariant)));
 end;
 
 function TConformanceReport.SortedPassedLines: TArray<string>;
@@ -349,22 +337,17 @@ begin
   end;
 end;
 
-function TConformanceReport.FormatRate(const Passed: Integer; const RunCount: Integer): string;
+function TConformanceReport.SortedGroups: TArray<TPair<string, TGroupStats>>;
 begin
-  const HasNoRuns = (RunCount = 0);
-  if HasNoRuns then
-    Exit('    n/a');
-
-  Result := Format('%6.1f%%', [Passed * 100.0 / RunCount], TFormatSettings.Invariant);
+  Result := FGroups.ToArray;
+  TArray.Sort<TPair<string, TGroupStats>>(Result, TComparer<TPair<string, TGroupStats>>.Construct(
+    function(const Left, Right: TPair<string, TGroupStats>): Integer
+    begin
+      Result := CompareStr(Left.Key, Right.Key);
+    end));
 end;
 
-function TConformanceReport.SortedKeys<T>(const Source: TDictionary<string, T>): TArray<string>;
-begin
-  Result := Source.Keys.ToArray;
-  TArray.Sort<string>(Result);
-end;
-
-function TConformanceReport.TopCounts(const Counts: TDictionary<string, Integer>): TArray<TPair<string, Integer>>;
+function TConformanceReport.SortedCounts(const Counts: TDictionary<string, Integer>): TArray<TPair<string, Integer>>;
 begin
   Result := Counts.ToArray;
   TArray.Sort<TPair<string, Integer>>(Result, TComparer<TPair<string, Integer>>.Construct(
@@ -376,7 +359,17 @@ begin
     end));
 end;
 
-function TConformanceReport.TopClusters(const Count: Integer): TArray<TFailureCluster>;
+function TConformanceReport.SkipReasons: TArray<TPair<string, Integer>>;
+begin
+  Result := SortedCounts(FSkipReasons);
+end;
+
+function TConformanceReport.RunFeatures: TArray<TPair<string, Integer>>;
+begin
+  Result := SortedCounts(FRunFeatures);
+end;
+
+function TConformanceReport.SortedClusters: TArray<TFailureCluster>;
 begin
   Result := FClusters.Values.ToArray;
   TArray.Sort<TFailureCluster>(Result, TComparer<TFailureCluster>.Construct(
@@ -386,104 +379,21 @@ begin
       if Result = 0 then
         Result := CompareStr(Left.Key, Right.Key);
     end));
-
-  const HasSurplus = (Length(Result) > Count);
-  if HasSurplus then
-    SetLength(Result, Count);
 end;
 
-function TConformanceReport.BuildSummary: string;
+function TConformanceReport.FailureLines: TArray<string>;
 begin
-  const Lines = TList<string>.Create;
-  try
-    AppendTotals(Lines);
-    AppendSkipReasons(Lines);
-    AppendGroups(Lines);
-    AppendClusters(Lines);
-    AppendRunFeatures(Lines);
-    Result := string.Join(sLineBreak, Lines.ToArray);
-  finally
-    Lines.Free;
-  end;
+  Result := FFailureLines.ToArray;
 end;
 
-procedure TConformanceReport.AppendTotals(const Lines: TList<string>);
+function TConformanceReport.VariantRunCount(const TestVariant: TTestVariant): Integer;
 begin
-  const Sum = Totals;
-  Lines.Add('test262 conformance baseline');
-  Lines.Add('');
-  Lines.Add(Format('Found tests : %d', [Sum.Found]));
-  Lines.Add(Format('Skipped     : %d', [Sum.Skipped]));
-  Lines.Add(Format('Run         : %d', [Sum.RunCount]));
-  Lines.Add(Format('  Passed    : %d', [Sum.Passed]));
-  Lines.Add(Format('  Failed    : %d (of which step budget or limit exceeded: %d)', [Sum.Failed + Sum.Limit, Sum.Limit]));
-  Lines.Add(Format('Pass rate   : %s of the tests that ran', [FormatRate(Sum.Passed, Sum.RunCount).Trim]));
-  Lines.Add(Format('Variants    : sloppy %d of %d passed, strict %d of %d passed',
-                   [FVariantPassed[TTestVariant.Sloppy], FVariantRun[TTestVariant.Sloppy],
-                    FVariantPassed[TTestVariant.Strict], FVariantRun[TTestVariant.Strict]]));
-  Lines.Add(Format('Duration    : %.1f seconds', [FDurationMs / 1000], TFormatSettings.Invariant));
+  Result := FVariantRun[TestVariant];
 end;
 
-procedure TConformanceReport.AppendSkipReasons(const Lines: TList<string>);
+function TConformanceReport.VariantPassedCount(const TestVariant: TTestVariant): Integer;
 begin
-  Lines.Add('');
-  Lines.Add('Skipped by reason (the feature entries are the roadmap)');
-  for var Reason in TopCounts(FSkipReasons) do
-  begin
-    Lines.Add(Format(LIST_LINE_FORMAT, [Reason.Value, Reason.Key]));
-  end;
-end;
-
-procedure TConformanceReport.AppendGroups(const Lines: TList<string>);
-begin
-  Lines.Add('');
-  Lines.Add(Format(GROUP_HEADER_FORMAT, ['Directory', 'Found', 'Skipped', 'Run', 'Passed', 'Failed', 'Rate']));
-  for var Group in SortedKeys<TGroupStats>(FGroups) do
-  begin
-    const Stats = FGroups[Group];
-    const Rate = FormatRate(Stats.Passed, Stats.RunCount);
-    const FailedCount = Stats.Failed + Stats.Limit;
-    Lines.Add(Format(GROUP_ROW_FORMAT, [Group, Stats.Found, Stats.Skipped, Stats.RunCount, Stats.Passed, FailedCount,
-                                        Rate]));
-  end;
-end;
-
-procedure TConformanceReport.AppendClusters(const Lines: TList<string>);
-begin
-  Lines.Add('');
-  Lines.Add(Format('Top %d failure clusters (directory | error), with one example each', [CLUSTER_COUNT]));
-  for var Cluster in TopClusters(CLUSTER_COUNT) do
-  begin
-    Lines.Add(Format('  %6d  %s', [Cluster.Count, Cluster.Key]));
-    Lines.Add(Format('          e.g. %s', [Cluster.Example]));
-  end;
-end;
-
-procedure TConformanceReport.AppendRunFeatures(const Lines: TList<string>);
-begin
-  Lines.Add('');
-  Lines.Add('Feature tags on tests that ran (candidates for the exclusion list)');
-  const HasNoFeatures = (FRunFeatures.Count = 0);
-  if HasNoFeatures then
-    Lines.Add('  (none)');
-
-  const Features = TopCounts(FRunFeatures);
-  for var Index := 0 to Min(Length(Features), TOP_LIST_COUNT) - 1 do
-  begin
-    Lines.Add(Format(LIST_LINE_FORMAT, [Features[Index].Value, Features[Index].Key]));
-  end;
-end;
-
-procedure TConformanceReport.SaveTo(const Directory: string; const Summary: string);
-begin
-  const SummaryPath = TPath.Combine(Directory, SUMMARY_FILE_NAME);
-  const FailuresPath = TPath.Combine(Directory, FAILURES_FILE_NAME);
-  const PassedPath = TPath.Combine(Directory, PASSED_FILE_NAME);
-
-  TDirectory.CreateDirectory(Directory);
-  TFile.WriteAllText(SummaryPath, Summary, TEncoding.UTF8);
-  TFile.WriteAllLines(FailuresPath, FFailureLines.ToArray, TEncoding.UTF8);
-  TFile.WriteAllLines(PassedPath, SortedPassedLines, TEncoding.UTF8);
+  Result := FVariantPassed[TestVariant];
 end;
 
 end.

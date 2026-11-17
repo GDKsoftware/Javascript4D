@@ -14,6 +14,12 @@ uses
   JS4D.SlashContext in 'Source\Lexer\JS4D.SlashContext.pas',
   JS4D.AST in 'Source\Parser\JS4D.AST.pas',
   JS4D.Parser in 'Source\Parser\JS4D.Parser.pas',
+  JS4D.ParserScope in 'Source\Parser\JS4D.ParserScope.pas',
+  JS4D.PropertyKey in 'Source\Core\JS4D.PropertyKey.pas',
+  JS4D.BinaryData in 'Source\Runtime\JS4D.BinaryData.pas',
+  JS4D.ControlFlow in 'Source\Runtime\JS4D.ControlFlow.pas',
+  JS4D.LexicalStates in 'Source\Runtime\JS4D.LexicalStates.pas',
+  JS4D.JsonSyntax in 'Source\API\JS4D.JsonSyntax.pas',
   JS4D.Builtins in 'Source\Runtime\JS4D.Builtins.pas',
   JS4D.PatternOperations in 'Source\Runtime\JS4D.PatternOperations.pas',
   JS4D.Interpreter in 'Source\Runtime\JS4D.Interpreter.pas',
@@ -25,7 +31,7 @@ begin
     var Engine := TJSEngine.Create;
     try
       WriteLn('JavaScript4D - JavaScript Parser & Interpreter for Delphi');
-      WriteLn('ECMAScript 5.1 Compatible');
+      WriteLn('ECMAScript 5.1 with ES2015 features');
       WriteLn('');
 
       WriteLn('Test 1: Simple expression');

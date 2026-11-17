@@ -120,10 +120,13 @@
         <DCCReference Include="JS4D.Conformance.Session.pas"/>
         <DCCReference Include="JS4D.Conformance.ErrorObserver.pas"/>
         <DCCReference Include="JS4D.Conformance.Harness.pas"/>
+        <DCCReference Include="JS4D.Conformance.VerdictJudge.pas"/>
         <DCCReference Include="JS4D.Conformance.TestExecutor.pas"/>
         <DCCReference Include="JS4D.Conformance.Selector.pas"/>
         <DCCReference Include="JS4D.Conformance.Options.pas"/>
         <DCCReference Include="JS4D.Conformance.Report.pas"/>
+        <DCCReference Include="JS4D.Conformance.ReportFormatter.pas"/>
+        <DCCReference Include="JS4D.Conformance.ReportWriter.pas"/>
         <DCCReference Include="JS4D.Conformance.Runner.pas"/>
         <DCCReference Include="JS4D.Conformance.Application.pas"/>
         <BuildConfiguration Include="Release">

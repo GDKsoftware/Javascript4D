@@ -120,9 +120,8 @@ type
 
 implementation
 
-const
-  SyntaxErrorName = 'SyntaxError';
-  TypeErrorName = 'TypeError';
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TWithStatementTests.Setup;
 begin
@@ -240,25 +239,25 @@ end;
 
 procedure TWithStatementTests.With_NullOrUndefined_ThrowsTypeError;
 begin
-  Assert.IsTrue(EvaluatesToError('with (null) { }', TypeErrorName));
-  Assert.IsTrue(EvaluatesToError('with (undefined) { }', TypeErrorName));
+  Assert.IsTrue(EvaluatesToError('with (null) { }', TYPE_ERROR_NAME));
+  Assert.IsTrue(EvaluatesToError('with (undefined) { }', TYPE_ERROR_NAME));
 end;
 
 procedure TWithStatementTests.With_InStrictMode_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToError('eval("\"use strict\"; with ({}) { }");', SyntaxErrorName));
+  Assert.IsTrue(EvaluatesToError('eval("\"use strict\"; with ({}) { }");', SYNTAX_ERROR_NAME));
 end;
 
 procedure TWithStatementTests.With_InsideFunctionWithUseStrictDirective_IsSyntaxError;
 begin
   const Source = 'new Function("\"use strict\"; var o = {}; with (o) { }");';
 
-  Assert.IsTrue(EvaluatesToError(Source, SyntaxErrorName));
+  Assert.IsTrue(EvaluatesToError(Source, SYNTAX_ERROR_NAME));
 end;
 
 procedure TWithStatementTests.With_FunctionDeclarationAsBody_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToError('eval("with ({}) function f() { }");', SyntaxErrorName));
+  Assert.IsTrue(EvaluatesToError('eval("with ({}) function f() { }");', SYNTAX_ERROR_NAME));
 end;
 
 procedure TWithStatementTests.With_LetIdentifierFollowedByNewline_IsExpressionStatement;

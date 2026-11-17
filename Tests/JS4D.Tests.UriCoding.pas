@@ -104,10 +104,10 @@ type
 
 implementation
 
+uses
+  JS4D.Tests.ErrorNames;
+
 const
-  NoError = 'none';
-  UriErrorName = 'URIError';
-  TypeErrorName = 'TypeError';
   ReservedCharacters = ';/?:@&=+$,#';
 
 procedure TUriCodingTests.Setup;
@@ -132,7 +132,7 @@ end;
 function TUriCodingTests.ErrorNameOf(const Expression: string): string;
 begin
   const Script = Format('var name = ''%s''; try { %s; } catch (e) { name = e.name; } name',
-                        [NoError, Expression]);
+                        [NO_ERROR_NAME, Expression]);
 
   Result := FEngine.Evaluate(Script).AsString;
 end;
@@ -166,8 +166,8 @@ begin
   const FromUri = ErrorNameOf(Format('decodeURI(''%s'')', [Encoded]));
   const FromComponent = ErrorNameOf(Format('decodeURIComponent(''%s'')', [Encoded]));
 
-  Assert.AreEqual(UriErrorName, FromUri);
-  Assert.AreEqual(UriErrorName, FromComponent);
+  Assert.AreEqual(URI_ERROR_NAME, FromUri);
+  Assert.AreEqual(URI_ERROR_NAME, FromComponent);
 end;
 
 procedure TUriCodingTests.Encode_Text_ReturnsUppercasePercentEscapes(const Text: string; const Expected: string);
@@ -199,8 +199,8 @@ begin
   const FromUri = ErrorNameOf(Format('encodeURI(''%s'')', [Text]));
   const FromComponent = ErrorNameOf(Format('encodeURIComponent(''%s'')', [Text]));
 
-  Assert.AreEqual(UriErrorName, FromUri);
-  Assert.AreEqual(UriErrorName, FromComponent);
+  Assert.AreEqual(URI_ERROR_NAME, FromUri);
+  Assert.AreEqual(URI_ERROR_NAME, FromComponent);
 end;
 
 procedure TUriCodingTests.RoundTrip_SampledBasicMultilingualPlaneUnits_IsPreserved;
@@ -237,15 +237,15 @@ begin
   const FromUri = ErrorNameOf('decodeURI(source)');
   const FromComponent = ErrorNameOf('decodeURIComponent(source)');
 
-  Assert.AreEqual(TypeErrorName, FromUri);
-  Assert.AreEqual(TypeErrorName, FromComponent);
+  Assert.AreEqual(TYPE_ERROR_NAME, FromUri);
+  Assert.AreEqual(TYPE_ERROR_NAME, FromComponent);
 end;
 
 procedure TUriCodingTests.Decode_CalledAsConstructor_ThrowsTypeError;
 begin
   const Constructed = ErrorNameOf('new decodeURI(''a'')');
 
-  Assert.AreEqual(TypeErrorName, Constructed);
+  Assert.AreEqual(TYPE_ERROR_NAME, Constructed);
 end;
 
 end.

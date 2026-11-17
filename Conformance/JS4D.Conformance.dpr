@@ -35,10 +35,13 @@ uses
   JS4D.Conformance.Session in 'JS4D.Conformance.Session.pas',
   JS4D.Conformance.ErrorObserver in 'JS4D.Conformance.ErrorObserver.pas',
   JS4D.Conformance.Harness in 'JS4D.Conformance.Harness.pas',
+  JS4D.Conformance.VerdictJudge in 'JS4D.Conformance.VerdictJudge.pas',
   JS4D.Conformance.TestExecutor in 'JS4D.Conformance.TestExecutor.pas',
   JS4D.Conformance.Selector in 'JS4D.Conformance.Selector.pas',
   JS4D.Conformance.Options in 'JS4D.Conformance.Options.pas',
   JS4D.Conformance.Report in 'JS4D.Conformance.Report.pas',
+  JS4D.Conformance.ReportFormatter in 'JS4D.Conformance.ReportFormatter.pas',
+  JS4D.Conformance.ReportWriter in 'JS4D.Conformance.ReportWriter.pas',
   JS4D.Conformance.Runner in 'JS4D.Conformance.Runner.pas',
   JS4D.Conformance.Application in 'JS4D.Conformance.Application.pas';
 

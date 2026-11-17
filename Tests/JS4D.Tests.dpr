@@ -69,6 +69,7 @@ uses
   JS4D.Tests.ForOf in 'JS4D.Tests.ForOf.pas',
   JS4D.Tests.ForIn in 'JS4D.Tests.ForIn.pas',
   JS4D.Tests.SlotMap in 'JS4D.Tests.SlotMap.pas',
+  JS4D.Tests.ErrorNames in 'JS4D.Tests.ErrorNames.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',
   JS4D.Tests.LexicalStates in 'JS4D.Tests.LexicalStates.pas',

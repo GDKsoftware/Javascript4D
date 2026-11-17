@@ -58,7 +58,6 @@ const
   TEST_FOLDER_NAME = 'test';
   HARNESS_FOLDER_NAME = 'harness';
   DEFAULT_ROOTS: array[0..1] of string = ('language', 'built-ins');
-  MAX_LEVELS_UP = 6;
 
 constructor TConformanceOptions.Create;
 begin
@@ -100,7 +99,7 @@ end;
 function TConformanceOptions.FindConformanceDirectory: string;
 begin
   var Candidate := TPath.GetDirectoryName(ParamStr(0));
-  for var Level := 0 to MAX_LEVELS_UP do
+  while not Candidate.IsEmpty do
   begin
     const MarkerPath = TPath.Combine(Candidate, EXCLUSIONS_FILE_NAME);
     if TFile.Exists(MarkerPath) then

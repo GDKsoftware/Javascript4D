@@ -110,7 +110,8 @@ end;
 function TTestSelector.TryGetFeatureReason(const TestCase: TTestCase; out Reason: string): Boolean;
 begin
   var Tag: string;
-  const Features = TestCase.Metadata.Features;
+  const Metadata = TestCase.Metadata;
+  const Features = Metadata.Features;
   Result := FExclusions.TryFindExcluded(Features, Tag);
   if Result then
     Reason := Format(FEATURE_REASON_FORMAT, [Tag])

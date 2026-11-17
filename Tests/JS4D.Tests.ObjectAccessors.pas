@@ -71,8 +71,8 @@ type
 
 implementation
 
-const
-  SyntaxErrorName = 'SyntaxError';
+uses
+  JS4D.Tests.ErrorNames;
 
 function TObjectAccessorTests.ErrorNameOfEval(const Source: string): string;
 begin
@@ -202,7 +202,7 @@ end;
 
 procedure TObjectAccessorTests.Eval_InvalidAccessor_IsSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 end.

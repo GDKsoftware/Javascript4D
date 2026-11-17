@@ -10,8 +10,6 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Engine,
-  JS4D.BinaryData,
-  JS4D.Errors,
   JS4D.Conformance.Defines;
 
 type
@@ -41,6 +39,10 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.BinaryData,
+  JS4D.Errors;
 
 const
   PRINT_NAME = 'print';
@@ -155,7 +157,10 @@ begin
       var Buffer: IJSArrayBuffer;
       var IsBuffer := False;
       if HasArgument and Args[0].IsObject then
-        IsBuffer := Supports(Args[0].ToObject, IJSArrayBuffer, Buffer);
+      begin
+        const Candidate = Args[0].ToObject;
+        IsBuffer := Supports(Candidate, IJSArrayBuffer, Buffer);
+      end;
 
       if not IsBuffer then
         raise TJSErrorFactory.TypeError(NOT_AN_ARRAY_BUFFER);

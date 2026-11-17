@@ -153,9 +153,9 @@ end;
 function TConformanceRunner.RunVariants(const TestCase: TTestCase): TArray<TVariantResult>;
 begin
   Result := [];
-  for var Variant in TTestExecutor.VariantsOf(TestCase) do
+  for var TestVariant in TTestExecutor.VariantsOf(TestCase) do
   begin
-    const VariantResult = FExecutor.Run(TestCase, Variant);
+    const VariantResult = FExecutor.Run(TestCase, TestVariant);
     Result := Result + [VariantResult];
   end;
 end;

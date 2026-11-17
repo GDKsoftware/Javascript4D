@@ -82,8 +82,8 @@ type
 
 implementation
 
-const
-  SyntaxErrorName = 'SyntaxError';
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TLabelledStatementTests.Setup;
 begin
@@ -258,7 +258,7 @@ end;
 
 procedure TLabelledStatementTests.Eval_InvalidLabelUsage_IsSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 end.

@@ -144,9 +144,8 @@ type
 
 implementation
 
-const
-  SyntaxErrorName = 'SyntaxError';
-  NoErrorName = 'none';
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TLexicalGrammarTests.Setup;
 begin
@@ -172,7 +171,7 @@ end;
 function TLexicalGrammarTests.ErrorNameOfEval(const Source: string): string;
 begin
   const Script = Format('var name = "%s"; try { eval("%s"); } catch (e) { name = e.name; } name',
-                        [NoErrorName, EscapeForStringLiteral(Source)]);
+                        [NO_ERROR_NAME, EscapeForStringLiteral(Source)]);
 
   Result := FEngine.Evaluate(Script).AsString;
 end;
@@ -206,7 +205,7 @@ begin
   const Terminator = Char(CodeUnit);
   const Source = Format('"a%sb"', [Terminator]);
 
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 procedure TLexicalGrammarTests.LineContinuation_InStringLiteral_ContributesNothing(const CodeUnit: Integer);
@@ -237,7 +236,7 @@ end;
 
 procedure TLexicalGrammarTests.Literal_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 procedure TLexicalGrammarTests.StringLiteral_LegacyOctalEscape_ProducesCodeUnit(const Escape: string;
@@ -271,14 +270,14 @@ end;
 
 procedure TLexicalGrammarTests.StringLiteral_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual(NoErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 procedure TLexicalGrammarTests.DirectivePrologue_UseStrictAfterOtherDirective_StartsStrictMode;
 begin
   const Source = 'function f() { "other"; "use strict"; with ({}) {} }';
 
-  Assert.AreEqual(SyntaxErrorName, ErrorNameOfEval(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
 end;
 
 end.
