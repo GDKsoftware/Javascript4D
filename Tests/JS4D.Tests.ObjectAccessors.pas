@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TObjectAccessorTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOfEval(const Source: string): string;
-
+  TObjectAccessorTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Getter_InObjectLiteral_ComputesValueOnRead;
 
@@ -37,7 +25,7 @@ type
     procedure Setter_ThenGetter_FormOneAccessorProperty;
 
     [Test]
-    procedure Getter_ThisIsTheObject;
+    procedure Getter_ReadThroughObject_ReceivesObjectAsThis;
 
     [Test]
     procedure Accessor_KeyedByStringAndNumber_IsReadable;
@@ -49,21 +37,21 @@ type
     procedure Accessor_Descriptor_IsEnumerableAndConfigurable;
 
     [Test]
-    procedure PropertiesNamedGetAndSet_RemainOrdinaryProperties;
+    procedure ObjectLiteral_PropertiesNamedGetAndSet_RemainOrdinary;
 
     [Test]
-    procedure DataPropertyAfterAccessor_ReplacesAccessor;
+    procedure ObjectLiteral_DataPropertyAfterAccessor_ReplacesAccessor;
 
     [Test]
-    procedure AccessorAfterDataProperty_ReplacesDataProperty;
+    procedure ObjectLiteral_AccessorAfterDataProperty_ReplacesDataProperty;
 
     [Test]
     [TestCase('GetterWithParameter', '({ get x(a) { return 1; } })')]
     [TestCase('SetterWithoutParameter', '({ set x() { } })')]
     [TestCase('SetterWithTwoParameters', '({ set x(a, b) { } })', ';')]
     [TestCase('GetterWithoutBody', '({ get x })')]
-    [TestCase('EscapedGetKeyword', '({ \\u0067et x() { } })')]
-    [TestCase('EscapedSetKeyword', '({ s\\u0065t x(v) { } })')]
+    [TestCase('EscapedGetKeyword', '({ \u0067et x() { } })')]
+    [TestCase('EscapedSetKeyword', '({ s\u0065t x(v) { } })')]
     [TestCase('SetterParameterEvalInStrictCode', '''use strict''; ({ set x(eval) { } })')]
     [TestCase('SetterParameterArgumentsInStrictBody', '({ set x(arguments) { ''use strict''; } })')]
     procedure Eval_InvalidAccessor_IsSyntaxError(const Source: string);
@@ -74,23 +62,6 @@ implementation
 uses
   JS4D.Tests.ErrorNames;
 
-function TObjectAccessorTests.ErrorNameOfEval(const Source: string): string;
-begin
-  const Script = Format('var name = "none"; try { eval("%s"); } catch (e) { name = e.name; } name', [Source]);
-
-  Result := FEngine.Evaluate(Script).AsString;
-end;
-
-procedure TObjectAccessorTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TObjectAccessorTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TObjectAccessorTests.Getter_InObjectLiteral_ComputesValueOnRead;
 begin
   const Script =
@@ -98,7 +69,9 @@ begin
     'var o = { get x() { calls++; return 41 + calls; } };' + sLineBreak +
     'o.x + o.x';
 
-  Assert.AreEqual(85.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(85.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Setter_InObjectLiteral_RunsOnAssignment;
@@ -109,7 +82,9 @@ begin
     'o.x = 21;' + sLineBreak +
     'stored';
 
-  Assert.AreEqual(42.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(42.0, Actual);
 end;
 
 procedure TObjectAccessorTests.GetterAndSetter_SameName_FormOneAccessorProperty;
@@ -120,7 +95,9 @@ begin
     'o.x = 5;' + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(6.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(6.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Setter_ThenGetter_FormOneAccessorProperty;
@@ -131,16 +108,20 @@ begin
     'o.x = 5;' + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(6.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(6.0, Actual);
 end;
 
-procedure TObjectAccessorTests.Getter_ThisIsTheObject;
+procedure TObjectAccessorTests.Getter_ReadThroughObject_ReceivesObjectAsThis;
 begin
   const Script =
     'var o = { n: 7, get double() { return this.n * 2; } };' + sLineBreak +
     'o.double';
 
-  Assert.AreEqual(14.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(14.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Accessor_KeyedByStringAndNumber_IsReadable;
@@ -149,7 +130,9 @@ begin
     'var o = { get "a b"() { return 1; }, get 7() { return 10; } };' + sLineBreak +
     'o["a b"] + o[7]';
 
-  Assert.AreEqual(11.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(11.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Accessor_KeyedByReservedWord_IsReadable;
@@ -158,7 +141,9 @@ begin
     'var o = { get if() { return 3; }, set get(v) { } };' + sLineBreak +
     'o.if';
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Accessor_Descriptor_IsEnumerableAndConfigurable;
@@ -168,41 +153,51 @@ begin
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'typeof d.get === "function" && d.set === undefined && d.enumerable && d.configurable';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TObjectAccessorTests.PropertiesNamedGetAndSet_RemainOrdinaryProperties;
+procedure TObjectAccessorTests.ObjectLiteral_PropertiesNamedGetAndSet_RemainOrdinary;
 begin
   const Script =
     'var o = { get: 1, set: 2, get get() { return 3; } };' + sLineBreak +
     'var p = { get: 1, set: 2 };' + sLineBreak +
     'o.get * 100 + p.get * 10 + p.set';
 
-  Assert.AreEqual(312.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(312.0, Actual);
 end;
 
-procedure TObjectAccessorTests.DataPropertyAfterAccessor_ReplacesAccessor;
+procedure TObjectAccessorTests.ObjectLiteral_DataPropertyAfterAccessor_ReplacesAccessor;
 begin
   const Script =
     'var o = { get x() { return 1; }, x: 2 };' + sLineBreak +
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'd.value === 2 && d.writable';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TObjectAccessorTests.AccessorAfterDataProperty_ReplacesDataProperty;
+procedure TObjectAccessorTests.ObjectLiteral_AccessorAfterDataProperty_ReplacesDataProperty;
 begin
   const Script =
     'var o = { x: 2, get x() { return 9; } };' + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(9.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(9.0, Actual);
 end;
 
 procedure TObjectAccessorTests.Eval_InvalidAccessor_IsSyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

@@ -27,6 +27,7 @@ type
   protected
     FEngine: TJSEngine;
 
+    procedure ConfigureEngine; virtual;
     function EvaluateNumber(const Script: string): Double;
     function EvaluateBoolean(const Script: string): Boolean;
     function EvaluateText(const Script: string): string;
@@ -34,6 +35,9 @@ type
     function ErrorNameOf(const Source: string): string;
     function ThrownErrorNameOf(const Statements: string): string;
     function ThrowsTypeError(const Statement: string): Boolean;
+
+    procedure AssertEvaluatesTo(const Expected: string; const Script: string);
+    procedure AssertChecksHold(const Preparation: string; const Checks: array of string);
 
   public
     [Setup]
@@ -112,9 +116,14 @@ begin
   Result := Caught.AsString;
 end;
 
+procedure TJSEngineTestCase.ConfigureEngine;
+begin
+end;
+
 procedure TJSEngineTestCase.Setup;
 begin
   FEngine := TJSEngine.Create;
+  ConfigureEngine;
 end;
 
 procedure TJSEngineTestCase.TearDown;
@@ -166,6 +175,29 @@ begin
   const Script = Format(THROWS_TYPE_ERROR_FORMAT, [Statement]);
 
   Result := EvaluateBoolean(Script);
+end;
+
+procedure TJSEngineTestCase.AssertEvaluatesTo(const Expected: string; const Script: string);
+begin
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual, Script);
+end;
+
+procedure TJSEngineTestCase.AssertChecksHold(const Preparation: string; const Checks: array of string);
+begin
+  var Passing: TArray<string>;
+  SetLength(Passing, Length(Checks));
+  for var Index := 0 to High(Checks) do
+  begin
+    Passing[Index] := 'true';
+  end;
+
+  const Expected = string.Join(',', Passing);
+  const Expressions = string.Join(', ', Checks);
+  const Script = Format('%s [%s].join()', [Preparation, Expressions]);
+
+  AssertEvaluatesTo(Expected, Script);
 end;
 
 end.

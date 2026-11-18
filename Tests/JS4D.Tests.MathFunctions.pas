@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TMathFunctionsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TMathFunctionsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('CeilNegativeZero', '1 / Math.ceil(-0)#-Infinity', '#')]
     [TestCase('CeilSmallNegative', '1 / Math.ceil(-0.5)#-Infinity', '#')]
@@ -122,29 +110,15 @@ type
     [TestCase('FromCodePointSupplementary', 'String.fromCodePoint(0x1F600).length#2', '#')]
     [TestCase('ArrayLengthOfInfinity', '(function () { try { new Array(Infinity); return "no error"; } catch (e) { return e instanceof RangeError; } })()#true', '#')]
     procedure Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
-
   end;
 
 implementation
 
-procedure TMathFunctionsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TMathFunctionsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TMathFunctionsTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
 procedure TMathFunctionsTests.Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TextOf(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

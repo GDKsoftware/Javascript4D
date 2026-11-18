@@ -7,23 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TNumberParsingTests = class
-  private
-    FEngine: TJSEngine;
-
-    function StringOf(const Expression: string): string;
-
+  TNumberParsingTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Padded', '"  12  "|12', '|')]
     [TestCase('NoBreakSpace', '"\u00A012\u00A0"|12', '|')]
@@ -155,25 +144,10 @@ type
 
 implementation
 
-procedure TNumberParsingTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TNumberParsingTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TNumberParsingTests.StringOf(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).AsString;
-end;
-
 procedure TNumberParsingTests.Number_Argument_ConvertsPerStringNumericLiteral(const Argument: string;
                                                                               const Expected: string);
 begin
-  const Actual = StringOf(Format('Number(%s)', [Argument]));
+  const Actual = TextOf(Format('Number(%s)', [Argument]));
 
   Assert.AreEqual(Expected, Actual);
 end;
@@ -181,15 +155,15 @@ end;
 procedure TNumberParsingTests.Number_Expression_ReturnsExpectedText(const Expression: string;
                                                                        const Expected: string);
 begin
-  const Actual = StringOf(Expression);
+  const Actual = TextOf(Expression);
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberParsingTests.Number_DecimalText_RoundsToNearestDouble(const Text: string; const Expected: string);
 begin
-  const FromString = StringOf(Format('Number("%s")', [Text]));
-  const FromLiteral = StringOf(Text);
+  const FromString = TextOf(Format('Number("%s")', [Text]));
+  const FromLiteral = TextOf(Text);
 
   Assert.AreEqual(Expected, FromString);
   Assert.AreEqual(Expected, FromLiteral);
@@ -199,7 +173,7 @@ procedure TNumberParsingTests.ParseInt_Arguments_FollowsSpecification(const Text
                                                                       const Radix: string;
                                                                       const Expected: string);
 begin
-  const Actual = StringOf(Format('parseInt(%s, %s)', [Text, Radix]));
+  const Actual = TextOf(Format('parseInt(%s, %s)', [Text, Radix]));
 
   Assert.AreEqual(Expected, Actual);
 end;
@@ -210,21 +184,21 @@ begin
                  'try { parseInt("1", {valueOf: function () { throw "boom"; }}); } catch (e) { caught = e; } ' +
                  'caught';
 
-  const Actual = FEngine.Evaluate(Script).AsString;
+  const Actual = EvaluateText(Script);
 
   Assert.AreEqual('boom', Actual);
 end;
 
 procedure TNumberParsingTests.ParseFloat_Argument_ReadsLongestPrefix(const Text: string; const Expected: string);
 begin
-  const Actual = StringOf(Format('parseFloat(%s)', [Text]));
+  const Actual = TextOf(Format('parseFloat(%s)', [Text]));
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberParsingTests.Trim_Text_RemovesOnlyEcmaScriptWhiteSpace(const Text: string; const Expected: string);
 begin
-  const IsExpected = FEngine.Evaluate(Format('(%s).trim() === %s', [Text, Expected])).AsBoolean;
+  const IsExpected = EvaluateBoolean(Format('(%s).trim() === %s', [Text, Expected]));
 
   Assert.IsTrue(IsExpected);
 end;
@@ -233,7 +207,7 @@ procedure TNumberParsingTests.GlobalPredicate_ThrowingValueOf_Propagates(const E
 begin
   const Script = Format('var thrown = false; try { %s; } catch (e) { thrown = true; } thrown', [Expression]);
 
-  const HasThrown = FEngine.Evaluate(Script).AsBoolean;
+  const HasThrown = EvaluateBoolean(Script);
 
   Assert.IsTrue(HasThrown);
 end;

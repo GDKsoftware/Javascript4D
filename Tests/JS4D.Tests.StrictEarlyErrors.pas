@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TStrictEarlyErrorsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluatesToSyntaxError(const Source: string): Boolean;
-
+  TStrictEarlyErrorsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Assign eval', '"use strict"; eval = 1')]
     [TestCase('Assign arguments', '"use strict"; arguments = 1')]
@@ -76,35 +64,21 @@ type
 
 implementation
 
-procedure TStrictEarlyErrorsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStrictEarlyErrorsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TStrictEarlyErrorsTests.EvaluatesToSyntaxError(const Source: string): Boolean;
-begin
-  const BackslashEscaped = Source.Replace('\', '\\');
-  const Escaped = BackslashEscaped.Replace('"', '\"');
-  const Wrapper = Format('var caught = false; try { eval("%s"); } catch (e) { caught = e instanceof SyntaxError; }',
-                         [Escaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsBoolean;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TStrictEarlyErrorsTests.StrictSource_RestrictedUse_RaisesSyntaxError(const Source: string);
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TStrictEarlyErrorsTests.Source_InSloppyMode_AcceptsRestrictedNames(const Source: string);
 begin
-  Assert.IsFalse(EvaluatesToSyntaxError(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreNotEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TStrictEarlyErrorsTests.DirectEval_InStrictFunction_InheritsStrictness;
@@ -114,7 +88,9 @@ begin
                   'catch (e) { caught = e instanceof SyntaxError; } }' +
                   'f();');
 
-  Assert.IsTrue(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsTrue(Caught);
 end;
 
 procedure TStrictEarlyErrorsTests.DirectEval_InSloppyFunction_StaysSloppy;
@@ -123,7 +99,9 @@ begin
                   'function f() { try { eval("var public = 1;"); } catch (e) { caught = true; } }' +
                   'f();');
 
-  Assert.IsFalse(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsFalse(Caught);
 end;
 
 procedure TStrictEarlyErrorsTests.IndirectEval_CalledFromStrictFunction_StaysSloppy;
@@ -132,7 +110,9 @@ begin
                   'function f() { "use strict"; try { indirect("var public = 1;"); } catch (e) { caught = true; } }' +
                   'f();');
 
-  Assert.IsFalse(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsFalse(Caught);
 end;
 
 end.

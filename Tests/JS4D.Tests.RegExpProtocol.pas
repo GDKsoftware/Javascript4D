@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TRegExpProtocolTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TRegExpProtocolTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Match global collects all matches', '/a/g[Symbol.match]("banana").join()#a,a,a', '#')]
     [TestCase('Match global without matches is null', '/x/g[Symbol.match]("banana")#null', '#')]
@@ -107,29 +95,15 @@ type
     [TestCase('Constructor treats a falsy match symbol as no regexp', '(function () { var r = /a/; r[Symbol.match] = false; return RegExp(r) === r; })()#false', '#')]
     [TestCase('Constructor reads the source of a regexp-like object', '(function () { try { (function () { var o = { get source() { throw new RangeError(); } }; o[Symbol.match] = true; new RegExp(o); })(); } catch (e) { return e instanceof RangeError; } return false; })()#true', '#')]
     procedure RegExpProtocol_Script_ReturnsExpectedText(const Expression, Expected: string);
-
   end;
 
 implementation
 
-procedure TRegExpProtocolTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TRegExpProtocolTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TRegExpProtocolTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
 procedure TRegExpProtocolTests.RegExpProtocol_Script_ReturnsExpectedText(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TextOf(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

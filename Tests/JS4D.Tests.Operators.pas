@@ -6,25 +6,18 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TOperatorsTests = class
+  TOperatorsTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
+    function ResultOf(const Source: string): string;
     function RunScript(const Script: string): string;
     function RunStrictScript(const Script: string): string;
+    function CatchingErrorName(const Statements: string): string;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Unsigned shift of negative', 'result = -1 >>> 0#4294967295', '#')]
     [TestCase('Signed right shift of negative', 'result = -1 >> 1#-1', '#')]
@@ -166,57 +159,72 @@ type
     [TestCase('In with string right operand', '"length" in "abc"')]
     [TestCase('In with null right operand', '"x" in null')]
     procedure RelationalOperator_OnInvalidRightOperand_ThrowsTypeError(const Expression: string);
-
   end;
 
 implementation
 
-procedure TOperatorsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  System.SysUtils,
+  JS4D.Tests.ErrorNames;
 
-procedure TOperatorsTests.TearDown;
+const
+  CATCHING_ERROR_NAME_FORMAT = 'var caught = ""; try { %s } catch (e) { caught = e.name; } result = caught;';
+
+function TOperatorsTests.ResultOf(const Source: string): string;
 begin
-  FEngine.Free;
+  FEngine.Execute(Source);
+
+  Result := TextOf('result');
 end;
 
 function TOperatorsTests.RunScript(const Script: string): string;
 begin
-  FEngine.Execute(Format('var result; %s', [Script]));
+  const Source = Format('var result; %s', [Script]);
 
-  Result := FEngine.Evaluate('String(result)').ToString;
+  Result := ResultOf(Source);
 end;
 
 function TOperatorsTests.RunStrictScript(const Script: string): string;
 begin
-  FEngine.Execute(Format('"use strict"; var result; %s', [Script]));
+  const Source = Format('"use strict"; var result; %s', [Script]);
 
-  Result := FEngine.Evaluate('String(result)').ToString;
+  Result := ResultOf(Source);
+end;
+
+function TOperatorsTests.CatchingErrorName(const Statements: string): string;
+begin
+  Result := Format(CATCHING_ERROR_NAME_FORMAT, [Statements]);
 end;
 
 procedure TOperatorsTests.Operator_Script_ReturnsExpected(const Script: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, RunScript(Script));
+  const Actual = RunScript(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TOperatorsTests.StrictMode_FailedPut_ThrowsTypeError(const Script: string);
 begin
-  const Guarded = Format('var caught = ""; try { %s } catch (e) { caught = e.name; } result = caught;', [Script]);
+  const Guarded = CatchingErrorName(Script);
+  const Actual = RunStrictScript(Guarded);
 
-  Assert.AreEqual('TypeError', RunStrictScript(Guarded));
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TOperatorsTests.StrictMode_SuccessfulPut_StillWorks(const Script: string; const Expected: string);
 begin
-  Assert.AreEqual(Expected, RunStrictScript(Script));
+  const Actual = RunStrictScript(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TOperatorsTests.RelationalOperator_OnInvalidRightOperand_ThrowsTypeError(const Expression: string);
 begin
-  const Guarded = Format('var caught = ""; try { %s; } catch (e) { caught = e.name; } result = caught;', [Expression]);
+  const Statement = Format('%s;', [Expression]);
+  const Guarded = CatchingErrorName(Statement);
+  const Actual = RunScript(Guarded);
 
-  Assert.AreEqual('TypeError', RunScript(Guarded));
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 end.

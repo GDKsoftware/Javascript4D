@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TProxyTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TProxyTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Without traps everything reaches the target', '(function () { var t = { a: 1 }; var p = new Proxy(t, {}); p.b = 2; return p.a + "," + t.b + "," + ("a" in p) + "," + delete p.a + "," + Object.keys(t); })()#1,2,true,true,b', '#')]
     [TestCase('The get trap receives target, key and receiver', '(function () { var log = []; var p = new Proxy({}, { get: function (t, k, r) { log.push(typeof t, k, r === p); return 5; } }); return p.x + "," + log; })()#5,object,x,true', '#')]
@@ -141,24 +129,11 @@ type
 
 implementation
 
-procedure TProxyTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TProxyTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TProxyTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
 procedure TProxyTests.ProxyAndReflect_Script_EvaluatesToTrue(const Expression, Expected: string);
 begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  const Actual = TextOf(Expression);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TProxyTests.Proxy_OverObjectWithManyReads_StaysFast;
@@ -166,7 +141,9 @@ begin
   const Script = '(function () { var p = new Proxy({ a: 1 }, { get: function (t, k) { return t[k]; } }); ' +
                  'var sum = 0; for (var i = 0; i < 20000; i++) { sum += p.a; } return sum; })()';
 
-  Assert.AreEqual('20000', Evaluate(Script));
+  const Actual = TextOf(Script);
+
+  Assert.AreEqual('20000', Actual);
 end;
 
 procedure TProxyTests.Proxy_ChainedTooDeep_RaisesRangeError;
@@ -174,7 +151,9 @@ begin
   const Script = '(function () { var p = {}; try { for (var i = 0; i < 100000; i++) { p = new Proxy(p, {}); } p.x; } ' +
                  'catch (e) { return e instanceof RangeError; } return false; })()';
 
-  Assert.AreEqual('true', Evaluate(Script));
+  const Actual = TextOf(Script);
+
+  Assert.AreEqual('true', Actual);
 end;
 
 procedure TProxyTests.Proxy_ChainedModerately_StillWorks;
@@ -182,7 +161,9 @@ begin
   const Script = '(function () { var p = { a: 1 }; for (var i = 0; i < 100; i++) { p = new Proxy(p, {}); } ' +
                  'return p.a + "," + Object.keys(p); })()';
 
-  Assert.AreEqual('1,a', Evaluate(Script));
+  const Actual = TextOf(Script);
+
+  Assert.AreEqual('1,a', Actual);
 end;
 
 procedure TProxyTests.Proxy_DoesNotChangeOrdinaryObjects;
@@ -190,7 +171,9 @@ begin
   const Script = '(function () { var o = { a: 1 }; var f = function () { return 2; }; var arr = [1, 2]; ' +
                  'return Object.keys(o) + "," + f() + "," + arr.length + "," + (Object.getPrototypeOf(arr) === Array.prototype); })()';
 
-  Assert.AreEqual('a,2,2,true', Evaluate(Script));
+  const Actual = TextOf(Script);
+
+  Assert.AreEqual('a,2,2,true', Actual);
 end;
 
 end.

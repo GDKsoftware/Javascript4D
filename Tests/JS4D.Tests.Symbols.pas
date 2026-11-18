@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TSymbolTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Run(const Script: string): string;
-    function ErrorNameOf(const Script: string): string;
-
+  TSymbolTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('TypeOf', 'typeof Symbol()|symbol', '|')]
     [TestCase('TypeOfWrapper', 'typeof Object(Symbol())|object', '|')]
@@ -124,36 +111,36 @@ type
     procedure Symbol_Script_ReturnsExpected(const Script, Expected: string);
 
     [Test]
-    [TestCase('ToNumber', '+Symbol()|', '|')]
-    [TestCase('ToNumberFunction', 'Number(Symbol())|', '|')]
-    [TestCase('Subtraction', 'Symbol() - 1|', '|')]
-    [TestCase('Multiplication', '2 * Symbol()|', '|')]
-    [TestCase('BitwiseNot', '~Symbol()|', '|')]
-    [TestCase('Addition', 'Symbol() + 1|', '|')]
-    [TestCase('StringConcatenation', '"a" + Symbol()|', '|')]
-    [TestCase('TemplateLiteral', '`${Symbol()}`|', '|')]
-    [TestCase('Relational', 'Symbol() < 1|', '|')]
-    [TestCase('JoinElement', '[Symbol()].join()|', '|')]
-    [TestCase('StringObject', 'new String(Symbol())|', '|')]
-    [TestCase('NewSymbol', 'new Symbol()|', '|')]
-    [TestCase('ParseInt', 'parseInt(Symbol())|', '|')]
-    [TestCase('DescriptionIsSymbol', 'Symbol(Symbol())|', '|')]
-    [TestCase('KeyForNotASymbol', 'Symbol.keyFor("x")|', '|')]
-    [TestCase('ToStringOnNonSymbol', 'Symbol.prototype.toString.call("x")|', '|')]
-    [TestCase('ValueOfOnNonSymbol', 'Symbol.prototype.valueOf.call({})|', '|')]
-    [TestCase('DescriptionOnNonSymbol', 'Object.getOwnPropertyDescriptor(Symbol.prototype, "description").get.call({})|', '|')]
-    [TestCase('ArrayElementJoin', 'new Array(Symbol()).join()|', '|')]
-    [TestCase('InOperatorLeftSymbolWithPrimitiveRight', 'Symbol() in 1|', '|')]
-    [TestCase('HasInstanceNotCallable', 'var o = { [Symbol.hasInstance]: 1 }; 1 instanceof o|', '|')]
-    [TestCase('ToPrimitiveNotCallable', 'var o = { [Symbol.toPrimitive]: 1 }; +o|', '|')]
-    [TestCase('ToPrimitiveReturnsObject', 'var o = { [Symbol.toPrimitive]() { return {}; } }; +o|', '|')]
-    [TestCase('DateToPrimitiveInvalidHint', 'new Date(0)[Symbol.toPrimitive]("x")|', '|')]
-    [TestCase('SpeciesNotAConstructor', 'var a = [1]; a.constructor = { [Symbol.species]: 1 }; a.slice()|', '|')]
-    [TestCase('SpeciesNotAConstructorFunction', 'var a = [1]; a.constructor = { [Symbol.species]: Math.max }; a.slice()|', '|')]
-    [TestCase('ConstructorPrimitiveRaises', 'var a = [1]; a.constructor = 1; a.map(function () {})|', '|')]
-    [TestCase('ToJsonWithoutThis', 'var f = Date.prototype.toJSON; f.call(undefined)|', '|')]
-    [TestCase('SymbolWrapperAsSearchString', '"".indexOf(Object(Symbol()))|', '|')]
-    procedure Symbol_Script_RaisesTypeError(const Script, Ignored: string);
+    [TestCase('ToNumber', '+Symbol()', '|')]
+    [TestCase('ToNumberFunction', 'Number(Symbol())', '|')]
+    [TestCase('Subtraction', 'Symbol() - 1', '|')]
+    [TestCase('Multiplication', '2 * Symbol()', '|')]
+    [TestCase('BitwiseNot', '~Symbol()', '|')]
+    [TestCase('Addition', 'Symbol() + 1', '|')]
+    [TestCase('StringConcatenation', '"a" + Symbol()', '|')]
+    [TestCase('TemplateLiteral', '`${Symbol()}`', '|')]
+    [TestCase('Relational', 'Symbol() < 1', '|')]
+    [TestCase('JoinElement', '[Symbol()].join()', '|')]
+    [TestCase('StringObject', 'new String(Symbol())', '|')]
+    [TestCase('NewSymbol', 'new Symbol()', '|')]
+    [TestCase('ParseInt', 'parseInt(Symbol())', '|')]
+    [TestCase('DescriptionIsSymbol', 'Symbol(Symbol())', '|')]
+    [TestCase('KeyForNotASymbol', 'Symbol.keyFor("x")', '|')]
+    [TestCase('ToStringOnNonSymbol', 'Symbol.prototype.toString.call("x")', '|')]
+    [TestCase('ValueOfOnNonSymbol', 'Symbol.prototype.valueOf.call({})', '|')]
+    [TestCase('DescriptionOnNonSymbol', 'Object.getOwnPropertyDescriptor(Symbol.prototype, "description").get.call({})', '|')]
+    [TestCase('ArrayElementJoin', 'new Array(Symbol()).join()', '|')]
+    [TestCase('InOperatorLeftSymbolWithPrimitiveRight', 'Symbol() in 1', '|')]
+    [TestCase('HasInstanceNotCallable', 'var o = { [Symbol.hasInstance]: 1 }; 1 instanceof o', '|')]
+    [TestCase('ToPrimitiveNotCallable', 'var o = { [Symbol.toPrimitive]: 1 }; +o', '|')]
+    [TestCase('ToPrimitiveReturnsObject', 'var o = { [Symbol.toPrimitive]() { return {}; } }; +o', '|')]
+    [TestCase('DateToPrimitiveInvalidHint', 'new Date(0)[Symbol.toPrimitive]("x")', '|')]
+    [TestCase('SpeciesNotAConstructor', 'var a = [1]; a.constructor = { [Symbol.species]: 1 }; a.slice()', '|')]
+    [TestCase('SpeciesNotAConstructorFunction', 'var a = [1]; a.constructor = { [Symbol.species]: Math.max }; a.slice()', '|')]
+    [TestCase('ConstructorPrimitiveRaises', 'var a = [1]; a.constructor = 1; a.map(function () {})', '|')]
+    [TestCase('ToJsonWithoutThis', 'var f = Date.prototype.toJSON; f.call(undefined)', '|')]
+    [TestCase('SymbolWrapperAsSearchString', '"".indexOf(Object(Symbol()))', '|')]
+    procedure Symbol_Script_RaisesTypeError(const Script: string);
 
     [Test]
     [TestCase('SymbolKeyedAssignment', 'var s = Symbol(); var o = {}; o[s] = 5; o[s]|5', '|')]
@@ -290,42 +277,28 @@ type
 
 implementation
 
-procedure TSymbolTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TSymbolTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TSymbolTests.Run(const Script: string): string;
-begin
-  Result := FEngine.Evaluate(Script).ToString;
-end;
-
-function TSymbolTests.ErrorNameOf(const Script: string): string;
-begin
-  FEngine.Execute('var caught = "none";');
-  FEngine.Execute(Format('try { %s; } catch (e) { caught = e.name; }', [Script]));
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+uses
+  System.SysUtils,
+  JS4D.Tests.ErrorNames;
 
 procedure TSymbolTests.Symbol_Script_ReturnsExpected(const Script, Expected: string);
 begin
-  Assert.AreEqual(Expected, Run(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TSymbolTests.Symbol_Script_RaisesTypeError(const Script, Ignored: string);
+procedure TSymbolTests.Symbol_Script_RaisesTypeError(const Script: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Script));
+  const Statement = Format('%s;', [Script]);
+  const Actual = ThrownErrorNameOf(Statement);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TSymbolTests.SymbolProtocol_Script_ReturnsExpected(const Script, Expected: string);
 begin
-  const Actual = Run(Script);
+  const Actual = EvaluateText(Script);
 
   Assert.AreEqual(Expected, Actual);
 end;
@@ -347,7 +320,9 @@ end;
 
 procedure TSymbolTests.Symbol_GetOwnPropertySymbols_OfNull_RaisesTypeError;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('Object.getOwnPropertySymbols(null)'));
+  const Actual = ThrownErrorNameOf('Object.getOwnPropertySymbols(null);');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 end.

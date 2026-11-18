@@ -6,23 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TStringArgumentConversionTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-
+  TStringArgumentConversionTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Slice_ObjectWithValueOf_ConvertsToNumber;
 
@@ -81,7 +70,7 @@ type
     procedure Split_LimitObjectWithValueOf_ConvertsToNumber;
 
     [Test]
-    procedure Split_ConvertsLimitBeforeSeparator;
+    procedure Split_LimitAndSeparatorObjects_ConvertsLimitFirst;
 
     [Test]
     procedure Slice_ThrowingValueOf_PropagatesTheError;
@@ -95,33 +84,25 @@ type
 
 implementation
 
-procedure TStringArgumentConversionTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStringArgumentConversionTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TStringArgumentConversionTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
+const
+  TWO_OBJECT = 'var two = { valueOf: function() { return 2; }, toString: function() { return "x"; } };';
 
 procedure TStringArgumentConversionTests.Slice_ObjectWithValueOf_ConvertsToNumber;
 begin
   const Script =
-    'var two = { valueOf: function() { return 2; }, toString: function() { return "x"; } };' + sLineBreak +
+    TWO_OBJECT + sLineBreak +
     '"5ABBBABAB".slice(two, 4) === "BB"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Slice_UndefinedEnd_MeansLength;
 begin
-  Assert.IsTrue(EvaluateBoolean('"abc".slice(1, undefined) === "bc" && "abc".slice(-2) === "bc"'));
+  const Actual = EvaluateBoolean('"abc".slice(1, undefined) === "bc" && "abc".slice(-2) === "bc"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Slice_InfiniteBounds_AreClamped;
@@ -132,21 +113,27 @@ begin
     '"abcdef".slice(Infinity) === "" && ' +
     '"abcdef".slice(1, -Infinity) === ""';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Substring_ObjectWithValueOf_ConvertsToNumber;
 begin
   const Script =
-    'var two = { valueOf: function() { return 2; }, toString: function() { return "x"; } };' + sLineBreak +
+    TWO_OBJECT + sLineBreak +
     '"5ABBBABAB".substring(two, 4) === "BB"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Substring_UndefinedEnd_MeansLength;
 begin
-  Assert.IsTrue(EvaluateBoolean('"abc".substring(1, undefined) === "bc"'));
+  const Actual = EvaluateBoolean('"abc".substring(1, undefined) === "bc"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Substring_InfiniteBounds_AreClampedAndSwapped;
@@ -156,7 +143,9 @@ begin
     '"abc".substring(Infinity, -Infinity) === "abc" && ' +
     '"abc".substring(-Infinity, 1) === "a"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Substr_InfiniteBounds_AreClamped;
@@ -167,16 +156,20 @@ begin
     '"abcdef".substr(Infinity, 2) === "" && ' +
     '"abcdef".substr(1, undefined) === "bcdef"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Substr_ObjectWithValueOf_ConvertsToNumber;
 begin
   const Script =
-    'var two = { valueOf: function() { return 2; }, toString: function() { return "x"; } };' + sLineBreak +
+    TWO_OBJECT + sLineBreak +
     '"abcdef".substr(two, two) === "cd"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.IndexOf_PositionObjectWithValueOf_ConvertsToNumber;
@@ -185,17 +178,23 @@ begin
     'var three = { valueOf: function() { return 3; }, toString: function() { return "x"; } };' + sLineBreak +
     '"abcabc".indexOf("c", three) === 5';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.IndexOf_InfinitePosition_ClampsToLength;
 begin
-  Assert.IsTrue(EvaluateBoolean('"abc".indexOf("c", Infinity) === -1 && "abc".indexOf("a", -Infinity) === 0'));
+  const Actual = EvaluateBoolean('"abc".indexOf("c", Infinity) === -1 && "abc".indexOf("a", -Infinity) === 0');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.IndexOf_MissingSearchString_SearchesForUndefinedText;
 begin
-  Assert.IsTrue(EvaluateBoolean('"undefined".indexOf() === 0 && "a undefined".indexOf(undefined) === 2'));
+  const Actual = EvaluateBoolean('"undefined".indexOf() === 0 && "a undefined".indexOf(undefined) === 2');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.IndexOf_EmptySearchString_ReturnsClampedPosition;
@@ -203,7 +202,9 @@ begin
   const Script =
     '"abc".indexOf("") === 0 && "abc".indexOf("", 2) === 2 && "abc".indexOf("", Infinity) === 3';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.LastIndexOf_PositionObjectWithValueOf_ConvertsToNumber;
@@ -212,12 +213,16 @@ begin
     'var four = { valueOf: function() { return 4; }, toString: function() { return "x"; } };' + sLineBreak +
     '"abcabc".lastIndexOf("c", four) === 2';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.LastIndexOf_NegativePosition_ClampsToZero;
 begin
-  Assert.IsTrue(EvaluateBoolean('"abc".lastIndexOf("a", -5) === 0 && "abc".lastIndexOf("b", -Infinity) === -1'));
+  const Actual = EvaluateBoolean('"abc".lastIndexOf("a", -5) === 0 && "abc".lastIndexOf("b", -Infinity) === -1');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.LastIndexOf_EmptySearchString_ReturnsClampedPosition;
@@ -225,7 +230,9 @@ begin
   const Script =
     '"abc".lastIndexOf("") === 3 && "abc".lastIndexOf("", 1) === 1 && "abc".lastIndexOf("", -4) === 0';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.CharAt_ObjectWithValueOf_ConvertsToNumber;
@@ -234,29 +241,37 @@ begin
     'var one = { valueOf: function() { return 1; }, toString: function() { return "x"; } };' + sLineBreak +
     '"abc".charAt(one) === "b" && "abc".charCodeAt(one) === 98';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.CharAt_InfinitePosition_ReturnsEmptyString;
 begin
-  Assert.IsTrue(EvaluateBoolean('"abc".charAt(Infinity) === "" && "abc".charAt(-Infinity) === ""'));
+  const Actual = EvaluateBoolean('"abc".charAt(Infinity) === "" && "abc".charAt(-Infinity) === ""');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.CharCodeAt_InfinitePosition_ReturnsNaN;
 begin
-  Assert.IsTrue(EvaluateBoolean('isNaN("abc".charCodeAt(Infinity)) && isNaN("abc".charCodeAt(-Infinity))'));
+  const Actual = EvaluateBoolean('isNaN("abc".charCodeAt(Infinity)) && isNaN("abc".charCodeAt(-Infinity))');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Split_LimitObjectWithValueOf_ConvertsToNumber;
 begin
   const Script =
-    'var two = { valueOf: function() { return 2; }, toString: function() { return "x"; } };' + sLineBreak +
+    TWO_OBJECT + sLineBreak +
     '"a,b,c".split(",", two).join("|") === "a|b"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TStringArgumentConversionTests.Split_ConvertsLimitBeforeSeparator;
+procedure TStringArgumentConversionTests.Split_LimitAndSeparatorObjects_ConvertsLimitFirst;
 begin
   const Script =
     'var log = [];' + sLineBreak +
@@ -265,7 +280,9 @@ begin
     '"a,b".split(separator, limit);' + sLineBreak +
     'log.join() === "limit,separator"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Slice_ThrowingValueOf_PropagatesTheError;
@@ -275,7 +292,9 @@ begin
     'try { "abc".slice({ valueOf: function() { throw "boom"; } }); } catch (e) { caught = e; }' + sLineBreak +
     'caught === "boom"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.Slice_ObjectConvertingToUndefined_IsNotAnOmittedEnd;
@@ -284,7 +303,9 @@ begin
     'var nothing = { valueOf: function() {} };' + sLineBreak +
     '"abc".slice(0, nothing) === ""';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringArgumentConversionTests.IndexOf_StringArgument_UsesToStringBeforeValueOf;
@@ -293,7 +314,9 @@ begin
     'var object = { toString: function() { return "bc"; }, valueOf: function() { return 1; } };' + sLineBreak +
     '"abcd".indexOf(object) === 1 && "abcd".concat(object) === "abcdbc"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

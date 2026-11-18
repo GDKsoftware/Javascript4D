@@ -6,27 +6,18 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine,
-  JS4D.BinaryData;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TTypedArrayTests = class
+  TTypedArrayTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
     procedure InstallDetach;
 
+  protected
+    procedure ConfigureEngine; override;
+
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Length and byteLength', 'new ArrayBuffer(8).byteLength#8', '#')]
     [TestCase('Tag', 'Object.prototype.toString.call(new ArrayBuffer(1))#[object ArrayBuffer]', '#')]
@@ -179,7 +170,7 @@ type
     [TestCase('DataView throws', '(function () { var b = new ArrayBuffer(4); var v = new DataView(b); detach(b); try { v.getInt8(0); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
     [TestCase('Detaching during a conversion', '(function () { var a = new Int8Array(2); a[0] = { valueOf: function () { detach(a.buffer); return 1; } }; return a.length; })()#0', '#')]
     [TestCase('Iterator throws', '(function () { var a = new Int8Array(2); var it = a[Symbol.iterator](); it.next(); detach(a.buffer); try { it.next(); } catch (e) { return e instanceof TypeError; } })()#true', '#')]
-    procedure TypedArray_Script_EvaluatesToTrue(const Expression, Expected: string);
+    procedure TypedArray_Script_ReturnsExpectedText(const Expression, Expected: string);
 
     [Test]
     procedure Elements_LargeFloat64Array_SumsAllElements;
@@ -187,15 +178,14 @@ type
 
 implementation
 
-procedure TTypedArrayTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-  InstallDetach;
-end;
+uses
+  System.SysUtils,
+  JS4D.Types,
+  JS4D.BinaryData;
 
-procedure TTypedArrayTests.TearDown;
+procedure TTypedArrayTests.ConfigureEngine;
 begin
-  FEngine.Free;
+  InstallDetach;
 end;
 
 procedure TTypedArrayTests.InstallDetach;
@@ -212,14 +202,11 @@ begin
     end);
 end;
 
-function TTypedArrayTests.Evaluate(const Expression: string): string;
+procedure TTypedArrayTests.TypedArray_Script_ReturnsExpectedText(const Expression, Expected: string);
 begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
+  const Actual = TextOf(Expression);
 
-procedure TTypedArrayTests.TypedArray_Script_EvaluatesToTrue(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TTypedArrayTests.Elements_LargeFloat64Array_SumsAllElements;
@@ -227,7 +214,9 @@ begin
   const Script = '(function () { var a = new Float64Array(200000); for (var i = 0; i < a.length; i++) { a[i] = i; } ' +
                  'var sum = 0; for (var j = 0; j < a.length; j++) { sum += a[j]; } return sum; })()';
 
-  Assert.AreEqual('19999900000', Evaluate(Script));
+  const Actual = TextOf(Script);
+
+  Assert.AreEqual('19999900000', Actual);
 end;
 
 end.

@@ -81,6 +81,8 @@ uses
   JS4D.Tests.RestrictedProperties in 'JS4D.Tests.RestrictedProperties.pas',
   JS4D.Tests.IdentifierNames in 'JS4D.Tests.IdentifierNames.pas',
   JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
+  JS4D.Tests.PrimitivePrototypeMethods in 'JS4D.Tests.PrimitivePrototypeMethods.pas',
+  JS4D.Tests.ObjectPrototypeMethods in 'JS4D.Tests.ObjectPrototypeMethods.pas',
   JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas',
   JS4D.Tests.StrictEarlyErrors in 'JS4D.Tests.StrictEarlyErrors.pas',
   JS4D.Tests.DeleteIdentifier in 'JS4D.Tests.DeleteIdentifier.pas',

@@ -6,24 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TRegExpSyntaxTests = class
+  TRegExpSyntaxTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
     function ErrorNameOfConstructing(const Pattern: string; const Flags: string = ''): string;
-    function ErrorNameOfEval(const Source: string): string;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('DoubleStar', 'a**', ';')]
     [TestCase('TripleLazyPlus', 'a+++', ';')]
@@ -190,130 +181,144 @@ implementation
 uses
   JS4D.Tests.ErrorNames;
 
-procedure TRegExpSyntaxTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TRegExpSyntaxTests.TearDown;
-begin
-  FEngine.Free;
-end;
+const
+  ASTRAL_RANGE_PATTERN = '[' + #$D83D#$DCA9 + '-' + #$D83D#$DCAB + ']';
 
 function TRegExpSyntaxTests.ErrorNameOfConstructing(const Pattern: string; const Flags: string): string;
 begin
   FEngine.SetString('pattern', Pattern);
   FEngine.SetString('flags', Flags);
 
-  Result := FEngine.Evaluate(
-    'var name = "none"; try { new RegExp(pattern, flags); } catch (e) { name = e.name; } name').AsString;
-end;
-
-function TRegExpSyntaxTests.ErrorNameOfEval(const Source: string): string;
-begin
-  FEngine.SetString('source', Source);
-
-  Result := FEngine.Evaluate(
-    'var name = "none"; try { eval(source); } catch (e) { name = e.name; } name').AsString;
+  Result := ThrownErrorNameOf('new RegExp(pattern, flags);');
 end;
 
 procedure TRegExpSyntaxTests.Constructor_InvalidPattern_ThrowsSyntaxError(const Pattern: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern));
+  const Actual = ErrorNameOfConstructing(Pattern);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidPattern_DoesNotThrow(const Pattern: string);
 begin
-  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern));
+  const Actual = ErrorNameOfConstructing(Pattern);
+
+  Assert.AreEqual(NO_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_InvalidInput_ThrowsSyntaxError(const Pattern: string; const Flags: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern, Flags));
+  const Actual = ErrorNameOfConstructing(Pattern, Flags);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidFlags_DoesNotThrow;
 begin
-  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing('a', 'gim'));
+  const Actual = ErrorNameOfConstructing('a', 'gim');
+
+  Assert.AreEqual(NO_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Literal_InvalidSource_IsEarlySyntaxError(const Source: string);
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_ValidPatternWithUnicodeFlag_DoesNotThrow(const Pattern: string; const Flags: string);
 begin
-  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern, Flags));
+  const Actual = ErrorNameOfConstructing(Pattern, Flags);
+
+  Assert.AreEqual(NO_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Literal_ValidRegExp_StillMatches;
 begin
-  Assert.IsTrue(FEngine.Evaluate('/a{2}[b-d]+(?:x|y)$/.test("aacdy")').AsBoolean);
+  const Matches = EvaluateBoolean('/a{2}[b-d]+(?:x|y)$/.test("aacdy")');
+
+  Assert.IsTrue(Matches);
 end;
 
 procedure TRegExpSyntaxTests.Literal_ContainingLineSeparator_IsSyntaxError;
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval('/a' + #$2028 + 'b/'));
+  const Actual = ErrorNameOf('/a' + #$2028 + 'b/');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Literal_ContainingParagraphSeparator_IsSyntaxError;
 begin
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfEval('/a' + #$2029 + 'b/'));
+  const Actual = ErrorNameOf('/a' + #$2029 + 'b/');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Literal_InvalidRegExpAfterStatement_RunsNothing;
 begin
   const Script = 'var reached = false; try { eval("reached = true; /a**/;"); } catch (e) {} reached';
 
-  Assert.IsFalse(FEngine.Evaluate(Script).AsBoolean);
+  const Reached = EvaluateBoolean(Script);
+
+  Assert.IsFalse(Reached);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_RegExpArgument_CopiesSourceAndFlags;
 begin
   const Script = 'var copy = new RegExp(/a+b/gi); copy.source + "|" + copy.global + "|" + copy.ignoreCase';
 
-  Assert.AreEqual('a+b|true|true', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('a+b|true|true', Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_RegExpArgumentWithFlags_UsesGivenFlags;
 begin
   const Script = 'var copy = new RegExp(/a+b/gi, "m"); copy.source + "|" + copy.global + "|" + copy.multiline';
 
-  Assert.AreEqual('a+b|false|true', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('a+b|false|true', Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_UndefinedPattern_MatchesEmptyPattern;
 begin
-  Assert.IsTrue(FEngine.Evaluate('new RegExp(undefined).test("anything")').AsBoolean);
+  const Matches = EvaluateBoolean('new RegExp(undefined).test("anything")');
+
+  Assert.IsTrue(Matches);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_FlagsObject_UsesItsStringValue;
 begin
   const Script = 'var re = new RegExp("a", { toString: function () { return "g"; } }); re.global';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const IsGlobal = EvaluateBoolean(Script);
+
+  Assert.IsTrue(IsGlobal);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_AstralRangeWithUnicodeFlag_DoesNotThrow;
 begin
-  const Pattern = '[' + #$D83D#$DCA9 + '-' + #$D83D#$DCAB + ']';
+  const Actual = ErrorNameOfConstructing(ASTRAL_RANGE_PATTERN, 'u');
 
-  Assert.AreEqual(NO_ERROR_NAME, ErrorNameOfConstructing(Pattern, 'u'));
+  Assert.AreEqual(NO_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Constructor_AstralRangeWithoutUnicodeFlag_ThrowsSyntaxError;
 begin
-  const Pattern = '[' + #$D83D#$DCA9 + '-' + #$D83D#$DCAB + ']';
+  const Actual = ErrorNameOfConstructing(ASTRAL_RANGE_PATTERN);
 
-  Assert.AreEqual(SYNTAX_ERROR_NAME, ErrorNameOfConstructing(Pattern));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TRegExpSyntaxTests.Match_UndefinedArgument_MatchesEmptyString;
 begin
   const Script = 'var found = "undefined".match(undefined); found[0].length + "|" + found.index';
 
-  Assert.AreEqual('0|0', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('0|0', Actual);
 end;
 
 end.

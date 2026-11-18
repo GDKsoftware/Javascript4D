@@ -6,31 +6,20 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
-
-const
-  STRICT_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ';
-  SLOPPY_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { return typeof this; }; ';
-  TRUE_TO_LOCALE_STRING_IS_BOOLEAN = 'true.toLocaleString() === "boolean"';
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TStrictThisTests = class
+  TStrictThisTests = class(TJSEngineTestCase)
   private
     const
+      STRICT_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { "use strict"; return typeof this; }; ';
+      SLOPPY_BOOLEAN_TO_STRING = 'Boolean.prototype.toString = function () { return typeof this; }; ';
+      TRUE_TO_LOCALE_STRING_IS_BOOLEAN = 'true.toLocaleString() === "boolean"';
       THROWS_TYPE_ERROR = 'try { %s; false; } catch (e) { e instanceof TypeError; }';
       OBJECT_TO_STRING_CALL = 'Object.prototype.toString.call(%s)';
 
-    var
-      FEngine: TJSEngine;
-
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Strict function called with a number', 'function f() { "use strict"; return typeof this; } f.call(1) === "number"', '#')]
     [TestCase('Strict function called with null', 'function f() { "use strict"; return this === null; } f.call(null)', '#')]
@@ -80,40 +69,28 @@ uses
 
 { TStrictThisTests }
 
-procedure TStrictThisTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStrictThisTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TStrictThisTests.Script_EvaluatesToTrue(const Script: string);
 begin
-  const Actual = FEngine.Evaluate(Script);
+  const Actual = EvaluateBoolean(Script);
 
-  Assert.IsTrue(Actual.AsBoolean);
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStrictThisTests.Call_OnPrimitiveReceiver_ThrowsTypeError(const Call: string);
 begin
   const Script = Format(THROWS_TYPE_ERROR, [Call]);
+  const Actual = EvaluateBoolean(Script);
 
-  const Actual = FEngine.Evaluate(Script);
-
-  Assert.IsTrue(Actual.AsBoolean);
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStrictThisTests.ObjectToString_PrimitiveReceiver_ReturnsClassTag(const Receiver: string;
                                                                             const Expected: string);
 begin
   const Script = Format(OBJECT_TO_STRING_CALL, [Receiver]);
+  const Actual = EvaluateText(Script);
 
-  const Actual = FEngine.Evaluate(Script);
-
-  Assert.AreEqual(Expected, Actual.AsString);
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

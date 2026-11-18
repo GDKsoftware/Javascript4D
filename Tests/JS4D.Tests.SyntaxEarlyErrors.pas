@@ -6,25 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TSyntaxEarlyErrorTests = class
+  TSyntaxEarlyErrorTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function EvaluatesToSyntaxError(const Source: string): Boolean;
     function SourceWithLineBreaks(const Source: string): string;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('ReturnAlone', 'return;')]
     [TestCase('ReturnWithValue', 'var x = 1; return 2;')]
@@ -54,6 +44,9 @@ type
     [TestCase('Eval', '"use strict"; for (var eval in {}) ;')]
     [TestCase('Arguments', '"use strict"; for (var arguments in null) {}')]
     [TestCase('FutureReserved', '"use strict"; for (var let;;) break;')]
+    [TestCase('ThrowFollowedByLineBreak', 'try { throw<LF>1; } catch (e) {}')]
+    [TestCase('TwoDefaultClauses', 'switch (0) { default: break; default: break; }')]
+    [TestCase('RegExpBackslashBeforeLineBreak', 'var r = /a\<LF>/;')]
     procedure Source_InvalidSyntax_RaisesSyntaxError(const Source: string);
 
     [Test]
@@ -73,50 +66,25 @@ type
     procedure Statement_WithAutomaticSemicolon_IsAllowed(const Source: string);
 
     [Test]
-    procedure Throw_FollowedByLineBreak_IsSyntaxError;
-
-    [Test]
     procedure Statement_FunctionDeclarationAsSloppyIfBody_IsAllowed;
-
-    [Test]
-    procedure Switch_TwoDefaultClauses_IsSyntaxError;
-
-    [Test]
-    procedure RegExpLiteral_BackslashBeforeLineBreak_IsSyntaxError;
   end;
 
 implementation
 
-procedure TSyntaxEarlyErrorTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TSyntaxEarlyErrorTests.TearDown;
-begin
-  FEngine.Free;
-end;
+uses
+  System.SysUtils,
+  JS4D.Tests.ErrorNames;
 
 function TSyntaxEarlyErrorTests.SourceWithLineBreaks(const Source: string): string;
 begin
   Result := Source.Replace('<LF>', #10);
 end;
 
-function TSyntaxEarlyErrorTests.EvaluatesToSyntaxError(const Source: string): Boolean;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const LineBreaksEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = false; try { eval("%s"); } catch (e) { caught = e instanceof SyntaxError; }',
-                         [LineBreaksEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsBoolean;
-end;
-
 procedure TSyntaxEarlyErrorTests.Source_InvalidSyntax_RaisesSyntaxError(const Source: string);
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
+  const Actual = ErrorNameOf(SourceWithLineBreaks(Source));
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TSyntaxEarlyErrorTests.Return_InsideFunctionAndAccessor_IsAllowed;
@@ -127,7 +95,9 @@ begin
     'var h = new Function("return 4;");' + sLineBreak +
     'f() + o.g + h()';
 
-  Assert.AreEqual(7.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
 procedure TSyntaxEarlyErrorTests.PropertyName_UnusedReservedWord_IsAllowed;
@@ -136,32 +106,23 @@ begin
     'var o = { enum: 1, class: 2, get export() { return 4; } };' + sLineBreak +
     'o.enum + o.class + o.export';
 
-  Assert.AreEqual(7.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
 procedure TSyntaxEarlyErrorTests.Statement_WithAutomaticSemicolon_IsAllowed(const Source: string);
 begin
-  Assert.IsFalse(EvaluatesToSyntaxError(SourceWithLineBreaks(Source)));
-end;
+  const Actual = ErrorNameOf(SourceWithLineBreaks(Source));
 
-procedure TSyntaxEarlyErrorTests.Throw_FollowedByLineBreak_IsSyntaxError;
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(SourceWithLineBreaks('try { throw<LF>1; } catch (e) {}')));
+  Assert.AreNotEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TSyntaxEarlyErrorTests.Statement_FunctionDeclarationAsSloppyIfBody_IsAllowed;
 begin
-  Assert.IsFalse(EvaluatesToSyntaxError('if (true) function f() {}'));
-end;
+  const Actual = ErrorNameOf('if (true) function f() {}');
 
-procedure TSyntaxEarlyErrorTests.Switch_TwoDefaultClauses_IsSyntaxError;
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError('switch (0) { default: break; default: break; }'));
-end;
-
-procedure TSyntaxEarlyErrorTests.RegExpLiteral_BackslashBeforeLineBreak_IsSyntaxError;
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(SourceWithLineBreaks('var r = /a\<LF>/;')));
+  Assert.AreNotEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

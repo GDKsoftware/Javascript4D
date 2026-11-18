@@ -6,26 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Errors,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TSparseArrayTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateText(const Script: string): string;
+  TSparseArrayTests = class(TJSEngineTestCase)
+  protected
+    procedure ConfigureEngine; override;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Index past the dense range', 'var x = []; x[0] = 1; x[2147483648] = 1; x.length#2147483649', '#')]
     [TestCase('Largest index', 'var x = []; x[4294967294] = 1; x.length#4294967295', '#')]
@@ -74,36 +63,28 @@ type
 
 implementation
 
-procedure TSparseArrayTests.Setup;
+uses
+  JS4D.Errors,
+  JS4D.Types;
+
+procedure TSparseArrayTests.ConfigureEngine;
 begin
-  FEngine := TJSEngine.Create;
   FEngine.MaxArrayLength := 0;
-end;
-
-procedure TSparseArrayTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TSparseArrayTests.EvaluateText(const Script: string): string;
-begin
-  Result := FEngine.Evaluate(Script).ToString;
 end;
 
 procedure TSparseArrayTests.Length_ForIndexesAndLengthsBeyondInt32_FollowsArrayIndexRules(const Script: string;
                                                                                            const Expected: string);
 begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TSparseArrayTests.Length_OutsideUint32Range_ThrowsRangeError(const Script: string; const Expected: string);
 begin
-  const WrappedScript =
-    'var name = "none";' + sLineBreak +
-    'try { ' + Script + ' } catch (e) { name = e.name; }' + sLineBreak +
-    'name';
+  const Actual = ThrownErrorNameOf(Script);
 
-  Assert.AreEqual(Expected, EvaluateText(WrappedScript));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TSparseArrayTests.Push_AtMaximumLength_StoresPlainPropertyBeforeThrowing;
@@ -114,7 +95,9 @@ begin
     'try { x.push("x"); } catch (e) {}' + sLineBreak +
     'pushed + "," + x[4294967295] + "," + x.length';
 
-  Assert.AreEqual('4294967295,x,4294967295', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('4294967295,x,4294967295', Actual);
 end;
 
 procedure TSparseArrayTests.Length_Shrunk_RemovesSparseElements;
@@ -123,7 +106,9 @@ begin
     'var x = [0, 1, 2]; x[4294967294] = 5; x.length = 2;' + sLineBreak +
     'x.length + "," + x[4294967294] + "," + x.hasOwnProperty("4294967294")';
 
-  Assert.AreEqual('2,undefined,false', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('2,undefined,false', Actual);
 end;
 
 procedure TSparseArrayTests.Length_ShrunkOverNonConfigurableSparseElement_StopsAboveIt;
@@ -135,7 +120,9 @@ begin
     'try { Object.defineProperty(x, "length", { value: 10 }); } catch (e) { failed = (e instanceof TypeError); }' + sLineBreak +
     'failed + "," + x.length + "," + x.hasOwnProperty("3500000000")';
 
-  Assert.AreEqual('true,3000000001,false', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('true,3000000001,false', Actual);
 end;
 
 procedure TSparseArrayTests.GetOwnPropertyNames_WithSparseElements_ListsIndexesBeforeLength;
@@ -144,7 +131,9 @@ begin
     'var x = [0, 1]; x[4294967294] = 1; x[3000000000] = 1; x.name = "n";' + sLineBreak +
     'Object.getOwnPropertyNames(x).join("|")';
 
-  Assert.AreEqual('0|1|3000000000|4294967294|length|name', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('0|1|3000000000|4294967294|length|name', Actual);
 end;
 
 procedure TSparseArrayTests.IndexOf_StartingNearTheEnd_FindsSparseElement;
@@ -153,7 +142,9 @@ begin
     'var a = [0, 1]; a[4294967294] = 2; a[4294967295] = 3; a[4294967296] = 4;' + sLineBreak +
     'a.indexOf(2, 4294967290) + "," + a.indexOf(3, 4294967290) + "," + a.indexOf(4, 4294967290)';
 
-  Assert.AreEqual('4294967294,-1,-1', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('4294967294,-1,-1', Actual);
 end;
 
 procedure TSparseArrayTests.LastIndexOf_OnSparseArray_FindsSparseElement;
@@ -162,7 +153,9 @@ begin
     'var a = [0, 1]; a[4294967294] = 2; a[4294967200] = 3;' + sLineBreak +
     'a.lastIndexOf(2) + "," + a.lastIndexOf(3)';
 
-  Assert.AreEqual('4294967294,4294967200', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('4294967294,4294967200', Actual);
 end;
 
 procedure TSparseArrayTests.Length_AssignedObject_IsCoercedTwice;
@@ -172,7 +165,9 @@ begin
     'x.length = { valueOf: function () { calls++; return 2; } };' + sLineBreak +
     'x.length + "," + calls';
 
-  Assert.AreEqual('2,2', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('2,2', Actual);
 end;
 
 procedure TSparseArrayTests.Length_ChangedToNonWritableDuringCoercion_ThrowsTypeError;
@@ -187,7 +182,9 @@ begin
     sLineBreak +
     'name + "," + calls';
 
-  Assert.AreEqual('TypeError,2', EvaluateText(Script));
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('TypeError,2', Actual);
 end;
 
 procedure TSparseArrayTests.Length_AboveDefaultMaxArrayLength_RaisesAllocationLimit;

@@ -6,23 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TRestrictedPropertyTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-
+  TRestrictedPropertyTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure StrictArguments_Callee_IsPoisonedAccessor;
 
@@ -30,13 +19,13 @@ type
     procedure StrictArguments_ReadingCallee_ThrowsTypeError;
 
     [Test]
-    procedure ThrowTypeError_IsFrozen;
+    procedure ThrowTypeError_Function_IsFrozen;
 
     [Test]
-    procedure ThrowTypeError_IsSharedBetweenArgumentsObjects;
+    procedure ThrowTypeError_StrictArgumentsObjects_ShareOneFunction;
 
     [Test]
-    procedure ThrowTypeError_IsFunctionPrototypeCallerAccessor;
+    procedure ThrowTypeError_FunctionPrototypeCaller_UsesSameFunction;
 
     [Test]
     procedure ThrowTypeError_Called_ThrowsTypeError;
@@ -68,89 +57,102 @@ type
 
 implementation
 
-procedure TRestrictedPropertyTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TRestrictedPropertyTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TRestrictedPropertyTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
 procedure TRestrictedPropertyTests.StrictArguments_Callee_IsPoisonedAccessor;
 begin
-  Assert.IsTrue(EvaluateBoolean('var d = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee''); d.get !== undefined && d.get === d.set && !d.configurable'));
+  const Actual = EvaluateBoolean('var d = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee''); d.get !== undefined && d.get === d.set && !d.configurable');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.StrictArguments_ReadingCallee_ThrowsTypeError;
 begin
-  Assert.IsTrue(EvaluateBoolean('var caught = false; try { (function () { ''use strict''; return arguments.callee; })(); } catch (e) { caught = e instanceof TypeError; } caught'));
+  const Actual = EvaluateBoolean('var caught = false; try { (function () { ''use strict''; return arguments.callee; })(); } catch (e) { caught = e instanceof TypeError; } caught');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TRestrictedPropertyTests.ThrowTypeError_IsFrozen;
+procedure TRestrictedPropertyTests.ThrowTypeError_Function_IsFrozen;
 begin
-  Assert.IsTrue(EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; Object.isFrozen(t)'));
+  const Actual = EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; Object.isFrozen(t)');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TRestrictedPropertyTests.ThrowTypeError_IsSharedBetweenArgumentsObjects;
+procedure TRestrictedPropertyTests.ThrowTypeError_StrictArgumentsObjects_ShareOneFunction;
 begin
-  Assert.IsTrue(EvaluateBoolean('function s() { ''use strict''; return arguments; } Object.getOwnPropertyDescriptor(s(), ''callee'').get === Object.getOwnPropertyDescriptor(s(), ''callee'').set'));
+  const Actual = EvaluateBoolean('function s() { ''use strict''; return arguments; } Object.getOwnPropertyDescriptor(s(), ''callee'').get === Object.getOwnPropertyDescriptor(s(), ''callee'').set');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TRestrictedPropertyTests.ThrowTypeError_IsFunctionPrototypeCallerAccessor;
+procedure TRestrictedPropertyTests.ThrowTypeError_FunctionPrototypeCaller_UsesSameFunction;
 begin
-  Assert.IsTrue(EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; Object.getOwnPropertyDescriptor(Function.prototype, ''caller'').get === t'));
+  const Actual = EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; Object.getOwnPropertyDescriptor(Function.prototype, ''caller'').get === t');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.ThrowTypeError_Called_ThrowsTypeError;
 begin
-  Assert.IsTrue(EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; var caught = false; try { t(); } catch (e) { caught = e instanceof TypeError; } caught'));
+  const Actual = EvaluateBoolean('var t = Object.getOwnPropertyDescriptor((function () { ''use strict''; return arguments; })(), ''callee'').get; var caught = false; try { t(); } catch (e) { caught = e instanceof TypeError; } caught');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.RegExpPrototype_Exec_HasNoPrototypeProperty;
 begin
-  Assert.IsTrue(EvaluateBoolean('RegExp.prototype.exec.prototype === undefined'));
+  const Actual = EvaluateBoolean('RegExp.prototype.exec.prototype === undefined');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.RegExpPrototype_Exec_MatchesOnRegExp;
 begin
-  Assert.IsTrue(EvaluateBoolean('RegExp.prototype.exec.call(/b/, ''abc'')[0] === ''b'''));
+  const Actual = EvaluateBoolean('RegExp.prototype.exec.call(/b/, ''abc'')[0] === ''b''');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.RegExpPrototype_Test_MatchesOnRegExp;
 begin
-  Assert.IsTrue(EvaluateBoolean('RegExp.prototype.test.call(/b/, ''abc'') === true'));
+  const Actual = EvaluateBoolean('RegExp.prototype.test.call(/b/, ''abc'') === true');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.RegExpPrototype_Exec_OnNonRegExp_ThrowsTypeError;
 begin
-  Assert.IsTrue(EvaluateBoolean('var caught = false; try { RegExp.prototype.exec.call({}, ''a''); } catch (e) { caught = e instanceof TypeError; } caught'));
+  const Actual = EvaluateBoolean('var caught = false; try { RegExp.prototype.exec.call({}, ''a''); } catch (e) { caught = e instanceof TypeError; } caught');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.StringPrototype_LocaleCompare_OrdersStrings;
 begin
-  Assert.IsTrue(EvaluateBoolean('''a''.localeCompare(''b'') < 0 && ''b''.localeCompare(''a'') > 0 && ''a''.localeCompare(''a'') === 0'));
+  const Actual = EvaluateBoolean('''a''.localeCompare(''b'') < 0 && ''b''.localeCompare(''a'') > 0 && ''a''.localeCompare(''a'') === 0');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.StringPrototype_ToLocaleUpperCase_UppercasesText;
 begin
-  Assert.IsTrue(EvaluateBoolean('''abc''.toLocaleUpperCase() === ''ABC'''));
+  const Actual = EvaluateBoolean('''abc''.toLocaleUpperCase() === ''ABC''');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.StringPrototype_ToLocaleLowerCase_LowercasesText;
 begin
-  Assert.IsTrue(EvaluateBoolean('''ABC''.toLocaleLowerCase() === ''abc'''));
+  const Actual = EvaluateBoolean('''ABC''.toLocaleLowerCase() === ''abc''');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TRestrictedPropertyTests.StringPrototype_LocaleCompare_HasNoPrototypeProperty;
 begin
-  Assert.IsTrue(EvaluateBoolean('String.prototype.localeCompare.prototype === undefined'));
+  const Actual = EvaluateBoolean('String.prototype.localeCompare.prototype === undefined');
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

@@ -6,21 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TSlashContextTests = class
-  private
-    FEngine: TJSEngine;
-
+  TSlashContextTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('AfterBlock', 'var r = "no"; {}/1/.test("1") && (r = "yes"); r|yes', '|')]
     [TestCase('AfterNonEmptyBlock', 'var r = "no"; { r = "a"; }/1/.test("1") && (r = "yes"); r|yes', '|')]
@@ -50,26 +41,15 @@ type
     [TestCase('AfterBlockThenIdentifier', 'var x = 4; { x = 8; } x / 2 / 1|4', '|')]
     [TestCase('AfterTemplateSubstitution', '`${ {a: 6}.a / 2 / 1 }`|3', '|')]
     procedure Slash_Source_HasExpectedTokenType(const Source: string; const Expected: string);
-
   end;
 
 implementation
 
-procedure TSlashContextTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TSlashContextTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
 procedure TSlashContextTests.Slash_Source_HasExpectedTokenType(const Source: string; const Expected: string);
 begin
-  const Actual = FEngine.Evaluate(Source);
+  const Actual = EvaluateText(Source);
 
-  Assert.AreEqual(Expected, Actual.ToString);
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.
