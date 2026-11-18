@@ -579,7 +579,10 @@ begin
   MarkTokenStart;
 
   if IsAtEnd then
-    Exit(NewToken(TJSTokenType.EndOfFile, ''));
+  begin
+    Result := NewToken(TJSTokenType.EndOfFile, '');
+    Exit;
+  end;
 
   const Ch = CurrentChar;
   const StartsIdentifier = (StartsIdentifierAhead(True) or (Ch = BACKSLASH));
@@ -745,7 +748,8 @@ begin
   if HasRadixPrefix then
   begin
     const RadixValue = ParseRadixNumber(PrefixRadix);
-    Exit(TNumberLiteral.Create(RadixValue, False));
+    Result := TNumberLiteral.Create(RadixValue, False);
+    Exit;
   end;
 
   const SeparatorAfterZero = ((CurrentChar = ZERO_CHAR) and (PeekChar = UNDERSCORE));
@@ -756,7 +760,8 @@ begin
   if HasLeadingZero and IsLegacyOctalLiteral then
   begin
     const OctalValue = ParseOctalNumber;
-    Exit(TNumberLiteral.Create(OctalValue, True));
+    Result := TNumberLiteral.Create(OctalValue, True);
+    Exit;
   end;
 
   const AllowSeparators = (not HasLeadingZero);
@@ -926,7 +931,8 @@ begin
     if EndsLiteral then
     begin
       Advance;
-      Exit(TStringContent.Create(Value, HasEscape, HasLegacyEscape));
+      Result := TStringContent.Create(Value, HasEscape, HasLegacyEscape);
+      Exit;
     end;
 
     if IsLineBreak then
@@ -959,11 +965,15 @@ begin
   if TJSLexicalCharacters.IsLineTerminator(Ch) then
   begin
     SkipLineFeedAfter(Ch);
-    Exit(TStringEscape.Create('', False));
+    Result := TStringEscape.Create('', False);
+    Exit;
   end;
 
   if TJSLexicalCharacters.IsOctalDigit(Ch) then
-    Exit(ReadOctalEscape(Ch));
+  begin
+    Result := ReadOctalEscape(Ch);
+    Exit;
+  end;
 
   const IsNonOctalDigit = ((Ch = DIGIT_EIGHT) or (Ch = DIGIT_NINE));
   const Value = ReadSimpleEscapeValue(Ch);
@@ -974,7 +984,10 @@ function TJSLexer.ReadOctalEscape(const FirstDigit: Char): TStringEscape;
 begin
   const IsNullEscape = ((FirstDigit = ZERO_CHAR) and (not TJSAsciiDigits.IsDigit(CurrentChar)));
   if IsNullEscape then
-    Exit(TStringEscape.Create(NULL_CHAR, False));
+  begin
+    Result := TStringEscape.Create(NULL_CHAR, False);
+    Exit;
+  end;
 
   var CodeUnit := TJSAsciiDigits.DigitValue(FirstDigit);
   const AllowsThreeDigits = (FirstDigit <= LAST_DIGIT_OF_THREE_DIGIT_OCTAL_START);
@@ -1064,14 +1077,16 @@ begin
     if EndsTemplate then
     begin
       Advance;
-      Exit(CreateTemplateChunk(Text, IsHead, True));
+      Result := CreateTemplateChunk(Text, IsHead, True);
+      Exit;
     end;
 
     if OpensSubstitution then
     begin
       AdvanceBy(TEMPLATE_SUBSTITUTION_OPENER_LENGTH);
       FSubstitutionDepths.Push(FBraceDepth);
-      Exit(CreateTemplateChunk(Text, IsHead, False));
+      Result := CreateTemplateChunk(Text, IsHead, False);
+      Exit;
     end;
 
     const Piece = ReadTemplateElement;
@@ -1204,7 +1219,10 @@ function TJSLexer.TryReadUnicodeEscape(out Value: string): Boolean;
 begin
   const IsCodePointEscape = (CurrentChar = LEFT_BRACE);
   if IsCodePointEscape then
-    Exit(TryReadCodePointEscape(Value));
+  begin
+    Result := TryReadCodePointEscape(Value);
+    Exit;
+  end;
 
   var CodeUnit: Integer;
   Result := TryReadHexDigits(UNICODE_ESCAPE_DIGITS, CodeUnit);

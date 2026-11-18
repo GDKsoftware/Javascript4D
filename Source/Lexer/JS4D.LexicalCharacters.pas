@@ -136,7 +136,8 @@ begin
   if not TJSUtf16.IsPairAt(Text, Index) then
   begin
     const Ch = Text[Index];
-    Exit(IsIdentifierStart(Ch) or ((not IsFirstChar) and IsIdentifierPart(Ch)));
+    Result := IsIdentifierStart(Ch) or ((not IsFirstChar) and IsIdentifierPart(Ch));
+    Exit;
   end;
 
   const Category = Char.GetUnicodeCategory(Text, Index - 1);

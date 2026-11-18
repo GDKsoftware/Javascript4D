@@ -37,9 +37,12 @@ class function TJSDoubleMergeSorter.CompareDefault(const Left: Double; const Rig
 begin
   const LeftIsNaN = IsNaN(Left);
   const RightIsNaN = IsNaN(Right);
-  const AnyNaN = LeftIsNaN or RightIsNaN;
+  const AnyNaN = (LeftIsNaN or RightIsNaN);
   if AnyNaN then
-    Exit(Ord(LeftIsNaN) - Ord(RightIsNaN));
+  begin
+    Result := Ord(LeftIsNaN) - Ord(RightIsNaN);
+    Exit;
+  end;
 
   const IsLess = (Left < Right);
   if IsLess then

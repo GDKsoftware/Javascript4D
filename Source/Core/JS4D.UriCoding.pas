@@ -171,7 +171,10 @@ begin
     raise TJSErrorFactory.MalformedUri;
 
   if not First.IsHighSurrogate then
-    Exit(Ord(First));
+  begin
+    Result := Ord(First);
+    Exit;
+  end;
 
   if AtEnd then
     raise TJSErrorFactory.MalformedUri;

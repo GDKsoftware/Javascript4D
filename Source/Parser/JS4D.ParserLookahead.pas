@@ -233,7 +233,10 @@ begin
 
     const HasParameterExpression = (PeekType(Offset) in PARAMETER_EXPRESSION_TOKENS);
     if HasParameterExpression then
-      Exit(StartsArrowAfterParenthesis(0));
+    begin
+      Result := StartsArrowAfterParenthesis(0);
+      Exit;
+    end;
 
     const HasMoreParameters = (PeekType(Offset) = TJSTokenType.Comma);
     if not HasMoreParameters then
@@ -245,7 +248,10 @@ begin
   const FollowingType = PeekType(Offset);
   const NeedsFullScan = ((FollowingType = TJSTokenType.Ellipsis) or (FollowingType in PATTERN_START_TOKENS));
   if NeedsFullScan then
-    Exit(StartsArrowAfterParenthesis(0));
+  begin
+    Result := StartsArrowAfterParenthesis(0);
+    Exit;
+  end;
 
   Result := ((FollowingType = TJSTokenType.RightParen) and (PeekType(Offset + 1) = TJSTokenType.Arrow));
 end;

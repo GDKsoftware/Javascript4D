@@ -145,7 +145,10 @@ begin
 
   const ExceedsLimit = (Significant.Length > MAX_QUANTIFIER_DIGITS) or (StrToInt(Significant) > MAX_QUANTIFIER_BOUND);
   if ExceedsLimit then
-    Exit(IntToStr(MAX_QUANTIFIER_BOUND));
+  begin
+    Result := IntToStr(MAX_QUANTIFIER_BOUND);
+    Exit;
+  end;
 
   Result := Significant;
 end;

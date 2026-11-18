@@ -1392,7 +1392,10 @@ begin
     Exit(ToString);
 
   if not Arr.HasUntouchedConversion(TJSPrimitiveHint.String_) then
-    Exit(ToHookedArrayString(Limits));
+  begin
+    Result := ToHookedArrayString(Limits);
+    Exit;
+  end;
 
   Result := ToPlainArrayText(Arr, Limits);
 end;
@@ -1969,7 +1972,8 @@ begin
   if Lookup = TJSOwnLookup.Delegated then
   begin
     const HasDelegated = (Link as IJSObject).HasProperty(Name);
-    Exit(VerdictOf(HasDelegated));
+    Result := VerdictOf(HasDelegated);
+    Exit;
   end;
 
   Result := ResolveLookup(Lookup, TJSChainVerdict.Yes, TJSChainVerdict.No);
@@ -1983,7 +1987,8 @@ begin
   if Lookup = TJSOwnLookup.Delegated then
   begin
     const HasDelegated = (Link as IJSObject).TryGetPropertyDescriptor(Name, Descriptor);
-    Exit(VerdictOf(HasDelegated));
+    Result := VerdictOf(HasDelegated);
+    Exit;
   end;
 
   Result := ResolveLookup(Lookup, TJSChainVerdict.Yes, TJSChainVerdict.No);
@@ -1997,7 +2002,8 @@ begin
   if Lookup = TJSOwnLookup.Delegated then
   begin
     const IsConfigurableThroughDelegate = (Link as IJSObject).IsPropertyConfigurable(Name);
-    Exit(VerdictOf(IsConfigurableThroughDelegate));
+    Result := VerdictOf(IsConfigurableThroughDelegate);
+    Exit;
   end;
 
   var WhenFound := TJSChainVerdict.Undecided;
