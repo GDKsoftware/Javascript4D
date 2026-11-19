@@ -1,4 +1,4 @@
-unit JS4D.Json;
+unit JS4D.JsonWriter;
 
 {$SCOPEDENUMS ON}
 
@@ -6,25 +6,22 @@ interface
 
 uses
   System.SysUtils,
-  JS4D.PropertyKey,
   System.Generics.Collections,
+  JS4D.PropertyKey,
   JS4D.Types;
-
-const
-  JSON_ROOT_KEY = '';
 
 type
   TJSJsonWriter = class
   private
     const
-      MaxGapLength = 10;
-      ToJsonName = 'toJSON';
-      QuoteCharacter = '"';
-      NullLiteral = 'null';
-      TrueLiteral = 'true';
-      FalseLiteral = 'false';
-      CircularMessage = 'Converting circular structure to JSON';
-      UnsupportedTypeMessage = 'Unsupported value type: %d';
+      MAX_GAP_LENGTH = 10;
+      TO_JSON_NAME = 'toJSON';
+      NEW_LINE = #10;
+      GAP_CHARACTER = ' ';
+      MEMBER_SEPARATOR = ':';
+      MEMBER_SEPARATOR_WITH_GAP = ': ';
+      UNICODE_ESCAPE_PREFIX = '\u';
+      CIRCULAR_MESSAGE = 'Converting circular structure to JSON';
 
     var
       FLimits: TJSLimits;
@@ -37,9 +34,12 @@ type
       FGap: string;
       FIndent: string;
 
+    function HasGap: Boolean;
+    procedure EnsureOutputWithinLimit;
     procedure Append(const Text: string);
     procedure AppendQuoted(const Text: string);
-    procedure AppendEscaped(const Character: Char);
+    procedure AppendCharacter(const Character: Char);
+    procedure AppendUnicodeEscape(const Character: Char);
     procedure AppendNewLine;
 
     function TextOf(const Value: TJSValue): string;
@@ -55,11 +55,12 @@ type
     function TryPrepare(const Key: string; const Holder: IJSObject; out Prepared: TJSValue): Boolean;
 
     function MemberKeys(const Target: IJSObject): TArray<string>;
-    function EnterContainer(const Target: IJSObject; const OpenBracket: Char): string;
-    procedure LeaveContainer(const PreviousIndent: string; const HasContent: Boolean; const CloseBracket: Char);
+    procedure OpenContainer(const Target: IJSObject; const OpenBracket: Char);
+    procedure CloseContainer(const PreviousIndent: string; const HasContent: Boolean; const CloseBracket: Char);
     procedure BeginEntry(const IsFirst: Boolean);
 
     procedure WriteValue(const Value: TJSValue);
+    procedure RaiseUnsupportedType(const ValueType: TJSValueType);
     procedure WriteNumber(const Value: TJSValue);
     procedure WriteContainer(const Value: TJSValue);
     procedure WriteArray(const Target: IJSObject);
@@ -75,12 +76,18 @@ type
 implementation
 
 uses
+  JS4D.Utf16,
+  JS4D.Conversions,
   System.Math,
+  System.Character,
   System.StrUtils,
   JS4D.Errors,
   JS4D.ArrayLike,
+  JS4D.MathFunctions,
   JS4D.ObjectKeys,
-  JS4D.ObjectOperations;
+  JS4D.ObjectOperations,
+  JS4D.JsonGrammar,
+  JS4D.JsonRoot;
 
 { TJSJsonWriter }
 
@@ -102,31 +109,50 @@ begin
   inherited;
 end;
 
+function TJSJsonWriter.HasGap: Boolean;
+begin
+  Result := not FGap.IsEmpty;
+end;
+
+procedure TJSJsonWriter.EnsureOutputWithinLimit;
+begin
+  FLimits.EnsureStringLength(FOutput.Length);
+end;
+
 procedure TJSJsonWriter.Append(const Text: string);
 begin
   FOutput.Append(Text);
-  FLimits.EnsureStringLength(FOutput.Length);
+  EnsureOutputWithinLimit;
 end;
 
 procedure TJSJsonWriter.AppendNewLine;
 begin
-  Append(#10 + FIndent);
+  Append(NEW_LINE);
+  Append(FIndent);
 end;
 
-procedure TJSJsonWriter.AppendEscaped(const Character: Char);
+procedure TJSJsonWriter.AppendUnicodeEscape(const Character: Char);
+begin
+  const HexDigits = LowerCase(IntToHex(Ord(Character), 4));
+
+  FOutput.Append(UNICODE_ESCAPE_PREFIX);
+  FOutput.Append(HexDigits);
+end;
+
+procedure TJSJsonWriter.AppendCharacter(const Character: Char);
 begin
   case Character of
-    '"' : FOutput.Append('\"');
-    '\' : FOutput.Append('\\');
-    #8  : FOutput.Append('\b');
-    #9  : FOutput.Append('\t');
-    #10 : FOutput.Append('\n');
-    #12 : FOutput.Append('\f');
-    #13 : FOutput.Append('\r');
+    JSON_QUOTE  : FOutput.Append('\"');
+    JSON_ESCAPE : FOutput.Append('\\');
+    #8          : FOutput.Append('\b');
+    #9          : FOutput.Append('\t');
+    #10         : FOutput.Append('\n');
+    #12         : FOutput.Append('\f');
+    #13         : FOutput.Append('\r');
   else
-    const IsControlCharacter = (Character < ' ');
-    if IsControlCharacter then
-      FOutput.Append('\u').Append(LowerCase(IntToHex(Ord(Character), 4)))
+    const NeedsUnicodeEscape = ((Character < ' ') or Character.IsSurrogate);
+    if NeedsUnicodeEscape then
+      AppendUnicodeEscape(Character)
     else
       FOutput.Append(Character);
   end;
@@ -134,14 +160,28 @@ end;
 
 procedure TJSJsonWriter.AppendQuoted(const Text: string);
 begin
-  FOutput.Append(QuoteCharacter);
-  for var Character in Text do
-  begin
-    AppendEscaped(Character);
-  end;
-  FOutput.Append(QuoteCharacter);
+  FOutput.Append(JSON_QUOTE);
 
-  FLimits.EnsureStringLength(FOutput.Length);
+  var Position := 1;
+  while Position <= Length(Text) do
+  begin
+    if TJSUtf16.IsPairAt(Text, Position) then
+    begin
+      FOutput.Append(Text[Position]);
+      FOutput.Append(Text[Position + 1]);
+      Inc(Position, 2);
+    end
+    else
+    begin
+      AppendCharacter(Text[Position]);
+      Inc(Position);
+    end;
+
+    EnsureOutputWithinLimit;
+  end;
+
+  FOutput.Append(JSON_QUOTE);
+  EnsureOutputWithinLimit;
 end;
 
 procedure TJSJsonWriter.ConfigureReplacer(const Replacer: TJSValue);
@@ -174,6 +214,8 @@ begin
   FHasAllowedKeys := True;
 
   const Count = TJSArrayLike.ToLength(Replacer);
+  FLimits.EnsureArrayLength(Count);
+
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Key: string;
@@ -217,18 +259,20 @@ begin
 
   if Resolved.IsNumber then
   begin
-    const Requested = TJSArrayLike.ToInteger(Resolved);
+    const Requested = TJSConversions.ToIntegerOrInfinity(Resolved);
     const NeedsGap = (Requested >= 1);
     if NeedsGap then
     begin
-      const Count = Trunc(Min(Requested, Double(MaxGapLength)));
+      const MaxGapWidth: Double = MAX_GAP_LENGTH;
+      const Capped = Min(Requested, MaxGapWidth);
+      const Count = Trunc(Capped);
 
-      FGap := StringOfChar(' ', Count);
+      FGap := StringOfChar(GAP_CHARACTER, Count);
     end;
   end
   else if Resolved.IsString then
   begin
-    FGap := Copy(Resolved.AsString, 1, MaxGapLength);
+    FGap := Copy(Resolved.AsString, 1, MAX_GAP_LENGTH);
   end;
 end;
 
@@ -245,7 +289,7 @@ begin
 
   var ToJson: IJSFunction;
   const Source = Value.ToObject;
-  const Candidate = Source.GetProperty(ToJsonName);
+  const Candidate = Source.GetProperty(TO_JSON_NAME);
   const IsCallable = (Candidate.IsFunction and Supports(Candidate.ToObject, IJSFunction, ToJson));
   if not IsCallable then
     Exit;
@@ -258,7 +302,10 @@ end;
 function TJSJsonWriter.ApplyReplacer(const Key: string; const Holder: IJSObject; const Value: TJSValue): TJSValue;
 begin
   if not Assigned(FReplacer) then
-    Exit(Value);
+  begin
+    Result := Value;
+    Exit;
+  end;
 
   const KeyArgument = TJSValue.CreateString(Key);
 
@@ -277,13 +324,15 @@ begin
 
   if Primitive.IsNumber then
   begin
-    const Number = TJSArrayLike.ToNumber(Value);
+    const Number = TJSConversions.ToNumber(Value);
 
     Result := TJSValue.CreateNumber(Number);
   end
   else if Primitive.IsString then
   begin
-    Result := TJSValue.CreateString(TextOf(Value));
+    const Text = TextOf(Value);
+
+    Result := TJSValue.CreateString(Text);
   end
   else
   begin
@@ -304,35 +353,34 @@ end;
 
 function TJSJsonWriter.MemberKeys(const Target: IJSObject): TArray<string>;
 begin
-  if not FHasAllowedKeys then
-    Exit(TJSObjectKeys.Enumerable(Target));
-
-  Result := FAllowedKeys.ToArray;
+  if FHasAllowedKeys then
+    Result := FAllowedKeys.ToArray
+  else
+    Result := TJSObjectKeys.Enumerable(Target);
 end;
 
-function TJSJsonWriter.EnterContainer(const Target: IJSObject; const OpenBracket: Char): string;
+procedure TJSJsonWriter.OpenContainer(const Target: IJSObject; const OpenBracket: Char);
 begin
-  const Marker = Pointer(Target as IInterface);
+  const Marker = TJSObjectOperations.IdentityOf(Target);
 
   if FVisiting.Contains(Marker) then
-    raise TJSErrorFactory.TypeError(CircularMessage);
+    raise TJSErrorFactory.TypeError(CIRCULAR_MESSAGE);
 
   FLimits.EnsureNestingDepth(FVisiting.Count + 1);
   FVisiting.Add(Marker);
 
-  Result := FIndent;
   FIndent := FIndent + FGap;
 
   Append(OpenBracket);
 end;
 
-procedure TJSJsonWriter.LeaveContainer(const PreviousIndent: string; const HasContent: Boolean;
+procedure TJSJsonWriter.CloseContainer(const PreviousIndent: string; const HasContent: Boolean;
                                        const CloseBracket: Char);
 begin
   FIndent := PreviousIndent;
   FVisiting.Delete(FVisiting.Count - 1);
 
-  const NeedsNewLine = (HasContent and (not FGap.IsEmpty));
+  const NeedsNewLine = (HasContent and HasGap);
   if NeedsNewLine then
     AppendNewLine;
 
@@ -342,21 +390,20 @@ end;
 procedure TJSJsonWriter.BeginEntry(const IsFirst: Boolean);
 begin
   if not IsFirst then
-    Append(',');
+    Append(JSON_COMMA);
 
-  if not FGap.IsEmpty then
+  if HasGap then
     AppendNewLine;
 end;
 
 procedure TJSJsonWriter.WriteNumber(const Value: TJSValue);
 begin
   const Number = Value.AsNumber;
-  const IsFiniteNumber = ((not System.Math.IsNaN(Number)) and (not System.Math.IsInfinite(Number)));
 
-  if IsFiniteNumber then
+  if TJSMathFunctions.IsFiniteNumber(Number) then
     Append(Value.ToString)
   else
-    Append(NullLiteral);
+    Append(JSON_NULL_LITERAL);
 end;
 
 procedure TJSJsonWriter.WriteContainer(const Value: TJSValue);
@@ -371,27 +418,32 @@ end;
 
 procedure TJSJsonWriter.WriteArray(const Target: IJSObject);
 begin
-  const PreviousIndent = EnterContainer(Target, '[');
+  const PreviousIndent = FIndent;
+  OpenContainer(Target, JSON_ARRAY_START);
 
   const Count = TJSArrayLike.ToLength(Target);
   for var Index: Int64 := 0 to Count - 1 do
   begin
     var Element: TJSValue;
-    BeginEntry(Index = 0);
+    const IsFirst = (Index = 0);
+    BeginEntry(IsFirst);
 
     if TryPrepare(TJSArrayLike.IndexName(Index), Target, Element) then
       WriteValue(Element)
     else
-      Append(NullLiteral);
+      Append(JSON_NULL_LITERAL);
   end;
 
-  LeaveContainer(PreviousIndent, Count > 0, ']');
+  const HasContent = (Count > 0);
+  CloseContainer(PreviousIndent, HasContent, JSON_ARRAY_END);
 end;
 
 procedure TJSJsonWriter.WriteObject(const Target: IJSObject);
 begin
-  const PreviousIndent = EnterContainer(Target, '{');
-  const Separator = IfThen(FGap.IsEmpty, ':', ': ');
+  const PreviousIndent = FIndent;
+  OpenContainer(Target, JSON_OBJECT_START);
+
+  const Separator = IfThen(HasGap, MEMBER_SEPARATOR_WITH_GAP, MEMBER_SEPARATOR);
 
   var HasMember := False;
   for var Key in MemberKeys(Target) do
@@ -399,7 +451,8 @@ begin
     var Member: TJSValue;
     if TryPrepare(Key, Target, Member) then
     begin
-      BeginEntry(not HasMember);
+      const IsFirst = (not HasMember);
+      BeginEntry(IsFirst);
       AppendQuoted(Key);
       Append(Separator);
       WriteValue(Member);
@@ -408,21 +461,28 @@ begin
     end;
   end;
 
-  LeaveContainer(PreviousIndent, HasMember, '}');
+  CloseContainer(PreviousIndent, HasMember, JSON_OBJECT_END);
 end;
 
 procedure TJSJsonWriter.WriteValue(const Value: TJSValue);
 begin
   case Value.ValueType of
-    TJSValueType.Null    : Append(NullLiteral);
-    TJSValueType.Boolean_: Append(IfThen(Value.AsBoolean, TrueLiteral, FalseLiteral));
+    TJSValueType.Null    : Append(JSON_NULL_LITERAL);
+    TJSValueType.Boolean_: Append(IfThen(Value.AsBoolean, JSON_TRUE_LITERAL, JSON_FALSE_LITERAL));
     TJSValueType.Number  : WriteNumber(Value);
     TJSValueType.String_ : AppendQuoted(Value.AsString);
     TJSValueType.Array_,
     TJSValueType.Object_ : WriteContainer(Value);
   else
-    raise ENotSupportedException.CreateFmt(UnsupportedTypeMessage, [Ord(Value.ValueType)]);
+    RaiseUnsupportedType(Value.ValueType);
   end;
+end;
+
+procedure TJSJsonWriter.RaiseUnsupportedType(const ValueType: TJSValueType);
+begin
+  const Message = Format(UNSUPPORTED_VALUE_TYPE_MESSAGE, [Ord(ValueType)]);
+
+  raise TJSErrorFactory.TypeError(Message);
 end;
 
 function TJSJsonWriter.TryStringify(const Value, Replacer, Space: TJSValue; out Text: string): Boolean;
@@ -432,12 +492,10 @@ begin
   ConfigureReplacer(Replacer);
   ConfigureGap(Space);
 
-  const Holder: IJSObject = TJSObject.Create;
-  Holder.Prototype := FObjectPrototype;
-  TJSObjectOperations.CreateDataProperty(Holder, JSON_ROOT_KEY, Value);
+  const Holder = TJSJsonRoot.CreateHolder(FObjectPrototype, Value);
 
   var Prepared: TJSValue;
-  Result := TryPrepare(JSON_ROOT_KEY, Holder, Prepared);
+  Result := TryPrepare(TJSJsonRoot.KEY, Holder, Prepared);
   if not Result then
     Exit;
 

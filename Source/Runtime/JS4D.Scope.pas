@@ -35,7 +35,7 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
     procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function CloneForIteration: TJSScope;
@@ -80,7 +80,7 @@ procedure TJSScope.Clear;
 begin
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    const Value = FVariables.SlotAt(Position)^;
+    const Value = FVariables.ValueAt(Position);
     if Value.IsFunction then
     begin
       var Func: IJSFunction;
@@ -98,7 +98,7 @@ begin
   SetLength(Result, FVariables.Count);
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result[Position] := FVariables.SlotAt(Position)^;
+    Result[Position] := FVariables.ValueAt(Position);
   end;
 end;
 
@@ -160,7 +160,7 @@ begin
   const ResolvedScope = Resolve(Name);
 
   if Assigned(ResolvedScope) then
-    ResolvedScope.AssignVariable(Name, Value)
+    ResolvedScope.AssignOrDeclareVariable(Name, Value)
   else if Assigned(FParent) then
     FParent.SetVariable(Name, Value)
   else
@@ -185,7 +185,7 @@ begin
   FDeletableNames.AddOrSetValue(Name, 0);
 end;
 
-procedure TJSScope.AssignVariable(const Name: string; const Value: TJSValue);
+procedure TJSScope.AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
 begin
   if Assigned(FLexicalStates) then
     FLexicalStates.EnsureAssignable(Name);
@@ -215,7 +215,7 @@ begin
 
   for var Position := 0 to FVariables.Count - 1 do
   begin
-    Result.FVariables.Add(FVariables.NameAt(Position), FVariables.SlotAt(Position)^);
+    Result.FVariables.Add(FVariables.NameAt(Position), FVariables.ValueAt(Position));
   end;
 
   if Assigned(FLexicalStates) then

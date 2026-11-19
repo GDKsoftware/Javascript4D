@@ -31,7 +31,10 @@ begin
     Exit(TJSValue.CreateUndefined);
 
   if ThisObj is TJSStrictThis then
-    Exit(TJSStrictThis(ThisObj).Value);
+  begin
+    Result := TJSStrictThis(ThisObj).Value;
+    Exit;
+  end;
 
   Result := TJSValue.CreateObject(ThisObj);
 end;

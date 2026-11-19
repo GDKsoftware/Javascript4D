@@ -6,13 +6,10 @@ interface
 
 uses
   System.SysUtils,
-  System.IOUtils,
-  System.Diagnostics,
-  System.Generics.Collections,
   JS4D.Conformance.Defines,
   JS4D.Conformance.Options,
   JS4D.Conformance.TestCase,
-  JS4D.Conformance.Exclusions,
+  JS4D.Conformance.FeatureExclusions,
   JS4D.Conformance.PathExclusions,
   JS4D.Conformance.Harness,
   JS4D.Conformance.Selector,
@@ -23,7 +20,7 @@ type
   TConformanceRunner = class
   private
     FOptions: TConformanceOptions;
-    FExclusions: TExclusionList;
+    FExclusions: TFeatureExclusionList;
     FPathExclusions: TPathExclusionList;
     FHarness: THarnessLibrary;
     FSelector: TTestSelector;
@@ -36,7 +33,7 @@ type
     function RunVariants(const TestCase: TTestCase): TArray<TVariantResult>;
 
     procedure ProcessFile(const FilePath: string);
-    procedure ReportProgress(const Processed: Integer; const Total: Integer);
+    procedure PrintProgress(const Processed: Integer; const Total: Integer);
 
   public
     constructor Create(const Options: TConformanceOptions);
@@ -49,17 +46,21 @@ type
 
 implementation
 
+uses
+  System.IOUtils,
+  System.Diagnostics,
+  System.Generics.Collections;
+
 const
-  JavaScriptPattern = '*.js';
-  DirectorySeparator = '/';
+  JAVA_SCRIPT_PATTERN = '*.js';
 
 constructor TConformanceRunner.Create(const Options: TConformanceOptions);
 begin
   inherited Create;
   FOptions := Options;
-  FExclusions := TExclusionList.Create(Options.ExclusionsFile);
+  FExclusions := TFeatureExclusionList.Create(Options.ExclusionsFile);
   FPathExclusions := TPathExclusionList.Create(Options.PathExclusionsFile);
-  FHarness := THarnessLibrary.Create(Options.HarnessDirectory, Options.Limits);
+  FHarness := THarnessLibrary.Create(Options.HarnessDirectory);
   FSelector := TTestSelector.Create(FExclusions, FPathExclusions);
   FExecutor := TTestExecutor.Create(FHarness, Options.Limits);
   FReport := TConformanceReport.Create;
@@ -84,7 +85,7 @@ begin
   for var Index := 0 to High(Files) do
   begin
     ProcessFile(Files[Index]);
-    ReportProgress(Index + 1, Length(Files));
+    PrintProgress(Index + 1, Length(Files));
   end;
 
   FReport.DurationMs := Stopwatch.ElapsedMilliseconds;
@@ -101,9 +102,10 @@ begin
   try
     for var Root in Roots do
     begin
-      for var FilePath in TDirectory.GetFiles(Root, JavaScriptPattern, TSearchOption.soAllDirectories) do
+      for var FilePath in TDirectory.GetFiles(Root, JAVA_SCRIPT_PATTERN, TSearchOption.soAllDirectories) do
       begin
-        if MatchesFilter(ToRelativePath(FilePath)) then
+        const RelativePath = ToRelativePath(FilePath);
+        if MatchesFilter(RelativePath) then
           Files.Add(FilePath);
       end;
     end;
@@ -118,7 +120,7 @@ end;
 function TConformanceRunner.ToRelativePath(const FilePath: string): string;
 begin
   const Prefix = IncludeTrailingPathDelimiter(FOptions.TestDirectory);
-  Result := FilePath.Substring(Prefix.Length).Replace('\', DirectorySeparator);
+  Result := FilePath.Substring(Prefix.Length).Replace(BACKSLASH, PATH_SEPARATOR);
 end;
 
 function TConformanceRunner.MatchesFilter(const RelativePath: string): Boolean;
@@ -129,7 +131,8 @@ end;
 
 procedure TConformanceRunner.ProcessFile(const FilePath: string);
 begin
-  const TestCase = TTestCase.Create(FilePath, ToRelativePath(FilePath));
+  const RelativePath = ToRelativePath(FilePath);
+  const TestCase = TTestCase.Create(FilePath, RelativePath);
   try
     var SkipReason: string;
     const IsSkipped = FSelector.TryGetSkipReason(TestCase, SkipReason);
@@ -149,17 +152,17 @@ end;
 
 function TConformanceRunner.RunVariants(const TestCase: TTestCase): TArray<TVariantResult>;
 begin
-  const Variants = TTestExecutor.VariantsOf(TestCase);
-  SetLength(Result, Length(Variants));
-  for var Index := 0 to High(Variants) do
+  Result := [];
+  for var TestVariant in TTestExecutor.VariantsOf(TestCase) do
   begin
-    Result[Index] := FExecutor.Run(TestCase, Variants[Index]);
+    const VariantResult = FExecutor.Run(TestCase, TestVariant);
+    Result := Result + [VariantResult];
   end;
 end;
 
-procedure TConformanceRunner.ReportProgress(const Processed: Integer; const Total: Integer);
+procedure TConformanceRunner.PrintProgress(const Processed: Integer; const Total: Integer);
 begin
-  const IsMilestone = (Processed mod ProgressInterval = 0) or (Processed = Total);
+  const IsMilestone = (Processed mod PROGRESS_INTERVAL = 0) or (Processed = Total);
   if IsMilestone then
   begin
     const Message = Format('Processed %d of %d test files', [Processed, Total]);

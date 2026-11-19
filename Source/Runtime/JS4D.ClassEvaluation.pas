@@ -13,7 +13,8 @@ type
   TJSClassEvaluation = class abstract
   public
     procedure BindHomeObject(const Func: IJSFunction; const Home: IJSObject); virtual; abstract;
-    function VisitClassExpression(const Node: TJSClassExpression; const InferredName: string): TJSValue; virtual; abstract;
+    function VisitClassExpression(const Node: TJSClassExpression;
+                                  const InferredName: string): TJSValue; virtual; abstract;
   end;
 
 implementation

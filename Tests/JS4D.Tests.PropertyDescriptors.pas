@@ -6,33 +6,20 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  System.Diagnostics,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TPropertyDescriptorTests = class
+  TPropertyDescriptorTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function EvaluateNumber(const Script: string): Double;
-    function EvaluateBoolean(const Script: string): Boolean;
-    function ThrowsTypeError(const Statement: string): Boolean;
+    function ThrowsTypeErrorOnNewObject(const Statement: string): Boolean;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure DefineProperty_Getter_IsInvokedOnRead;
 
     [Test]
-    procedure DefineProperty_GetterReceivesInstanceAsThis;
+    procedure DefineProperty_Getter_ReceivesInstanceAsThis;
 
     [Test]
     procedure DefineProperty_Setter_IsInvokedOnWrite;
@@ -89,10 +76,11 @@ type
     procedure DefineProperty_ArrayLength_TruncatesArray;
 
     [Test]
-    procedure Pop_ArrayWithManyHoles_RunsInLinearTime;
+    [MaxTime(3000)]
+    procedure Pop_ArrayWithManyHoles_EmptiesArrayWithinTimeLimit;
 
     [Test]
-    procedure ForIn_SkipsNonEnumerableProperties;
+    procedure ForIn_NonEnumerableProperty_IsSkipped;
 
     [Test]
     procedure Throw_EngineTypeError_IsCaughtAsTypeErrorObject;
@@ -104,13 +92,13 @@ type
     procedure Delete_NonConfigurableProperty_KeepsPropertyAndReturnsFalse;
 
     [Test]
-    procedure ObjectLiteral_DefinesOwnPropertyDespiteInheritedReadOnly;
+    procedure ObjectLiteral_InheritedReadOnlyProperty_DefinesOwnProperty;
 
     [Test]
     procedure HasOwnProperty_InheritedProperty_ReturnsFalse;
 
     [Test]
-    procedure Literals_InheritFromIntrinsicPrototypes;
+    procedure Literal_IntrinsicPrototypeProperty_IsInherited;
 
     [Test]
     procedure ArrayCallback_ThisArg_IsPassedToCallback;
@@ -119,7 +107,7 @@ type
     procedure GetOwnPropertyDescriptor_MissingProperty_ReturnsUndefined;
 
     [Test]
-    procedure DefineProperties_DefinesEveryProperty;
+    procedure DefineProperties_ValidDescriptors_DefinesEveryProperty;
 
     [Test]
     procedure DefineProperties_InvalidDescriptor_DefinesNothing;
@@ -128,7 +116,7 @@ type
     procedure DefineProperties_NonObjectTarget_ThrowsTypeError;
 
     [Test]
-    procedure DefineProperties_IgnoresNonEnumerableDescriptorKeys;
+    procedure DefineProperties_NonEnumerableDescriptorKey_IsIgnored;
 
     [Test]
     procedure Create_WithProperties_DefinesThem;
@@ -139,55 +127,42 @@ type
 
 implementation
 
-procedure TPropertyDescriptorTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  System.SysUtils;
 
-procedure TPropertyDescriptorTests.TearDown;
-begin
-  FEngine.Free;
-end;
+const
+  NEW_OBJECT = 'var o = {};';
+  DEFINE_READ_ONLY_X = 'Object.defineProperty(o, "x", { value: 1 });';
 
-function TPropertyDescriptorTests.EvaluateNumber(const Script: string): Double;
+function TPropertyDescriptorTests.ThrowsTypeErrorOnNewObject(const Statement: string): Boolean;
 begin
-  Result := FEngine.Evaluate(Script).AsNumber;
-end;
+  const Statements = Format('%s %s', [NEW_OBJECT, Statement]);
 
-function TPropertyDescriptorTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TPropertyDescriptorTests.ThrowsTypeError(const Statement: string): Boolean;
-begin
-  const Script =
-    'var o = {};' + sLineBreak +
-    'var thrown = false;' + sLineBreak +
-    'try { ' + Statement + ' } catch (e) { thrown = (e instanceof TypeError); }' + sLineBreak +
-    'thrown';
-
-  Result := EvaluateBoolean(Script);
+  Result := ThrowsTypeError(Statements);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_Getter_IsInvokedOnRead;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
     'Object.defineProperty(o, "x", { get: function () { return 7; } });' + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(7.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
-procedure TPropertyDescriptorTests.DefineProperty_GetterReceivesInstanceAsThis;
+procedure TPropertyDescriptorTests.DefineProperty_Getter_ReceivesInstanceAsThis;
 begin
   const Script =
     'var o = { base: 4 };' + sLineBreak +
     'Object.defineProperty(o, "x", { get: function () { return this.base + 1; } });' + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(5.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_Setter_IsInvokedOnWrite;
@@ -198,7 +173,9 @@ begin
     'o.x = 6;' + sLineBreak +
     'o.stored';
 
-  Assert.AreEqual(12.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(12.0, Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_AccessorOnPrototype_UsesInstanceAsThis;
@@ -210,58 +187,74 @@ begin
     'child.base = 9;' + sLineBreak +
     'child.x';
 
-  Assert.AreEqual(9.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(9.0, Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_DataDescriptorWithoutAttributes_DefaultsToFalse;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
-    'Object.defineProperty(o, "x", { value: 1 });' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
+    DEFINE_READ_ONLY_X + sLineBreak +
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     '!d.writable && !d.enumerable && !d.configurable && d.value === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_GetterAndValue_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.defineProperty(o, "x", { get: function () {}, value: 1 });'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.defineProperty(o, "x", { get: function () {}, value: 1 });');
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_NonCallableGetter_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.defineProperty(o, "x", { get: 5 });'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.defineProperty(o, "x", { get: 5 });');
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_NonObjectTarget_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.defineProperty(1, "x", {});'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.defineProperty(1, "x", {});');
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_NonObjectDescriptor_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.defineProperty(o, "x", 1);'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.defineProperty(o, "x", 1);');
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_ChangeNonConfigurableValue_ThrowsTypeError;
 begin
   const Statement =
-    'Object.defineProperty(o, "x", { value: 1 });' +
+    DEFINE_READ_ONLY_X +
     'Object.defineProperty(o, "x", { value: 2 });';
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Thrown = ThrowsTypeErrorOnNewObject(Statement);
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_SameValueOnNonConfigurable_Succeeds;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
-    'Object.defineProperty(o, "x", { value: 1 });' + sLineBreak +
-    'Object.defineProperty(o, "x", { value: 1 });' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
+    DEFINE_READ_ONLY_X + sLineBreak +
+    DEFINE_READ_ONLY_X + sLineBreak +
     'o.x';
 
-  Assert.AreEqual(1.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_PartialDescriptor_KeepsExistingAttributes;
@@ -272,16 +265,20 @@ begin
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'd.value === 1 && d.writable && d.configurable && !d.enumerable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_OnNonExtensibleObject_ThrowsTypeError;
 begin
   const Statement =
     'Object.preventExtensions(o);' +
-    'Object.defineProperty(o, "x", { value: 1 });';
+    DEFINE_READ_ONLY_X;
 
-  Assert.IsTrue(ThrowsTypeError(Statement));
+  const Thrown = ThrowsTypeErrorOnNewObject(Statement);
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_ConvertDataToAccessor_KeepsEnumerableAndConfigurable;
@@ -292,7 +289,9 @@ begin
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'd.enumerable && d.configurable && o.x === 3 && d.set === undefined';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.GetOwnPropertyDescriptor_DataProperty_ReturnsAllFields;
@@ -302,29 +301,37 @@ begin
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'd.value === 5 && d.writable === true && d.enumerable === true && d.configurable === true';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.GetOwnPropertyDescriptor_Accessor_ReturnsGetAndSet;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
     'var g = function () {};' + sLineBreak +
     'Object.defineProperty(o, "x", { get: g, configurable: true });' + sLineBreak +
     'var d = Object.getOwnPropertyDescriptor(o, "x");' + sLineBreak +
     'd.get === g && d.set === undefined && !("value" in d) && !("writable" in d) && d.configurable === true';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.GetOwnPropertyDescriptor_Undefined_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.getOwnPropertyDescriptor(undefined, "x");'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.getOwnPropertyDescriptor(undefined, "x");');
+
+  Assert.IsTrue(Thrown);
 end;
 
 procedure TPropertyDescriptorTests.GetOwnPropertyDescriptor_Primitive_ReturnsUndefined;
 begin
-  Assert.IsTrue(EvaluateBoolean('Object.getOwnPropertyDescriptor(1, "x") === undefined'));
+  const Actual = EvaluateBoolean('Object.getOwnPropertyDescriptor(1, "x") === undefined');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_ArrayLength_CanBeMadeNonWritable;
@@ -336,7 +343,9 @@ begin
     'var d = Object.getOwnPropertyDescriptor(a, "length");' + sLineBreak +
     'd.value === 3 && d.writable === false && d.configurable === false';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperty_ArrayLength_TruncatesArray;
@@ -346,26 +355,25 @@ begin
     'Object.defineProperty(a, "length", { value: 1 });' + sLineBreak +
     'a.length';
 
-  Assert.AreEqual(1.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
-procedure TPropertyDescriptorTests.Pop_ArrayWithManyHoles_RunsInLinearTime;
+procedure TPropertyDescriptorTests.Pop_ArrayWithManyHoles_EmptiesArrayWithinTimeLimit;
 begin
-  const MaxMilliseconds = 3000;
   const Script =
     'var a = [];' + sLineBreak +
     'a.length = 50000;' + sLineBreak +
     'while (a.length) { a.pop(); }' + sLineBreak +
     'a.length';
 
-  const Stopwatch = TStopwatch.StartNew;
   const Remaining = EvaluateNumber(Script);
 
   Assert.AreEqual(0.0, Remaining);
-  Assert.IsTrue(Stopwatch.ElapsedMilliseconds < MaxMilliseconds, 'Popping hole-filled array must not be quadratic');
 end;
 
-procedure TPropertyDescriptorTests.ForIn_SkipsNonEnumerableProperties;
+procedure TPropertyDescriptorTests.ForIn_NonEnumerableProperty_IsSkipped;
 begin
   const Script =
     'var o = { visible: 1 };' + sLineBreak +
@@ -374,7 +382,9 @@ begin
     'for (var key in o) { seen += key; }' + sLineBreak +
     'seen === "visible"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.Throw_EngineTypeError_IsCaughtAsTypeErrorObject;
@@ -384,7 +394,9 @@ begin
     'try { Object.defineProperty(1, "x", {}); } catch (e) { caught = e; }' + sLineBreak +
     'caught.constructor === TypeError && typeof caught.message === "string"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.HasOwnProperty_InheritedProperty_ReturnsFalse;
@@ -394,10 +406,12 @@ begin
     'var child = Object.create(parent);' + sLineBreak +
     '!child.hasOwnProperty("inherited") && parent.hasOwnProperty("inherited")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TPropertyDescriptorTests.Literals_InheritFromIntrinsicPrototypes;
+procedure TPropertyDescriptorTests.Literal_IntrinsicPrototypeProperty_IsInherited;
 begin
   const Script =
     'Object.prototype.fromObject = 1;' + sLineBreak +
@@ -406,7 +420,9 @@ begin
     'function f() {}' + sLineBreak +
     '({}).fromObject === 1 && f.fromFunction === 2 && [].fromArray === 3 && [].fromObject === 1';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.ArrayCallback_ThisArg_IsPassedToCallback;
@@ -418,7 +434,9 @@ begin
     '[1].forEach(function () { matched = (this === target); }, target);' + sLineBreak +
     'matched';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.Delete_NonConfigurableProperty_KeepsPropertyAndReturnsFalse;
@@ -429,17 +447,21 @@ begin
     'var removed = delete o.a;' + sLineBreak +
     'removed === false && o.hasOwnProperty("a")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TPropertyDescriptorTests.ObjectLiteral_DefinesOwnPropertyDespiteInheritedReadOnly;
+procedure TPropertyDescriptorTests.ObjectLiteral_InheritedReadOnlyProperty_DefinesOwnProperty;
 begin
   const Script =
     'Object.defineProperty(Object.prototype, "shadowed", { value: 100, writable: false, configurable: true });' + sLineBreak +
     'var o = { shadowed: 12 };' + sLineBreak +
     'o.hasOwnProperty("shadowed") && o.shadowed === 12';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.GlobalCode_This_IsGlobalObjectInStrictMode;
@@ -448,49 +470,61 @@ begin
     '"use strict";' + sLineBreak +
     'this !== undefined';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.GetOwnPropertyDescriptor_MissingProperty_ReturnsUndefined;
 begin
-  Assert.IsTrue(EvaluateBoolean('Object.getOwnPropertyDescriptor({}, "x") === undefined'));
+  const Actual = EvaluateBoolean('Object.getOwnPropertyDescriptor({}, "x") === undefined');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TPropertyDescriptorTests.DefineProperties_DefinesEveryProperty;
+procedure TPropertyDescriptorTests.DefineProperties_ValidDescriptors_DefinesEveryProperty;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
     'var result = Object.defineProperties(o, { a: { value: 1 }, b: { get: function () { return 2; } } });' + sLineBreak +
     'result === o && o.a + o.b === 3';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperties_InvalidDescriptor_DefinesNothing;
 begin
   const Script =
-    'var o = {};' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
     'try { Object.defineProperties(o, { a: { value: 1 }, b: 5 }); } catch (e) {}' + sLineBreak +
     '!o.hasOwnProperty("a")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.DefineProperties_NonObjectTarget_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.defineProperties(1, {});'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.defineProperties(1, {});');
+
+  Assert.IsTrue(Thrown);
 end;
 
-procedure TPropertyDescriptorTests.DefineProperties_IgnoresNonEnumerableDescriptorKeys;
+procedure TPropertyDescriptorTests.DefineProperties_NonEnumerableDescriptorKey_IsIgnored;
 begin
   const Script =
     'var props = {};' + sLineBreak +
     'Object.defineProperty(props, "hidden", { value: { value: 1 }, enumerable: false });' + sLineBreak +
-    'var o = {};' + sLineBreak +
+    NEW_OBJECT + sLineBreak +
     'Object.defineProperties(o, props);' + sLineBreak +
     '!o.hasOwnProperty("hidden")';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPropertyDescriptorTests.Create_WithProperties_DefinesThem;
@@ -500,12 +534,16 @@ begin
     'var o = Object.create(proto, { own: { value: 2, enumerable: true } });' + sLineBreak +
     'o.inherited + o.own';
 
-  Assert.AreEqual(3.0, EvaluateNumber(Script));
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TPropertyDescriptorTests.Create_NonObjectPrototype_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsTypeError('Object.create(1);'));
+  const Thrown = ThrowsTypeErrorOnNewObject('Object.create(1);');
+
+  Assert.IsTrue(Thrown);
 end;
 
 end.

@@ -29,7 +29,7 @@ type
   end;
 
   TVariantResult = record
-    Variant: TTestVariant;
+    TestVariant: TTestVariant;
     Outcome: TTestOutcome;
     Detail: string;
   end;
@@ -37,18 +37,23 @@ type
   EConformanceError = class(Exception);
 
 const
-  DefaultStepBudget = 2000000;
-  DefaultMaxCallDepth = 100;
-  DefaultMaxStringLength = 1000000;
-  DefaultMaxArrayLength = 0;
-  ProgressInterval = 2000;
-  StrictPrefix = '"use strict";' + #10;
-  SyntaxErrorName = 'SyntaxError';
-  ReferenceErrorName = 'ReferenceError';
-  TypeErrorName = 'TypeError';
-  RangeErrorName = 'RangeError';
-  EvalErrorName = 'EvalError';
-  URIErrorName = 'URIError';
+  DEFAULT_STEP_BUDGET = 2000000;
+  DEFAULT_MAX_CALL_DEPTH = 100;
+  DEFAULT_MAX_STRING_LENGTH = 1000000;
+  UNLIMITED_ARRAY_LENGTH = 0;
+  PROGRESS_INTERVAL = 2000;
+  STRICT_PREFIX = '"use strict";' + #10;
+  SYNTAX_ERROR_NAME = 'SyntaxError';
+  REFERENCE_ERROR_NAME = 'ReferenceError';
+  TYPE_ERROR_NAME = 'TypeError';
+  RANGE_ERROR_NAME = 'RangeError';
+  EVAL_ERROR_NAME = 'EvalError';
+  URI_ERROR_NAME = 'URIError';
+  PATH_SEPARATOR = '/';
+  PHASE_PARSE = 'parse';
+  PHASE_RESOLUTION = 'resolution';
+  HOST_OBJECT_NAME = '$262';
+  BACKSLASH = '\';
 
 implementation
 

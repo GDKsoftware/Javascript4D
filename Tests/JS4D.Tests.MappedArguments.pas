@@ -6,25 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TMappedArgumentsTests = class
+  TMappedArgumentsTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
     procedure AssertScriptIsTrue(const Script: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Sloppy_AssigningParameter_UpdatesArgumentsElement;
 
@@ -81,16 +71,6 @@ type
   end;
 
 implementation
-
-procedure TMappedArgumentsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TMappedArgumentsTests.TearDown;
-begin
-  FEngine.Free;
-end;
 
 procedure TMappedArgumentsTests.AssertScriptIsTrue(const Script: string);
 begin

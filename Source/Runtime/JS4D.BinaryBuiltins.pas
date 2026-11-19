@@ -5,18 +5,18 @@ unit JS4D.BinaryBuiltins;
 interface
 
 uses
+  JS4D.BuiltinSet,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.ArrayBufferBuiltins,
   JS4D.DataViewBuiltins,
   JS4D.TypedArrayBuiltins,
   JS4D.TypedArrayMethods;
 
 type
-  // ArrayBuffer, DataView and the typed arrays.
-  TJSBinaryBuiltins = class
+  TJSBinaryBuiltins = class(TJSBuiltinSet)
   private
-    FSupport: TJSBinarySupport;
+    FSupport: TJSBuiltinSupport;
     FBuffers: TJSArrayBufferBuiltins;
     FDataViews: TJSDataViewBuiltins;
     FTypedArrays: TJSTypedArrayBuiltins;
@@ -26,7 +26,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
@@ -35,7 +35,7 @@ constructor TJSBinaryBuiltins.Create(const Interpreter: TJSInterpreter);
 begin
   inherited Create;
 
-  FSupport := TJSBinarySupport.Create(Interpreter);
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FBuffers := TJSArrayBufferBuiltins.Create(FSupport);
   FDataViews := TJSDataViewBuiltins.Create(FSupport);
   FTypedArrays := TJSTypedArrayBuiltins.Create(FSupport, FBuffers);

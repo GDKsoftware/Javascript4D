@@ -1,6 +1,6 @@
 # JavaScript4D
 
-A JavaScript parser and interpreter written in Delphi/Object Pascal. It targets ECMAScript 5.1 and supports the ES2015 syntax listed below; see [Conformance](#conformance-test262) for what passes today.
+A JavaScript parser and interpreter written in Delphi/Object Pascal. It targets ECMAScript 5.1 and adds the ES2015 and later features listed below. The [Conformance](#conformance-test262) section describes how it is measured against test262.
 
 ## Overview
 
@@ -12,7 +12,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **ES2015 syntax**: `let` and `const` with block scope, arrow functions, template literals, enhanced object literals, default and rest parameters, spread, destructuring, and `for-of` over any iterable
 - **Classes**: class declarations and expressions with constructors, methods, getters and setters, static members, computed names, `extends` (including `null` and the built-in constructors), `super()` calls, `super.property` in classes and object literal methods, and `new.target`. Class fields, private members and static blocks are not supported
 - **Symbol**: symbols as property keys, `Symbol.for` and `Symbol.keyFor`, all well-known symbols, and the protocols `toPrimitive`, `toStringTag`, `hasInstance`, `isConcatSpreadable`, `unscopables` and `species`
-- **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`
+- **Map, Set, WeakMap and WeakSet**: constructors that take iterables, SameValueZero keys, insertion order, iteration that sees additions and skips deletions made while it runs, `size`, `forEach`, `keys`, `values` and `entries`. WeakMap and WeakSet hold their keys strongly until the engine is freed, which then empties every collection, so entries cannot keep objects alive past the engine
 - **Promise**: `Promise` with `then`, `catch` and `finally`, `resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `withResolvers` and `try`, thenable assimilation, subclassing and species, and `AggregateError`. See Promises and the Job Queue for when the reactions run
 - **Generators**: `function*` declarations and expressions, generator methods in object literals and classes, `yield` and `yield*` (which forwards `next`, `throw` and `return` and closes the inner iterator), `next`, `return` and `throw` with `try`/`finally` semantics, `GeneratorFunction`, and generators as iterables in `for-of`, spread and destructuring. Async generators are not supported
 - **Async functions**: `async function` declarations and expressions, async arrow functions and async methods in object literals and classes, and `await` on promises, thenables and plain values. `Execute` returns after the pending jobs have run. A rejected promise is thrown at the `await`, and an uncaught error rejects the promise that the call returned. Async iteration (`for await`, async generators) is not supported
@@ -25,6 +25,7 @@ JavaScript4D enables Delphi applications to parse and execute JavaScript code na
 - **Recursive Descent Parser**: Clean AST-based architecture
 - **Built-in Objects**: Array, String, Number, Object, Math, JSON, Date, RegExp support
 - **Locale-aware formatting**: `toLocaleString` on numbers (decimal, percent and currency styles) and on dates (`toLocaleString`, `toLocaleDateString`, `toLocaleTimeString`) for en-US, en-GB, nl-NL, nl-BE, de-DE, fr-FR, es-ES and it-IT, from built-in tables that give the same output on every platform. The `Intl` object is not provided
+- **String normalization**: `String.prototype.normalize` for NFC, NFD, NFKC and NFKD, built on the Windows `NormalizeString` function, so it is available on Windows only
 - **Higher-Order Functions**: map, filter, reduce, forEach, find, some, every
 - **Closures**: Full support for lexical scoping and closures
 - **Error Handling**: Try/catch/finally with TypeError, RangeError, SyntaxError, etc.
@@ -215,6 +216,7 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 - `forEach`, `find`, `findIndex`
 - `some`, `every`, `sort`
 - `fill`, `copyWithin`, `flat`
+- `Array.isArray`, `Array.from`, `Array.of`, `keys`, `values` and `entries`
 
 **String Methods**
 - `charAt`, `charCodeAt`
@@ -240,7 +242,6 @@ All the interrupting exceptions (the two above and the limit exceptions) derive 
 **Global Functions**
 - `parseInt`, `parseFloat`
 - `isNaN`, `isFinite`
-- `Array.isArray`, `Array.from`, `Array.of`, `Array.prototype.keys`, `values` and `entries`
 - `Date.now`, `Date.parse`
 
 ## Architecture
@@ -303,45 +304,13 @@ powershell -File Conformance/fetch-test262.ps1
 powershell -File Conformance/run-conformance.ps1
 ```
 
-`fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script and `-results=DIR` for the output folder.
+`fetch-test262.ps1` checks out test262 at a pinned commit into `Conformance/test262`. `run-conformance.ps1` always rebuilds the runner before running it, so the pass list never comes from an executable older than the sources. Runner options go through `-RunnerArguments`, for example `-RunnerArguments '-filter=built-ins/Array'` for a path prefix, `-budget=N` for the step budget per script, `-results=DIR` for the output folder, and `-test262=DIR`, `-exclusions=FILE` and `-path-exclusions=FILE` to point at another test262 checkout or other skip lists.
 
-Pass rates for a selection of areas, counting only the tests that run (tests for features JS4D does not support are skipped):
+`Conformance/results/baseline.txt` holds the pass rate per directory and the totals after a run.
 
-| Area | Tests run | Passed | Rate |
-|---|---:|---:|---:|
-| built-ins/AggregateError | 23 | 23 | 100.0% |
-| built-ins/Array | 2753 | 2751 | 99.9% |
-| built-ins/ArrayBuffer | 80 | 80 | 100.0% |
-| built-ins/DataView | 376 | 374 | 99.5% |
-| built-ins/Date | 599 | 599 | 100.0% |
-| built-ins/Function | 459 | 458 | 99.8% |
-| built-ins/GeneratorFunction | 21 | 21 | 100.0% |
-| built-ins/GeneratorPrototype | 61 | 61 | 100.0% |
-| built-ins/JSON | 135 | 135 | 100.0% |
-| built-ins/Map | 154 | 154 | 100.0% |
-| built-ins/Math | 312 | 312 | 100.0% |
-| built-ins/Number | 334 | 331 | 99.1% |
-| built-ins/Object | 3319 | 3310 | 99.7% |
-| built-ins/Promise | 642 | 638 | 99.4% |
-| built-ins/Proxy | 273 | 273 | 100.0% |
-| built-ins/Reflect | 153 | 153 | 100.0% |
-| built-ins/RegExp | 804 | 780 | 97.0% |
-| built-ins/Set | 194 | 194 | 100.0% |
-| built-ins/String | 1167 | 1156 | 99.1% |
-| built-ins/Symbol | 75 | 75 | 100.0% |
-| built-ins/TypedArray | 703 | 703 | 100.0% |
-| built-ins/TypedArrayConstructors | 365 | 364 | 99.7% |
-| built-ins/WeakMap | 92 | 92 | 100.0% |
-| built-ins/WeakSet | 77 | 77 | 100.0% |
-| language/expressions | 5864 | 5856 | 99.9% |
-| language/statements | 4527 | 4524 | 99.9% |
-| **Total** | 26258 | 26178 | 99.7% |
+Tests that need features JS4D does not implement are skipped. `Conformance/exclusions.txt` lists the skipped feature tags and `Conformance/excluded-paths.txt` the skipped path prefixes; together they are the roadmap: implement a feature, remove its entry, and its tests run. A few skip rules live in `Conformance/JS4D.Conformance.Selector.pas` instead: fixture files, the flags `module`, `CanBlockIsFalse` and `CanBlockIsTrue`, negative tests of the `resolution` phase, and tests that use the host members `$262.createRealm`, `$262.agent` or `$262.IsHTMLDDA`. The `baseline.txt` report counts each skipped test under its reason. Tests with the `async` flag run: the engine drains the job queue when the script ends and the runner reads the result that `$DONE` printed.
 
-The full per-directory table is in `Conformance/results/baseline.txt` after a run.
-
-Tests that need features JS4D does not implement are skipped: BigInt, Temporal, async iteration (`for await`, async generators), class fields, private members and static blocks, modules and dynamic import, tail calls, and the ES2018 and later library and syntax features. Tests with the `async` flag run: the engine drains the job queue when the script ends and the runner reads the result that `$DONE` printed. `Conformance/exclusions.txt` lists skipped feature tags and `Conformance/excluded-paths.txt` lists skipped path prefixes. Together they are the roadmap: implement a feature, remove its entry, and its tests run.
-
-Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
+Results go to `Conformance/results`: `baseline.txt` (totals, skips and pass rate per directory), `failures.txt` (one `path [variant] detail` line per failing test) and `passed.txt` (one `path [variant]` line per passing test, sorted, for comparing runs).
 
 ## License
 

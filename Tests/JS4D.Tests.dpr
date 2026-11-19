@@ -10,6 +10,9 @@ uses
   DUnitX.Loggers.Xml.NUnit,
   DUnitX.TestFramework,
   JS4D.Types in '..\Source\Core\JS4D.Types.pas',
+  JS4D.ArrayObject in '..\Source\Core\JS4D.ArrayObject.pas',
+  JS4D.RegExpObject in '..\Source\Core\JS4D.RegExpObject.pas',
+  JS4D.SymbolObject in '..\Source\Core\JS4D.SymbolObject.pas',
   JS4D.Errors in '..\Source\Core\JS4D.Errors.pas',
   JS4D.RegExpSyntax in '..\Source\Core\JS4D.RegExpSyntax.pas',
   JS4D.RegExpTranslator in '..\Source\Core\JS4D.RegExpTranslator.pas',
@@ -17,16 +20,38 @@ uses
   JS4D.UriCoding in '..\Source\Core\JS4D.UriCoding.pas',
   JS4D.SlotMap in '..\Source\Core\JS4D.SlotMap.pas',
   JS4D.BigNatural in '..\Source\Core\JS4D.BigNatural.pas',
+  JS4D.AsciiDigits in '..\Source\Core\JS4D.AsciiDigits.pas',
+  JS4D.Binary64 in '..\Source\Core\JS4D.Binary64.pas',
+  JS4D.BuiltInLocaleData in '..\Source\Core\JS4D.BuiltInLocaleData.pas',
+  JS4D.JsWhiteSpace in '..\Source\Core\JS4D.JsWhiteSpace.pas',
+  JS4D.NumberText in '..\Source\Core\JS4D.NumberText.pas',
+  JS4D.RegExpCharacters in '..\Source\Core\JS4D.RegExpCharacters.pas',
   JS4D.DecimalConversion in '..\Source\Core\JS4D.DecimalConversion.pas',
   JS4D.NumberFormat in '..\Source\Core\JS4D.NumberFormat.pas',
   JS4D.NumberParse in '..\Source\Core\JS4D.NumberParse.pas',
   JS4D.Tokens in '..\Source\Lexer\JS4D.Tokens.pas',
   JS4D.Lexer in '..\Source\Lexer\JS4D.Lexer.pas',
+  JS4D.LexicalCharacters in '..\Source\Lexer\JS4D.LexicalCharacters.pas',
   JS4D.SlashContext in '..\Source\Lexer\JS4D.SlashContext.pas',
   JS4D.AST in '..\Source\Parser\JS4D.AST.pas',
   JS4D.Parser in '..\Source\Parser\JS4D.Parser.pas',
+  JS4D.ParserScope in '..\Source\Parser\JS4D.ParserScope.pas',
+  JS4D.ParserConstants in '..\Source\Parser\JS4D.ParserConstants.pas',
+  JS4D.ParserTypes in '..\Source\Parser\JS4D.ParserTypes.pas',
+  JS4D.ParserBase in '..\Source\Parser\JS4D.ParserBase.pas',
+  JS4D.ParserPatterns in '..\Source\Parser\JS4D.ParserPatterns.pas',
+  JS4D.ParserExpressions in '..\Source\Parser\JS4D.ParserExpressions.pas',
+  JS4D.ParserFunctions in '..\Source\Parser\JS4D.ParserFunctions.pas',
+  JS4D.ParserRules in '..\Source\Parser\JS4D.ParserRules.pas',
+  JS4D.ParserLookahead in '..\Source\Parser\JS4D.ParserLookahead.pas',
+  JS4D.PatternConverter in '..\Source\Parser\JS4D.PatternConverter.pas',
+  JS4D.PropertyKey in '..\Source\Core\JS4D.PropertyKey.pas',
+  JS4D.BinaryData in '..\Source\Runtime\JS4D.BinaryData.pas',
+  JS4D.ControlFlow in '..\Source\Runtime\JS4D.ControlFlow.pas',
+  JS4D.LexicalStates in '..\Source\Runtime\JS4D.LexicalStates.pas',
+  JS4D.JsonSyntax in '..\Source\API\JS4D.JsonSyntax.pas',
   JS4D.Interpreter in '..\Source\Runtime\JS4D.Interpreter.pas',
-  JS4D.Json in '..\Source\API\JS4D.Json.pas',
+  JS4D.JsonWriter in '..\Source\API\JS4D.JsonWriter.pas',
   JS4D.Engine in '..\Source\API\JS4D.Engine.pas',
   JS4D.Builtins in '..\Source\Runtime\JS4D.Builtins.pas',
   JS4D.PatternOperations in '..\Source\Runtime\JS4D.PatternOperations.pas',
@@ -48,6 +73,7 @@ uses
   JS4D.Tests.ArrayResultCreation in 'JS4D.Tests.ArrayResultCreation.pas',
   JS4D.Tests.ArrayPrototypeSemantics in 'JS4D.Tests.ArrayPrototypeSemantics.pas',
   JS4D.Tests.BuiltinMethodLookup in 'JS4D.Tests.BuiltinMethodLookup.pas',
+  JS4D.Tests.BuiltinMethodNames in 'JS4D.Tests.BuiltinMethodNames.pas',
   JS4D.Tests.JsonParse in 'JS4D.Tests.JsonParse.pas',
   JS4D.Tests.Eval in 'JS4D.Tests.Eval.pas',
   JS4D.Tests.FunctionConstructor in 'JS4D.Tests.FunctionConstructor.pas',
@@ -55,6 +81,8 @@ uses
   JS4D.Tests.RestrictedProperties in 'JS4D.Tests.RestrictedProperties.pas',
   JS4D.Tests.IdentifierNames in 'JS4D.Tests.IdentifierNames.pas',
   JS4D.Tests.PrimitiveWrappers in 'JS4D.Tests.PrimitiveWrappers.pas',
+  JS4D.Tests.PrimitivePrototypeMethods in 'JS4D.Tests.PrimitivePrototypeMethods.pas',
+  JS4D.Tests.ObjectPrototypeMethods in 'JS4D.Tests.ObjectPrototypeMethods.pas',
   JS4D.Tests.AssignmentTargets in 'JS4D.Tests.AssignmentTargets.pas',
   JS4D.Tests.StrictEarlyErrors in 'JS4D.Tests.StrictEarlyErrors.pas',
   JS4D.Tests.DeleteIdentifier in 'JS4D.Tests.DeleteIdentifier.pas',
@@ -62,6 +90,13 @@ uses
   JS4D.Tests.ForOf in 'JS4D.Tests.ForOf.pas',
   JS4D.Tests.ForIn in 'JS4D.Tests.ForIn.pas',
   JS4D.Tests.SlotMap in 'JS4D.Tests.SlotMap.pas',
+  JS4D.Tests.AsciiDigits in 'JS4D.Tests.AsciiDigits.pas',
+  JS4D.Tests.BigNatural in 'JS4D.Tests.BigNatural.pas',
+  JS4D.Tests.BuiltInLocales in 'JS4D.Tests.BuiltInLocales.pas',
+  JS4D.Tests.JsWhiteSpace in 'JS4D.Tests.JsWhiteSpace.pas',
+  JS4D.Tests.NumberHelpers in 'JS4D.Tests.NumberHelpers.pas',
+  JS4D.Tests.RegExpEngineLimits in 'JS4D.Tests.RegExpEngineLimits.pas',
+  JS4D.Tests.ErrorNames in 'JS4D.Tests.ErrorNames.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',
   JS4D.Tests.LexicalStates in 'JS4D.Tests.LexicalStates.pas',
@@ -130,29 +165,22 @@ uses
   JS4D.Tests.HotPathSemantics in 'JS4D.Tests.HotPathSemantics.pas',
   JS4D.Tests.EngineLifetime in 'JS4D.Tests.EngineLifetime.pas';
 
-var
-  Runner: ITestRunner;
-  Results: IRunResults;
-  Logger: ITestLogger;
-  NUnitLogger: ITestLogger;
-
 begin
   ReportMemoryLeaksOnShutdown := True;
 
   try
     TDUnitX.CheckCommandLine;
 
-    Runner := TDUnitX.CreateRunner;
+    const Runner = TDUnitX.CreateRunner;
     Runner.UseRTTI := True;
 
-    Logger := TDUnitXConsoleLogger.Create(True);
+    const Logger = TDUnitXConsoleLogger.Create(True);
     Runner.AddLogger(Logger);
 
-    NUnitLogger := TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
+    const NUnitLogger = TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
     Runner.AddLogger(NUnitLogger);
-    Runner.FailsOnNoAsserts := False;
 
-    Results := Runner.Execute;
+    const Results = Runner.Execute;
 
     if not Results.AllPassed then
       System.ExitCode := EXIT_ERRORS;
@@ -166,6 +194,9 @@ begin
     {$ENDIF}
   except
     on E: Exception do
+    begin
       System.Writeln(E.ClassName, ': ', E.Message);
+      System.ExitCode := EXIT_ERRORS;
+    end;
   end;
 end.

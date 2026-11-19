@@ -1,32 +1,24 @@
 param(
-    [string]$Delphi = 'C:\Program Files (x86)\Embarcadero\Studio\37.0',
+    [string]$Delphi = $(if ($env:BDS) { $env:BDS } else { 'C:\Program Files (x86)\Embarcadero\Studio\37.0' }),
     [string[]]$RunnerArguments = @()
 )
 
 $ErrorActionPreference = 'Stop'
 
 $Root = $PSScriptRoot
-$OutputDir = Join-Path $Root 'Win64\Release'
-$Executable = Join-Path $OutputDir 'JS4D.Conformance.exe'
+$Project = Join-Path $Root 'JS4D.Conformance.dproj'
+$Executable = Join-Path $Root 'Win64\Release\JS4D.Conformance.exe'
+$MSBuild = Join-Path $env:windir 'Microsoft.NET\Framework\v4.0.30319\MSBuild.exe'
+$StudioVersion = Split-Path -Leaf $Delphi
 
-$Source = '..\Source\Core;..\Source\Lexer;..\Source\Parser;..\Source\Runtime;..\Source\API'
-$SearchPath = "$Delphi\lib\Win64\release;$Source"
+$env:BDS = $Delphi
+$env:BDSINCLUDE = Join-Path $Delphi 'include'
+$env:BDSCOMMONDIR = Join-Path $env:PUBLIC "Documents\Embarcadero\Studio\$StudioVersion"
+$env:FrameworkDir = Split-Path -Parent $MSBuild
+$env:FrameworkVersion = 'v4.5'
 
-# Always rebuild: a run against an executable older than the sources
-# produces a different pass list without any test changing.
-New-Item -ItemType Directory -Force $OutputDir | Out-Null
-Push-Location $Root
-try {
-    & "$Delphi\bin\dcc64.exe" '-$O+' '--no-config' '-B' '-Q' '-TX.exe' '-DRELEASE' `
-        "-E$OutputDir" "-N0$OutputDir" "-NH$OutputDir" "-NO$OutputDir" `
-        '-NSSystem;Xml;Data;Datasnap;Web;Soap' `
-        "-U$SearchPath" "-I$SearchPath" "-O$SearchPath" "-R$SearchPath" `
-        'JS4D.Conformance.dpr'
-    if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+& $MSBuild $Project /nologo /verbosity:minimal /target:Rebuild /property:Config=Release /property:Platform=Win64
+if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 
-    & $Executable @RunnerArguments
-    exit $LASTEXITCODE
-}
-finally {
-    Pop-Location
-}
+& $Executable @RunnerArguments
+exit $LASTEXITCODE

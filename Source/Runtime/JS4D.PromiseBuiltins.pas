@@ -6,17 +6,18 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.Types,
   JS4D.ControlFlow,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.AggregateErrorBuiltins,
   JS4D.PromiseObjects,
   JS4D.PromiseOperations,
   JS4D.PromiseCombinators;
 
 type
-  TJSPromiseBuiltins = class
+  TJSPromiseBuiltins = class(TJSBuiltinSet)
   private
     const
       PROMISE_NAME = 'Promise';
@@ -31,12 +32,11 @@ type
       PROMISE_PROPERTY = 'promise';
       REQUIRES_NEW = 'Promise constructor cannot be invoked without ''new''';
       RESOLVER_NOT_CALLABLE = 'Promise resolver is not a function';
-      INCOMPATIBLE_RECEIVER = 'Method Promise.prototype.%s called on an incompatible receiver';
       NOT_AN_OBJECT = 'Promise.%s called on a value that is not an object';
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FAggregateErrors: TJSAggregateErrorBuiltins;
       FOperations: TJSPromiseOperations;
       FCombinators: TJSPromiseCombinators;
@@ -67,7 +67,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
     procedure ReleasePromises;
 
     property Operations: TJSPromiseOperations read FOperations;
@@ -76,6 +76,8 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
   JS4D.PropertyNames;
@@ -85,7 +87,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FSupport := TJSBinarySupport.Create(Interpreter);
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FAggregateErrors := TJSAggregateErrorBuiltins.Create(Interpreter, FSupport);
   FOperations := TJSPromiseOperations.Create(Interpreter, FSupport);
   FCombinators := TJSPromiseCombinators.Create(Interpreter, FSupport, FOperations, FAggregateErrors);
@@ -111,9 +113,9 @@ end;
 
 function TJSPromiseBuiltins.Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
 begin
-  const ExecutorValue = TJSBinarySupport.Argument(Args, 0);
+  const ExecutorValue = TJSArrayLike.Argument(Args, 0);
   var Executor: IJSFunction;
-  const IsCallable = TJSBinarySupport.AsFunction(ExecutorValue, Executor);
+  const IsCallable = ExecutorValue.TryGetFunction(Executor);
   if not IsCallable then
     raise TJSErrorFactory.TypeError(RESOLVER_NOT_CALLABLE);
 
@@ -139,7 +141,7 @@ begin
   const IsPromise = (Assigned(This) and Supports(This, IJSPromise, Result));
   if not IsPromise then
   begin
-    const Message = Format(INCOMPATIBLE_RECEIVER, [MethodName]);
+    const Message = Format(INCOMPATIBLE_RECEIVER_FORMAT, [PROMISE_NAME, MethodName]);
     raise TJSErrorFactory.TypeError(Message);
   end;
 end;
@@ -158,12 +160,12 @@ end;
 function TJSPromiseBuiltins.ThenMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Promise = RequirePromise(This, THEN_PROPERTY);
-  const Species = FSupport.SpeciesConstructor(This, FConstructor);
+  const Species = TJSConversions.SpeciesConstructor(This, FConstructor);
   const ConstructorValue = TJSValue.CreateObject(Species);
   const Capability = FOperations.NewCapability(ConstructorValue);
 
-  const OnFulfilled = TJSBinarySupport.Argument(Args, 0);
-  const OnRejected = TJSBinarySupport.Argument(Args, 1);
+  const OnFulfilled = TJSArrayLike.Argument(Args, 0);
+  const OnRejected = TJSArrayLike.Argument(Args, 1);
   FOperations.PerformThen(Promise, OnFulfilled, OnRejected, Capability);
 
   Result := Capability.Promise;
@@ -173,7 +175,7 @@ function TJSPromiseBuiltins.CatchMethod(const This: IJSObject; const Args: TArra
 begin
   const Receiver = RequireObject(This, CATCH_NAME);
   const Undefined = TJSValue.CreateUndefined;
-  const OnRejected = TJSBinarySupport.Argument(Args, 0);
+  const OnRejected = TJSArrayLike.Argument(Args, 0);
   const ThenArgs: TArray<TJSValue> = [Undefined, OnRejected];
 
   Result := FSupport.Invoke(Receiver, THEN_PROPERTY, ThenArgs);
@@ -211,7 +213,7 @@ begin
   Result := FSupport.CreateMethod('', 1,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Value = TJSBinarySupport.Argument(Args, 0);
+      const Value = TJSArrayLike.Argument(Args, 0);
       const Promise = RunFinally(OnFinally, ConstructorValue);
 
       const ValueThunk = CreateValueThunk(Value);
@@ -228,7 +230,7 @@ begin
   Result := FSupport.CreateMethod('', 1,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      const Reason = TJSBinarySupport.Argument(Args, 0);
+      const Reason = TJSArrayLike.Argument(Args, 0);
       const Promise = RunFinally(OnFinally, ConstructorValue);
 
       const Thrower = CreateThrower(Reason);
@@ -242,14 +244,14 @@ end;
 function TJSPromiseBuiltins.FinallyMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Receiver = RequireObject(This, FINALLY_NAME);
-  const Species = FSupport.SpeciesConstructor(This, FConstructor);
+  const Species = TJSConversions.SpeciesConstructor(This, FConstructor);
   const ConstructorValue = TJSValue.CreateObject(Species);
 
-  const OnFinallyValue = TJSBinarySupport.Argument(Args, 0);
+  const OnFinallyValue = TJSArrayLike.Argument(Args, 0);
   var OnFinally: IJSFunction;
   var OnFulfilled := OnFinallyValue;
   var OnRejected := OnFinallyValue;
-  const IsCallable = TJSBinarySupport.AsFunction(OnFinallyValue, OnFinally);
+  const IsCallable = OnFinallyValue.TryGetFunction(OnFinally);
   if IsCallable then
   begin
     const ThenFinally = CreateThenFinally(OnFinally, ConstructorValue);
@@ -266,7 +268,7 @@ end;
 function TJSPromiseBuiltins.ResolveMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const ConstructorValue = RequireObject(This, RESOLVE_PROPERTY);
-  const Resolution = TJSBinarySupport.Argument(Args, 0);
+  const Resolution = TJSArrayLike.Argument(Args, 0);
 
   Result := FOperations.PromiseResolve(ConstructorValue, Resolution);
 end;
@@ -274,7 +276,7 @@ end;
 function TJSPromiseBuiltins.RejectMethod(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const ConstructorValue = RequireObject(This, REJECT_PROPERTY);
-  const Reason = TJSBinarySupport.Argument(Args, 0);
+  const Reason = TJSArrayLike.Argument(Args, 0);
 
   Result := FOperations.RejectedPromise(ConstructorValue, Reason);
 end;
@@ -295,12 +297,12 @@ end;
 
 function TJSPromiseBuiltins.CallTryCallback(const Args: TArray<TJSValue>): TJSCallOutcome;
 begin
-  const CallbackValue = TJSBinarySupport.Argument(Args, 0);
+  const CallbackValue = TJSArrayLike.Argument(Args, 0);
   var Callback: IJSFunction;
-  const IsCallable = TJSBinarySupport.AsFunction(CallbackValue, Callback);
+  const IsCallable = CallbackValue.TryGetFunction(Callback);
   if IsCallable then
   begin
-    const CallbackArgs = TJSBinarySupport.ArgumentsFrom(Args, 1);
+    const CallbackArgs = TJSBuiltinSupport.ArgumentsFrom(Args, 1);
     Result := FSupport.CallCapturingThrow(Callback, CallbackArgs, nil);
   end
   else

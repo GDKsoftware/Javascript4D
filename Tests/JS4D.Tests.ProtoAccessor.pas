@@ -38,6 +38,7 @@ type
     [TestCase('A shorthand __proto__ in an object literal is an own property', '(function () { var __proto__ = 7; var o = { __proto__ }; return o.hasOwnProperty(''__proto__'') + '','' + o.__proto__; })()#true,7', '#')]
     [TestCase('A __proto__ method in an object literal is an own property', '(function () { var o = { __proto__() { return 1; } }; return o.hasOwnProperty(''__proto__'') + '','' + (Object.getPrototypeOf(o) === Object.prototype); })()#true,true', '#')]
     [TestCase('A duplicate __proto__ in an object literal is a SyntaxError', '(function () { try { eval(''({ __proto__: null, __proto__: null })''); } catch (e) { return e.name; } return ''none''; })()#SyntaxError', '#')]
+    [TestCase('A duplicate __proto__ in an object literal reports its own message', '(function () { try { eval(''({ __proto__: null, __proto__: null })''); } catch (e) { return e.message.indexOf(''Duplicate __proto__'') >= 0; } return false; })()#true', '#')]
     [TestCase('A __proto__ value and a computed __proto__ may be combined', '(function () { var o = eval(''({ __proto__: Array.prototype, [\"__proto__\"]: 1 })''); return (o instanceof Array) + '','' + o.hasOwnProperty(''__proto__''); })()#true,true', '#')]
     [TestCase('A destructuring pattern may repeat __proto__', '(function () { var o = { __proto__: 1 }; var r = ({ __proto__: a, __proto__: b } = { __proto__: 2 }); return ''ok''; })()#ok', '#')]
     [TestCase('An object without a prototype has no __proto__', 'Object.create(null).__proto__ === undefined#true', '#')]

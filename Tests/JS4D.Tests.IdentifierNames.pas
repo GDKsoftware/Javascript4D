@@ -6,29 +6,23 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
   JS4D.Errors,
   JS4D.Tokens,
   JS4D.Lexer,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
-  [TestFixture]
-  TIdentifierNamesTests = class
-  private
-    FEngine: TJSEngine;
+  TFirstToken = record
+    TokenType: TJSTokenType;
+    Value: string;
+  end;
 
-    function EvaluatesToSyntaxError(const Source: string): Boolean;
-    function FirstTokenOf(const Source: string): TJSTokenType;
-    function FirstTokenValueOf(const Source: string): string;
+  [TestFixture]
+  TIdentifierNamesTests = class(TJSEngineTestCase)
+  private
+    function FirstTokenOf(const Source: string): TFirstToken;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Lexer_EscapedIdentifierStart_ReturnsIdentifierWithDecodedName;
 
@@ -40,12 +34,6 @@ type
 
     [Test]
     procedure Lexer_EscapedNonReservedWord_IsAnIdentifier;
-
-    [Test]
-    procedure Lexer_BackslashWithoutUnicodeEscape_RaisesSyntaxError;
-
-    [Test]
-    procedure Lexer_EscapedDigitAtIdentifierStart_RaisesSyntaxError;
 
     [Test]
     procedure Lexer_UnicodeCombiningMarkInsideIdentifier_IsPartOfTheName;
@@ -90,15 +78,6 @@ type
     procedure Identifier_EscapedTrue_IsSyntaxError;
 
     [Test]
-    procedure Lexer_IdentifierDirectlyAfterNumber_RaisesSyntaxError;
-
-    [Test]
-    procedure Lexer_EscapeInRegularExpressionFlags_RaisesSyntaxError;
-
-    [Test]
-    procedure Lexer_VerticalTilde_IsNotAnIdentifierCharacter;
-
-    [Test]
     procedure Lexer_CodePointEscapeInIdentifier_ReturnsDecodedName;
 
     [Test]
@@ -109,7 +88,14 @@ type
     [TestCase('AboveLastCodePoint', 'a\u{110000}')]
     [TestCase('Empty', 'a\u{}')]
     [TestCase('Unterminated', 'a\u{61')]
-    procedure Lexer_InvalidCodePointEscapeInIdentifier_RaisesSyntaxError(const Source: string);
+    [TestCase('BackslashWithoutUnicodeEscape', 'a\x41')]
+    [TestCase('EscapedDigitAtStart', '\u0031a')]
+    [TestCase('DirectlyAfterNumber', '0\u00620')]
+    [TestCase('EscapeInRegExpFlags', '/./\u0067')]
+    [TestCase('VerticalTilde', 'a\u2E2F')]
+    [TestCase('AstralDigitAtStart', #$D835#$DFD8 + 'a')]
+    [TestCase('OtherIdContinueAtStart', #$00B7 + 'a')]
+    procedure Lexer_InvalidIdentifier_RaisesSyntaxError(const Source: string);
 
     [Test]
     procedure Lexer_AstralLetterAtIdentifierStart_IsPartOfTheName;
@@ -118,16 +104,10 @@ type
     procedure Lexer_AstralDigitInsideIdentifier_IsPartOfTheName;
 
     [Test]
-    procedure Lexer_AstralDigitAtIdentifierStart_RaisesSyntaxError;
-
-    [Test]
     procedure Lexer_OtherIdStartCharacter_StartsAnIdentifier;
 
     [Test]
     procedure Lexer_OtherIdContinueCharacter_ContinuesAnIdentifier;
-
-    [Test]
-    procedure Lexer_OtherIdContinueCharacterAtStart_RaisesSyntaxError;
 
     [Test]
     [TestCase('Basic', '"\u{41}"|A', '|')]
@@ -145,218 +125,186 @@ type
 
 implementation
 
-function TIdentifierNamesTests.EvaluatesToSyntaxError(const Source: string): Boolean;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const Literal = BackslashesEscaped.Replace('"', '\"');
-  const Wrapper = Format('var caught = false; try { eval("%s"); } catch (e) { caught = e instanceof SyntaxError; }',
-                         [Literal]);
-  FEngine.Execute(Wrapper);
+uses
+  JS4D.Tests.ErrorNames;
 
-  Result := FEngine.Evaluate('caught').AsBoolean;
-end;
-
-function TIdentifierNamesTests.FirstTokenOf(const Source: string): TJSTokenType;
+function TIdentifierNamesTests.FirstTokenOf(const Source: string): TFirstToken;
 begin
   const Lexer = TJSLexer.Create(Source);
   try
     Lexer.Tokenize;
-    Result := Lexer.NextToken.TokenType;
+
+    const Token = Lexer.NextToken;
+    Result.TokenType := Token.TokenType;
+    Result.Value := Token.Value;
   finally
     Lexer.Free;
   end;
-end;
-
-function TIdentifierNamesTests.FirstTokenValueOf(const Source: string): string;
-begin
-  const Lexer = TJSLexer.Create(Source);
-  try
-    Lexer.Tokenize;
-    Result := Lexer.NextToken.Value;
-  finally
-    Lexer.Free;
-  end;
-end;
-
-procedure TIdentifierNamesTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TIdentifierNamesTests.TearDown;
-begin
-  FEngine.Free;
 end;
 
 procedure TIdentifierNamesTests.Lexer_EscapedIdentifierStart_ReturnsIdentifierWithDecodedName;
 begin
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('\u0061bc'));
-  Assert.AreEqual('abc', FirstTokenValueOf('\u0061bc'));
+  const Token = FirstTokenOf('\u0061bc');
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual('abc', Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_EscapedIdentifierPart_ReturnsIdentifierWithDecodedName;
 begin
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('ab\u0063\u0031'));
-  Assert.AreEqual('abc1', FirstTokenValueOf('ab\u0063\u0031'));
+  const Token = FirstTokenOf('ab\u0063\u0031');
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual('abc1', Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_EscapedKeyword_IsNotAKeywordToken;
 begin
-  Assert.AreEqual(TJSTokenType.EscapedKeyword, FirstTokenOf('i\u0066'));
-  Assert.AreEqual('if', FirstTokenValueOf('i\u0066'));
+  const Token = FirstTokenOf('i\u0066');
+
+  Assert.AreEqual(TJSTokenType.EscapedKeyword, Token.TokenType);
+  Assert.AreEqual('if', Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_EscapedNonReservedWord_IsAnIdentifier;
 begin
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('f\u006fo'));
-end;
+  const Token = FirstTokenOf('f\u006fo');
 
-procedure TIdentifierNamesTests.Lexer_BackslashWithoutUnicodeEscape_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf('a\x41');
-    end,
-    EJSSyntaxError);
-end;
-
-procedure TIdentifierNamesTests.Lexer_EscapedDigitAtIdentifierStart_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf('\u0031a');
-    end,
-    EJSSyntaxError);
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
 end;
 
 procedure TIdentifierNamesTests.Lexer_UnicodeCombiningMarkInsideIdentifier_IsPartOfTheName;
 begin
   const Source = 'a' + #$0301 + 'b';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
-  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+  const Token = FirstTokenOf(Source);
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Source, Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Variable_DeclaredWithEscape_IsReachableByPlainName;
 begin
   FEngine.Execute('var \u0061bc = 5;');
 
-  Assert.AreEqual(5.0, FEngine.Evaluate('\u0061bc').AsNumber);
+  const Actual = EvaluateNumber('\u0061bc');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.Variable_ReferencedWithEscape_ReadsPlainName;
 begin
   FEngine.Execute('var total = 7;');
 
-  Assert.AreEqual(7.0, FEngine.Evaluate('tot\u0061l').AsNumber);
+  const Actual = EvaluateNumber('tot\u0061l');
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.PropertyName_EscapedKeywordInLiteral_IsAllowed;
 begin
-  Assert.AreEqual(42.0, FEngine.Evaluate('({ i\u0066: 42 })["if"]').AsNumber);
+  const Actual = EvaluateNumber('({ i\u0066: 42 })["if"]');
+
+  Assert.AreEqual(42.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.PropertyName_KeywordInLiteral_IsAllowed;
 begin
-  Assert.AreEqual(1.0, FEngine.Evaluate('({ if: 1, var: 2 })["if"]').AsNumber);
+  const Actual = EvaluateNumber('({ if: 1, var: 2 })["if"]');
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.PropertyName_KeywordAfterDot_IsAllowed;
 begin
-  Assert.AreEqual(3.0, FEngine.Evaluate('({ "typeof": 3 }).typeof').AsNumber);
+  const Actual = EvaluateNumber('({ "typeof": 3 }).typeof');
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.PropertyName_EscapedKeywordAfterDot_IsAllowed;
 begin
-  Assert.AreEqual(4.0, FEngine.Evaluate('({ "if": 4 }).i\u0066').AsNumber);
+  const Actual = EvaluateNumber('({ "if": 4 }).i\u0066');
+
+  Assert.AreEqual(4.0, Actual);
 end;
 
 procedure TIdentifierNamesTests.PropertyName_LiteralsTrueAndNull_AreAllowed;
 begin
-  Assert.AreEqual(5.0, FEngine.Evaluate('({ true: 5, null: 6 }).true').AsNumber);
-  Assert.AreEqual(6.0, FEngine.Evaluate('({ true: 5, null: 6 }).null').AsNumber);
+  const FirstActual = EvaluateNumber('({ true: 5, null: 6 }).true');
+  const SecondActual = EvaluateNumber('({ true: 5, null: 6 }).null');
+
+  Assert.AreEqual(5.0, FirstActual);
+  Assert.AreEqual(6.0, SecondActual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedKeywordAsVariable_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError('var v\u0061r;'));
-  Assert.IsTrue(EvaluatesToSyntaxError('var i\u0066;'));
+  const FirstActual = ErrorNameOf('var v\u0061r;');
+  const SecondActual = ErrorNameOf('var i\u0066;');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, FirstActual);
+  Assert.AreEqual(SYNTAX_ERROR_NAME, SecondActual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedKeywordAsExpression_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError('th\u0069s;'));
-  Assert.IsTrue(EvaluatesToSyntaxError('var x = typ\u0065of 1;'));
+  const FirstActual = ErrorNameOf('th\u0069s;');
+  const SecondActual = ErrorNameOf('var x = typ\u0065of 1;');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, FirstActual);
+  Assert.AreEqual(SYNTAX_ERROR_NAME, SecondActual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedFutureReservedWord_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError('var cl\u0061ss;'));
-  Assert.IsTrue(EvaluatesToSyntaxError('var \u0065num;'));
+  const FirstActual = ErrorNameOf('var cl\u0061ss;');
+  const SecondActual = ErrorNameOf('var \u0065num;');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, FirstActual);
+  Assert.AreEqual(SYNTAX_ERROR_NAME, SecondActual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedStrictReservedWordInStrictCode_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError('"use strict"; var l\u0065t;'));
+  const Actual = ErrorNameOf('"use strict"; var l\u0065t;');
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedStrictReservedWordInSloppyCode_IsAllowed;
 begin
-  Assert.IsFalse(EvaluatesToSyntaxError('var l\u0065t = 1;'));
+  const Actual = ErrorNameOf('var l\u0065t = 1;');
+
+  Assert.AreEqual('', Actual);
 end;
 
 procedure TIdentifierNamesTests.Identifier_EscapedTrue_IsSyntaxError;
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError('var x = tru\u0065;'));
-end;
+  const Actual = ErrorNameOf('var x = tru\u0065;');
 
-procedure TIdentifierNamesTests.Lexer_IdentifierDirectlyAfterNumber_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf('0\u00620');
-    end,
-    EJSSyntaxError);
-end;
-
-procedure TIdentifierNamesTests.Lexer_EscapeInRegularExpressionFlags_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf('/./\u0067');
-    end,
-    EJSSyntaxError);
-end;
-
-procedure TIdentifierNamesTests.Lexer_VerticalTilde_IsNotAnIdentifierCharacter;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf('a\u2E2F');
-    end,
-    EJSSyntaxError);
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TIdentifierNamesTests.Lexer_CodePointEscapeInIdentifier_ReturnsDecodedName;
 begin
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('\u{61}bc'));
-  Assert.AreEqual('abc', FirstTokenValueOf('\u{61}bc'));
+  const Token = FirstTokenOf('\u{61}bc');
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual('abc', Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_AstralCodePointEscapeInIdentifier_ReturnsSurrogatePair;
 begin
   const Expected = #$D801#$DC00 + 'x';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf('\u{10400}x'));
-  Assert.AreEqual(Expected, FirstTokenValueOf('\u{10400}x'));
+  const Token = FirstTokenOf('\u{10400}x');
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Expected, Token.Value);
 end;
 
-procedure TIdentifierNamesTests.Lexer_InvalidCodePointEscapeInIdentifier_RaisesSyntaxError(const Source: string);
+procedure TIdentifierNamesTests.Lexer_InvalidIdentifier_RaisesSyntaxError(const Source: string);
 begin
   Assert.WillRaise(
     procedure
@@ -370,64 +318,54 @@ procedure TIdentifierNamesTests.Lexer_AstralLetterAtIdentifierStart_IsPartOfTheN
 begin
   const Source = #$D801#$DC00 + 'x';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
-  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+  const Token = FirstTokenOf(Source);
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Source, Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_AstralDigitInsideIdentifier_IsPartOfTheName;
 begin
   const Source = 'a' + #$D835#$DFD8 + 'b';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
-  Assert.AreEqual(Source, FirstTokenValueOf(Source));
-end;
+  const Token = FirstTokenOf(Source);
 
-procedure TIdentifierNamesTests.Lexer_AstralDigitAtIdentifierStart_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf(#$D835#$DFD8 + 'a');
-    end,
-    EJSSyntaxError);
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Source, Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_OtherIdStartCharacter_StartsAnIdentifier;
 begin
   const Source = #$2118 + 'a';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
-  Assert.AreEqual(Source, FirstTokenValueOf(Source));
+  const Token = FirstTokenOf(Source);
+
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Source, Token.Value);
 end;
 
 procedure TIdentifierNamesTests.Lexer_OtherIdContinueCharacter_ContinuesAnIdentifier;
 begin
   const Source = 'a' + #$00B7 + 'b';
 
-  Assert.AreEqual(TJSTokenType.Identifier, FirstTokenOf(Source));
-  Assert.AreEqual(Source, FirstTokenValueOf(Source));
-end;
+  const Token = FirstTokenOf(Source);
 
-procedure TIdentifierNamesTests.Lexer_OtherIdContinueCharacterAtStart_RaisesSyntaxError;
-begin
-  Assert.WillRaise(
-    procedure
-    begin
-      FirstTokenOf(#$00B7 + 'a');
-    end,
-    EJSSyntaxError);
+  Assert.AreEqual(TJSTokenType.Identifier, Token.TokenType);
+  Assert.AreEqual(Source, Token.Value);
 end;
 
 procedure TIdentifierNamesTests.String_CodePointEscape_ProducesCodePoint(const Source: string; const Expected: string);
 begin
-  const Actual = FEngine.Evaluate(Source).ToString;
+  const Actual = EvaluateText(Source);
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TIdentifierNamesTests.String_InvalidCodePointEscape_IsSyntaxError(const Source: string);
 begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

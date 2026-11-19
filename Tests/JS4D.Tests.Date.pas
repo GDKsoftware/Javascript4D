@@ -6,27 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TDateTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateNumber(const Script: string): Double;
-    function EvaluateText(const Script: string): string;
-    function EvaluateBoolean(const Script: string): Boolean;
-
+  TDateTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('EpochDay', 'new Date(0).getUTCDay()|4', '|')]
     [TestCase('LeapDay', 'new Date(Date.UTC(2000, 1, 29)).getUTCDate()|29', '|')]
@@ -38,24 +23,6 @@ type
     [TestCase('NegativeYear', 'new Date(-8.64e15).getUTCFullYear()|-271821', '|')]
     [TestCase('GetTime', 'new Date(123456789012).getTime()|123456789012', '|')]
     [TestCase('ValueOf', 'new Date(123456789012).valueOf()|123456789012', '|')]
-    procedure Getter_ReturnsComponent(const Script: string; const Expected: Double);
-
-    [Test]
-    [TestCase('Year', 'new Date(NaN).getUTCFullYear()', '|')]
-    [TestCase('LocalMonth', 'new Date(NaN).getMonth()', '|')]
-    [TestCase('TimezoneOffset', 'new Date(NaN).getTimezoneOffset()', '|')]
-    [TestCase('Time', 'new Date(NaN).getTime()', '|')]
-    [TestCase('UtcAboveLimit', 'Date.UTC(275760, 8, 13, 0, 0, 0, 1)', '|')]
-    [TestCase('UtcNoArguments', 'Date.UTC()', '|')]
-    [TestCase('ConstructorAboveLimit', 'new Date(8.64e15 + 1).getTime()', '|')]
-    [TestCase('ParseGarbage', 'Date.parse("not a date")', '|')]
-    [TestCase('ParseMonthTooLarge', 'Date.parse("2000-13-01")', '|')]
-    [TestCase('ParseDayTooLarge', 'Date.parse("2000-02-30")', '|')]
-    [TestCase('ParseNegativeZeroYear', 'Date.parse("-000000-01-01T00:00:00Z")', '|')]
-    [TestCase('ParseHourAboveLimit', 'Date.parse("2000-01-01T24:00:01Z")', '|')]
-    procedure Expression_IsNaN(const Script: string);
-
-    [Test]
     [TestCase('Epoch', 'Date.UTC(1970, 0, 1)|0', '|')]
     [TestCase('TwoDigitYear', 'Date.UTC(99, 1) - Date.UTC(1999, 1)|0', '|')]
     [TestCase('OnlyYear', 'Date.UTC(1970) - Date.UTC(1970, 0, 1)|0', '|')]
@@ -73,15 +40,34 @@ type
     [TestCase('IsoEndOfDay', 'Date.parse("1970-01-01T24:00:00Z")|86400000', '|')]
     [TestCase('LegacyUtcString', 'Date.parse("Thu, 01 Jan 1970 00:00:01 GMT")|1000', '|')]
     [TestCase('LegacyOffsetString', 'Date.parse("Thu Jan 01 1970 01:00:00 GMT+0100")|0', '|')]
-    procedure Expression_ReturnsNumber(const Script: string; const Expected: Double);
+    procedure Date_Expression_ReturnsNumber(const Script: string; const Expected: Double);
+
+    [Test]
+    [TestCase('Year', 'new Date(NaN).getUTCFullYear()', '|')]
+    [TestCase('LocalMonth', 'new Date(NaN).getMonth()', '|')]
+    [TestCase('TimezoneOffset', 'new Date(NaN).getTimezoneOffset()', '|')]
+    [TestCase('Time', 'new Date(NaN).getTime()', '|')]
+    [TestCase('UtcAboveLimit', 'Date.UTC(275760, 8, 13, 0, 0, 0, 1)', '|')]
+    [TestCase('UtcNoArguments', 'Date.UTC()', '|')]
+    [TestCase('ConstructorAboveLimit', 'new Date(8.64e15 + 1).getTime()', '|')]
+    [TestCase('ParseGarbage', 'Date.parse("not a date")', '|')]
+    [TestCase('ParseMonthTooLarge', 'Date.parse("2000-13-01")', '|')]
+    [TestCase('ParseDayTooLarge', 'Date.parse("2000-02-30")', '|')]
+    [TestCase('ParseNegativeZeroYear', 'Date.parse("-000000-01-01T00:00:00Z")', '|')]
+    [TestCase('ParseHourAboveLimit', 'Date.parse("2000-01-01T24:00:01Z")', '|')]
+    procedure Date_Expression_ReturnsNaN(const Script: string);
 
     [Test]
     [TestCase('ToStringRoundTrip', 'var d = new Date(2024, 4, 17, 8, 9, 10); Date.parse(d.toString()) === d.getTime()', '|')]
     [TestCase('ToUtcStringRoundTrip', 'var d = new Date(1e12); Date.parse(d.toUTCString()) === d.getTime()', '|')]
     [TestCase('ToIsoStringRoundTrip', 'var d = new Date(1e12 + 5); Date.parse(d.toISOString()) === d.getTime()', '|')]
-    [TestCase('LocalComponents', 'var d = new Date(2024, 0, 15, 10, 30, 45, 123); d.getFullYear() === 2024 && d.getMonth() === 0 && d.getDate() === 15 && d.getHours() === 10 && d.getMinutes() === 30 && d.getSeconds() === 45 && d.getMilliseconds() === 123', '|')]
+    [TestCase('LocalComponents', 'var d = new Date(2024, 0, 15, 10, 30, 45, 123); ' +
+      'd.getFullYear() === 2024 && d.getMonth() === 0 && d.getDate() === 15 && d.getHours() === 10 && ' +
+      'd.getMinutes() === 30 && d.getSeconds() === 45 && d.getMilliseconds() === 123', '|')]
     [TestCase('LocalDateTimeParse', 'new Date("2000-01-01T00:00:00").getHours() === 0', '|')]
-    [TestCase('TimezoneOffsetMatchesLocalTime', 'var d = new Date(1e12); (d.getTimezoneOffset() * 60000) === (Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()) - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()))', '|')]
+    [TestCase('TimezoneOffsetMatchesLocalTime', 'var d = new Date(1e12); (d.getTimezoneOffset() * 60000) === ' +
+      '(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()) - ' +
+      'Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()))', '|')]
     [TestCase('CalledAsFunctionReturnsString', 'typeof Date() === "string"', '|')]
     [TestCase('ConstructedIsDate', 'Object.prototype.toString.call(new Date(0)) === "[object Date]"', '|')]
     [TestCase('BoundConstructorBuildsDate', 'var bound = Function.prototype.bind.apply(Date, [null, 1957, 4, 27]); Object.prototype.toString.call(new bound()) === "[object Date]"', '|')]
@@ -99,7 +85,7 @@ type
     [TestCase('SetTimeClipsToNaN', 'var d = new Date(0); d.setTime(8.64e15 + 1); isNaN(d.getTime())', '|')]
     [TestCase('SetTimeReturnsValue', 'new Date(0).setTime(42) === 42', '|')]
     [TestCase('SetUtcMillisecondsOfInvalidDate', 'var d = new Date(NaN); d.setUTCMilliseconds(5); isNaN(d.getTime())', '|')]
-    procedure Expression_IsTrue(const Script: string);
+    procedure Date_Expression_ReturnsTrue(const Script: string);
 
     [Test]
     [TestCase('Epoch', 'new Date(0).toISOString()|1970-01-01T00:00:00.000Z', '|')]
@@ -116,9 +102,6 @@ type
     [TestCase('ToJson', 'new Date(0).toJSON()|1970-01-01T00:00:00.000Z', '|')]
     [TestCase('DateStringLayout', 'new Date(2024, 0, 5).toDateString()|Fri Jan 05 2024', '|')]
     [TestCase('TimeStringLayout', 'new Date(2024, 0, 5, 7, 8, 9).toTimeString().substring(0, 8)|07:08:09', '|')]
-    procedure Expression_ReturnsText(const Script: string; const Expected: string);
-
-    [Test]
     [TestCase('SetUtcMonthOverflow', 'var d = new Date(Date.UTC(2000, 0, 31)); d.setUTCMonth(13); d.toISOString()|2001-03-03T00:00:00.000Z', '|')]
     [TestCase('SetUtcHoursWithAllArguments', 'var d = new Date(0); d.setUTCHours(1, 2, 3, 4); d.toISOString()|1970-01-01T01:02:03.004Z', '|')]
     [TestCase('SetUtcMinutesKeepsSeconds', 'var d = new Date(Date.UTC(2000, 0, 1, 1, 1, 1, 1)); d.setUTCMinutes(30); d.toISOString()|2000-01-01T01:30:01.001Z', '|')]
@@ -131,17 +114,20 @@ type
     [TestCase('SetLocalMonth', 'var d = new Date(2000, 0, 31); d.setMonth(1); d.getMonth() + "-" + d.getDate()|2-2', '|')]
     [TestCase('SetYearTwoDigits', 'var d = new Date(2000, 5, 1); d.setYear(99); d.getFullYear()|1999', '|')]
     [TestCase('GetYear', 'new Date(1999, 5, 1).getYear()|99', '|')]
-    [TestCase('SetHoursReadsTimeBeforeConversionOfInvalidDate', 'var d = new Date(NaN); var r = d.setHours({valueOf: function() { d.setTime(0); return 1; }}); r + ":" + d.getTime()|NaN:0', '|')]
+    [TestCase('SetHoursReadsTimeBeforeConversionOfInvalidDate', 'var d = new Date(NaN); var r = d.setHours({valueOf: function() { d.setTime(0); return 1; }}); ' +
+      'r + ":" + d.getTime()|NaN:0', '|')]
     [TestCase('SetUtcMinutesReadsTimeBeforeConversionOfValidDate', 'var d = new Date(0); var r = d.setUTCMinutes({valueOf: function() { d.setTime(NaN); return 1; }}); r|60000', '|')]
-    [TestCase('SetFullYearReadsTimeBeforeConversion', 'var d = new Date(Date.UTC(2000, 5, 1)); var r = d.setUTCFullYear({valueOf: function() { d.setTime(NaN); return 2001; }}); new Date(r).toISOString()|2001-06-01T00:00:00.000Z', '|')]
+    [TestCase('SetFullYearReadsTimeBeforeConversion', 'var d = new Date(Date.UTC(2000, 5, 1)); ' +
+      'var r = d.setUTCFullYear({valueOf: function() { d.setTime(NaN); return 2001; }}); ' +
+      'new Date(r).toISOString()|2001-06-01T00:00:00.000Z', '|')]
     [TestCase('SetYearReadsTimeBeforeConversion', 'var d = new Date(2000, 5, 1); d.setYear({valueOf: function() { d.setTime(NaN); return 99; }}); d.getFullYear()|1999', '|')]
-    procedure Setter_UpdatesTimeValue(const Script: string; const Expected: string);
+    procedure Date_Expression_ReturnsText(const Script: string; const Expected: string);
 
     [Test]
     [TestCase('Date', 'Date|7', '|')]
     [TestCase('UTC', 'Date.UTC|7', '|')]
     [TestCase('Parse', 'Date.parse|1', '|')]
-    [TestCase('Now', 'Date.now|0', '|')]
+    [TestCase('NowTakesNoArguments', 'Date.now|0', '|')]
     [TestCase('GetTime', 'Date.prototype.getTime|0', '|')]
     [TestCase('SetTime', 'Date.prototype.setTime|1', '|')]
     [TestCase('SetMilliseconds', 'Date.prototype.setMilliseconds|1', '|')]
@@ -153,7 +139,7 @@ type
     [TestCase('SetFullYear', 'Date.prototype.setFullYear|3', '|')]
     [TestCase('ToJSON', 'Date.prototype.toJSON|1', '|')]
     [TestCase('ToISOString', 'Date.prototype.toISOString|0', '|')]
-    procedure FunctionLength_MatchesSpecification(const FunctionExpression: string; const Expected: Integer);
+    procedure FunctionLength_BuiltinFunction_MatchesSpecification(const FunctionExpression: string; const Expected: Double);
 
     [Test]
     procedure Length_OfBuiltinMethod_IsReadOnlyAndNotEnumerable;
@@ -161,64 +147,39 @@ type
 
 implementation
 
-procedure TDateTests.Setup;
+procedure TDateTests.Date_Expression_ReturnsNumber(const Script: string; const Expected: Double);
 begin
-  FEngine := TJSEngine.Create;
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TDateTests.TearDown;
+procedure TDateTests.Date_Expression_ReturnsNaN(const Script: string);
 begin
-  FEngine.Free;
+  const Value = FEngine.Evaluate(Script);
+
+  Assert.IsTrue(Value.IsNaN, Script);
 end;
 
-function TDateTests.EvaluateNumber(const Script: string): Double;
+procedure TDateTests.Date_Expression_ReturnsTrue(const Script: string);
 begin
-  Result := FEngine.Evaluate(Script).ToNumber;
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual, Script);
 end;
 
-function TDateTests.EvaluateText(const Script: string): string;
+procedure TDateTests.Date_Expression_ReturnsText(const Script: string; const Expected: string);
 begin
-  Result := FEngine.Evaluate(Script).ToString;
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-function TDateTests.EvaluateBoolean(const Script: string): Boolean;
+procedure TDateTests.FunctionLength_BuiltinFunction_MatchesSpecification(const FunctionExpression: string; const Expected: Double);
 begin
-  Result := FEngine.Evaluate(Script).ToBoolean;
-end;
+  const Actual = EvaluateNumber(FunctionExpression + '.length');
 
-procedure TDateTests.Getter_ReturnsComponent(const Script: string; const Expected: Double);
-begin
-  Assert.AreEqual(Expected, EvaluateNumber(Script));
-end;
-
-procedure TDateTests.Expression_IsNaN(const Script: string);
-begin
-  Assert.IsTrue(FEngine.Evaluate(Script).IsNaN);
-end;
-
-procedure TDateTests.Expression_ReturnsNumber(const Script: string; const Expected: Double);
-begin
-  Assert.AreEqual(Expected, EvaluateNumber(Script));
-end;
-
-procedure TDateTests.Expression_IsTrue(const Script: string);
-begin
-  Assert.IsTrue(EvaluateBoolean(Script), Script);
-end;
-
-procedure TDateTests.Expression_ReturnsText(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
-end;
-
-procedure TDateTests.Setter_UpdatesTimeValue(const Script: string; const Expected: string);
-begin
-  Assert.AreEqual(Expected, EvaluateText(Script));
-end;
-
-procedure TDateTests.FunctionLength_MatchesSpecification(const FunctionExpression: string; const Expected: Integer);
-begin
-  Assert.AreEqual(Double(Expected), EvaluateNumber(FunctionExpression + '.length'));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TDateTests.Length_OfBuiltinMethod_IsReadOnlyAndNotEnumerable;
@@ -226,7 +187,9 @@ begin
   const Script = 'var f = Date.prototype.getTime; var d = Object.getOwnPropertyDescriptor(f, "length"); ' +
                  '!d.writable && !d.enumerable && d.configurable';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

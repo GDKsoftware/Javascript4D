@@ -33,8 +33,6 @@ type
     property SourceKind: TJSCollectionKind read GetSourceKind;
   end;
 
-  // A Map, Set, WeakMap or WeakSet. Weak collections hold their keys strongly: the registry empties every
-  // collection when its engine goes away, so entries cannot keep objects alive past the engine.
   TJSCollectionObject = class(TJSRegisteredObject, IJSCollection)
   private
     FKind: TJSCollectionKind;
@@ -65,8 +63,7 @@ type
     FObjectPrototype: IJSObject;
 
     function GetSourceKind: TJSCollectionKind;
-    function CreateEntry(const Key: TJSValue; const Value: TJSValue): TJSValue;
-    function Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
+    function SelectOutput(const Key: TJSValue; const Value: TJSValue): TJSValue;
     procedure ReleaseCollection;
 
   protected
@@ -85,6 +82,9 @@ type
 
 implementation
 
+const
+  UNSUPPORTED_ITERATION_KIND = 'Unsupported collection iteration kind: %d';
+
 { TJSCollectionObject }
 
 constructor TJSCollectionObject.Create(const Kind: TJSCollectionKind; const Registry: TJSObjectRegistry);
@@ -97,20 +97,21 @@ end;
 
 destructor TJSCollectionObject.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FreeAndNil(FStore);
   inherited;
 end;
 
 procedure TJSCollectionObject.ReleaseHeldValues;
 begin
-  FStore.Clear;
+  if Assigned(FStore) then
+    FStore.Clear;
 end;
 
 procedure TJSCollectionObject.ReleaseReferences;
 begin
-  ReleaseNested;
-  FStore.Clear;
+  ReleaseNestedIteratively;
+  ReleaseHeldValues;
   inherited;
 end;
 
@@ -154,7 +155,7 @@ end;
 
 destructor TJSCollectionIterator.Destroy;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   FCursor.Free;
   inherited;
 end;
@@ -177,7 +178,7 @@ end;
 
 function TJSCollectionIterator.HoldsNested: Boolean;
 begin
-  Result := Assigned(FCollection) or inherited HoldsNested;
+  Result := (Assigned(FCollection) or inherited HoldsNested);
 end;
 
 procedure TJSCollectionIterator.DetachNested(const Pending: TList<IJSObject>);
@@ -194,24 +195,14 @@ begin
   Result := FSourceKind;
 end;
 
-function TJSCollectionIterator.CreateEntry(const Key: TJSValue; const Value: TJSValue): TJSValue;
-begin
-  const Entry = TJSArray.Create;
-  Entry.Prototype := FArrayPrototype;
-  Entry.Push(Key);
-  Entry.Push(Value);
-
-  Result := TJSValue.CreateObject(Entry);
-end;
-
-function TJSCollectionIterator.Pick(const Key: TJSValue; const Value: TJSValue): TJSValue;
+function TJSCollectionIterator.SelectOutput(const Key: TJSValue; const Value: TJSValue): TJSValue;
 begin
   case FKind of
     TJSCollectionIterationKind.Keys    : Result := Key;
     TJSCollectionIterationKind.Values  : Result := Value;
-    TJSCollectionIterationKind.Entries : Result := CreateEntry(Key, Value);
+    TJSCollectionIterationKind.Entries : Result := TJSIteratorResults.CreateEntry(FArrayPrototype, Key, Value);
   else
-    raise ENotSupportedException.CreateFmt('Unsupported collection iteration kind: %d', [Ord(FKind)]);
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_ITERATION_KIND, [Ord(FKind)]);
   end;
 end;
 
@@ -228,8 +219,9 @@ begin
   const HasEntry = Assigned(FCursor) and FCursor.TryNext(Key, Value);
   if HasEntry then
   begin
-    const Picked = Pick(Key, Value);
-    Exit(TJSIteratorResults.CreateResult(FObjectPrototype, Picked, False));
+    const Selected = SelectOutput(Key, Value);
+    Result := TJSIteratorResults.CreateResult(FObjectPrototype, Selected, False);
+    Exit;
   end;
 
   ReleaseCollection;

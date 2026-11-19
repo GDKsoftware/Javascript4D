@@ -117,7 +117,7 @@ end;
 
 procedure TJSGarbageMarker.MarkOwnProperties(const Obj: IJSObject);
 begin
-  for var PropName in TJSObjectKeys.All(Obj) do
+  for var PropName in TJSObjectOperations.OwnKeys(Obj) do
   begin
     const Descriptor = Obj.GetOwnPropertyDescriptor(PropName);
 

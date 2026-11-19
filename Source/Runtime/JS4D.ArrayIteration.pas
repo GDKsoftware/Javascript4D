@@ -8,6 +8,8 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.Types,
+  JS4D.PropertyNames,
+  JS4D.ArrayObject,
   JS4D.Errors,
   JS4D.Builtins,
   JS4D.ArrayLike,
@@ -17,27 +19,68 @@ uses
 type
   TJSArrayIteration = class
   private
+    type
+      TIterationMethod = (ForEach, Map, Filter, Some, Every, Reduce, ReduceRight, Find, FindIndex, IndexOf,
+                          Includes, At, Flat, FlatMap, LastIndexOf);
+
+      TIterationMethodInfo = record
+        Name: string;
+        CreatesResultArray: Boolean;
+      end;
+
+      TFindMatch = record
+        IsFound: Boolean;
+        Index: Int64;
+        Element: TJSValue;
+      end;
+
+      TReduceStart = record
+        Accumulator: TJSValue;
+        NextIndex: Int64;
+      end;
+
     const
-      METHOD_FOR_EACH = 'forEach';
-      METHOD_MAP = 'map';
-      METHOD_FILTER = 'filter';
-      METHOD_SOME = 'some';
-      METHOD_EVERY = 'every';
-      METHOD_REDUCE = 'reduce';
-      METHOD_REDUCE_RIGHT = 'reduceRight';
-      METHOD_INDEX_OF = 'indexOf';
-      METHOD_LAST_INDEX_OF = 'lastIndexOf';
-      METHOD_FIND = 'find';
-      METHOD_FIND_INDEX = 'findIndex';
-      METHOD_INCLUDES = 'includes';
-      METHOD_AT = 'at';
-      METHOD_FLAT = 'flat';
-      METHOD_FLAT_MAP = 'flatMap';
+      CALLBACK_METHODS = [TIterationMethod.ForEach, TIterationMethod.Map, TIterationMethod.Filter,
+                          TIterationMethod.Some, TIterationMethod.Every, TIterationMethod.Reduce,
+                          TIterationMethod.ReduceRight, TIterationMethod.Find, TIterationMethod.FindIndex,
+                          TIterationMethod.FlatMap];
+      METHODS: array[TIterationMethod] of TIterationMethodInfo = (
+        (Name: METHOD_FOR_EACH; CreatesResultArray: False),
+        (Name: METHOD_MAP; CreatesResultArray: True),
+        (Name: METHOD_FILTER; CreatesResultArray: True),
+        (Name: METHOD_SOME; CreatesResultArray: False),
+        (Name: METHOD_EVERY; CreatesResultArray: False),
+        (Name: METHOD_REDUCE; CreatesResultArray: False),
+        (Name: METHOD_REDUCE_RIGHT; CreatesResultArray: False),
+        (Name: METHOD_FIND; CreatesResultArray: False),
+        (Name: METHOD_FIND_INDEX; CreatesResultArray: False),
+        (Name: METHOD_INDEX_OF; CreatesResultArray: False),
+        (Name: METHOD_INCLUDES; CreatesResultArray: False),
+        (Name: METHOD_AT; CreatesResultArray: False),
+        (Name: METHOD_FLAT; CreatesResultArray: True),
+        (Name: METHOD_FLAT_MAP; CreatesResultArray: True),
+        (Name: METHOD_LAST_INDEX_OF; CreatesResultArray: False));
+      EMPTY_RESULT_METHODS = [TIterationMethod.Filter, TIterationMethod.Flat, TIterationMethod.FlatMap];
+      UNSUPPORTED_METHOD = 'Unsupported array iteration method: %s';
       MAX_INTEGER_MAGNITUDE = 9007199254740992.0;
-      NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
       CALLBACK_NOT_A_FUNCTION = 'Array.prototype.%s: callback is not a function';
       REDUCE_OF_EMPTY_ARRAY = 'Reduce of empty array with no initial value';
 
+    class function TryFindMethod(const MethodName: string; out Method: TIterationMethod): Boolean; static;
+    class function HasElementWithOutcome(const MethodName: string; const Target: IJSObject;
+                                         const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                         const Outcome: Boolean): Boolean; static;
+    class function CallWithCallback(const Method: TIterationMethod; const Target: IJSObject;
+                                    const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                    const ArrayPrototype: IJSObject; const Limits: TJSLimits;
+                                    const BeforeElements: TProc): TJSValue; static;
+    class function CallWithoutCallback(const Method: TIterationMethod; const Target: IJSObject;
+                                       const Args: TArray<TJSValue>; const ArrayPrototype: IJSObject;
+                                       const Limits: TJSLimits; const BeforeElements: TProc): TJSValue; static;
+    class function FindReduceStart(const Target: IJSObject; const Args: TArray<TJSValue>; const Count: Int64;
+                                   const Step: Integer): TReduceStart; static;
+    class function IncludesStart(const Args: TArray<TJSValue>; const Count: Int64): Int64; static;
+    class function LastIndexStart(const Args: TArray<TJSValue>; const Count: Int64): Int64; static;
     class procedure NotifyBeforeElements(const BeforeElements: TProc); static;
     class function ToIntegerClamped(const Value: TJSValue): Int64; static;
     class function RequireCallback(const MethodName: string; const Args: TArray<TJSValue>): IJSFunction; static;
@@ -56,11 +99,13 @@ type
                          const Executor: TJSCallbackExecutor): TJSValue; static;
     class function Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;
                           const Executor: TJSCallbackExecutor): TJSValue; static;
+    class function ReduceInDirection(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                     const Executor: TJSCallbackExecutor; const MethodName: string;
+                                     const Step: Integer): TJSValue; static;
     class function ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
                                const Executor: TJSCallbackExecutor): TJSValue; static;
-    class function TryFindMatch(const MethodName: string; const Target: IJSObject; const Args: TArray<TJSValue>;
-                                const Executor: TJSCallbackExecutor; out Index: Int64;
-                                out Element: TJSValue): Boolean; static;
+    class function FindMatch(const MethodName: string; const Target: IJSObject; const Args: TArray<TJSValue>;
+                             const Executor: TJSCallbackExecutor): TFindMatch; static;
     class function Find(const Target: IJSObject; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor): TJSValue; static;
     class function FindIndex(const Target: IJSObject; const Args: TArray<TJSValue>;
@@ -83,6 +128,7 @@ type
   public
     class function Handles(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function StartsEmpty(const MethodName: string): Boolean; static;
     class function Call(const Target: IJSObject; const MethodName: string; const Args: TArray<TJSValue>;
                         const Executor: TJSCallbackExecutor; const ArrayPrototype: IJSObject;
                         const Limits: TJSLimits; const BeforeElements: TProc = nil): TJSValue; static;
@@ -90,31 +136,75 @@ type
 
 implementation
 
+class function TJSArrayIteration.TryFindMethod(const MethodName: string; out Method: TIterationMethod): Boolean;
+begin
+  for var Candidate := Low(TIterationMethod) to High(TIterationMethod) do
+  begin
+    const IsMatch = (METHODS[Candidate].Name = MethodName);
+    if IsMatch then
+    begin
+      Method := Candidate;
+      Exit(True);
+    end;
+  end;
+
+  Method := Low(TIterationMethod);
+  Result := False;
+end;
+
 class function TJSArrayIteration.Handles(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_FOR_EACH) or
-            (MethodName = METHOD_MAP) or
-            (MethodName = METHOD_FILTER) or
-            (MethodName = METHOD_SOME) or
-            (MethodName = METHOD_EVERY) or
-            (MethodName = METHOD_REDUCE) or
-            (MethodName = METHOD_REDUCE_RIGHT) or
-            (MethodName = METHOD_INDEX_OF) or
-            (MethodName = METHOD_LAST_INDEX_OF) or
-            (MethodName = METHOD_FIND) or
-            (MethodName = METHOD_FIND_INDEX) or
-            (MethodName = METHOD_INCLUDES) or
-            (MethodName = METHOD_AT) or
-            (MethodName = METHOD_FLAT) or
-            (MethodName = METHOD_FLAT_MAP);
+  var Method: TIterationMethod;
+  Result := TryFindMethod(MethodName, Method);
 end;
 
 class function TJSArrayIteration.CreatesResultArray(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_MAP) or
-            (MethodName = METHOD_FILTER) or
-            (MethodName = METHOD_FLAT) or
-            (MethodName = METHOD_FLAT_MAP);
+  var Method: TIterationMethod;
+  Result := (TryFindMethod(MethodName, Method) and METHODS[Method].CreatesResultArray);
+end;
+
+class function TJSArrayIteration.StartsEmpty(const MethodName: string): Boolean;
+begin
+  var Method: TIterationMethod;
+  Result := (TryFindMethod(MethodName, Method) and (Method in EMPTY_RESULT_METHODS));
+end;
+
+class function TJSArrayIteration.CallWithCallback(const Method: TIterationMethod; const Target: IJSObject;
+                                                 const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
+                                                 const ArrayPrototype: IJSObject; const Limits: TJSLimits;
+                                                 const BeforeElements: TProc): TJSValue;
+begin
+  case Method of
+    TIterationMethod.ForEach     : Result := ForEach(Target, Args, Executor);
+    TIterationMethod.Map         : Result := Map(Target, Args, Executor, ArrayPrototype, BeforeElements);
+    TIterationMethod.Filter      : Result := Filter(Target, Args, Executor, ArrayPrototype, BeforeElements);
+    TIterationMethod.Some        : Result := Some(Target, Args, Executor);
+    TIterationMethod.Every       : Result := Every(Target, Args, Executor);
+    TIterationMethod.Reduce      : Result := Reduce(Target, Args, Executor);
+    TIterationMethod.ReduceRight : Result := ReduceRight(Target, Args, Executor);
+    TIterationMethod.Find        : Result := Find(Target, Args, Executor);
+    TIterationMethod.FindIndex   : Result := FindIndex(Target, Args, Executor);
+    TIterationMethod.FlatMap     : Result := FlatMap(Target, Args, Executor, ArrayPrototype, Limits, BeforeElements);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [METHODS[Method].Name]);
+  end;
+end;
+
+class function TJSArrayIteration.CallWithoutCallback(const Method: TIterationMethod; const Target: IJSObject;
+                                                    const Args: TArray<TJSValue>; const ArrayPrototype: IJSObject;
+                                                    const Limits: TJSLimits;
+                                                    const BeforeElements: TProc): TJSValue;
+begin
+  case Method of
+    TIterationMethod.IndexOf     : Result := IndexOf(Target, Args);
+    TIterationMethod.Includes    : Result := Includes(Target, Args);
+    TIterationMethod.At          : Result := At(Target, Args);
+    TIterationMethod.Flat        : Result := Flat(Target, Args, ArrayPrototype, Limits, BeforeElements);
+    TIterationMethod.LastIndexOf : Result := LastIndexOf(Target, Args);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [METHODS[Method].Name]);
+  end;
 end;
 
 class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName: string;
@@ -123,54 +213,16 @@ class function TJSArrayIteration.Call(const Target: IJSObject; const MethodName:
                                       const BeforeElements: TProc): TJSValue;
 begin
   if not Assigned(Target) then
-    raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+    raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(MethodName);
 
-  if MethodName = METHOD_FOR_EACH then
-    Exit(ForEach(Target, Args, Executor));
+  var Method: TIterationMethod;
+  if not TryFindMethod(MethodName, Method) then
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [MethodName]);
 
-  if MethodName = METHOD_MAP then
-    Exit(Map(Target, Args, Executor, ArrayPrototype, BeforeElements));
-
-  if MethodName = METHOD_FILTER then
-    Exit(Filter(Target, Args, Executor, ArrayPrototype, BeforeElements));
-
-  if MethodName = METHOD_SOME then
-    Exit(Some(Target, Args, Executor));
-
-  if MethodName = METHOD_EVERY then
-    Exit(Every(Target, Args, Executor));
-
-  if MethodName = METHOD_REDUCE then
-    Exit(Reduce(Target, Args, Executor));
-
-  if MethodName = METHOD_REDUCE_RIGHT then
-    Exit(ReduceRight(Target, Args, Executor));
-
-  if MethodName = METHOD_FIND then
-    Exit(Find(Target, Args, Executor));
-
-  if MethodName = METHOD_FIND_INDEX then
-    Exit(FindIndex(Target, Args, Executor));
-
-  if MethodName = METHOD_INDEX_OF then
-    Exit(IndexOf(Target, Args));
-
-  if MethodName = METHOD_INCLUDES then
-    Exit(Includes(Target, Args));
-
-  if MethodName = METHOD_AT then
-    Exit(At(Target, Args));
-
-  if MethodName = METHOD_FLAT then
-    Exit(Flat(Target, Args, ArrayPrototype, Limits, BeforeElements));
-
-  if MethodName = METHOD_FLAT_MAP then
-    Exit(FlatMap(Target, Args, Executor, ArrayPrototype, Limits, BeforeElements));
-
-  if MethodName = METHOD_LAST_INDEX_OF then
-    Exit(LastIndexOf(Target, Args));
-
-  raise ENotSupportedException.CreateFmt('Unsupported array iteration method: %s', [MethodName]);
+  if Method in CALLBACK_METHODS then
+    Result := CallWithCallback(Method, Target, Args, Executor, ArrayPrototype, Limits, BeforeElements)
+  else
+    Result := CallWithoutCallback(Method, Target, Args, ArrayPrototype, Limits, BeforeElements);
 end;
 
 class function TJSArrayIteration.ReadElement(const Target: IJSObject; const Index: Int64): TJSValue;
@@ -182,10 +234,12 @@ end;
 class function TJSArrayIteration.At(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const Relative = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 0));
+  const IndexArgument = TJSArrayLike.Argument(Args, 0);
+  const Relative = TJSConversions.ToIntegerOrInfinity(IndexArgument);
 
   var Position := Relative;
-  if Relative < 0 then
+  const IsFromEnd = (Relative < 0);
+  if IsFromEnd then
     Position := Count + Relative;
 
   const IsInRange = (Position >= 0) and (Position < Count);
@@ -195,30 +249,45 @@ begin
     Result := TJSValue.CreateUndefined;
 end;
 
+class function TJSArrayIteration.IncludesStart(const Args: TArray<TJSValue>; const Count: Int64): Int64;
+begin
+  const FromIndex = TJSArrayLike.ToIntegerArgument(Args, 1);
+
+  const StartsPastEnd = (FromIndex >= Count);
+  if StartsPastEnd then
+  begin
+    Result := Count;
+    Exit;
+  end;
+
+  const StartsFromEnd = (FromIndex < 0);
+  if StartsFromEnd then
+    Result := Trunc(Max(Count + FromIndex, 0))
+  else
+    Result := Trunc(FromIndex);
+end;
+
 class function TJSArrayIteration.Includes(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
+  Result := TJSValue.CreateBoolean(False);
+
   const Count = TJSArrayLike.ToLength(Target);
-  if Count = 0 then
-    Exit(TJSValue.CreateBoolean(False));
+  const IsEmpty = (Count = 0);
+  if IsEmpty then
+    Exit;
 
-  const FromIndex = TJSConversions.ToIntegerOrInfinity(TJSArrayLike.Argument(Args, 1));
-  if FromIndex >= Count then
-    Exit(TJSValue.CreateBoolean(False));
-
-  var Start := FromIndex;
-  if FromIndex < 0 then
-    Start := Max(Count + FromIndex, 0);
-
+  const Start = IncludesStart(Args, Count);
   const SearchElement = TJSArrayLike.Argument(Args, 0);
-  for var Index: Int64 := Trunc(Start) to Count - 1 do
+  for var Index: Int64 := Start to Count - 1 do
   begin
     const Element = TJSArrayLike.GetElement(Target, Index);
     const IsSame = Element.StrictEquals(SearchElement) or (Element.IsNaN and SearchElement.IsNaN);
     if IsSame then
-      Exit(TJSValue.CreateBoolean(True));
+    begin
+      Result := TJSValue.CreateBoolean(True);
+      Exit;
+    end;
   end;
-
-  Result := TJSValue.CreateBoolean(False);
 end;
 
 class function TJSArrayIteration.FlatDepth(const Args: TArray<TJSValue>): Double;
@@ -242,7 +311,10 @@ begin
       Continue;
 
     if Assigned(Mapper) then
-      Element := Executor(Mapper, CallbackArguments(Element, Index, Source));
+    begin
+      const MapperArguments = CallbackArguments(Element, Index, Source);
+      Element := Executor(Mapper, MapperArguments);
+    end;
 
     const ShouldFlatten = (Depth > 0) and TJSObjectOperations.IsArray(Element);
     if ShouldFlatten then
@@ -250,7 +322,8 @@ begin
       Limits.EnsureNestingDepth(Level + 1);
 
       const Nested = Element.ToObject;
-      FlattenInto(Flattened, Nested, TJSArrayLike.ToLength(Nested), Depth - 1, Level + 1, nil, Executor, Limits);
+      const NestedLength = TJSArrayLike.ToLength(Nested);
+      FlattenInto(Flattened, Nested, NestedLength, Depth - 1, Level + 1, nil, Executor, Limits);
       Continue;
     end;
 
@@ -297,9 +370,7 @@ end;
 
 class function TJSArrayIteration.ToIntegerClamped(const Value: TJSValue): Int64;
 begin
-  const Number = TJSArrayLike.ToNumber(Value);
-  if System.Math.IsNaN(Number) then
-    Exit(0);
+  const Number = TJSConversions.ToIntegerOrInfinity(Value);
 
   Result := Trunc(EnsureRange(Number, -MAX_INTEGER_MAGNITUDE, MAX_INTEGER_MAGNITUDE));
 end;
@@ -307,9 +378,12 @@ end;
 class function TJSArrayIteration.RequireCallback(const MethodName: string;
                                                  const Args: TArray<TJSValue>): IJSFunction;
 begin
-  const HasCallback = (Length(Args) > 0) and Args[0].IsFunction;
-  if (not HasCallback) or (not Supports(Args[0].ToObject, IJSFunction, Result)) then
-    raise TJSErrorFactory.TypeError(Format(CALLBACK_NOT_A_FUNCTION, [MethodName]));
+  const CallbackArgument = TJSArrayLike.Argument(Args, 0);
+  if not CallbackArgument.TryGetFunction(Result) then
+  begin
+    const Message = Format(CALLBACK_NOT_A_FUNCTION, [MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 end;
 
 class function TJSArrayIteration.CallbackArguments(const Element: TJSValue; const Index: Int64;
@@ -344,12 +418,14 @@ begin
   const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(METHOD_MAP, Args);
   NotifyBeforeElements(BeforeElements);
-  if Count > MaxInt then
+  const ExceedsArrayLength = (Count > MaxInt);
+  if ExceedsArrayLength then
     raise TJSErrorFactory.InvalidArrayLength;
 
   const Mapped: IJSArray = TJSArray.Create;
   Mapped.Prototype := ArrayPrototype;
-  if Count > 0 then
+  const HasElements = (Count > 0);
+  if HasElements then
     Mapped[Integer(Count - 1)] := TJSValue.CreateUndefined;
 
   for var Index: Int64 := 0 to Count - 1 do
@@ -358,7 +434,8 @@ begin
     if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
       const CallbackArgs = CallbackArguments(Element, Index, Target);
-      Mapped[Integer(Index)] := Executor(Callback, CallbackArgs);
+      const MappedElement = Executor(Callback, CallbackArgs);
+      Mapped[Integer(Index)] := MappedElement;
     end;
   end;
 
@@ -382,91 +459,90 @@ begin
       Continue;
 
     const CallbackArgs = CallbackArguments(Element, Index, Target);
-    const IsKept = Executor(Callback, CallbackArgs).ToBoolean;
-    if IsKept then
+    const CallbackResult = Executor(Callback, CallbackArgs);
+    if CallbackResult.ToBoolean then
       Kept.Push(Element);
   end;
 
   Result := TJSValue.CreateObject(Kept);
 end;
 
-class function TJSArrayIteration.Some(const Target: IJSObject; const Args: TArray<TJSValue>;
-                                      const Executor: TJSCallbackExecutor): TJSValue;
-begin
-  const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_SOME, Args);
-
-  for var Index: Int64 := 0 to Count - 1 do
-  begin
-    var Element: TJSValue;
-    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
-      Continue;
-
-    const CallbackArgs = CallbackArguments(Element, Index, Target);
-    const IsMatch = Executor(Callback, CallbackArgs).ToBoolean;
-    if IsMatch then
-    begin
-      Result := TJSValue.CreateBoolean(True);
-      Exit;
-    end;
-  end;
-
-  Result := TJSValue.CreateBoolean(False);
-end;
-
-class function TJSArrayIteration.Every(const Target: IJSObject; const Args: TArray<TJSValue>;
-                                       const Executor: TJSCallbackExecutor): TJSValue;
-begin
-  const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_EVERY, Args);
-
-  for var Index: Int64 := 0 to Count - 1 do
-  begin
-    var Element: TJSValue;
-    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
-      Continue;
-
-    const CallbackArgs = CallbackArguments(Element, Index, Target);
-    const IsMatch = Executor(Callback, CallbackArgs).ToBoolean;
-    if not IsMatch then
-    begin
-      Result := TJSValue.CreateBoolean(False);
-      Exit;
-    end;
-  end;
-
-  Result := TJSValue.CreateBoolean(True);
-end;
-
-class function TJSArrayIteration.TryFindMatch(const MethodName: string; const Target: IJSObject;
-                                              const Args: TArray<TJSValue>; const Executor: TJSCallbackExecutor;
-                                              out Index: Int64; out Element: TJSValue): Boolean;
+class function TJSArrayIteration.HasElementWithOutcome(const MethodName: string; const Target: IJSObject;
+                                                         const Args: TArray<TJSValue>;
+                                                         const Executor: TJSCallbackExecutor;
+                                                         const Outcome: Boolean): Boolean;
 begin
   const Count = TJSArrayLike.ToLength(Target);
   const Callback = RequireCallback(MethodName, Args);
 
-  for var Position: Int64 := 0 to Count - 1 do
+  for var Index: Int64 := 0 to Count - 1 do
   begin
-    Index := Position;
-    if not TJSArrayLike.TryGetElement(Target, Position, Element) then
-      Element := TJSValue.CreateUndefined;
+    var Element: TJSValue;
+    if not TJSArrayLike.TryGetElement(Target, Index, Element) then
+      Continue;
 
-    const CallbackArgs = CallbackArguments(Element, Position, Target);
-    const IsMatch = Executor(Callback, CallbackArgs).ToBoolean;
-    if IsMatch then
+    const CallbackArgs = CallbackArguments(Element, Index, Target);
+    const CallbackResult = Executor(Callback, CallbackArgs);
+    const HasOutcome = (CallbackResult.ToBoolean = Outcome);
+    if HasOutcome then
       Exit(True);
   end;
 
   Result := False;
 end;
 
+class function TJSArrayIteration.Some(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                      const Executor: TJSCallbackExecutor): TJSValue;
+begin
+  const HasMatch = HasElementWithOutcome(METHOD_SOME, Target, Args, Executor, True);
+
+  Result := TJSValue.CreateBoolean(HasMatch);
+end;
+
+class function TJSArrayIteration.Every(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                       const Executor: TJSCallbackExecutor): TJSValue;
+begin
+  const HasMismatch = HasElementWithOutcome(METHOD_EVERY, Target, Args, Executor, False);
+
+  Result := TJSValue.CreateBoolean(not HasMismatch);
+end;
+
+class function TJSArrayIteration.FindMatch(const MethodName: string; const Target: IJSObject;
+                                           const Args: TArray<TJSValue>;
+                                           const Executor: TJSCallbackExecutor): TFindMatch;
+begin
+  Result.IsFound := False;
+  Result.Index := -1;
+  Result.Element := TJSValue.CreateUndefined;
+
+  const Count = TJSArrayLike.ToLength(Target);
+  const Callback = RequireCallback(MethodName, Args);
+
+  for var Position: Int64 := 0 to Count - 1 do
+  begin
+    var Element: TJSValue;
+    if not TJSArrayLike.TryGetElement(Target, Position, Element) then
+      Element := TJSValue.CreateUndefined;
+
+    const CallbackArgs = CallbackArguments(Element, Position, Target);
+    const CallbackResult = Executor(Callback, CallbackArgs);
+    if CallbackResult.ToBoolean then
+    begin
+      Result.IsFound := True;
+      Result.Index := Position;
+      Result.Element := Element;
+      Exit;
+    end;
+  end;
+end;
+
 class function TJSArrayIteration.Find(const Target: IJSObject; const Args: TArray<TJSValue>;
                                       const Executor: TJSCallbackExecutor): TJSValue;
 begin
-  var Index: Int64;
-  var Element: TJSValue;
-  if TryFindMatch(METHOD_FIND, Target, Args, Executor, Index, Element) then
-    Result := Element
+  const Match = FindMatch(METHOD_FIND, Target, Args, Executor);
+
+  if Match.IsFound then
+    Result := Match.Element
   else
     Result := TJSValue.CreateUndefined;
 end;
@@ -474,95 +550,74 @@ end;
 class function TJSArrayIteration.FindIndex(const Target: IJSObject; const Args: TArray<TJSValue>;
                                            const Executor: TJSCallbackExecutor): TJSValue;
 begin
-  var Index: Int64;
-  var Element: TJSValue;
-  if TryFindMatch(METHOD_FIND_INDEX, Target, Args, Executor, Index, Element) then
-    Result := TJSValue.CreateNumber(Index)
-  else
-    Result := TJSValue.CreateNumber(-1);
+  const Match = FindMatch(METHOD_FIND_INDEX, Target, Args, Executor);
+
+  Result := TJSValue.CreateNumber(Match.Index);
 end;
 
 class function TJSArrayIteration.Reduce(const Target: IJSObject; const Args: TArray<TJSValue>;
                                         const Executor: TJSCallbackExecutor): TJSValue;
 begin
-  const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_REDUCE, Args);
-  const HasInitialValue = (Length(Args) > 1);
-
-  var Accumulator := TJSValue.CreateUndefined;
-  var Index: Int64 := 0;
-
-  if HasInitialValue then
-  begin
-    Accumulator := Args[1];
-  end
-  else
-  begin
-    var FoundFirst := False;
-    while (not FoundFirst) and (Index < Count) do
-    begin
-      FoundFirst := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
-      Inc(Index);
-    end;
-
-    if not FoundFirst then
-      raise TJSErrorFactory.TypeError(REDUCE_OF_EMPTY_ARRAY);
-  end;
-
-  while Index < Count do
-  begin
-    var Element: TJSValue;
-    if TJSArrayLike.TryGetElement(Target, Index, Element) then
-    begin
-      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
-                                              TJSValue.CreateObject(Target)];
-      Accumulator := Executor(Callback, CallbackArgs);
-    end;
-
-    Inc(Index);
-  end;
-
-  Result := Accumulator;
+  Result := ReduceInDirection(Target, Args, Executor, METHOD_REDUCE, 1);
 end;
 
 class function TJSArrayIteration.ReduceRight(const Target: IJSObject; const Args: TArray<TJSValue>;
                                              const Executor: TJSCallbackExecutor): TJSValue;
 begin
-  const Count = TJSArrayLike.ToLength(Target);
-  const Callback = RequireCallback(METHOD_REDUCE_RIGHT, Args);
+  Result := ReduceInDirection(Target, Args, Executor, METHOD_REDUCE_RIGHT, -1);
+end;
+
+class function TJSArrayIteration.FindReduceStart(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                                 const Count: Int64; const Step: Integer): TReduceStart;
+begin
+  Result.Accumulator := TJSValue.CreateUndefined;
+  Result.NextIndex := 0;
+
+  const IsBackward = (Step < 0);
+  if IsBackward then
+    Result.NextIndex := Count - 1;
+
   const HasInitialValue = (Length(Args) > 1);
-
-  var Accumulator := TJSValue.CreateUndefined;
-  var Index := Count - 1;
-
   if HasInitialValue then
   begin
-    Accumulator := Args[1];
-  end
-  else
-  begin
-    var FoundLast := False;
-    while (not FoundLast) and (Index >= 0) do
-    begin
-      FoundLast := TJSArrayLike.TryGetElement(Target, Index, Accumulator);
-      Dec(Index);
-    end;
-
-    if not FoundLast then
-      raise TJSErrorFactory.TypeError(REDUCE_OF_EMPTY_ARRAY);
+    Result.Accumulator := Args[1];
+    Exit;
   end;
 
-  while Index >= 0 do
+  var FoundFirst := False;
+  while (not FoundFirst) and (Result.NextIndex >= 0) and (Result.NextIndex < Count) do
+  begin
+    FoundFirst := TJSArrayLike.TryGetElement(Target, Result.NextIndex, Result.Accumulator);
+    Inc(Result.NextIndex, Step);
+  end;
+
+  if not FoundFirst then
+    raise TJSErrorFactory.TypeError(REDUCE_OF_EMPTY_ARRAY);
+end;
+
+class function TJSArrayIteration.ReduceInDirection(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                                   const Executor: TJSCallbackExecutor;
+                                                   const MethodName: string; const Step: Integer): TJSValue;
+begin
+  const Count = TJSArrayLike.ToLength(Target);
+  const Callback = RequireCallback(MethodName, Args);
+  const Start = FindReduceStart(Target, Args, Count, Step);
+
+  var Accumulator := Start.Accumulator;
+  var Index := Start.NextIndex;
+
+  const TargetValue = TJSValue.CreateObject(Target);
+  while (Index >= 0) and (Index < Count) do
   begin
     var Element: TJSValue;
     if TJSArrayLike.TryGetElement(Target, Index, Element) then
     begin
-      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, TJSValue.CreateNumber(Index),
-                                              TJSValue.CreateObject(Target)];
+      const IndexValue = TJSValue.CreateNumber(Index);
+      const CallbackArgs: TArray<TJSValue> = [Accumulator, Element, IndexValue, TargetValue];
       Accumulator := Executor(Callback, CallbackArgs);
     end;
 
-    Dec(Index);
+    Inc(Index, Step);
   end;
 
   Result := Accumulator;
@@ -572,16 +627,20 @@ class function TJSArrayIteration.IndexOf(const Target: IJSObject; const Args: TA
 begin
   const NotFound = TJSValue.CreateNumber(-1);
   const Count = TJSArrayLike.ToLength(Target);
-  if Count = 0 then
+  const IsEmpty = (Count = 0);
+  if IsEmpty then
     Exit(NotFound);
 
   const SearchElement = TJSArrayLike.Argument(Args, 0);
-  const RequestedStart = ToIntegerClamped(TJSArrayLike.Argument(Args, 1));
-  if RequestedStart >= Count then
+  const StartArgument = TJSArrayLike.Argument(Args, 1);
+  const RequestedStart = ToIntegerClamped(StartArgument);
+  const StartsPastEnd = (RequestedStart >= Count);
+  if StartsPastEnd then
     Exit(NotFound);
 
   var StartIndex := RequestedStart;
-  if RequestedStart < 0 then
+  const StartsFromEnd = (RequestedStart < 0);
+  if StartsFromEnd then
     StartIndex := Max(Count + RequestedStart, 0);
 
   for var Index: Int64 := StartIndex to Count - 1 do
@@ -598,26 +657,33 @@ begin
   Result := NotFound;
 end;
 
+class function TJSArrayIteration.LastIndexStart(const Args: TArray<TJSValue>; const Count: Int64): Int64;
+begin
+  Result := Count - 1;
+
+  const HasStartArgument = (Length(Args) > 1);
+  if not HasStartArgument then
+    Exit;
+
+  const RequestedStart = ToIntegerClamped(Args[1]);
+  const StartsFromBeginning = (RequestedStart >= 0);
+  if StartsFromBeginning then
+    Result := Min(RequestedStart, Count - 1)
+  else
+    Result := Count + RequestedStart;
+end;
+
 class function TJSArrayIteration.LastIndexOf(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  const NotFound = TJSValue.CreateNumber(-1);
+  Result := TJSValue.CreateNumber(-1);
+
   const Count = TJSArrayLike.ToLength(Target);
-  if Count = 0 then
-    Exit(NotFound);
+  const IsEmpty = (Count = 0);
+  if IsEmpty then
+    Exit;
 
   const SearchElement = TJSArrayLike.Argument(Args, 0);
-
-  var StartIndex := Count - 1;
-  if Length(Args) > 1 then
-  begin
-    const RequestedStart = ToIntegerClamped(Args[1]);
-    if RequestedStart >= 0 then
-      StartIndex := Min(RequestedStart, Count - 1)
-    else
-      StartIndex := Count + RequestedStart;
-  end;
-
-  for var Index := StartIndex downto 0 do
+  for var Index := LastIndexStart(Args, Count) downto 0 do
   begin
     var Element: TJSValue;
     const IsMatch = TJSArrayLike.TryGetElement(Target, Index, Element) and Element.StrictEquals(SearchElement);
@@ -627,8 +693,6 @@ begin
       Exit;
     end;
   end;
-
-  Result := NotFound;
 end;
 
 end.

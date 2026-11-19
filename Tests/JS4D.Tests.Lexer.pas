@@ -16,6 +16,8 @@ type
   private
     FLexer: TJSLexer;
 
+    function NextTokenType: TJSTokenType;
+
   public
     [TearDown]
     procedure TearDown;
@@ -85,6 +87,13 @@ begin
   FLexer.Free;
 end;
 
+function TLexerTests.NextTokenType: TJSTokenType;
+begin
+  const Token = FLexer.NextToken;
+
+  Result := Token.TokenType;
+end;
+
 procedure TLexerTests.Tokenize_NumberLiteral_ReturnsNumberToken;
 begin
   FLexer := TJSLexer.Create('42');
@@ -123,13 +132,13 @@ begin
   FLexer := TJSLexer.Create('var function return if else while for');
   FLexer.Tokenize;
 
-  Assert.AreEqual(TJSTokenType.KeywordVar, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordFunction, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordReturn, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordIf, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordElse, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordWhile, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.KeywordFor, FLexer.NextToken.TokenType);
+  Assert.AreEqual(TJSTokenType.KeywordVar, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordFunction, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordReturn, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordIf, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordElse, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordWhile, NextTokenType);
+  Assert.AreEqual(TJSTokenType.KeywordFor, NextTokenType);
 end;
 
 procedure TLexerTests.Tokenize_Operators_ReturnsOperatorTokens;
@@ -137,17 +146,17 @@ begin
   FLexer := TJSLexer.Create('a + b - c * d / e % f');
   FLexer.Tokenize;
 
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Plus, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Minus, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Multiply, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Divide, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Modulo, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Plus, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Minus, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Multiply, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Divide, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Modulo, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
 end;
 
 procedure TLexerTests.Tokenize_Punctuation_ReturnsPunctuationTokens;
@@ -155,16 +164,16 @@ begin
   FLexer := TJSLexer.Create('( ) { } [ ] ; , : .');
   FLexer.Tokenize;
 
-  Assert.AreEqual(TJSTokenType.LeftParen, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.RightParen, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.LeftBrace, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.RightBrace, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.LeftBracket, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.RightBracket, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Semicolon, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Comma, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Colon, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Dot, FLexer.NextToken.TokenType);
+  Assert.AreEqual(TJSTokenType.LeftParen, NextTokenType);
+  Assert.AreEqual(TJSTokenType.RightParen, NextTokenType);
+  Assert.AreEqual(TJSTokenType.LeftBrace, NextTokenType);
+  Assert.AreEqual(TJSTokenType.RightBrace, NextTokenType);
+  Assert.AreEqual(TJSTokenType.LeftBracket, NextTokenType);
+  Assert.AreEqual(TJSTokenType.RightBracket, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Semicolon, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Comma, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Colon, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Dot, NextTokenType);
 end;
 
 procedure TLexerTests.Tokenize_HexNumber_ReturnsCorrectValue;
@@ -252,26 +261,26 @@ begin
   FLexer := TJSLexer.Create('a += b -= c *= d /= e ++ f -- g == h === i != j !==');
   FLexer.Tokenize;
 
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.PlusAssign, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.MinusAssign, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.MultiplyAssign, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.DivideAssign, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Increment, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Decrement, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Equal, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.StrictEqual, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.NotEqual, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.Identifier, FLexer.NextToken.TokenType);
-  Assert.AreEqual(TJSTokenType.StrictNotEqual, FLexer.NextToken.TokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.PlusAssign, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.MinusAssign, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.MultiplyAssign, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.DivideAssign, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Increment, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Decrement, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Equal, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.StrictEqual, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.NotEqual, NextTokenType);
+  Assert.AreEqual(TJSTokenType.Identifier, NextTokenType);
+  Assert.AreEqual(TJSTokenType.StrictNotEqual, NextTokenType);
 end;
 
 procedure TLexerTests.Tokenize_BooleanLiterals_ReturnsBooleanTokens;
@@ -297,8 +306,5 @@ begin
 
   Assert.AreEqual(TJSTokenType.NullLiteral, Token.TokenType);
 end;
-
-initialization
-  TDUnitX.RegisterTestFixture(TLexerTests);
 
 end.

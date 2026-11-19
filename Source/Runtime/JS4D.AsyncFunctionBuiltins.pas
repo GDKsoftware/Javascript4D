@@ -6,15 +6,16 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.DynamicFunctions,
   JS4D.PromiseOperations,
   JS4D.AsyncRunner;
 
 type
-  TJSAsyncFunctionBuiltins = class
+  TJSAsyncFunctionBuiltins = class(TJSBuiltinSet)
   private
     const
       ASYNC_FUNCTION_NAME = 'AsyncFunction';
@@ -24,7 +25,7 @@ type
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FFactory: TJSDynamicFunctionFactory;
       FRunner: TJSAsyncRunner;
       FPrototype: IJSObject;
@@ -37,7 +38,7 @@ type
     constructor Create(const Interpreter: TJSInterpreter; const Operations: TJSPromiseOperations);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
@@ -52,7 +53,7 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
-  FSupport := TJSBinarySupport.Create(Interpreter);
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FFactory := TJSDynamicFunctionFactory.Create(Interpreter, ASYNC_FUNCTION_KEYWORD);
   FRunner := TJSAsyncRunner.Create(Interpreter, FSupport, Operations);
 end;

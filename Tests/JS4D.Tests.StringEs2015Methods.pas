@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TStringEs2015MethodsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-    function ThrowsErrorType(const CallScript: string; const ErrorType: string): Boolean;
-
+  TStringEs2015MethodsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Single code unit', 'abc,1,98')]
     [TestCase('Surrogate pair', '\uD83D\uDE00,0,128512')]
@@ -45,7 +32,7 @@ type
     procedure CodePointAt_ThisNull_ThrowsTypeError;
 
     [Test]
-    procedure CodePointAt_HasLengthOne;
+    procedure CodePointAt_Method_HasLengthOne;
 
     [Test]
     [TestCase('NFC', '\u1E9B\u0323,NFC,\u1E9B\u0323')]
@@ -57,6 +44,9 @@ type
 
     [Test]
     procedure Normalize_MissingForm_UsesNFC;
+
+    [Test]
+    procedure Normalize_LoneSurrogate_KeepsItUnchanged;
 
     [Test]
     procedure Normalize_UndefinedForm_UsesNFC;
@@ -71,7 +61,7 @@ type
     procedure Normalize_ThisUndefined_ThrowsTypeError;
 
     [Test]
-    procedure Normalize_HasLengthZero;
+    procedure Normalize_Method_HasLengthZero;
 
     [Test]
     [TestCase('Infinity', 'Infinity')]
@@ -92,32 +82,8 @@ type
 implementation
 
 uses
-  System.SysUtils;
-
-procedure TStringEs2015MethodsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TStringEs2015MethodsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TStringEs2015MethodsTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TStringEs2015MethodsTests.ThrowsErrorType(const CallScript: string; const ErrorType: string): Boolean;
-begin
-  const Script =
-    'var thrown = false;' + sLineBreak +
-    Format('try { %s; } catch (e) { thrown = e instanceof %s; }', [CallScript, ErrorType]) + sLineBreak +
-    'thrown';
-
-  Result := EvaluateBoolean(Script);
-end;
+  System.SysUtils,
+  JS4D.Tests.ErrorNames;
 
 procedure TStringEs2015MethodsTests.CodePointAt_Positions_ReturnsExpected(const Text: string; const Position: string;
                                                                           const Expected: Integer);
@@ -125,12 +91,16 @@ begin
   const Script = Format('var result = "%s".codePointAt(%s); (result === undefined) ? -1 === %d : result === %d',
                         [Text, Position, Expected, Expected]);
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.CodePointAt_MissingPosition_UsesZero;
 begin
-  Assert.IsTrue(EvaluateBoolean('"a".codePointAt() === 97'));
+  const Actual = EvaluateBoolean('"a".codePointAt() === 97');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.CodePointAt_PositionObjectWithValueOf_ConvertsToNumber;
@@ -139,17 +109,23 @@ begin
     'var one = { valueOf: function() { return 1; }, toString: function() { return "x"; } };' + sLineBreak +
     '"abc".codePointAt(one) === 98';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.CodePointAt_ThisNull_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsErrorType('String.prototype.codePointAt.call(null, 0)', 'TypeError'));
+  const Actual = ThrownErrorNameOf('String.prototype.codePointAt.call(null, 0);');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TStringEs2015MethodsTests.CodePointAt_HasLengthOne;
+procedure TStringEs2015MethodsTests.CodePointAt_Method_HasLengthOne;
 begin
-  Assert.IsTrue(EvaluateBoolean('String.prototype.codePointAt.length === 1'));
+  const Actual = EvaluateBoolean('String.prototype.codePointAt.length === 1');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_Forms_ReturnsNormalizedString(const Text: string; const Form: string;
@@ -157,17 +133,32 @@ procedure TStringEs2015MethodsTests.Normalize_Forms_ReturnsNormalizedString(cons
 begin
   const Script = Format('"%s".normalize("%s") === "%s"', [Text, Form, Expected]);
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_MissingForm_UsesNFC;
 begin
-  Assert.IsTrue(EvaluateBoolean('"A\u030A".normalize() === "\u00C5"'));
+  const Actual = EvaluateBoolean('"A\u030A".normalize() === "\u00C5"');
+
+  Assert.IsTrue(Actual);
+end;
+
+procedure TStringEs2015MethodsTests.Normalize_LoneSurrogate_KeepsItUnchanged;
+begin
+  const SurroundedByPairs = EvaluateBoolean('"A\u030A\uD800A\u030A".normalize() === "\u00C5\uD800\u00C5"');
+  const AloneInNFKD = EvaluateBoolean('"\uD800".normalize("NFKD") === "\uD800"');
+
+  Assert.IsTrue(SurroundedByPairs);
+  Assert.IsTrue(AloneInNFKD);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_UndefinedForm_UsesNFC;
 begin
-  Assert.IsTrue(EvaluateBoolean('"A\u030A".normalize(undefined) === "\u00C5"'));
+  const Actual = EvaluateBoolean('"A\u030A".normalize(undefined) === "\u00C5"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_FormObjectWithToString_ConvertsToString;
@@ -176,37 +167,51 @@ begin
     'var form = { toString: function() { return "NFD"; } };' + sLineBreak +
     '"\u00C5".normalize(form) === "A\u030A"';
 
-  Assert.IsTrue(EvaluateBoolean(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_UnknownForm_ThrowsRangeError;
 begin
-  Assert.IsTrue(ThrowsErrorType('"a".normalize("nfc")', 'RangeError'));
+  const Actual = ThrownErrorNameOf('"a".normalize("nfc");');
+
+  Assert.AreEqual(RANGE_ERROR_NAME, Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Normalize_ThisUndefined_ThrowsTypeError;
 begin
-  Assert.IsTrue(ThrowsErrorType('String.prototype.normalize.call(undefined)', 'TypeError'));
+  const Actual = ThrownErrorNameOf('String.prototype.normalize.call(undefined);');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TStringEs2015MethodsTests.Normalize_HasLengthZero;
+procedure TStringEs2015MethodsTests.Normalize_Method_HasLengthZero;
 begin
-  Assert.IsTrue(EvaluateBoolean('String.prototype.normalize.length === 0'));
+  const Actual = EvaluateBoolean('String.prototype.normalize.length === 0');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Repeat_InvalidCount_ThrowsRangeError(const Count: string);
 begin
-  Assert.IsTrue(ThrowsErrorType(Format('"a".repeat(%s)', [Count]), 'RangeError'));
+  const Actual = ThrownErrorNameOf(Format('"a".repeat(%s);', [Count]));
+
+  Assert.AreEqual(RANGE_ERROR_NAME, Actual);
 end;
 
 procedure TStringEs2015MethodsTests.Repeat_NegativeFraction_TruncatesToZero;
 begin
-  Assert.IsTrue(EvaluateBoolean('"a".repeat(-0.5) === ""'));
+  const Actual = EvaluateBoolean('"a".repeat(-0.5) === ""');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TStringEs2015MethodsTests.SearchMethod_RegExpArgument_ThrowsTypeError(const MethodName: string);
 begin
-  Assert.IsTrue(ThrowsErrorType(Format('"abc".%s(/b/)', [MethodName]), 'TypeError'));
+  const Actual = ThrownErrorNameOf(Format('"abc".%s(/b/);', [MethodName]));
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 end.

@@ -7,26 +7,20 @@ interface
 uses
   System.SysUtils,
   JS4D.PropertyKey,
-  JS4D.Types;
+  JS4D.Types,
+  JS4D.ArrayObject;
 
 type
   TJSJsonReader = class
   private
     const
-      WhiteSpace = [' ', #9, #10, #13];
-      NumberCharacters = ['0'..'9', '-', '+', '.', 'e', 'E'];
-      UnicodeEscapeDigits = 4;
-      UnicodeEscapeFormat = '$%s';
-      ObjectEnd = '}';
-      ArrayEnd = ']';
-      StringDelimiter = '"';
-      TrueLiteral = 'true';
-      FalseLiteral = 'false';
-      NullLiteral = 'null';
+      UNICODE_ESCAPE_FORMAT = '$%s';
+      INVALID_JSON_TEXT = 'Unexpected token in JSON';
 
     var
       FText: string;
       FPosition: Integer;
+      FStackFloor: NativeUInt;
       FObjectPrototype: IJSObject;
       FArrayPrototype: IJSObject;
 
@@ -35,14 +29,20 @@ type
     function Current: Char;
     procedure SkipWhiteSpace;
     function TryConsume(const Expected: Char): Boolean;
+    procedure Consume(const Expected: Char);
+    procedure EnsureStackAvailable;
 
     function ReadValue: TJSValue;
-    function ReadLiteral(const Literal: string; const Value: TJSValue): TJSValue;
+    function ReadTrue: TJSValue;
+    function ReadFalse: TJSValue;
+    function ReadNull: TJSValue;
+    procedure SkipLiteral(const Literal: string);
     function ReadObject: TJSValue;
     function ReadArray: TJSValue;
     function ReadStringValue: TJSValue;
     function ReadString: string;
     function ReadEscape: Char;
+    function ReadUnicodeEscape: Char;
     function ReadNumber: TJSValue;
 
   public
@@ -52,19 +52,28 @@ type
 implementation
 
 uses
-  JS4D.NumberParse;
+  JS4D.Errors,
+  JS4D.StackGuard,
+  JS4D.NumberParse,
+  JS4D.JsonGrammar,
+  JS4D.JsonSyntax;
 
 constructor TJSJsonReader.Create(const Text: string; const ObjectPrototype, ArrayPrototype: IJSObject);
 begin
   inherited Create;
   FText := Text;
   FPosition := 1;
+  FStackFloor := TJSStackGuard.CurrentFloor;
   FObjectPrototype := ObjectPrototype;
   FArrayPrototype := ArrayPrototype;
 end;
 
 class function TJSJsonReader.Read(const Text: string; const ObjectPrototype, ArrayPrototype: IJSObject): TJSValue;
 begin
+  const IsValidText = TJSJsonSyntax.IsValid(Text);
+  if not IsValidText then
+    raise TJSErrorFactory.SyntaxError(INVALID_JSON_TEXT);
+
   const Reader = TJSJsonReader.Create(Text, ObjectPrototype, ArrayPrototype);
   try
     Reader.SkipWhiteSpace;
@@ -81,7 +90,7 @@ end;
 
 procedure TJSJsonReader.SkipWhiteSpace;
 begin
-  while CharInSet(Current, WhiteSpace) do
+  while CharInSet(Current, JSON_WHITE_SPACE) do
   begin
     Inc(FPosition);
   end;
@@ -94,28 +103,61 @@ begin
     Inc(FPosition);
 end;
 
+procedure TJSJsonReader.Consume(const Expected: Char);
+begin
+  if Current = Expected then
+    Inc(FPosition);
+end;
+
+procedure TJSJsonReader.EnsureStackAvailable;
+begin
+  var StackMarker: Byte;
+  const IsStackExhausted = (NativeUInt(@StackMarker) < FStackFloor);
+  if IsStackExhausted then
+    raise TJSErrorFactory.StackExhausted;
+end;
+
 function TJSJsonReader.ReadValue: TJSValue;
 begin
   case Current of
-    '{': Result := ReadObject;
-    '[': Result := ReadArray;
-    '"': Result := ReadStringValue;
-    't': Result := ReadLiteral(TrueLiteral, TJSValue.CreateBoolean(True));
-    'f': Result := ReadLiteral(FalseLiteral, TJSValue.CreateBoolean(False));
-    'n': Result := ReadLiteral(NullLiteral, TJSValue.CreateNull);
+    JSON_OBJECT_START : Result := ReadObject;
+    JSON_ARRAY_START  : Result := ReadArray;
+    JSON_QUOTE        : Result := ReadStringValue;
+    JSON_TRUE_START   : Result := ReadTrue;
+    JSON_FALSE_START  : Result := ReadFalse;
+    JSON_NULL_START   : Result := ReadNull;
   else
     Result := ReadNumber;
   end;
 end;
 
-function TJSJsonReader.ReadLiteral(const Literal: string; const Value: TJSValue): TJSValue;
+function TJSJsonReader.ReadTrue: TJSValue;
+begin
+  SkipLiteral(JSON_TRUE_LITERAL);
+  Result := TJSValue.CreateBoolean(True);
+end;
+
+function TJSJsonReader.ReadFalse: TJSValue;
+begin
+  SkipLiteral(JSON_FALSE_LITERAL);
+  Result := TJSValue.CreateBoolean(False);
+end;
+
+function TJSJsonReader.ReadNull: TJSValue;
+begin
+  SkipLiteral(JSON_NULL_LITERAL);
+  Result := TJSValue.CreateNull;
+end;
+
+procedure TJSJsonReader.SkipLiteral(const Literal: string);
 begin
   Inc(FPosition, Length(Literal));
-  Result := Value;
 end;
 
 function TJSJsonReader.ReadObject: TJSValue;
 begin
+  EnsureStackAvailable;
+
   Inc(FPosition);
   SkipWhiteSpace;
 
@@ -123,22 +165,23 @@ begin
   Target.Prototype := FObjectPrototype;
   Result := TJSValue.CreateObject(Target);
 
-  if TryConsume(ObjectEnd) then
+  if TryConsume(JSON_OBJECT_END) then
     Exit;
 
   repeat
     SkipWhiteSpace;
     const Name = ReadString;
     SkipWhiteSpace;
-    TryConsume(':');
+    Consume(JSON_COLON);
     SkipWhiteSpace;
 
     const Member = ReadValue;
-    Target.DefineProperty(Name, TJSPropertyDescriptor.Create(Member));
+    const Descriptor = TJSPropertyDescriptor.Create(Member);
+    Target.DefineProperty(Name, Descriptor);
     SkipWhiteSpace;
-  until not TryConsume(',');
+  until not TryConsume(JSON_COMMA);
 
-  TryConsume(ObjectEnd);
+  Consume(JSON_OBJECT_END);
 end;
 
 function TJSJsonReader.ReadStringValue: TJSValue;
@@ -150,6 +193,8 @@ end;
 
 function TJSJsonReader.ReadArray: TJSValue;
 begin
+  EnsureStackAvailable;
+
   Inc(FPosition);
   SkipWhiteSpace;
 
@@ -157,7 +202,7 @@ begin
   Target.Prototype := FArrayPrototype;
   Result := TJSValue.CreateObject(Target);
 
-  if TryConsume(ArrayEnd) then
+  if TryConsume(JSON_ARRAY_END) then
     Exit;
 
   repeat
@@ -165,9 +210,9 @@ begin
     const Element = ReadValue;
     Target.Push(Element);
     SkipWhiteSpace;
-  until not TryConsume(',');
+  until not TryConsume(JSON_COMMA);
 
-  TryConsume(ArrayEnd);
+  Consume(JSON_ARRAY_END);
 end;
 
 function TJSJsonReader.ReadString: string;
@@ -176,12 +221,12 @@ begin
 
   const Builder = TStringBuilder.Create;
   try
-    while Current <> StringDelimiter do
+    while Current <> JSON_QUOTE do
     begin
       const Character = Current;
       Inc(FPosition);
 
-      const IsEscape = (Character = '\');
+      const IsEscape = (Character = JSON_ESCAPE);
       if IsEscape then
         Builder.Append(ReadEscape)
       else
@@ -201,26 +246,31 @@ begin
   Inc(FPosition);
 
   case Escape of
-    'b': Result := #8;
-    'f': Result := #12;
-    'n': Result := #10;
-    'r': Result := #13;
-    't': Result := #9;
-    'u':
-      begin
-        const Digits = Copy(FText, FPosition, UnicodeEscapeDigits);
-        Inc(FPosition, UnicodeEscapeDigits);
-        Result := Char(StrToInt(Format(UnicodeEscapeFormat, [Digits])));
-      end;
+    'b'                 : Result := #8;
+    'f'                 : Result := #12;
+    'n'                 : Result := #10;
+    'r'                 : Result := #13;
+    't'                 : Result := #9;
+    JSON_UNICODE_ESCAPE : Result := ReadUnicodeEscape;
   else
     Result := Escape;
   end;
 end;
 
+function TJSJsonReader.ReadUnicodeEscape: Char;
+begin
+  const Digits = Copy(FText, FPosition, JSON_UNICODE_ESCAPE_DIGITS);
+  Inc(FPosition, JSON_UNICODE_ESCAPE_DIGITS);
+
+  const HexText = Format(UNICODE_ESCAPE_FORMAT, [Digits]);
+  const CodeUnit = StrToInt(HexText);
+  Result := Char(CodeUnit);
+end;
+
 function TJSJsonReader.ReadNumber: TJSValue;
 begin
   const Start = FPosition;
-  while (FPosition <= Length(FText)) and CharInSet(Current, NumberCharacters) do
+  while (FPosition <= Length(FText)) and CharInSet(Current, JSON_NUMBER_CHARACTERS) do
   begin
     Inc(FPosition);
   end;

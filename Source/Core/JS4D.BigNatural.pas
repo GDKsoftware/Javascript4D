@@ -1,7 +1,5 @@
 unit JS4D.BigNatural;
 
-{$SCOPEDENUMS ON}
-
 interface
 
 type
@@ -11,8 +9,9 @@ type
       WORD_BITS = 32;
       WORD_MASK = UInt64($FFFFFFFF);
       DECIMAL_CHUNK_DIGITS = 9;
-      DECIMAL_CHUNK_BASE = 1000000000;
       INITIAL_CAPACITY = 4;
+      POWERS_OF_TEN: array[0..DECIMAL_CHUNK_DIGITS] of UInt32 = (
+        1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000);
 
     var
       FWords: TArray<UInt32>;
@@ -20,6 +19,10 @@ type
 
     procedure AppendWord(const Value: UInt32);
     procedure DropLeadingZeroWords;
+    procedure SubtractWords(const Other: TJSBigNatural);
+
+    class function PowerOfTenWord(const Exponent: Integer): UInt32; static;
+    class function SignificantBits(const Value: UInt32): Integer; static;
 
   public
     class function FromDigits(const Digits: string): TJSBigNatural; static;
@@ -31,7 +34,8 @@ type
     procedure MultiplyAdd(const Factor: UInt32; const Addend: UInt32);
     procedure MultiplyByPowerOfTen(const Power: Integer);
     procedure ShiftLeft(const Bits: Integer);
-    procedure Subtract(const Other: TJSBigNatural);
+    procedure ShiftRightOne;
+    function TrySubtract(const Other: TJSBigNatural): Boolean;
   end;
 
 implementation
@@ -47,8 +51,26 @@ begin
   Result.FCount := 0;
   SetLength(Result.FWords, INITIAL_CAPACITY);
 
-  if Value > 0 then
+  const HasValue = (Value > 0);
+  if HasValue then
     Result.AppendWord(Value);
+end;
+
+class function TJSBigNatural.PowerOfTenWord(const Exponent: Integer): UInt32;
+begin
+  Result := POWERS_OF_TEN[Exponent];
+end;
+
+class function TJSBigNatural.SignificantBits(const Value: UInt32): Integer;
+begin
+  Result := 0;
+
+  var Remaining := Value;
+  while Remaining <> 0 do
+  begin
+    Inc(Result);
+    Remaining := Remaining shr 1;
+  end;
 end;
 
 class function TJSBigNatural.FromDigits(const Digits: string): TJSBigNatural;
@@ -61,20 +83,15 @@ begin
     const ChunkLength = Min(DECIMAL_CHUNK_DIGITS, Length(Digits) - Position + 1);
     const Chunk = StrToInt(Copy(Digits, Position, ChunkLength));
 
-    var Factor: UInt32 := 1;
-    for var Step := 1 to ChunkLength do
-    begin
-      Factor := Factor * 10;
-    end;
-
-    Result.MultiplyAdd(Factor, Chunk);
+    Result.MultiplyAdd(PowerOfTenWord(ChunkLength), Chunk);
     Inc(Position, ChunkLength);
   end;
 end;
 
 procedure TJSBigNatural.AppendWord(const Value: UInt32);
 begin
-  if FCount = Length(FWords) then
+  const IsFull = (FCount = Length(FWords));
+  if IsFull then
     SetLength(FWords, (Length(FWords) * 2) + INITIAL_CAPACITY);
 
   FWords[FCount] := Value;
@@ -100,31 +117,24 @@ begin
   if FCount = 0 then
     Exit(0);
 
-  var TopWord := FWords[FCount - 1];
-  var TopBits := 0;
-  while TopWord > 0 do
-  begin
-    Inc(TopBits);
-    TopWord := TopWord shr 1;
-  end;
-
-  Result := ((FCount - 1) * WORD_BITS) + TopBits;
+  Result := ((FCount - 1) * WORD_BITS) + SignificantBits(FWords[FCount - 1]);
 end;
 
 function TJSBigNatural.CompareTo(const Other: TJSBigNatural): Integer;
 begin
-  if FCount <> Other.FCount then
-    Exit(FCount - Other.FCount);
+  const HasSameLength = (FCount = Other.FCount);
+  if not HasSameLength then
+  begin
+    Result := CompareValue(FCount, Other.FCount);
+    Exit;
+  end;
 
   for var Index := FCount - 1 downto 0 do
   begin
-    if FWords[Index] <> Other.FWords[Index] then
-    begin
-      if FWords[Index] > Other.FWords[Index] then
-        Exit(1);
-
-      Exit(-1);
-    end;
+    const Comparison = CompareValue(FWords[Index], Other.FWords[Index]);
+    const IsDifferent = (Comparison <> 0);
+    if IsDifferent then
+      Exit(Comparison);
   end;
 
   Result := 0;
@@ -141,7 +151,8 @@ begin
     Carry := Product shr WORD_BITS;
   end;
 
-  if Carry > 0 then
+  const HasCarry = (Carry > 0);
+  if HasCarry then
     AppendWord(UInt32(Carry));
 end;
 
@@ -151,17 +162,13 @@ begin
 
   while Remaining >= DECIMAL_CHUNK_DIGITS do
   begin
-    MultiplyAdd(DECIMAL_CHUNK_BASE, 0);
+    MultiplyAdd(PowerOfTenWord(DECIMAL_CHUNK_DIGITS), 0);
     Dec(Remaining, DECIMAL_CHUNK_DIGITS);
   end;
 
-  var Factor: UInt32 := 1;
-  for var Step := 1 to Remaining do
-  begin
-    Factor := Factor * 10;
-  end;
-
-  if Factor > 1 then
+  const Factor = PowerOfTenWord(Remaining);
+  const NeedsScaling = (Factor > 1);
+  if NeedsScaling then
     MultiplyAdd(Factor, 0);
 end;
 
@@ -189,19 +196,44 @@ begin
   DropLeadingZeroWords;
 end;
 
-procedure TJSBigNatural.Subtract(const Other: TJSBigNatural);
+procedure TJSBigNatural.ShiftRightOne;
+begin
+  var Carry: UInt32 := 0;
+
+  for var Index := FCount - 1 downto 0 do
+  begin
+    const CurrentWord = FWords[Index];
+    FWords[Index] := (CurrentWord shr 1) or (Carry shl (WORD_BITS - 1));
+    Carry := CurrentWord and 1;
+  end;
+
+  DropLeadingZeroWords;
+end;
+
+function TJSBigNatural.TrySubtract(const Other: TJSBigNatural): Boolean;
+begin
+  const IsLargeEnough = (CompareTo(Other) >= 0);
+  if IsLargeEnough then
+    SubtractWords(Other);
+
+  Result := IsLargeEnough;
+end;
+
+procedure TJSBigNatural.SubtractWords(const Other: TJSBigNatural);
 begin
   var Borrow: Int64 := 0;
 
   for var Index := 0 to FCount - 1 do
   begin
     var OtherWord: Int64 := 0;
-    if Index < Other.FCount then
+    const HasOtherWord = (Index < Other.FCount);
+    if HasOtherWord then
       OtherWord := Other.FWords[Index];
 
     var Difference: Int64 := Int64(FWords[Index]) - OtherWord - Borrow;
     Borrow := 0;
-    if Difference < 0 then
+    const IsBorrowing = (Difference < 0);
+    if IsBorrowing then
     begin
       Inc(Difference, Int64(1) shl WORD_BITS);
       Borrow := 1;

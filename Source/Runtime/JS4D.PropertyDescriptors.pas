@@ -7,13 +7,21 @@ interface
 uses
   System.SysUtils,
   System.Math,
+  System.Generics.Collections,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors;
 
 type
   TJSPropertyDescriptors = class
   private
+    type
+      TPendingDefinition = record
+        Name: TJSPropertyKey;
+        Definition: TJSPropertyDefinition;
+      end;
+
     const
       ATTRIBUTE_VALUE = 'value';
       ATTRIBUTE_WRITABLE = 'writable';
@@ -24,12 +32,10 @@ type
       DESCRIPTOR_NOT_AN_OBJECT = 'Property description must be an object';
       ACCESSOR_NOT_CALLABLE = 'Getter and setter must be functions or undefined';
       MIXED_DESCRIPTOR = 'Invalid property descriptor. Cannot both specify accessors and a value or writable attribute';
-      CANNOT_REDEFINE = 'Cannot redefine property: %s';
-      PROPERTIES_NOT_AN_OBJECT = 'Cannot convert undefined or null to object';
       LENGTH_NAME = 'length';
 
     class function ReadAccessor(const Source: IJSObject; const Name: string; out Accessor: TJSValue): Boolean; static;
-    class function ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean; static;
+    class function TryReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean; static;
 
   public
     class function ToDefinition(const Value: TJSValue): TJSPropertyDefinition; static;
@@ -47,13 +53,19 @@ type
 implementation
 
 uses
-  JS4D.ObjectKeys,
+  JS4D.ObjectOperations,
   JS4D.ArrayLike;
 
-class function TJSPropertyDescriptors.ReadFlag(const Source: IJSObject; const Name: string; out Flag: Boolean): Boolean;
+class function TJSPropertyDescriptors.TryReadFlag(const Source: IJSObject; const Name: string;
+                                                  out Flag: Boolean): Boolean;
 begin
   Result := Source.HasProperty(Name);
-  Flag := Result and Source.GetProperty(Name).ToBoolean;
+  Flag := False;
+  if not Result then
+    Exit;
+
+  const FlagValue = Source.GetProperty(Name);
+  Flag := FlagValue.ToBoolean;
 end;
 
 class function TJSPropertyDescriptors.ReadAccessor(const Source: IJSObject; const Name: string;
@@ -79,9 +91,9 @@ begin
   const Source = Value.ToObject;
 
   Result := Default(TJSPropertyDefinition);
-  Result.HasEnumerable := ReadFlag(Source, ATTRIBUTE_ENUMERABLE, Result.Enumerable);
-  Result.HasConfigurable := ReadFlag(Source, ATTRIBUTE_CONFIGURABLE, Result.Configurable);
-  Result.HasWritable := ReadFlag(Source, ATTRIBUTE_WRITABLE, Result.Writable);
+  Result.HasEnumerable := TryReadFlag(Source, ATTRIBUTE_ENUMERABLE, Result.Enumerable);
+  Result.HasConfigurable := TryReadFlag(Source, ATTRIBUTE_CONFIGURABLE, Result.Configurable);
+  Result.HasWritable := TryReadFlag(Source, ATTRIBUTE_WRITABLE, Result.Writable);
 
   Result.HasValue := Source.HasProperty(ATTRIBUTE_VALUE);
   if Result.HasValue then
@@ -107,12 +119,17 @@ begin
   end
   else
   begin
+    const WritableValue = TJSValue.CreateBoolean(Descriptor.Writable);
+
     Result.SetProperty(ATTRIBUTE_VALUE, Descriptor.Value);
-    Result.SetProperty(ATTRIBUTE_WRITABLE, TJSValue.CreateBoolean(Descriptor.Writable));
+    Result.SetProperty(ATTRIBUTE_WRITABLE, WritableValue);
   end;
 
-  Result.SetProperty(ATTRIBUTE_ENUMERABLE, TJSValue.CreateBoolean(Descriptor.Enumerable));
-  Result.SetProperty(ATTRIBUTE_CONFIGURABLE, TJSValue.CreateBoolean(Descriptor.Configurable));
+  const EnumerableValue = TJSValue.CreateBoolean(Descriptor.Enumerable);
+  const ConfigurableValue = TJSValue.CreateBoolean(Descriptor.Configurable);
+
+  Result.SetProperty(ATTRIBUTE_ENUMERABLE, EnumerableValue);
+  Result.SetProperty(ATTRIBUTE_CONFIGURABLE, ConfigurableValue);
 end;
 
 class function TJSPropertyDescriptors.WithCheckedLength(const Target: IJSObject; const Name: TJSPropertyKey;
@@ -121,12 +138,19 @@ class function TJSPropertyDescriptors.WithCheckedLength(const Target: IJSObject;
 begin
   Result := Definition;
 
-  var ElementIndex: Integer;
-  const DefinesArrayElement = Supports(Target, IJSArray) and TJSArray.TryParseIndex(Name, ElementIndex);
-  if DefinesArrayElement then
-    Limits.EnsureArrayLength(Int64(ElementIndex) + 1);
+  const IsArray = Supports(Target, IJSArray);
 
-  const SetsArrayLength =Definition.HasValue and (Name = LENGTH_NAME) and Supports(Target, IJSArray);
+  var ElementIndex: Integer;
+  const DefinesArrayElement = IsArray and TJSArray.TryParseIndex(Name, ElementIndex);
+  if DefinesArrayElement then
+  begin
+    const RequiredLength = Int64(ElementIndex) + 1;
+
+    Limits.EnsureArrayLength(RequiredLength);
+  end;
+
+  const IsLengthName = (Name = LENGTH_NAME);
+  const SetsArrayLength = (Definition.HasValue and IsLengthName and IsArray);
   if not SetsArrayLength then
     Exit;
 
@@ -142,37 +166,43 @@ class procedure TJSPropertyDescriptors.Define(const Target: IJSObject; const Nam
 begin
   const CheckedDefinition = WithCheckedLength(Target, Name, Definition, Limits);
 
-  if not Target.DefineOwnProperty(Name, CheckedDefinition) then
-    raise TJSErrorFactory.TypeError(Format(CANNOT_REDEFINE, [Name.Text]));
+  const IsDefined = Target.DefineOwnProperty(Name, CheckedDefinition);
+  if not IsDefined then
+    raise TJSErrorFactory.CannotRedefineProperty(Name.Text);
 end;
 
 class procedure TJSPropertyDescriptors.DefineAll(const Target: IJSObject; const Properties: TJSValue;
                                                  const Limits: TJSLimits);
 begin
   if Properties.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(PROPERTIES_NOT_AN_OBJECT);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if not Properties.IsObject then
     Exit;
 
   const Source = Properties.ToObject;
-  var Names: TArray<TJSPropertyKey> := nil;
-  var Definitions: TArray<TJSPropertyDefinition> := nil;
+  const Pending = TList<TPendingDefinition>.Create;
+  try
+    for var Name in TJSObjectOperations.OwnKeys(Source) do
+    begin
+      const Descriptor = Source.GetOwnPropertyDescriptor(Name);
+      if not Descriptor.Enumerable then
+        Continue;
 
-  for var Name in TJSObjectKeys.All(Source) do
-  begin
-    const Descriptor = Source.GetOwnPropertyDescriptor(Name);
-    if not Descriptor.Enumerable then
-      Continue;
+      const DescriptorValue = Source.GetProperty(Name);
 
-    const Definition = ToDefinition(Source.GetProperty(Name));
-    Names := Names + [Name];
-    Definitions := Definitions + [Definition];
-  end;
+      var Entry: TPendingDefinition;
+      Entry.Name := Name;
+      Entry.Definition := ToDefinition(DescriptorValue);
+      Pending.Add(Entry);
+    end;
 
-  for var Index := 0 to Length(Names) - 1 do
-  begin
-    Define(Target, Names[Index], Definitions[Index], Limits);
+    for var Entry in Pending do
+    begin
+      Define(Target, Entry.Name, Entry.Definition, Limits);
+    end;
+  finally
+    Pending.Free;
   end;
 end;
 
@@ -180,7 +210,10 @@ class function TJSPropertyDescriptors.CanPut(const Target: IJSObject; const Name
 begin
   var Descriptor: TJSPropertyDescriptor;
   if not Target.TryGetPropertyDescriptor(Name, Descriptor) then
-    Exit(Target.IsExtensible or TJSIntegerIndexedKeys.IsInvalidIndexKey(Target, Name));
+  begin
+    Result := Target.IsExtensible or TJSIntegerIndexedKeys.IsInvalidIndexKey(Target, Name);
+    Exit;
+  end;
 
   if Descriptor.IsAccessor then
     Exit(Descriptor.Setter.IsFunction);

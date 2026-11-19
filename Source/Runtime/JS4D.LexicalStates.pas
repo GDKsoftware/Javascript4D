@@ -46,8 +46,8 @@ type
 implementation
 
 const
-  UninitializedAccessMessage = 'Cannot access ''%s'' before initialization';
-  ConstantAssignmentMessage = 'Assignment to constant variable ''%s''';
+  UNINITIALIZED_ACCESS_MESSAGE = 'Cannot access ''%s'' before initialization';
+  CONSTANT_ASSIGNMENT_MESSAGE = 'Assignment to constant variable ''%s''';
   LINEAR_SEARCH_LIMIT = 8;
   INITIAL_CAPACITY = 4;
 
@@ -67,10 +67,14 @@ begin
     Exit;
   end;
 
-  for Result := 0 to FCount - 1 do
+  for var Index := 0 to FCount - 1 do
   begin
-    if FNames[Result] = Name then
+    const IsMatch = (FNames[Index] = Name);
+    if IsMatch then
+    begin
+      Result := Index;
       Exit;
+    end;
   end;
 
   Result := -1;
@@ -78,7 +82,8 @@ end;
 
 procedure TJSLexicalStates.Add(const Name: string; const State: TJSBindingState);
 begin
-  if FCount = Length(FNames) then
+  const IsFull = (FCount = Length(FNames));
+  if IsFull then
   begin
     const NewCapacity = Length(FNames) * 2 + INITIAL_CAPACITY;
     SetLength(FNames, NewCapacity);
@@ -111,7 +116,8 @@ end;
 procedure TJSLexicalStates.Store(const Name: string; const State: TJSBindingState);
 begin
   const Position = IndexOf(Name);
-  if Position < 0 then
+  const IsNew = (Position < 0);
+  if IsNew then
   begin
     Add(Name, State);
     Exit;
@@ -122,6 +128,8 @@ end;
 
 function TJSLexicalStates.TryGetState(const Name: string; out State: TJSBindingState): Boolean;
 begin
+  State := Default(TJSBindingState);
+
   const Position = IndexOf(Name);
   Result := (Position >= 0);
 
@@ -133,7 +141,7 @@ procedure TJSLexicalStates.RaiseIfUninitialized(const Name: string; const State:
 begin
   const IsUninitialized = (State in [TJSBindingState.Uninitialized, TJSBindingState.UninitializedConstant]);
   if IsUninitialized then
-    raise TJSErrorFactory.ReferenceError(Format(UninitializedAccessMessage, [Name]));
+    raise TJSErrorFactory.ReferenceError(Format(UNINITIALIZED_ACCESS_MESSAGE, [Name]));
 end;
 
 procedure TJSLexicalStates.Declare(const Name: string; const IsConstant: Boolean);
@@ -147,10 +155,12 @@ end;
 procedure TJSLexicalStates.MarkInitialized(const Name: string);
 begin
   const Position = IndexOf(Name);
-  if Position < 0 then
+  const IsDeclared = (Position >= 0);
+  if not IsDeclared then
     Exit;
 
-  if FStates[Position] = TJSBindingState.UninitializedConstant then
+  const IsConstant = (FStates[Position] = TJSBindingState.UninitializedConstant);
+  if IsConstant then
     FStates[Position] := TJSBindingState.Constant
   else
     FStates[Position] := TJSBindingState.Mutable;
@@ -178,8 +188,9 @@ begin
 
   RaiseIfUninitialized(Name, State);
 
-  if State = TJSBindingState.Constant then
-    raise TJSErrorFactory.TypeError(Format(ConstantAssignmentMessage, [Name]));
+  const IsConstant = (State = TJSBindingState.Constant);
+  if IsConstant then
+    raise TJSErrorFactory.TypeError(Format(CONSTANT_ASSIGNMENT_MESSAGE, [Name]));
 end;
 
 procedure TJSLexicalStates.CopyFrom(const Source: TJSLexicalStates);

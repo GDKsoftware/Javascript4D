@@ -6,29 +6,30 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.Interpreter,
+  JS4D.BuiltinSupport,
   JS4D.ObjectOperations,
   JS4D.ProxyObjects;
 
 type
-  // The Proxy constructor and Proxy.revocable.
-  TJSProxyBuiltins = class
+  TJSProxyBuiltins = class(TJSBuiltinSet)
   private
     const
       PROXY_NAME = 'Proxy';
       REVOCABLE_NAME = 'revocable';
       PROXY_PROPERTY = 'proxy';
       REVOKE_PROPERTY = 'revoke';
-      NAME_PROPERTY = 'name';
-      REQUIRES_NEW = 'Constructor Proxy requires ''new''';
+      REVOKER_NAME = '';
       TARGET_NOT_AN_OBJECT = 'Cannot create proxy with a non-object as target';
       HANDLER_NOT_AN_OBJECT = 'Cannot create proxy with a non-object as handler';
 
     var
       FInterpreter: TJSInterpreter;
       FRuntime: IJSProxyRuntime;
+      FSupport: TJSBuiltinSupport;
 
     procedure DefineLengthBeforeName(const Func: IJSFunction; const ParameterCount: Integer);
     function CreateProxy(const Target: TJSValue; const Handler: TJSValue): IJSObject;
@@ -41,20 +42,22 @@ type
     constructor Create(const Interpreter: TJSInterpreter);
     destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
 
 uses
   JS4D.Errors,
-  JS4D.ArrayLike;
+  JS4D.ArrayLike,
+  JS4D.PropertyNames;
 
 constructor TJSProxyBuiltins.Create(const Interpreter: TJSInterpreter);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
 end;
 
 destructor TJSProxyBuiltins.Destroy;
@@ -63,6 +66,7 @@ begin
     FRuntime.Detach;
 
   FRuntime := nil;
+  FSupport.Free;
   inherited;
 end;
 
@@ -83,7 +87,10 @@ begin
   if not Handler.IsObject then
     raise TJSErrorFactory.TypeError(HANDLER_NOT_AN_OBJECT);
 
-  Result := TJSProxyFactory.Create(FRuntime, Target.ToObject, Handler.ToObject);
+  const TargetObject = Target.ToObject;
+  const HandlerObject = Handler.ToObject;
+
+  Result := TJSProxyFactory.CreateProxy(FRuntime, TargetObject, HandlerObject);
 end;
 
 function TJSProxyBuiltins.CreateRevoker(const Proxy: IJSObject): IJSFunction;
@@ -91,7 +98,7 @@ begin
   var Revocable: IJSProxy;
   Supports(Proxy, IJSProxy, Revocable);
 
-  Result := TJSFunction.CreateNative('',
+  Result := TJSFunction.CreateNative(REVOKER_NAME,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       if Assigned(Revocable) then
@@ -109,31 +116,34 @@ end;
 
 function TJSProxyBuiltins.CreateRevocable(const Args: TArray<TJSValue>): TJSValue;
 begin
-  const Proxy = CreateProxy(TJSArrayLike.Argument(Args, 0), TJSArrayLike.Argument(Args, 1));
+  const Target = TJSArrayLike.Argument(Args, 0);
+  const Handler = TJSArrayLike.Argument(Args, 1);
+  const Proxy = CreateProxy(Target, Handler);
+  const Revoker = CreateRevoker(Proxy);
 
   const Revocable: IJSObject = TJSObject.Create;
   Revocable.Prototype := FInterpreter.ObjectPrototype;
-  Revocable.SetProperty(PROXY_PROPERTY, TJSValue.CreateObject(Proxy));
-  Revocable.SetProperty(REVOKE_PROPERTY, TJSValue.CreateObject(CreateRevoker(Proxy)));
+  const ProxyValue = TJSValue.CreateObject(Proxy);
+  const RevokerValue = TJSValue.CreateObject(Revoker);
+  Revocable.SetProperty(PROXY_PROPERTY, ProxyValue);
+  Revocable.SetProperty(REVOKE_PROPERTY, RevokerValue);
 
   Result := TJSValue.CreateObject(Revocable);
 end;
 
 function TJSProxyBuiltins.CreateConstructor: IJSFunction;
 begin
-  Result := TJSConstructorFunction.CreateConstructor(PROXY_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      raise TJSErrorFactory.TypeError(REQUIRES_NEW);
-    end,
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [PROXY_NAME]);
+
+  Result := FSupport.CreateConstructor(PROXY_NAME, 2, RequiresNewMessage,
     function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
-      const Proxy = CreateProxy(TJSArrayLike.Argument(Args, 0), TJSArrayLike.Argument(Args, 1));
+      const Target = TJSArrayLike.Argument(Args, 0);
+      const Handler = TJSArrayLike.Argument(Args, 1);
+      const Proxy = CreateProxy(Target, Handler);
+
       Result := TJSValue.CreateObject(Proxy);
     end);
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  DefineLengthBeforeName(Result, 2);
-  FInterpreter.RegisterFunction(Result);
 end;
 
 procedure TJSProxyBuiltins.DefineRevocable(const Constructor_: IJSFunction);
@@ -148,7 +158,8 @@ begin
   DefineLengthBeforeName(Revocable, 2);
   FInterpreter.RegisterFunction(Revocable);
 
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(Revocable));
+  const RevocableValue = TJSValue.CreateObject(Revocable);
+  var Descriptor := TJSPropertyDescriptor.Create(RevocableValue);
   Descriptor.Enumerable := False;
   Constructor_.DefineProperty(REVOCABLE_NAME, Descriptor);
 end;
@@ -163,11 +174,16 @@ begin
     procedure
     begin
       FInterpreter.ConsumeStep;
+    end,
+    procedure(Count: Int64)
+    begin
+      FInterpreter.Limits.EnsureArrayLength(Count);
     end);
 
   const Constructor_ = CreateConstructor;
   DefineRevocable(Constructor_);
-  FInterpreter.SetGlobalVariable(PROXY_NAME, TJSValue.CreateObject(Constructor_));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  FInterpreter.SetGlobalVariable(PROXY_NAME, ConstructorValue);
 end;
 
 end.

@@ -8,23 +8,12 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   JS4D.Errors,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TLexicalDeclarationTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TLexicalDeclarationTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Let_InBlock_IsNotVisibleOutsideBlock;
 
@@ -71,9 +60,6 @@ type
     [TestCase('MissingInitializerInBlock', '{ const c; }')]
     [TestCase('MissingInitializerInFor', 'for (const c; false;) { }')]
     [TestCase('SecondDeclaratorWithoutInitializer', 'const a = 1; const b = 2; const c = 3, d;', '|')]
-    procedure Const_WithoutInitializer_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('LetLet', 'let a; let a;')]
     [TestCase('LetVar', 'let a; var a;')]
     [TestCase('VarLet', 'var a; let a;')]
@@ -91,7 +77,20 @@ type
     [TestCase('LetNamedLet', 'let let = 1;')]
     [TestCase('ConstNamedLet', 'const let = 1;')]
     [TestCase('StrictBlockFunctionTwice', '"use strict"; { function f() { } function f() { } }')]
-    procedure Declaration_Redeclared_IsSyntaxError(const Source: string);
+    [TestCase('If', 'if (true) let x = 1;')]
+    [TestCase('IfConst', 'if (true) const x = 1;')]
+    [TestCase('While', 'while (false) let y;')]
+    [TestCase('For', 'for (;;) const z = 1;')]
+    [TestCase('LetBracket', 'if (true) let [x] = 1;')]
+    [TestCase('Label', 'l: let x;')]
+    [TestCase('With', 'with ({}) let x;')]
+    [TestCase('LabelledFunctionInStrictMode', '"use strict"; l: function f() { }')]
+    [TestCase('LabelledFunctionInLoop', 'while (false) l: function f() { }')]
+    [TestCase('LabelledFunctionInIf', 'if (true) l: function f() { }')]
+    [TestCase('FunctionLet', 'function f() { let x; eval("var x;"); } f();')]
+    [TestCase('NestedBlockLet', 'function f() { { let x; { eval("var x;"); } } } f();')]
+    [TestCase('FunctionInBlock', 'function f() { { function x() { } eval("var x;"); } } f();')]
+    procedure Declaration_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('ShadowInBlock', 'let a; { let a; }')]
@@ -106,35 +105,24 @@ type
     [TestCase('LabelledFunction', 'l: function f() { }')]
     [TestCase('LabelledFunctionInBlock', '{ l: function f() { } }')]
     [TestCase('NestedLabelledFunction', 'a: b: function f() { }')]
-    procedure Declaration_Valid_RaisesNoError(const Source: string);
+    [TestCase('CatchParameter', 'try { throw 1; } catch (e) { eval("var e;"); }')]
+    [TestCase('SiblingBlock', 'function f() { { let x; } eval("var x;"); } f();')]
+    procedure Declaration_ValidSource_RaisesNoError(const Source: string);
 
     [Test]
-    [TestCase('If', 'if (true) let x = 1;')]
-    [TestCase('IfConst', 'if (true) const x = 1;')]
-    [TestCase('While', 'while (false) let y;')]
-    [TestCase('For', 'for (;;) const z = 1;')]
-    [TestCase('LetBracket', 'if (true) let [x] = 1;')]
-    [TestCase('Label', 'l: let x;')]
-    [TestCase('With', 'with ({}) let x;')]
-    [TestCase('LabelledFunctionInStrictMode', '"use strict"; l: function f() { }')]
-    [TestCase('LabelledFunctionInLoop', 'while (false) l: function f() { }')]
-    [TestCase('LabelledFunctionInIf', 'if (true) l: function f() { }')]
-    procedure LexicalDeclaration_AsStatementBody_IsSyntaxError(const Source: string);
+    procedure ForLet_ClosuresInLoop_SeeFreshBindingPerIteration;
 
     [Test]
-    procedure ForLet_CreatesFreshBindingPerIteration;
+    procedure ForLet_Continue_KeepsFreshBindingPerIteration;
 
     [Test]
-    procedure ForLet_FreshBindingSurvivesContinue;
-
-    [Test]
-    procedure ForLet_BreakAndContinueStillWork;
+    procedure ForLet_BreakAndContinue_LeaveLoopCorrectly;
 
     [Test]
     procedure ForLet_ClosureInInitializerSeesInitialBinding;
 
     [Test]
-    procedure ForLet_VariableIsNotVisibleAfterLoop;
+    procedure ForLet_AfterLoop_VariableIsNotVisible;
 
     [Test]
     procedure ForIn_Let_CreatesFreshBindingPerIteration;
@@ -149,7 +137,7 @@ type
     procedure Switch_JumpingPastLet_LeavesItUninitialized;
 
     [Test]
-    procedure BlockFunction_IsHoistedToTopOfBlock;
+    procedure BlockFunction_CalledBeforeDeclaration_IsHoistedToTopOfBlock;
 
     [Test]
     procedure BlockFunction_Sloppy_IsAlsoVisibleInFunctionAfterBlock;
@@ -173,10 +161,10 @@ type
     procedure LabelledFunction_AtFunctionLevel_IsHoisted;
 
     [Test]
-    procedure GlobalLet_IsNotPropertyOfGlobalObject;
+    procedure GlobalLet_ReadViaGlobalObject_IsNotAProperty;
 
     [Test]
-    procedure GlobalLet_IsVisibleToLaterScripts;
+    procedure GlobalLet_SecondScript_IsVisibleToLaterScripts;
 
     [Test]
     procedure GlobalConst_Reassignment_RaisesTypeError;
@@ -191,30 +179,19 @@ type
     procedure GlobalLet_AfterGlobalVar_IsSyntaxError;
 
     [Test]
-    procedure GlobalLet_ShadowsGlobalObjectProperty;
+    procedure GlobalLet_SameNameAsGlobalProperty_ShadowsIt;
 
     [Test]
     procedure Eval_Let_IsNotVisibleOutsideEval;
 
     [Test]
-    procedure Eval_VarIsVisibleAndLetIsNot;
+    procedure Eval_VarAndLet_VarIsVisibleAndLetIsNot;
 
     [Test]
-    procedure Eval_SeesEnclosingBlockBindings;
+    procedure Eval_InsideBlock_SeesEnclosingBlockBindings;
 
     [Test]
-    procedure Eval_VarInsideBlockScopeDeclaresInFunction;
-
-    [Test]
-    [TestCase('FunctionLet', 'function f() { let x; eval("var x;"); } f();')]
-    [TestCase('NestedBlockLet', 'function f() { { let x; { eval("var x;"); } } } f();')]
-    [TestCase('FunctionInBlock', 'function f() { { function x() { } eval("var x;"); } } f();')]
-    procedure Eval_VarConflictingWithEnclosingLexicalBinding_IsSyntaxError(const Source: string);
-
-    [Test]
-    [TestCase('CatchParameter', 'try { throw 1; } catch (e) { eval("var e;"); }')]
-    [TestCase('SiblingBlock', 'function f() { { let x; } eval("var x;"); } f();')]
-    procedure Eval_VarNotConflictingWithEnclosingLexicalBinding_RaisesNoError(const Source: string);
+    procedure Eval_VarInsideBlock_DeclaresInFunction;
 
     [Test]
     [TestCase('LetOnly', 'let a = 1;|undefined', '|')]
@@ -228,52 +205,47 @@ type
 
 implementation
 
-procedure TLexicalDeclarationTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TLexicalDeclarationTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TLexicalDeclarationTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [QuotesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+const
+  CALL_OUTER = 'outer()';
+  UNDEFINED_TYPE_NAME = 'undefined';
 
 procedure TLexicalDeclarationTests.Let_InBlock_IsNotVisibleOutsideBlock;
 begin
   const Script = 'var r = "outer"; { let r = "inner"; } r';
 
-  Assert.AreEqual('outer', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('outer', Actual);
 end;
 
 procedure TLexicalDeclarationTests.Let_InBlock_ShadowsOuterBinding;
 begin
   const Script = 'var r = 1; var inner; { let r = 2; inner = r; } inner * 10 + r';
 
-  Assert.AreEqual(21.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(21.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Let_WithoutInitializer_IsUndefined;
 begin
   const Script = 'var t; { let u; t = typeof u; } t';
 
-  Assert.AreEqual('undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(UNDEFINED_TYPE_NAME, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Let_MultipleDeclarators_AreAllBound;
 begin
   const Script = 'var r; { let a = 1, b = a + 1, c; r = a + b + (c === undefined ? 10 : 0); } r';
 
-  Assert.AreEqual(13.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(13.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Let_InFunctionBody_IsVisibleToClosures;
@@ -282,72 +254,80 @@ begin
     'function make() { let count = 0; const step = 2; return function () { count += step; return count; }; }' + sLineBreak +
     'var next = make(); next(); next()';
 
-  Assert.AreEqual(4.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(4.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.TemporalDeadZone_Access_RaisesReferenceError(const Source: string);
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Const_Read_ReturnsValue;
 begin
-  Assert.AreEqual(5.0, FEngine.Evaluate('const c = 5; { const d = c + 1; } c').AsNumber);
+  const Actual = EvaluateNumber('const c = 5; { const d = c + 1; } c');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Const_Reassignment_RaisesTypeError(const Source: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TLexicalDeclarationTests.Const_WithoutInitializer_IsSyntaxError(const Source: string);
+procedure TLexicalDeclarationTests.Declaration_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TLexicalDeclarationTests.Declaration_Redeclared_IsSyntaxError(const Source: string);
+procedure TLexicalDeclarationTests.Declaration_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
-procedure TLexicalDeclarationTests.Declaration_Valid_RaisesNoError(const Source: string);
-begin
-  Assert.AreEqual('', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.LexicalDeclaration_AsStatementBody_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.ForLet_CreatesFreshBindingPerIteration;
+procedure TLexicalDeclarationTests.ForLet_ClosuresInLoop_SeeFreshBindingPerIteration;
 begin
   const Script =
     'var fs = [];' + sLineBreak +
     'for (let i = 0; i < 3; i++) { fs.push(function () { return i; }); }' + sLineBreak +
     'fs[0]() + fs[1]() * 10 + fs[2]() * 100';
 
-  Assert.AreEqual(210.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(210.0, Actual);
 end;
 
-procedure TLexicalDeclarationTests.ForLet_FreshBindingSurvivesContinue;
+procedure TLexicalDeclarationTests.ForLet_Continue_KeepsFreshBindingPerIteration;
 begin
   const Script =
     'var fs = [];' + sLineBreak +
     'for (let i = 0; i < 3; i++) { if (i == 1) continue; fs.push(function () { return i; }); }' + sLineBreak +
     'fs[0]() * 10 + fs[1]()';
 
-  Assert.AreEqual(2.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
-procedure TLexicalDeclarationTests.ForLet_BreakAndContinueStillWork;
+procedure TLexicalDeclarationTests.ForLet_BreakAndContinue_LeaveLoopCorrectly;
 begin
   const Script =
     'var sum = 0;' + sLineBreak +
     'for (let i = 0; i < 5; i++) { if (i == 1) continue; if (i == 3) break; sum += i; }' + sLineBreak +
     'sum';
 
-  Assert.AreEqual(2.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.ForLet_ClosureInInitializerSeesInitialBinding;
@@ -357,14 +337,18 @@ begin
     'for (let i = 0, f = function () { return i; }; i < 2; i++) { probe = f; }' + sLineBreak +
     'probe()';
 
-  Assert.AreEqual(0.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(0.0, Actual);
 end;
 
-procedure TLexicalDeclarationTests.ForLet_VariableIsNotVisibleAfterLoop;
+procedure TLexicalDeclarationTests.ForLet_AfterLoop_VariableIsNotVisible;
 begin
   const Script = 'for (let i = 0; i < 2; i++) { } typeof i';
 
-  Assert.AreEqual('undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(UNDEFINED_TYPE_NAME, Actual);
 end;
 
 procedure TLexicalDeclarationTests.ForIn_Let_CreatesFreshBindingPerIteration;
@@ -374,7 +358,9 @@ begin
     'for (let k in { a: 1, b: 2 }) { fs.push(function () { return k; }); }' + sLineBreak +
     'fs[0]() + fs[1]()';
 
-  Assert.AreEqual('ab', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('ab', Actual);
 end;
 
 procedure TLexicalDeclarationTests.ForIn_Const_BindsEachKey;
@@ -384,109 +370,135 @@ begin
     'for (const k in { a: 1, b: 2 }) { keys += k; }' + sLineBreak +
     'keys';
 
-  Assert.AreEqual('ab', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('ab', Actual);
 end;
 
 procedure TLexicalDeclarationTests.Switch_Let_IsScopedToSwitchBlock;
 begin
   const Script = 'var r; switch (1) { case 1: let sw = 5; r = sw; break; } r + typeof sw';
 
-  Assert.AreEqual('5undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('5undefined', Actual);
 end;
 
 procedure TLexicalDeclarationTests.Switch_JumpingPastLet_LeavesItUninitialized;
 begin
   const Script = 'var r; switch (2) { case 1: let a = 1; case 2: a = 4; r = a; }; r';
 
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Script));
+  const Actual = ErrorNameOf(Script);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TLexicalDeclarationTests.BlockFunction_IsHoistedToTopOfBlock;
+procedure TLexicalDeclarationTests.BlockFunction_CalledBeforeDeclaration_IsHoistedToTopOfBlock;
 begin
   const Script = 'var r; { r = f(); function f() { return 7; } } r';
 
-  Assert.AreEqual(7.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_Sloppy_IsAlsoVisibleInFunctionAfterBlock;
 begin
   const Script =
     'function outer() { { function inner() { return 3; } } return inner(); }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual(3.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_Sloppy_IsUndefinedBeforeBlock;
 begin
   const Script =
     'function outer() { var before = typeof g; { function g() { } } return before + typeof g; }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual('undefinedfunction', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('undefinedfunction', Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_Strict_IsNotVisibleOutsideBlock;
 begin
   const Script =
     '"use strict"; function outer() { { function g() { } } return typeof g; }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual('undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(UNDEFINED_TYPE_NAME, Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_BlockedByOuterLet_DoesNotReplaceOuterBinding;
 begin
   const Script =
     'function outer() { let f = 1; { function f() { } } return f; }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual(1.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(1.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_InIfWithoutBraces_IsVisibleAfterwards;
 begin
   const Script =
     'function outer() { if (true) function h() { return 9; } return h(); }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual(9.0, FEngine.Evaluate(Script).AsNumber);
+  const Actual = EvaluateNumber(Script);
+
+  Assert.AreEqual(9.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.BlockFunction_ReassignedInsideBlock_KeepsOuterCopyFromDeclaration;
 begin
   const Script =
     'function outer() { { function f() { return 1; } f = 2; } return typeof f; }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual('function', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('function', Actual);
 end;
 
 procedure TLexicalDeclarationTests.LabelledFunction_AtFunctionLevel_IsHoisted;
 begin
   const Script =
     'function outer() { return typeof f + f(); l: function f() { return 1; } }' + sLineBreak +
-    'outer()';
+    CALL_OUTER;
 
-  Assert.AreEqual('function1', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('function1', Actual);
 end;
 
-procedure TLexicalDeclarationTests.GlobalLet_IsNotPropertyOfGlobalObject;
+procedure TLexicalDeclarationTests.GlobalLet_ReadViaGlobalObject_IsNotAProperty;
 begin
   const Script =
     'let gl = 4; const gc = 5;' + sLineBreak +
     'var globalObject = (function () { return this; })();' + sLineBreak +
     'gl + gc + typeof globalObject.gl + typeof globalObject.gc';
 
-  Assert.AreEqual('9undefinedundefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('9undefinedundefined', Actual);
 end;
 
-procedure TLexicalDeclarationTests.GlobalLet_IsVisibleToLaterScripts;
+procedure TLexicalDeclarationTests.GlobalLet_SecondScript_IsVisibleToLaterScripts;
 begin
   FEngine.Execute('let shared = 1; function bump() { shared++; }');
   FEngine.Execute('bump(); bump();');
 
-  Assert.AreEqual(3.0, FEngine.Evaluate('shared').AsNumber);
+  const Actual = EvaluateNumber('shared');
+
+  Assert.AreEqual(3.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.GlobalConst_Reassignment_RaisesTypeError;
@@ -537,62 +549,62 @@ begin
     EJSSyntaxError);
 end;
 
-procedure TLexicalDeclarationTests.GlobalLet_ShadowsGlobalObjectProperty;
+procedure TLexicalDeclarationTests.GlobalLet_SameNameAsGlobalProperty_ShadowsIt;
 begin
   FEngine.Execute('Object.defineProperty((function () { return this; })(), "shadowed", { value: 1, configurable: true });');
   FEngine.Execute('let shadowed = 2;');
 
-  Assert.AreEqual(2.0, FEngine.Evaluate('shadowed').AsNumber);
+  const Actual = EvaluateNumber('shadowed');
+
+  Assert.AreEqual(2.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Eval_Let_IsNotVisibleOutsideEval;
 begin
   const Script = 'eval("let inEval = 1;"); typeof inEval';
 
-  Assert.AreEqual('undefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual(UNDEFINED_TYPE_NAME, Actual);
 end;
 
-procedure TLexicalDeclarationTests.Eval_VarIsVisibleAndLetIsNot;
+procedure TLexicalDeclarationTests.Eval_VarAndLet_VarIsVisibleAndLetIsNot;
 begin
   const Script = 'eval("var viaVar = 1; let viaLet = 2;"); typeof viaVar + typeof viaLet';
 
-  Assert.AreEqual('numberundefined', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('numberundefined', Actual);
 end;
 
-procedure TLexicalDeclarationTests.Eval_SeesEnclosingBlockBindings;
+procedure TLexicalDeclarationTests.Eval_InsideBlock_SeesEnclosingBlockBindings;
 begin
   const Script =
     'function f() { { let inner = 6; return eval("inner * 2"); } }' + sLineBreak +
     'f()';
 
-  Assert.AreEqual(12.0, FEngine.Evaluate(Script).AsNumber);
-end;
+  const Actual = EvaluateNumber(Script);
 
-procedure TLexicalDeclarationTests.Eval_VarConflictingWithEnclosingLexicalBinding_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
-end;
-
-procedure TLexicalDeclarationTests.Eval_VarNotConflictingWithEnclosingLexicalBinding_RaisesNoError(const Source: string);
-begin
-  Assert.AreEqual('', ErrorNameOf(Source));
+  Assert.AreEqual(12.0, Actual);
 end;
 
 procedure TLexicalDeclarationTests.Eval_CompletionValue_IgnoresDeclarations(const Source: string; const Expected: string);
 begin
   const Escaped = Source.Replace('"', '\"');
-  const Actual = FEngine.Evaluate(Format('String(eval("%s"))', [Escaped])).AsString;
+  const Actual = EvaluateText(Format('String(eval("%s"))', [Escaped]));
 
   Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TLexicalDeclarationTests.Eval_VarInsideBlockScopeDeclaresInFunction;
+procedure TLexicalDeclarationTests.Eval_VarInsideBlock_DeclaresInFunction;
 begin
   const Script =
     'function f() { { let hidden = 1; eval("var leaked = 2;"); } return typeof leaked; }' + sLineBreak +
     'f()';
 
-  Assert.AreEqual('number', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('number', Actual);
 end;
 
 end.

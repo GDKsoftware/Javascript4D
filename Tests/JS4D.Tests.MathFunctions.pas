@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TMathFunctionsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TMathFunctionsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('CeilNegativeZero', '1 / Math.ceil(-0)#-Infinity', '#')]
     [TestCase('CeilSmallNegative', '1 / Math.ceil(-0.5)#-Infinity', '#')]
@@ -52,9 +39,6 @@ type
     [TestCase('RemainderNegativeBoth', '1 / (-1 % -1)#-Infinity', '#')]
     [TestCase('RemainderPositiveDividend', '1 / (1 % -1)#Infinity', '#')]
     [TestCase('RemainderNegativeZeroDividend', '1 / (-0 % 5)#-Infinity', '#')]
-    procedure Function_AtZero_KeepsSignOfZero(const Expression, Expected: string);
-
-    [Test]
     [TestCase('FloorBeyondInt32', 'Math.floor(1e20)#100000000000000000000', '#')]
     [TestCase('FloorNegativeFraction', 'Math.floor(-1.5)#-2', '#')]
     [TestCase('FloorBeyondInt64', 'Math.floor(-3e19)#-30000000000000000000', '#')]
@@ -84,6 +68,28 @@ type
     [TestCase('LogNegative', 'Math.log(-1)#NaN', '#')]
     [TestCase('LogNaN', 'Math.log(NaN)#NaN', '#')]
     [TestCase('LogOne', 'Math.log(1)#0', '#')]
+    [TestCase('SinhNegativeOverflow', 'Math.sinh(-711)#-Infinity', '#')]
+    [TestCase('SinhPositiveOverflow', 'Math.sinh(711)#Infinity', '#')]
+    [TestCase('SinhNegative', 'Math.sinh(-1)#-1.1752011936438014', '#')]
+    [TestCase('TanhNegative', 'Math.tanh(-1)#-0.7615941559557649', '#')]
+    [TestCase('TanhNegativeSaturated', 'Math.tanh(-100)#-1', '#')]
+    [TestCase('AsinhNegative', 'Math.asinh(-1)#-0.881373587019543', '#')]
+    [TestCase('CbrtNegative', 'Math.cbrt(-8)#-2', '#')]
+    [TestCase('FroundNegativeOverflow', 'Math.fround(-3.5e38)#-Infinity', '#')]
+    [TestCase('FroundPositiveOverflow', 'Math.fround(3.5e38)#Infinity', '#')]
+    [TestCase('Log2OfPowerOfTwo', 'Math.log2(8)#3', '#')]
+    [TestCase('Log2OfZero', 'Math.log2(0)#-Infinity', '#')]
+    [TestCase('Log2OfNegative', 'Math.log2(-1)#NaN', '#')]
+    [TestCase('Log10OfPowerOfTen', 'Math.log10(1000)#3', '#')]
+    [TestCase('Log10OfInfinity', 'Math.log10(Infinity)#Infinity', '#')]
+    [TestCase('HypotScalesLargeValues', 'Math.hypot(3e200, 4e200) > 4.99e200 && Math.hypot(3e200, 4e200) < 5.01e200#true', '#')]
+    [TestCase('MathFunctionLengths', '[Math.abs.length, Math.atan2.length, Math.hypot.length, Math.imul.length, Math.max.length, Math.random.length, Math.clz32.length].join()#1,2,2,2,2,0,1', '#')]
+    [TestCase('StringIsLessThan', '"a" < "b"#true', '#')]
+    [TestCase('StringIsNotLessThanOrEqualWhenGreater', '"b" <= "a"#false', '#')]
+    [TestCase('NaNIsNotLessThanOrEqual', 'NaN <= 1#false', '#')]
+    [TestCase('NegativeShiftRightKeepsSign', '-8 >> 1#-4', '#')]
+    [TestCase('NegativeUnsignedShiftRight', '-1 >>> 28#15', '#')]
+    [TestCase('LeftShiftWrapsToNegative', '1 << 31#-2147483648', '#')]
     [TestCase('PowNegativeInfinityFraction', 'Math.pow(-Infinity, 0.5)#Infinity', '#')]
     [TestCase('PowNegativeInfinityOddPower', 'Math.pow(-Infinity, 3)#-Infinity', '#')]
     [TestCase('PowNegativeInfinityEvenPower', 'Math.pow(-Infinity, 2)#Infinity', '#')]
@@ -92,34 +98,27 @@ type
     [TestCase('PowPositiveInfinityNegativePower', 'Math.pow(Infinity, -2)#0', '#')]
     [TestCase('MaxConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.max(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
     [TestCase('MinConvertsEveryArgumentAfterNaN', '(function () { var c = 0; Math.min(NaN, { valueOf: function () { c++; return 1; } }); return c; })()#1', '#')]
-    procedure Function_OnOrdinaryValues_ReturnsSpecResult(const Expression, Expected: string);
+    [TestCase('FloorUsesValueOf', 'Math.floor({ valueOf: function () { return 3.7; } })#3', '#')]
+    [TestCase('SqrtUsesValueOf', 'Math.sqrt({ valueOf: function () { return 16; } })#4', '#')]
+    [TestCase('AbsWithoutArguments', 'Math.abs()#NaN', '#')]
+    [TestCase('PowWithoutExponent', 'Math.pow(2)#NaN', '#')]
+    [TestCase('RandomIsInUnitInterval', '(function () { var r = Math.random(); return r >= 0 && r < 1; })()#true', '#')]
+    [TestCase('RandomChangesBetweenCalls', 'Math.random() !== Math.random()#true', '#')]
+    [TestCase('FromCharCodeOfNaN', 'String.fromCharCode(NaN).charCodeAt(0)#0', '#')]
+    [TestCase('FromCharCodeWrapsAround', 'String.fromCharCode(65601).charCodeAt(0)#65', '#')]
+    [TestCase('FromCodePointSurrogate', 'String.fromCodePoint(0xD800).charCodeAt(0)#55296', '#')]
+    [TestCase('FromCodePointSupplementary', 'String.fromCodePoint(0x1F600).length#2', '#')]
+    [TestCase('ArrayLengthOfInfinity', '(function () { try { new Array(Infinity); return "no error"; } catch (e) { return e instanceof RangeError; } })()#true', '#')]
+    procedure Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
   end;
 
 implementation
 
-procedure TMathFunctionsTests.Setup;
+procedure TMathFunctionsTests.Function_Expression_ReturnsExpectedText(const Expression, Expected: string);
 begin
-  FEngine := TJSEngine.Create;
-end;
+  const Actual = TextOf(Expression);
 
-procedure TMathFunctionsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TMathFunctionsTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
-procedure TMathFunctionsTests.Function_AtZero_KeepsSignOfZero(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TMathFunctionsTests.Function_OnOrdinaryValues_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

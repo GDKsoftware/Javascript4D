@@ -6,26 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TPrototypeTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluateBoolean(const Script: string): Boolean;
-    function EvaluateNumber(const Script: string): Double;
-
+  TPrototypeTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure Function_Declaration_HasPrototypeObject;
 
@@ -36,7 +22,7 @@ type
     procedure Prototype_Constructor_RefersBackToFunction;
 
     [Test]
-    procedure New_ReadsPropertyFromConstructorPrototype;
+    procedure New_PropertyOnPrototype_IsReadFromInstance;
 
     [Test]
     procedure New_ReplacedPrototype_IsUsedByNewObjects;
@@ -65,81 +51,82 @@ type
 
 implementation
 
-procedure TPrototypeTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TPrototypeTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TPrototypeTests.EvaluateBoolean(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
-
-function TPrototypeTests.EvaluateNumber(const Script: string): Double;
-begin
-  Result := FEngine.Evaluate(Script).AsNumber;
-end;
+const
+  POINT_CONSTRUCTOR = 'function Point() {}';
+  POINT_PROTOTYPE_IS_OBJECT = 'typeof Point.prototype === "object"';
 
 procedure TPrototypeTests.Function_Declaration_HasPrototypeObject;
 begin
-  FEngine.Execute('function Point() {}');
+  FEngine.Execute(POINT_CONSTRUCTOR);
 
-  Assert.IsTrue(EvaluateBoolean('typeof Point.prototype === "object"'));
+  const Actual = EvaluateBoolean(POINT_PROTOTYPE_IS_OBJECT);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPrototypeTests.Function_Expression_HasPrototypeObject;
 begin
   FEngine.Execute('var Point = function () {};');
 
-  Assert.IsTrue(EvaluateBoolean('typeof Point.prototype === "object"'));
+  const Actual = EvaluateBoolean(POINT_PROTOTYPE_IS_OBJECT);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPrototypeTests.Prototype_Constructor_RefersBackToFunction;
 begin
-  FEngine.Execute('function Point() {}');
+  FEngine.Execute(POINT_CONSTRUCTOR);
 
-  Assert.IsTrue(EvaluateBoolean('Point.prototype.constructor === Point'));
+  const Actual = EvaluateBoolean('Point.prototype.constructor === Point');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TPrototypeTests.New_ReadsPropertyFromConstructorPrototype;
+procedure TPrototypeTests.New_PropertyOnPrototype_IsReadFromInstance;
 begin
   FEngine.Execute('function Point() {} Point.prototype.size = 5; var p = new Point();');
 
-  Assert.AreEqual(5.0, EvaluateNumber('p.size'));
+  const Actual = EvaluateNumber('p.size');
+
+  Assert.AreEqual(5.0, Actual);
 end;
 
 procedure TPrototypeTests.New_ReplacedPrototype_IsUsedByNewObjects;
 begin
   FEngine.Execute('function Point() {} Point.prototype = { size: 7 }; var p = new Point();');
 
-  Assert.AreEqual(7.0, EvaluateNumber('p.size'));
+  const Actual = EvaluateNumber('p.size');
+
+  Assert.AreEqual(7.0, Actual);
 end;
 
 procedure TPrototypeTests.New_ConstructorReturningObject_ReplacesInstance;
 begin
   FEngine.Execute('function Point() { return { size: 3 }; } var p = new Point();');
 
-  Assert.AreEqual(3.0, EvaluateNumber('p.size'));
-  Assert.IsFalse(EvaluateBoolean('p instanceof Point'));
+  const Size = EvaluateNumber('p.size');
+  const IsInstance = EvaluateBoolean('p instanceof Point');
+
+  Assert.AreEqual(3.0, Size);
+  Assert.IsFalse(IsInstance);
 end;
 
 procedure TPrototypeTests.InstanceOf_ObjectCreatedWithNew_IsTrue;
 begin
   FEngine.Execute('function Point() {} var p = new Point();');
 
-  Assert.IsTrue(EvaluateBoolean('p instanceof Point'));
+  const Actual = EvaluateBoolean('p instanceof Point');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TPrototypeTests.InstanceOf_OtherConstructor_IsFalse;
 begin
   FEngine.Execute('function Point() {} function Circle() {} var p = new Point();');
 
-  Assert.IsFalse(EvaluateBoolean('p instanceof Circle'));
+  const Actual = EvaluateBoolean('p instanceof Circle');
+
+  Assert.IsFalse(Actual);
 end;
 
 procedure TPrototypeTests.InstanceOf_PrototypeChain_IsTrue;
@@ -148,15 +135,20 @@ begin
     'function Shape() {} function Circle() {} ' +
     'Circle.prototype = Object.create(Shape.prototype); var c = new Circle();');
 
-  Assert.IsTrue(EvaluateBoolean('c instanceof Shape'));
-  Assert.IsTrue(EvaluateBoolean('c instanceof Circle'));
+  const IsShape = EvaluateBoolean('c instanceof Shape');
+  const IsCircle = EvaluateBoolean('c instanceof Circle');
+
+  Assert.IsTrue(IsShape);
+  Assert.IsTrue(IsCircle);
 end;
 
 procedure TPrototypeTests.InstanceOf_PlainObject_IsFalse;
 begin
-  FEngine.Execute('function Point() {}');
+  FEngine.Execute(POINT_CONSTRUCTOR);
 
-  Assert.IsFalse(EvaluateBoolean('({}) instanceof Point'));
+  const Actual = EvaluateBoolean('({}) instanceof Point');
+
+  Assert.IsFalse(Actual);
 end;
 
 procedure TPrototypeTests.InstanceOf_GuardPattern_ConstructsWhenCalledAsFunction;
@@ -167,8 +159,11 @@ begin
     '  this.message = message;' +
     '}');
 
-  Assert.AreEqual('boom', FEngine.Evaluate('Failure("boom").message').AsString);
-  Assert.AreEqual('boom', FEngine.Evaluate('new Failure("boom").message').AsString);
+  const FromCall = EvaluateText('Failure("boom").message');
+  const FromNew = EvaluateText('new Failure("boom").message');
+
+  Assert.AreEqual('boom', FromCall);
+  Assert.AreEqual('boom', FromNew);
 end;
 
 procedure TPrototypeTests.ForIn_InstanceOfConstructor_DoesNotListConstructorProperty;
@@ -177,7 +172,9 @@ begin
     'function Point() { this.x = 1; } var names = ""; ' +
     'for (var name in new Point()) { names += name; }');
 
-  Assert.AreEqual('x', FEngine.Evaluate('names').AsString);
+  const Names = EvaluateText('names');
+
+  Assert.AreEqual('x', Names);
 end;
 
 end.

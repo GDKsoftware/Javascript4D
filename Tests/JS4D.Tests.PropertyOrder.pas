@@ -6,21 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TPropertyOrderTests = class
-  private
-    FEngine: TJSEngine;
-
+  TPropertyOrderTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('KeysIntegerFirst', 'Object.keys({ b: 1, 2: 1, a: 1, 1: 1 }).join()|1,2,b,a', '|')]
     [TestCase('KeysAscendingNumeric', 'Object.keys({ 10: 1, 9: 1, 100: 1 }).join()|9,10,100', '|')]
@@ -46,26 +37,16 @@ type
     [TestCase('NewNewConstructsResult', 'function Outer() { return function Inner() { this.v = 7; }; } (new new Outer()).v|7', '|')]
     [TestCase('NewNewWithArguments', 'function A() { this.make = function () { return function B(n) { this.n = n; }; }; } new (new A().make())(5).n|5', '|')]
     [TestCase('ArraySparseDefinedIndex', 'var a = [1, 2, 3]; Object.defineProperty(a, "5", { value: 1, configurable: true }); Object.getOwnPropertyNames(a).join()|0,1,2,5,length', '|')]
-    procedure Evaluate_Result(const Source: string; const Expected: string);
+    procedure PropertyOrder_Script_ReturnsExpectedText(const Source: string; const Expected: string);
   end;
 
 implementation
 
-procedure TPropertyOrderTests.Setup;
+procedure TPropertyOrderTests.PropertyOrder_Script_ReturnsExpectedText(const Source: string; const Expected: string);
 begin
-  FEngine := TJSEngine.Create;
-end;
+  const Actual = EvaluateText(Source);
 
-procedure TPropertyOrderTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-procedure TPropertyOrderTests.Evaluate_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

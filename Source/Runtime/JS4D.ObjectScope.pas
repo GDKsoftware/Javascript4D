@@ -39,7 +39,7 @@ type
     procedure SetVariable(const Name: string; const Value: TJSValue);
     procedure DeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareDeletableVariable(const Name: string; const Value: TJSValue);
-    procedure AssignVariable(const Name: string; const Value: TJSValue);
+    procedure AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
     procedure DeclareLexical(const Name: string; const IsConstant: Boolean);
     procedure InitializeLexical(const Name: string; const Value: TJSValue);
     function DeleteVariable(const Name: string): Boolean;
@@ -57,6 +57,12 @@ type
 
 implementation
 
+uses
+  System.SysUtils;
+
+const
+  NO_LEXICAL_BINDINGS = 'An object scope has no lexical bindings: %s';
+
 class function TJSObjectScope.DeleteBinding(const BindingObject: IJSObject; const Name: string): Boolean;
 begin
   const IsOwnBinding = BindingObject.HasOwnProperty(Name);
@@ -68,7 +74,8 @@ begin
     BindingObject.DeleteProperty(Name);
 end;
 
-constructor TJSObjectScope.Create(const Parent: IJSScope; const BindingObject: IJSObject; const StrictModeFlag: PBoolean);
+constructor TJSObjectScope.Create(const Parent: IJSScope; const BindingObject: IJSObject;
+                                  const StrictModeFlag: PBoolean);
 begin
   inherited Create;
   FParent := Parent;
@@ -85,7 +92,10 @@ function TJSObjectScope.GetBindingValue(const Name: string; const IsStrict: Bool
 begin
   const StillExists = FBindingObject.HasProperty(Name);
   if StillExists then
-    Exit(FBindingObject.GetProperty(Name));
+  begin
+    Result := FBindingObject.GetProperty(Name);
+    Exit;
+  end;
 
   if IsStrict then
     raise TJSErrorFactory.UndefinedVariable(Name);
@@ -97,7 +107,7 @@ procedure TJSObjectScope.SetMutableBinding(const Name: string; const Value: TJSV
 begin
   const StillExists = FBindingObject.HasProperty(Name);
   if IsStrict and (not StillExists) then
-    raise TJSErrorFactory.ReferenceError('Assignment to undeclared variable ' + Name);
+    raise TJSErrorFactory.AssignmentToUndeclared(Name);
 
   FBindingObject.SetProperty(Name, Value);
 end;
@@ -108,11 +118,13 @@ begin
   if not Result then
     Exit;
 
-  const Unscopables = FBindingObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Unscopables));
+  const UnscopablesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Unscopables);
+  const Unscopables = FBindingObject.GetProperty(UnscopablesKey);
   if not Unscopables.IsObject then
     Exit;
 
-  const IsBlocked = Unscopables.ToObject.GetProperty(Name).ToBoolean;
+  const BlockedValue = Unscopables.ToObject.GetProperty(Name);
+  const IsBlocked = BlockedValue.ToBoolean;
   Result := not IsBlocked;
 end;
 
@@ -127,10 +139,16 @@ end;
 function TJSObjectScope.GetVariable(const Name: string): TJSValue;
 begin
   if HasBinding(Name) then
-    Exit(GetBindingValue(Name, IsStrictCodeRunning));
+  begin
+    Result := GetBindingValue(Name, IsStrictCodeRunning);
+    Exit;
+  end;
 
   if Assigned(FParent) then
-    Exit(FParent.GetVariable(Name));
+  begin
+    Result := FParent.GetVariable(Name);
+    Exit;
+  end;
 
   Result := TJSValue.CreateUndefined;
 end;
@@ -167,13 +185,14 @@ begin
   DeclareVariable(Name, Value);
 end;
 
-procedure TJSObjectScope.AssignVariable(const Name: string; const Value: TJSValue);
+procedure TJSObjectScope.AssignOrDeclareVariable(const Name: string; const Value: TJSValue);
 begin
   DeclareVariable(Name, Value);
 end;
 
 procedure TJSObjectScope.DeclareLexical(const Name: string; const IsConstant: Boolean);
 begin
+  raise ENotSupportedException.CreateFmt(NO_LEXICAL_BINDINGS, [Name]);
 end;
 
 procedure TJSObjectScope.InitializeLexical(const Name: string; const Value: TJSValue);
@@ -192,7 +211,10 @@ begin
     Exit(Self);
 
   if Assigned(FParent) then
-    Exit(FParent.Resolve(Name));
+  begin
+    Result := FParent.Resolve(Name);
+    Exit;
+  end;
 
   Result := nil;
 end;

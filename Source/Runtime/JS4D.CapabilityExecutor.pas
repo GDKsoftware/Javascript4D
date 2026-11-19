@@ -7,7 +7,7 @@ interface
 uses
   System.SysUtils,
   JS4D.Types,
-  JS4D.BinarySupport;
+  JS4D.BuiltinSupport;
 
 type
   IJSCapabilityExecutor = interface
@@ -40,6 +40,7 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.Errors;
 
 constructor TJSCapabilityExecutor.Create;
@@ -66,8 +67,8 @@ begin
   if IsUsed then
     raise TJSErrorFactory.TypeError(EXECUTOR_ALREADY_CALLED);
 
-  FResolve := TJSBinarySupport.Argument(Args, 0);
-  FReject := TJSBinarySupport.Argument(Args, 1);
+  FResolve := TJSArrayLike.Argument(Args, 0);
+  FReject := TJSArrayLike.Argument(Args, 1);
   Result := TJSValue.CreateUndefined;
 end;
 

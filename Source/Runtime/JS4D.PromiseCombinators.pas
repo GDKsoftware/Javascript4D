@@ -9,7 +9,7 @@ uses
   JS4D.Types,
   JS4D.Interpreter,
   JS4D.ArrayStatics,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.AggregateErrorBuiltins,
   JS4D.Combination,
   JS4D.PromiseObjects,
@@ -29,17 +29,15 @@ type
   private
     const
       STATUS_PROPERTY = 'status';
-      VALUE_PROPERTY = 'value';
       REASON_PROPERTY = 'reason';
       FULFILLED_STATUS = 'fulfilled';
       REJECTED_STATUS = 'rejected';
       NOT_CALLABLE = 'The resolve property of the promise constructor is not a function';
-      NOT_ITERABLE = 'The value is not iterable';
       NOT_AN_OBJECT = 'Promise combinator called on a value that is not an object';
 
     var
       FInterpreter: TJSInterpreter;
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FOperations: TJSPromiseOperations;
       FAggregateErrors: TJSAggregateErrorBuiltins;
 
@@ -68,7 +66,7 @@ type
     procedure ResolveWithSlots(const Combination: IJSCombination; const Capability: TJSPromiseCapability);
 
   public
-    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+    constructor Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                        const Operations: TJSPromiseOperations; const AggregateErrors: TJSAggregateErrorBuiltins);
 
     function Combine(const Kind: TJSCombinatorKind; const This: IJSObject;
@@ -78,11 +76,12 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.PropertyKey,
   JS4D.Errors,
   JS4D.PropertyNames;
 
-constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Support: TJSBinarySupport;
+constructor TJSPromiseCombinators.Create(const Interpreter: TJSInterpreter; const Support: TJSBuiltinSupport;
                                          const Operations: TJSPromiseOperations;
                                          const AggregateErrors: TJSAggregateErrorBuiltins);
 begin
@@ -127,7 +126,7 @@ begin
   const ConstructorObject = ConstructorValue.ToObject;
   const Candidate = ConstructorObject.GetProperty(RESOLVE_PROPERTY);
 
-  const IsCallable = TJSBinarySupport.AsFunction(Candidate, Result);
+  const IsCallable = Candidate.TryGetFunction(Result);
   if not IsCallable then
     raise TJSErrorFactory.TypeError(NOT_CALLABLE);
 end;
@@ -140,7 +139,7 @@ begin
 
   const ConstructorValue = TJSValue.CreateObject(This);
   const Capability = FOperations.NewCapabilityWithFunctions(ConstructorValue);
-  const Iterable = TJSBinarySupport.Argument(Args, 0);
+  const Iterable = TJSArrayLike.Argument(Args, 0);
 
   const Outcome = FSupport.Capture(
     function: TJSValue
@@ -162,9 +161,9 @@ procedure TJSPromiseCombinators.Perform(const Kind: TJSCombinatorKind; const Con
 begin
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  const IsIterable = FInterpreter.OpenSequenceReader(Iterable, Reader, Closer);
+  const IsIterable = FInterpreter.TryOpenSequenceReader(Iterable, Reader, Closer);
   if not IsIterable then
-    raise TJSErrorFactory.TypeError(NOT_ITERABLE);
+    raise TJSErrorFactory.NotIterable;
 
   const Combination: IJSCombination = TJSCombination.Create;
   try
@@ -261,7 +260,7 @@ begin
       if not IsFirstCall then
         Exit;
 
-      const Argument = TJSBinarySupport.Argument(Args, 0);
+      const Argument = TJSArrayLike.Argument(Args, 0);
       const Entry = BuildEntry(Argument);
       Combination.FillSlot(Index, Entry);
       Finish(Kind, Combination, Capability);

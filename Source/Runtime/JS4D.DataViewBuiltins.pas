@@ -9,11 +9,9 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.BinaryData,
-  JS4D.BinarySupport;
+  JS4D.BuiltinSupport;
 
 type
-  // The DataView constructor and prototype: the buffer, byteLength and byteOffset accessors and the get and
-  // set methods for every element type except the clamped one.
   TJSDataViewBuiltins = class
   private
     const
@@ -21,30 +19,25 @@ type
       BUFFER_PROPERTY = 'buffer';
       BYTE_LENGTH_PROPERTY = 'byteLength';
       BYTE_OFFSET_PROPERTY = 'byteOffset';
-      GETTER_PREFIX = 'get ';
       GET_PREFIX = 'get';
       SET_PREFIX = 'set';
-      REQUIRES_NEW = 'Constructor DataView requires ''new''';
       NOT_A_BUFFER = 'First argument to DataView constructor must be an ArrayBuffer';
-      DETACHED_BUFFER = 'Cannot perform %s on a detached ArrayBuffer';
       OFFSET_OUT_OF_BOUNDS = 'Start offset %d is outside the bounds of the buffer';
       LENGTH_OUT_OF_BOUNDS = 'Invalid DataView length %d';
-      INCOMPATIBLE_RECEIVER = 'Method DataView.prototype.%s called on an incompatible receiver';
       ACCESS_OUT_OF_BOUNDS = 'Offset is outside the bounds of the DataView';
-      ACCESSOR_KINDS: array[0..7] of TJSElementKind = (TJSElementKind.Int8, TJSElementKind.Uint8,
-                                                       TJSElementKind.Int16, TJSElementKind.Uint16,
-                                                       TJSElementKind.Int32, TJSElementKind.Uint32,
-                                                       TJSElementKind.Float32, TJSElementKind.Float64);
-      ACCESSOR_NAMES: array[0..7] of string = ('Int8', 'Uint8', 'Int16', 'Uint16', 'Int32', 'Uint32',
-                                               'Float32', 'Float64');
 
     var
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FPrototype: IJSObject;
       FConstructor: IJSFunction;
 
     function RequireView(const This: IJSObject; const MethodName: string): IJSDataView;
     function Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
+    function RequireBuffer(const Args: TArray<TJSValue>): IJSArrayBuffer;
+    function ResolveViewLength(const Buffer: IJSArrayBuffer; const Offset: Int64;
+                               const LengthArgument: TJSValue): Int64;
+    procedure RequireOffsetWithin(const Buffer: IJSArrayBuffer; const Offset: Int64);
+    procedure RequireViewWithin(const Buffer: IJSArrayBuffer; const Offset: Int64; const ViewLength: Int64);
     function ReadViewValue(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
                            const Kind: TJSElementKind): TJSValue;
     function WriteViewValue(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
@@ -56,7 +49,7 @@ type
     procedure DefineValueMethodPair(const TypeName: string; const Kind: TJSElementKind);
 
   public
-    constructor Create(const Support: TJSBinarySupport);
+    constructor Create(const Support: TJSBuiltinSupport);
 
     procedure Register;
   end;
@@ -64,10 +57,13 @@ type
 implementation
 
 uses
+  JS4D.Conversions,
+  JS4D.PropertyNames,
+  JS4D.ArrayLike,
   System.Math,
   JS4D.Errors;
 
-constructor TJSDataViewBuiltins.Create(const Support: TJSBinarySupport);
+constructor TJSDataViewBuiltins.Create(const Support: TJSBuiltinSupport);
 begin
   inherited Create;
 
@@ -77,41 +73,68 @@ end;
 function TJSDataViewBuiltins.RequireView(const This: IJSObject; const MethodName: string): IJSDataView;
 begin
   if not Supports(This, IJSDataView, Result) then
-    raise TJSErrorFactory.TypeError(Format(INCOMPATIBLE_RECEIVER, [MethodName]));
+  begin
+    const Message = Format(INCOMPATIBLE_RECEIVER_FORMAT, [DATA_VIEW_NAME, MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
+end;
+
+function TJSDataViewBuiltins.RequireBuffer(const Args: TArray<TJSValue>): IJSArrayBuffer;
+begin
+  const BufferArgument = TJSArrayLike.Argument(Args, 0);
+
+  if not Supports(BufferArgument.ToObject, IJSArrayBuffer, Result) then
+    raise TJSErrorFactory.TypeError(NOT_A_BUFFER);
+end;
+
+procedure TJSDataViewBuiltins.RequireOffsetWithin(const Buffer: IJSArrayBuffer; const Offset: Int64);
+begin
+  const IsPastEnd = (Offset > Buffer.ByteLength);
+  if IsPastEnd then
+  begin
+    const Message = Format(OFFSET_OUT_OF_BOUNDS, [Offset]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
+end;
+
+function TJSDataViewBuiltins.ResolveViewLength(const Buffer: IJSArrayBuffer; const Offset: Int64;
+                                               const LengthArgument: TJSValue): Int64;
+begin
+  Result := Int64(Buffer.ByteLength) - Offset;
+  if LengthArgument.IsUndefined then
+    Exit;
+
+  Result := TJSBuiltinSupport.ToIndex(LengthArgument);
+  RequireViewWithin(Buffer, Offset, Result);
+end;
+
+procedure TJSDataViewBuiltins.RequireViewWithin(const Buffer: IJSArrayBuffer; const Offset: Int64;
+                                                const ViewLength: Int64);
+begin
+  const BufferLength = Int64(Buffer.ByteLength);
+  const IsOutside = (Offset > BufferLength) or ((Offset + ViewLength) > BufferLength);
+  if IsOutside then
+  begin
+    const Message = Format(LENGTH_OUT_OF_BOUNDS, [ViewLength]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
 end;
 
 function TJSDataViewBuiltins.Construct(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue;
 begin
-  const BufferArgument = TJSBinarySupport.Argument(Args, 0);
+  const Buffer = RequireBuffer(Args);
 
-  var Buffer: IJSArrayBuffer;
-  const IsBuffer = BufferArgument.IsObject and Supports(BufferArgument.ToObject, IJSArrayBuffer, Buffer);
-  if not IsBuffer then
-    raise TJSErrorFactory.TypeError(NOT_A_BUFFER);
+  const OffsetArgument = TJSArrayLike.Argument(Args, 1);
+  const Offset = TJSBuiltinSupport.ToIndex(OffsetArgument);
+  TJSBuiltinSupport.RequireNotDetached(Buffer.IsDetached, DATA_VIEW_NAME);
+  RequireOffsetWithin(Buffer, Offset);
 
-  const Offset = TJSBinarySupport.ToIndex(TJSBinarySupport.Argument(Args, 1));
-  if Buffer.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_BUFFER, [DATA_VIEW_NAME]));
-
-  if Offset > Buffer.ByteLength then
-    raise TJSErrorFactory.RangeError(Format(OFFSET_OUT_OF_BOUNDS, [Offset]));
-
-  const LengthArgument = TJSBinarySupport.Argument(Args, 2);
-  var ViewLength := Int64(Buffer.ByteLength) - Offset;
-  if not LengthArgument.IsUndefined then
-  begin
-    ViewLength := TJSBinarySupport.ToIndex(LengthArgument);
-    if (Offset + ViewLength) > Buffer.ByteLength then
-      raise TJSErrorFactory.RangeError(Format(LENGTH_OUT_OF_BOUNDS, [ViewLength]));
-  end;
+  const LengthArgument = TJSArrayLike.Argument(Args, 2);
+  const ViewLength = ResolveViewLength(Buffer, Offset, LengthArgument);
 
   const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototype);
-  if Buffer.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_BUFFER, [DATA_VIEW_NAME]));
-
-  const BufferLength = Int64(Buffer.ByteLength);
-  if (Offset > BufferLength) or ((Offset + ViewLength) > BufferLength) then
-    raise TJSErrorFactory.RangeError(Format(LENGTH_OUT_OF_BOUNDS, [ViewLength]));
+  TJSBuiltinSupport.RequireNotDetached(Buffer.IsDetached, DATA_VIEW_NAME);
+  RequireViewWithin(Buffer, Offset, ViewLength);
 
   const View = TJSDataViewObject.Create(Buffer, Integer(Offset), Integer(ViewLength));
   View.Prototype := Prototype;
@@ -122,11 +145,11 @@ end;
 procedure TJSDataViewBuiltins.RequireRange(const View: IJSDataView; const RequestIndex: Int64;
                                            const Kind: TJSElementKind; const MethodName: string);
 begin
-  if View.Buffer.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_BUFFER, [MethodName]));
+  TJSBuiltinSupport.RequireNotDetached(View.Buffer.IsDetached, MethodName);
 
   const EndIndex = RequestIndex + Kind.ElementSize;
-  if EndIndex > View.ByteLength then
+  const IsOutOfRange = (EndIndex > View.ByteLength);
+  if IsOutOfRange then
     raise TJSErrorFactory.RangeError(ACCESS_OUT_OF_BOUNDS);
 end;
 
@@ -134,22 +157,29 @@ function TJSDataViewBuiltins.ReadViewValue(const This: IJSObject; const Args: TA
                                            const MethodName: string; const Kind: TJSElementKind): TJSValue;
 begin
   const View = RequireView(This, MethodName);
-  const RequestIndex = TJSBinarySupport.ToIndex(TJSBinarySupport.Argument(Args, 0));
-  const IsLittleEndian = TJSBinarySupport.Argument(Args, 1).ToBoolean;
+  const IndexArgument = TJSArrayLike.Argument(Args, 0);
+  const EndiannessArgument = TJSArrayLike.Argument(Args, 1);
+  const RequestIndex = TJSBuiltinSupport.ToIndex(IndexArgument);
+  const IsLittleEndian = EndiannessArgument.ToBoolean;
 
   RequireRange(View, RequestIndex, Kind, MethodName);
 
   const Offset = View.ByteOffset + Integer(RequestIndex);
-  Result := TJSValue.CreateNumber(TJSElementCodec.Read(View.Buffer.Bytes, Offset, Kind, IsLittleEndian));
+  const Number = TJSElementCodec.Read(View.Buffer.Bytes, Offset, Kind, IsLittleEndian);
+
+  Result := TJSValue.CreateNumber(Number);
 end;
 
 function TJSDataViewBuiltins.WriteViewValue(const This: IJSObject; const Args: TArray<TJSValue>;
                                             const MethodName: string; const Kind: TJSElementKind): TJSValue;
 begin
   const View = RequireView(This, MethodName);
-  const RequestIndex = TJSBinarySupport.ToIndex(TJSBinarySupport.Argument(Args, 0));
-  const Number = TJSBinarySupport.Argument(Args, 1).ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-  const IsLittleEndian = TJSBinarySupport.Argument(Args, 2).ToBoolean;
+  const IndexArgument = TJSArrayLike.Argument(Args, 0);
+  const ValueArgument = TJSArrayLike.Argument(Args, 1);
+  const EndiannessArgument = TJSArrayLike.Argument(Args, 2);
+  const RequestIndex = TJSBuiltinSupport.ToIndex(IndexArgument);
+  const Number = TJSConversions.ToNumber(ValueArgument);
+  const IsLittleEndian = EndiannessArgument.ToBoolean;
 
   RequireRange(View, RequestIndex, Kind, MethodName);
 
@@ -161,36 +191,50 @@ end;
 
 procedure TJSDataViewBuiltins.DefineAccessors;
 begin
-  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, GETTER_PREFIX + BUFFER_PROPERTY,
+  const BufferGetterName = Format(GETTER_NAME_FORMAT, [BUFFER_PROPERTY]);
+  const ByteLengthGetterName = Format(GETTER_NAME_FORMAT, [BYTE_LENGTH_PROPERTY]);
+  const ByteOffsetGetterName = Format(GETTER_NAME_FORMAT, [BYTE_OFFSET_PROPERTY]);
+
+  FSupport.DefineGetter(FPrototype, BUFFER_PROPERTY, BufferGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
-      Result := TJSValue.CreateObject(RequireView(This, BUFFER_PROPERTY).Buffer);
+      const View = RequireView(This, BUFFER_PROPERTY);
+
+      Result := TJSValue.CreateObject(View.Buffer);
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, GETTER_PREFIX + BYTE_LENGTH_PROPERTY,
+  FSupport.DefineGetter(FPrototype, BYTE_LENGTH_PROPERTY, ByteLengthGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const View = RequireView(This, BYTE_LENGTH_PROPERTY);
       const IsDetached = View.Buffer.IsDetached;
 
-      Result := TJSValue.CreateNumber(IfThen(IsDetached, 0, View.ByteLength));
+      const ByteLength = IfThen(IsDetached, 0, View.ByteLength);
+
+      Result := TJSValue.CreateNumber(ByteLength);
     end);
 
-  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, GETTER_PREFIX + BYTE_OFFSET_PROPERTY,
+  FSupport.DefineGetter(FPrototype, BYTE_OFFSET_PROPERTY, ByteOffsetGetterName,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       const View = RequireView(This, BYTE_OFFSET_PROPERTY);
       const IsDetached = View.Buffer.IsDetached;
 
-      Result := TJSValue.CreateNumber(IfThen(IsDetached, 0, View.ByteOffset));
+      const ByteOffset = IfThen(IsDetached, 0, View.ByteOffset);
+
+      Result := TJSValue.CreateNumber(ByteOffset);
     end);
 end;
 
 procedure TJSDataViewBuiltins.DefineValueMethods;
 begin
-  for var Position := Low(ACCESSOR_KINDS) to High(ACCESSOR_KINDS) do
+  for var Kind := Low(TJSElementKind) to High(TJSElementKind) do
   begin
-    DefineValueMethodPair(ACCESSOR_NAMES[Position], ACCESSOR_KINDS[Position]);
+    const IsClamped = (Kind = TJSElementKind.Uint8Clamped);
+    if IsClamped then
+      Continue;
+
+    DefineValueMethodPair(Kind.TypeName, Kind);
   end;
 end;
 
@@ -219,14 +263,16 @@ begin
   FPrototype := TJSObject.Create;
   FPrototype.Prototype := Interpreter.ObjectPrototype;
 
-  FConstructor := FSupport.CreateConstructor(DATA_VIEW_NAME, 1, REQUIRES_NEW, Construct);
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [DATA_VIEW_NAME]);
+  FConstructor := FSupport.CreateConstructor(DATA_VIEW_NAME, 1, RequiresNewMessage, Construct);
   FSupport.LinkConstructor(FConstructor, FPrototype);
 
   DefineAccessors;
   DefineValueMethods;
   FSupport.DefineToStringTag(FPrototype, DATA_VIEW_NAME);
 
-  Interpreter.SetGlobalVariable(DATA_VIEW_NAME, TJSValue.CreateObject(FConstructor));
+  const ConstructorValue = TJSValue.CreateObject(FConstructor);
+  Interpreter.SetGlobalVariable(DATA_VIEW_NAME, ConstructorValue);
 end;
 
 end.

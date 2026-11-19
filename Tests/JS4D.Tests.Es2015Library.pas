@@ -7,24 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TEs2015LibraryTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TEs2015LibraryTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Cbrt', 'Math.cbrt(8)#2', '#')]
     [TestCase('CbrtNegative', 'Math.cbrt(-27)#-3', '#')]
@@ -90,17 +78,11 @@ type
     [TestCase('Clz32OfNegative', 'Math.clz32(-1)#0', '#')]
     [TestCase('Clz32WrapsToUint32', 'Math.clz32(4294967296)#32', '#')]
     [TestCase('Clz32OfNaN', 'Math.clz32(NaN)#32', '#')]
-    procedure MathFunction_ES2015_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
-    [TestCase('Cbrt', 'Math.cbrt.length#1', '#')]
+    [TestCase('MathFunction Cbrt', 'Math.cbrt.length#1', '#')]
     [TestCase('Hypot', 'Math.hypot.length#2', '#')]
-    [TestCase('Imul', 'Math.imul.length#2', '#')]
+    [TestCase('MathFunction Imul', 'Math.imul.length#2', '#')]
     [TestCase('Name', 'Math.clz32.name#clz32', '#')]
     [TestCase('NotEnumerable', 'Object.keys(Math).length#0', '#')]
-    procedure MathFunction_ES2015_HasBuiltinAttributes(const Expression, Expected: string);
-
-    [Test]
     [TestCase('IsInteger', 'Number.isInteger(5)#true', '#')]
     [TestCase('IsIntegerFraction', 'Number.isInteger(5.5)#false', '#')]
     [TestCase('IsIntegerInfinity', 'Number.isInteger(Infinity)#false', '#')]
@@ -122,10 +104,7 @@ type
     [TestCase('ParseIntIsGlobalFunction', 'Number.parseInt === parseInt#true', '#')]
     [TestCase('ConstantIsReadOnly', '(function () { Number.EPSILON = 1; return Number.EPSILON < 1; })()#true', '#')]
     [TestCase('IsIntegerLength', 'Number.isInteger.length#1', '#')]
-    [TestCase('NotEnumerable', 'Object.keys(Number).length#0', '#')]
-    procedure NumberStatic_ES2015_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
+    [TestCase('NumberStatic NotEnumerable', 'Object.keys(Number).length#0', '#')]
     [TestCase('Equal', 'Object.is(1, 1)#true', '#')]
     [TestCase('NaNIsNaN', 'Object.is(NaN, NaN)#true', '#')]
     [TestCase('ZerosDiffer', 'Object.is(0, -0)#false', '#')]
@@ -133,21 +112,14 @@ type
     [TestCase('MissingArguments', 'Object.is()#true', '#')]
     [TestCase('SameObject', '(function () { var o = {}; return Object.is(o, o); })()#true', '#')]
     [TestCase('DifferentObjects', 'Object.is({}, {})#false', '#')]
-    procedure ObjectIs_Values_UsesSameValue(const Expression, Expected: string);
-
-    [Test]
-    [TestCase('DataProperty', 'JSON.stringify(Object.getOwnPropertyDescriptors({a: 1}).a)#{"value":1,"writable":true,"enumerable":true,"configurable":true}', '#')]
+    [TestCase('DataProperty',
+      'JSON.stringify(Object.getOwnPropertyDescriptors({a: ' +
+      '1}).a)#{"value":1,"writable":true,"enumerable":true,"configurable":true}', '#')]
     [TestCase('IncludesNonEnumerable', 'Object.keys(Object.getOwnPropertyDescriptors(Object.defineProperty({}, "h", {value: 1})))[0]#h', '#')]
     [TestCase('IgnoresInherited', 'Object.keys(Object.getOwnPropertyDescriptors(Object.create({inherited: 1}))).length#0', '#')]
     [TestCase('Accessor', 'typeof Object.getOwnPropertyDescriptors({get a() { return 1; }}).a.get#function', '#')]
     [TestCase('PrimitiveIsCoerced', 'Object.getOwnPropertyDescriptors("ab").length.value#2', '#')]
     [TestCase('Length', 'Object.getOwnPropertyDescriptors.length#1', '#')]
-    procedure ObjectGetOwnPropertyDescriptors_Source_ReturnsDescriptors(const Expression, Expected: string);
-
-    [Test]
-    procedure ObjectGetOwnPropertyDescriptors_Undefined_RaisesTypeError;
-
-    [Test]
     [TestCase('KeysOfString', 'Object.keys("ab").join()#0,1', '#')]
     [TestCase('KeysOfNumber', 'Object.keys(1).length#0', '#')]
     [TestCase('KeysSkipsNonEnumerable', 'Object.keys(Object.defineProperty({a: 1}, "h", {value: 1})).join()#a', '#')]
@@ -173,7 +145,25 @@ type
     [TestCase('IsFrozenOfPrimitive', 'Object.isFrozen(1)#true', '#')]
     [TestCase('IsSealedOfPrimitive', 'Object.isSealed("a")#true', '#')]
     [TestCase('IsExtensibleOfPrimitive', 'Object.isExtensible(1)#false', '#')]
-    procedure ObjectStatics_Primitive_CoercesToObject(const Expression, Expected: string);
+    [TestCase('PrimitiveTargetIsObject', 'typeof Object.assign(true)#object', '#')]
+    [TestCase('NumberTargetIsWrapped', 'Object.assign(1, {a: 2}).a#2', '#')]
+    [TestCase('StringSourceCopiesIndices', 'Object.assign({}, "ab")[1]#b', '#')]
+    [TestCase('NullAndUndefinedSourcesAreSkipped', 'Object.assign({a: 1}, null, undefined).a#1', '#')]
+    [TestCase('NumberSourceHasNoProperties', 'Object.keys(Object.assign({}, 5)).length#0', '#')]
+    [TestCase('SkipsNonEnumerableSource', 'Object.assign({}, Object.defineProperty({}, "h", {value: 1})).h#undefined', '#')]
+    [TestCase('CopiesEnumerableSource', 'Object.assign({}, {a: 1}, {b: 2}).b#2', '#')]
+    [TestCase('ReturnsTarget', '(function () { var t = {}; return Object.assign(t, {a: 1}) === t; })()#true', '#')]
+    [TestCase('InvokesSourceGetter', 'Object.assign({}, {get a() { return 7; }}).a#7', '#')]
+    [TestCase('IsGlobalObject', 'globalThis === this#true', '#')]
+    [TestCase('ExposesGlobalVariable', '(function () { var scoped = 1; return typeof globalThis.Math; })()#object', '#')]
+    [TestCase('GlobalThis NotEnumerable',
+      '(function () { for (var key in this) { if (key === "globalThis") { return "enumerable"; } } return ' +
+      '"hidden"; })()#hidden', '#')]
+    [TestCase('IsWritable', '(function () { globalThis = 1; var result = globalThis; return result; })()#1', '#')]
+    procedure Library_Script_ReturnsExpected(const Expression, Expected: string);
+
+    [Test]
+    procedure ObjectGetOwnPropertyDescriptors_Undefined_RaisesTypeError;
 
     [Test]
     [TestCase('Keys', 'Object.keys(null)#TypeError', '#')]
@@ -190,96 +180,34 @@ type
     [TestCase('AssignReadOnlyTarget', 'Object.assign(Object.defineProperty({}, "a", {value: 1}), {a: 2})#TypeError', '#')]
     [TestCase('AssignNewKeyOnNonExtensibleTarget', 'Object.assign(Object.preventExtensions({}), {a: 2})#TypeError', '#')]
     procedure ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
-
-    [Test]
-    [TestCase('PrimitiveTargetIsObject', 'typeof Object.assign(true)#object', '#')]
-    [TestCase('NumberTargetIsWrapped', 'Object.assign(1, {a: 2}).a#2', '#')]
-    [TestCase('StringSourceCopiesIndices', 'Object.assign({}, "ab")[1]#b', '#')]
-    [TestCase('NullAndUndefinedSourcesAreSkipped', 'Object.assign({a: 1}, null, undefined).a#1', '#')]
-    [TestCase('NumberSourceHasNoProperties', 'Object.keys(Object.assign({}, 5)).length#0', '#')]
-    [TestCase('SkipsNonEnumerableSource', 'Object.assign({}, Object.defineProperty({}, "h", {value: 1})).h#undefined', '#')]
-    [TestCase('CopiesEnumerableSource', 'Object.assign({}, {a: 1}, {b: 2}).b#2', '#')]
-    [TestCase('ReturnsTarget', '(function () { var t = {}; return Object.assign(t, {a: 1}) === t; })()#true', '#')]
-    [TestCase('InvokesSourceGetter', 'Object.assign({}, {get a() { return 7; }}).a#7', '#')]
-    procedure ObjectAssign_Sources_CopiesOwnEnumerable(const Expression, Expected: string);
-
-    [Test]
-    [TestCase('IsGlobalObject', 'globalThis === this#true', '#')]
-    [TestCase('ExposesGlobalVariable', '(function () { var scoped = 1; return typeof globalThis.Math; })()#object', '#')]
-    [TestCase('NotEnumerable', '(function () { for (var key in this) { if (key === "globalThis") { return "enumerable"; } } return "hidden"; })()#hidden', '#')]
-    [TestCase('IsWritable', '(function () { globalThis = 1; var result = globalThis; return result; })()#1', '#')]
-    procedure GlobalThis_Lookup_ReferencesGlobalObject(const Expression, Expected: string);
   end;
 
 implementation
 
-procedure TEs2015LibraryTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TEs2015LibraryTests.TearDown;
+procedure TEs2015LibraryTests.Library_Script_ReturnsExpected(const Expression, Expected: string);
 begin
-  FEngine.Free;
-end;
+  const Actual = TextOf(Expression);
 
-function TEs2015LibraryTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
-procedure TEs2015LibraryTests.MathFunction_ES2015_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TEs2015LibraryTests.MathFunction_ES2015_HasBuiltinAttributes(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TEs2015LibraryTests.NumberStatic_ES2015_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TEs2015LibraryTests.ObjectIs_Values_UsesSameValue(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TEs2015LibraryTests.ObjectGetOwnPropertyDescriptors_Source_ReturnsDescriptors(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TEs2015LibraryTests.ObjectGetOwnPropertyDescriptors_Undefined_RaisesTypeError;
 begin
-  const ErrorName = Evaluate('(function () { try { Object.getOwnPropertyDescriptors(undefined); } catch (e) { return e.name; } })()');
+  const ErrorName = TextOf('(function () { try { Object.getOwnPropertyDescriptors(undefined); } catch (e) { return e.name; } })()');
 
-  Assert.AreEqual('TypeError', ErrorName);
-end;
-
-procedure TEs2015LibraryTests.ObjectStatics_Primitive_CoercesToObject(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(TYPE_ERROR_NAME, ErrorName);
 end;
 
 procedure TEs2015LibraryTests.ObjectStatics_NullOrUndefined_RaisesTypeError(const Expression, Expected: string);
 begin
   const Guarded = Format('(function () { try { %s; } catch (e) { return e.name; } return "no error"; })()', [Expression]);
 
-  Assert.AreEqual(Expected, Evaluate(Guarded));
-end;
+  const Actual = TextOf(Guarded);
 
-procedure TEs2015LibraryTests.ObjectAssign_Sources_CopiesOwnEnumerable(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TEs2015LibraryTests.GlobalThis_Lookup_ReferencesGlobalObject(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

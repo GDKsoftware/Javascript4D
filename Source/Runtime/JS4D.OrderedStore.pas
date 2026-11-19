@@ -12,8 +12,6 @@ uses
   JS4D.Types;
 
 type
-  // The identity of a value under SameValueZero: NaN equals NaN, +0 equals -0, strings and numbers compare by
-  // content, objects and symbols by identity. The hash is computed once, so rehashing never touches the value.
   TJSStoreKey = record
   private
     FKind: TJSValueType;
@@ -40,8 +38,6 @@ type
 
   TJSOrderedStore = class;
 
-  // A position in the entries of a store that survives additions, deletions and compaction, for forEach and
-  // for iterators. A cursor sees entries added after it was created and never sees an entry twice.
   TJSStoreCursor = class
   private
     FStore: TJSOrderedStore;
@@ -54,8 +50,6 @@ type
     function TryNext(out Key: TJSValue; out Value: TJSValue): Boolean;
   end;
 
-  // Entries in insertion order with an average O(1) lookup by SameValueZero. A deleted entry leaves a gap that
-  // keeps the position of the cursors valid until the gaps are compacted away.
   TJSOrderedStore = class
   private
     type
@@ -68,6 +62,8 @@ type
 
     const
       MIN_GAPS_TO_COMPACT = 16;
+      MIN_CAPACITY = 8;
+      GAPS_PER_USED_TO_COMPACT = 2;
 
     var
       FEntries: TArray<TEntry>;
@@ -81,17 +77,18 @@ type
     function GetCount: Integer;
     procedure Append(const Identity: TJSStoreKey; const Key: TJSValue; const Value: TJSValue);
     procedure CompactIfSparse;
+    function MoveLiveEntries(const LiveBefore: TArray<Integer>): Integer;
     procedure Compact;
     procedure MoveCursors(const LiveBefore: TArray<Integer>);
     procedure RegisterCursor(const Cursor: TJSStoreCursor);
     procedure UnregisterCursor(const Cursor: TJSStoreCursor);
-    function TryReadFrom(var Position: Integer; out Key: TJSValue; out Value: TJSValue): Boolean;
+    function TryReadFrom(const Cursor: TJSStoreCursor; out Key: TJSValue; out Value: TJSValue): Boolean;
+    procedure ResetAndRelease(EntriesToRelease: TArray<TEntry>);
 
   public
     constructor Create;
     destructor Destroy; override;
 
-    // The key as the store keeps and hands it out: -0 becomes +0, every other value stays as it is.
     class function CanonicalKey(const Key: TJSValue): TJSValue; static;
 
     function TryGet(const Key: TJSValue; out Value: TJSValue): Boolean;
@@ -110,6 +107,9 @@ implementation
 
 uses
   System.Math;
+
+const
+  KIND_HASH_MULTIPLIER = 31;
 
 { TJSStoreKey }
 
@@ -132,7 +132,7 @@ begin
     TJSValueType.Symbol  : Result := THashBobJenkins.GetHashValue(PChar(Key.FText)^, TextByteCount, Seed);
     TJSValueType.Object_ : Result := THashBobJenkins.GetHashValue(Key.FIdentity, SizeOf(Pointer), Seed);
   else
-    Result := Ord(Key.FKind) * 31 + Ord(Key.FNumber <> 0);
+    Result := (Ord(Key.FKind) * KIND_HASH_MULTIPLIER) + Ord(Key.FNumber <> 0);
   end;
 end;
 
@@ -155,6 +155,8 @@ begin
     TJSValueType.String_  : Result.FText := Value.AsString;
     TJSValueType.Symbol   : Result.FText := Value.AsSymbolKey.Stored;
     TJSValueType.Object_  : Result.FIdentity := Pointer(Value.AsObject as IInterface);
+  else
+    Result.FNumber := 0;
   end;
 
   Result.FHash := HashOf(Result);
@@ -207,7 +209,7 @@ end;
 
 function TJSStoreCursor.TryNext(out Key: TJSValue; out Value: TJSValue): Boolean;
 begin
-  Result := FStore.TryReadFrom(FPosition, Key, Value);
+  Result := FStore.TryReadFrom(Self, Key, Value);
 end;
 
 { TJSOrderedStore }
@@ -229,7 +231,7 @@ end;
 
 class function TJSOrderedStore.IsNestedObject(const Value: TJSValue): Boolean;
 begin
-  Result := Value.IsObject and (not Value.IsFunction);
+  Result := (Value.IsObject and (not Value.IsFunction));
 end;
 
 function TJSOrderedStore.GetCount: Integer;
@@ -251,15 +253,20 @@ class function TJSOrderedStore.CanonicalKey(const Key: TJSValue): TJSValue;
 begin
   const IsZero = Key.IsNumber and (Key.AsNumber = 0);
   if IsZero then
-    Exit(TJSValue.CreateNumber(0));
+  begin
+    Result := TJSValue.CreateNumber(0);
+    Exit;
+  end;
 
   Result := Key;
 end;
 
 function TJSOrderedStore.TryGet(const Key: TJSValue; out Value: TJSValue): Boolean;
 begin
+  const Identity = TJSStoreKey.From(Key);
+
   var Slot: Integer;
-  Result := FIndex.TryGetValue(TJSStoreKey.From(Key), Slot);
+  Result := FIndex.TryGetValue(Identity, Slot);
   if Result then
     Value := FEntries[Slot].Value
   else
@@ -268,7 +275,9 @@ end;
 
 function TJSOrderedStore.Contains(const Key: TJSValue): Boolean;
 begin
-  Result := FIndex.ContainsKey(TJSStoreKey.From(Key));
+  const Identity = TJSStoreKey.From(Key);
+
+  Result := FIndex.ContainsKey(Identity);
 end;
 
 procedure TJSOrderedStore.Put(const Key: TJSValue; const Value: TJSValue);
@@ -289,7 +298,10 @@ procedure TJSOrderedStore.Append(const Identity: TJSStoreKey; const Key: TJSValu
 begin
   const IsFull = (FUsed = Length(FEntries));
   if IsFull then
-    SetLength(FEntries, Max(8, FUsed * 2));
+  begin
+    const GrownCapacity = Max(MIN_CAPACITY, FUsed * 2);
+    SetLength(FEntries, GrownCapacity);
+  end;
 
   FEntries[FUsed].Identity := Identity;
   FEntries[FUsed].Key := CanonicalKey(Key);
@@ -301,8 +313,10 @@ end;
 
 function TJSOrderedStore.Remove(const Key: TJSValue): Boolean;
 begin
+  const Identity = TJSStoreKey.From(Key);
+
   var Slot: Integer;
-  Result := FIndex.TryGetValue(TJSStoreKey.From(Key), Slot);
+  Result := FIndex.TryGetValue(Identity, Slot);
   if not Result then
     Exit;
 
@@ -314,7 +328,11 @@ end;
 
 procedure TJSOrderedStore.Clear;
 begin
-  const Released = FEntries;
+  ResetAndRelease(FEntries);
+end;
+
+procedure TJSOrderedStore.ResetAndRelease(EntriesToRelease: TArray<TEntry>);
+begin
   FEntries := nil;
   FUsed := 0;
   FGaps := 0;
@@ -328,9 +346,8 @@ end;
 
 function TJSOrderedStore.HoldsNestedObjects: Boolean;
 begin
-  for var Position := 0 to FUsed - 1 do
+  for var Entry in FEntries do
   begin
-    const Entry = FEntries[Position];
     const IsHeld = (Entry.IsLive and (IsNestedObject(Entry.Key) or IsNestedObject(Entry.Value)));
     if IsHeld then
       Exit(True);
@@ -341,18 +358,16 @@ end;
 
 procedure TJSOrderedStore.DetachNestedObjects(const Pending: TList<IJSObject>);
 begin
-  for var Position := 0 to FUsed - 1 do
+  for var Entry in FEntries do
   begin
-    if not FEntries[Position].IsLive then
+    if not Entry.IsLive then
       Continue;
 
-    const Key = FEntries[Position].Key;
-    if IsNestedObject(Key) then
-      Pending.Add(Key.ToObject);
+    if IsNestedObject(Entry.Key) then
+      Pending.Add(Entry.Key.ToObject);
 
-    const Value = FEntries[Position].Value;
-    if IsNestedObject(Value) then
-      Pending.Add(Value.ToObject);
+    if IsNestedObject(Entry.Value) then
+      Pending.Add(Entry.Value.ToObject);
   end;
 
   Clear;
@@ -360,9 +375,33 @@ end;
 
 procedure TJSOrderedStore.CompactIfSparse;
 begin
-  const HasManyGaps = (FGaps >= MIN_GAPS_TO_COMPACT) and (FGaps * 2 >= FUsed);
+  const HasManyGaps = (FGaps >= MIN_GAPS_TO_COMPACT) and ((FGaps * GAPS_PER_USED_TO_COMPACT) >= FUsed);
   if HasManyGaps then
     Compact;
+end;
+
+function TJSOrderedStore.MoveLiveEntries(const LiveBefore: TArray<Integer>): Integer;
+begin
+  const TracksCursors = (Length(LiveBefore) > 0);
+
+  Result := 0;
+  for var Source := 0 to FUsed - 1 do
+  begin
+    if TracksCursors then
+      LiveBefore[Source] := Result;
+
+    if not FEntries[Source].IsLive then
+      Continue;
+
+    const HasMoved = (Result <> Source);
+    if HasMoved then
+    begin
+      FEntries[Result] := FEntries[Source];
+      FIndex[FEntries[Result].Identity] := Result;
+    end;
+
+    Inc(Result);
+  end;
 end;
 
 procedure TJSOrderedStore.Compact;
@@ -372,36 +411,20 @@ begin
   if HasCursors then
     SetLength(LiveBefore, FUsed + 1);
 
-  var Target := 0;
-  for var Source := 0 to FUsed - 1 do
-  begin
-    if HasCursors then
-      LiveBefore[Source] := Target;
-
-    if not FEntries[Source].IsLive then
-      Continue;
-
-    if Target <> Source then
-    begin
-      FEntries[Target] := FEntries[Source];
-      FIndex[FEntries[Target].Identity] := Target;
-    end;
-
-    Inc(Target);
-  end;
+  const LiveCount = MoveLiveEntries(LiveBefore);
 
   if HasCursors then
   begin
-    LiveBefore[FUsed] := Target;
+    LiveBefore[FUsed] := LiveCount;
     MoveCursors(LiveBefore);
   end;
 
-  for var Index := Target to FUsed - 1 do
+  for var Index := LiveCount to FUsed - 1 do
   begin
     FEntries[Index] := Default(TEntry);
   end;
 
-  FUsed := Target;
+  FUsed := LiveCount;
   FGaps := 0;
 end;
 
@@ -409,16 +432,18 @@ procedure TJSOrderedStore.MoveCursors(const LiveBefore: TArray<Integer>);
 begin
   for var Cursor in FCursors do
   begin
-    Cursor.FPosition := LiveBefore[Min(Cursor.FPosition, FUsed)];
+    const ClampedPosition = Min(Cursor.FPosition, FUsed);
+    Cursor.FPosition := LiveBefore[ClampedPosition];
   end;
 end;
 
-function TJSOrderedStore.TryReadFrom(var Position: Integer; out Key: TJSValue; out Value: TJSValue): Boolean;
+function TJSOrderedStore.TryReadFrom(const Cursor: TJSStoreCursor; out Key: TJSValue;
+                                      out Value: TJSValue): Boolean;
 begin
-  while Position < FUsed do
+  while Cursor.FPosition < FUsed do
   begin
-    const Slot = Position;
-    Inc(Position);
+    const Slot = Cursor.FPosition;
+    Inc(Cursor.FPosition);
 
     if FEntries[Slot].IsLive then
     begin

@@ -6,115 +6,88 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
   JS4D.SymbolRegistry,
   JS4D.IntrinsicCache,
-  JS4D.Interpreter;
+  JS4D.Interpreter,
+  JS4D.BuiltinSupport;
 
 type
-  // Makes arrays, strings and arguments objects iterable: %IteratorPrototype%, %ArrayIteratorPrototype%,
-  // %StringIteratorPrototype% and the Symbol.iterator methods that return their iterators.
-  TJSIteratorBuiltins = class
+  TJSIteratorBuiltins = class(TJSBuiltinSet)
   private
-    FInterpreter: TJSInterpreter;
-    FArrayIteratorPrototype: IJSObject;
+    const
+      VALUES_PROPERTY = 'values';
+      ITERATOR_FUNCTION_NAME = '[Symbol.iterator]';
+      ARRAY_ITERATOR_TAG = 'Array Iterator';
+      STRING_ITERATOR_TAG = 'String Iterator';
+      NOT_A_STRING_ITERATOR = 'next method called on an object that is not a string iterator';
+      STRING_ITERATOR_ON_NOTHING = 'String.prototype[Symbol.iterator] called on undefined or null';
+      INTRINSIC_NOT_A_FUNCTION = 'The intrinsic method is not a function';
 
-    class procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
-                                 const IsWritable: Boolean); static;
-    class function AsFunction(const Value: TJSValue): IJSFunction; static;
-    function CreateMethod(const Name: string; const Method: TNativeFunction): IJSFunction;
+    var
+      FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
+      FArrayIteratorPrototype: IJSObject;
+
+    function RequireFunction(const Value: TJSValue): IJSFunction;
     function CreateIteratorPrototype: IJSObject;
     function CreateStringIteratorPrototype(const IteratorPrototype: IJSObject): IJSObject;
-    function CreateNextMethod(const Method: TNativeFunction): IJSFunction;
     function CreateSymbolIteratorMethod(const Method: TNativeFunction): IJSFunction;
     procedure DefineIteratorMethod(const Target: IJSObject; const Method: IJSFunction);
-    procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
     function StringIteratorFor(const This: IJSObject): TJSValue;
-    function ToText(const Value: TJSValue): string;
+    function WithArrayIterator(const Source: TJSIterationIntrinsics;
+                               const IteratorPrototype: IJSObject): TJSIterationIntrinsics;
+    function WithStringIterator(const Source: TJSIterationIntrinsics;
+                                const IteratorPrototype: IJSObject): TJSIterationIntrinsics;
 
   public
     constructor Create(const Interpreter: TJSInterpreter; const ArrayIteratorPrototype: IJSObject);
+    destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
 
 uses
   JS4D.Errors,
+  JS4D.Conversions,
   JS4D.StringIterator;
-
-const
-  NEXT_PROPERTY = 'next';
-  VALUES_PROPERTY = 'values';
-  ITERATOR_FUNCTION_NAME = '[Symbol.iterator]';
-  ARRAY_ITERATOR_TAG = 'Array Iterator';
-  STRING_ITERATOR_TAG = 'String Iterator';
-  NOT_A_STRING_ITERATOR = 'next method called on an object that is not a string iterator';
-  STRING_ITERATOR_ON_NOTHING = 'String.prototype[Symbol.iterator] called on undefined or null';
 
 constructor TJSIteratorBuiltins.Create(const Interpreter: TJSInterpreter; const ArrayIteratorPrototype: IJSObject);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
   FArrayIteratorPrototype := ArrayIteratorPrototype;
 end;
 
-class procedure TJSIteratorBuiltins.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey;
-                                                 const Value: TJSValue; const IsWritable: Boolean);
+destructor TJSIteratorBuiltins.Destroy;
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Writable := IsWritable;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := True;
-  Target.DefineProperty(Key, Descriptor);
+  FSupport.Free;
+  inherited;
 end;
 
-class function TJSIteratorBuiltins.AsFunction(const Value: TJSValue): IJSFunction;
+function TJSIteratorBuiltins.RequireFunction(const Value: TJSValue): IJSFunction;
 begin
-  Supports(Value.ToObject, IJSFunction, Result);
-end;
-
-function TJSIteratorBuiltins.ToText(const Value: TJSValue): string;
-begin
-  const Primitive = Value.ToPrimitiveWithHint(TJSPrimitiveHint.String_);
-
-  Result := Primitive.ToLimitedString(FInterpreter.Limits);
-end;
-
-function TJSIteratorBuiltins.CreateMethod(const Name: string; const Method: TNativeFunction): IJSFunction;
-begin
-  Result := TJSFunction.CreateNative(Name, Method);
-  Result.IsConstructor := False;
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Result, 0);
-  FInterpreter.RegisterFunction(Result);
-end;
-
-function TJSIteratorBuiltins.CreateNextMethod(const Method: TNativeFunction): IJSFunction;
-begin
-  Result := CreateMethod(NEXT_PROPERTY, Method);
+  if not Value.TryGetFunction(Result) then
+    raise TJSErrorFactory.TypeError(INTRINSIC_NOT_A_FUNCTION);
 end;
 
 function TJSIteratorBuiltins.CreateSymbolIteratorMethod(const Method: TNativeFunction): IJSFunction;
 begin
-  Result := CreateMethod(ITERATOR_FUNCTION_NAME, Method);
+  Result := FSupport.CreateMethod(ITERATOR_FUNCTION_NAME, 0, Method);
 end;
 
 procedure TJSIteratorBuiltins.DefineIteratorMethod(const Target: IJSObject; const Method: IJSFunction);
 begin
   const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Iterator);
 
-  DefineMember(Target, Key, TJSValue.CreateObject(Method), True);
-end;
-
-procedure TJSIteratorBuiltins.DefineToStringTag(const Target: IJSObject; const Tag: string);
-begin
-  const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
-
-  DefineMember(Target, Key, TJSValue.CreateString(Tag), False);
+  FSupport.DefineMember(Target, Key, TJSValue.CreateObject(Method), True);
 end;
 
 function TJSIteratorBuiltins.CreateIteratorPrototype: IJSObject;
@@ -122,14 +95,8 @@ begin
   Result := TJSObject.Create;
   Result.Prototype := FInterpreter.ObjectPrototype;
 
-  const ReturnsThis = CreateSymbolIteratorMethod(
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Assigned(This) then
-        Result := TJSValue.CreateObject(This)
-      else
-        Result := TJSValue.CreateUndefined;
-    end);
+  const ReturnThisMethod = TJSBuiltinSupport.ReturnsThis;
+  const ReturnsThis = CreateSymbolIteratorMethod(ReturnThisMethod);
 
   DefineIteratorMethod(Result, ReturnsThis);
 end;
@@ -139,7 +106,8 @@ begin
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(STRING_ITERATOR_ON_NOTHING);
 
-  const Text = ToText(TJSValue.CreateObject(This));
+  const ThisValue = TJSValue.CreateObject(This);
+  const Text = TJSConversions.ToText(ThisValue, FInterpreter.Limits);
   const Iterator = TJSStringIterator.Create(Text, FInterpreter.ObjectPrototype);
   Iterator.Prototype := FInterpreter.Iteration.StringIteratorPrototype;
 
@@ -151,7 +119,7 @@ begin
   Result := TJSObject.Create;
   Result.Prototype := IteratorPrototype;
 
-  const NextMethod = CreateNextMethod(
+  const NextMethod = FSupport.CreateMethod(NEXT_PROPERTY, 0,
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       var Iterator: IJSStringIterator;
@@ -161,38 +129,55 @@ begin
       Result := Iterator.NextResult;
     end);
 
-  DefineMember(Result, NEXT_PROPERTY, TJSValue.CreateObject(NextMethod), True);
-  DefineToStringTag(Result, STRING_ITERATOR_TAG);
+  FSupport.DefineMember(Result, NEXT_PROPERTY, TJSValue.CreateObject(NextMethod), True);
+  FSupport.DefineToStringTag(Result, STRING_ITERATOR_TAG);
 end;
 
-procedure TJSIteratorBuiltins.Register;
+function TJSIteratorBuiltins.WithArrayIterator(const Source: TJSIterationIntrinsics;
+                                               const IteratorPrototype: IJSObject): TJSIterationIntrinsics;
 begin
-  var Intrinsics := Default(TJSIterationIntrinsics);
-
-  const IteratorPrototype = CreateIteratorPrototype;
+  Result := Source;
 
   FArrayIteratorPrototype.Prototype := IteratorPrototype;
-  DefineToStringTag(FArrayIteratorPrototype, ARRAY_ITERATOR_TAG);
-  Intrinsics.ArrayIteratorPrototype := FArrayIteratorPrototype;
-  const ArrayNext = AsFunction(FArrayIteratorPrototype.GetProperty(NEXT_PROPERTY));
+  FSupport.DefineToStringTag(FArrayIteratorPrototype, ARRAY_ITERATOR_TAG);
+  Result.ArrayIteratorPrototype := FArrayIteratorPrototype;
+  const ArrayNextValue = FArrayIteratorPrototype.GetProperty(NEXT_PROPERTY);
+  const ArrayNext = RequireFunction(ArrayNextValue);
   ArrayNext.IsConstructor := False;
   TJSFunction.DefineLength(ArrayNext, 0);
-  Intrinsics.ArrayIteratorNext := ArrayNext as IInterface;
+  Result.ArrayIteratorNext := ArrayNext as IInterface;
 
   const ArrayPrototype = FInterpreter.ArrayPrototype;
-  const ArrayValues = AsFunction(ArrayPrototype.GetProperty(VALUES_PROPERTY));
+  const ArrayValuesValue = ArrayPrototype.GetProperty(VALUES_PROPERTY);
+  const ArrayValues = RequireFunction(ArrayValuesValue);
   DefineIteratorMethod(ArrayPrototype, ArrayValues);
-  Intrinsics.ArrayValues := ArrayValues as IInterface;
+  Result.ArrayValues := ArrayValues as IInterface;
+end;
 
-  Intrinsics.StringIteratorPrototype := CreateStringIteratorPrototype(IteratorPrototype);
-  Intrinsics.StringIteratorNext := AsFunction(Intrinsics.StringIteratorPrototype.GetProperty(NEXT_PROPERTY)) as IInterface;
-  const StringIterator = CreateSymbolIteratorMethod(
+function TJSIteratorBuiltins.WithStringIterator(const Source: TJSIterationIntrinsics;
+                                                const IteratorPrototype: IJSObject): TJSIterationIntrinsics;
+begin
+  Result := Source;
+
+  Result.StringIteratorPrototype := CreateStringIteratorPrototype(IteratorPrototype);
+  const StringNextValue = Result.StringIteratorPrototype.GetProperty(NEXT_PROPERTY);
+  Result.StringIteratorNext := RequireFunction(StringNextValue) as IInterface;
+  const StringIteratorMethod = CreateSymbolIteratorMethod(
     function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
     begin
       Result := StringIteratorFor(This);
     end);
-  DefineIteratorMethod(FInterpreter.StringPrototype, StringIterator);
-  Intrinsics.StringIterator := StringIterator as IInterface;
+  DefineIteratorMethod(FInterpreter.StringPrototype, StringIteratorMethod);
+  Result.StringIterator := StringIteratorMethod as IInterface;
+end;
+
+procedure TJSIteratorBuiltins.Register;
+begin
+  const IteratorPrototype = CreateIteratorPrototype;
+
+  var Intrinsics := Default(TJSIterationIntrinsics);
+  Intrinsics := WithArrayIterator(Intrinsics, IteratorPrototype);
+  Intrinsics := WithStringIterator(Intrinsics, IteratorPrototype);
 
   FInterpreter.Iteration := Intrinsics;
 end;

@@ -7,24 +7,13 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.ErrorNames,
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TNumberFormatTests = class
-  private
-    FEngine: TJSEngine;
-
-    function StringOf(const Expression: string): string;
-    function ErrorNameOf(const Expression: string): string;
-
+  TNumberFormatTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Integer', '123|123', '|')]
     [TestCase('NegativeInteger', '-45|-45', '|')]
@@ -49,7 +38,9 @@ type
     [TestCase('LargestPowerProduct', 'Math.pow(2, 52) * Math.pow(2, 971)|8.98846567431158e+307', '|')]
     [TestCase('MaxValueLiteral', '1.7976931348623157e308|1.7976931348623157e+308', '|')]
     [TestCase('SquareRootEqualsLiteral', 'Math.sqrt(0.00812479431693535) === 0.09013764095501585|true', '|')]
-    procedure ToString_Number_UsesShortestRoundTrip(const Expression: string; const Expected: string);
+    [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
+    [TestCase('UnknownLocale', '1234.5.toLocaleString("xx-XX")|1234.5', '|')]
+    procedure ToString_Expression_ReturnsExpectedText(const Expression: string; const Expected: string);
 
     [Test]
     [TestCase('Rounds', '1.005|2|1.00', '|')]
@@ -134,52 +125,21 @@ type
     procedure ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 
     [Test]
-    [TestCase('NoArguments', '(255).toLocaleString()|255', '|')]
-    [TestCase('UnknownLocale', '1234.5.toLocaleString("xx-XX")|1234.5', '|')]    procedure ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
-
-    [Test]
     procedure ToExponential_InfiniteValueWithBadDigits_ReturnsInfinity;
   end;
 
 implementation
 
-const
-  NoError = 'none';
-  RangeErrorName = 'RangeError';
-
-procedure TNumberFormatTests.Setup;
+procedure TNumberFormatTests.ToString_Expression_ReturnsExpectedText(const Expression: string; const Expected: string);
 begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TNumberFormatTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TNumberFormatTests.StringOf(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).AsString;
-end;
-
-function TNumberFormatTests.ErrorNameOf(const Expression: string): string;
-begin
-  const Script = Format('var name = ''%s''; try { %s; } catch (e) { name = e.name; } name',
-                        [NoError, Expression]);
-
-  Result := FEngine.Evaluate(Script).AsString;
-end;
-
-procedure TNumberFormatTests.ToString_Number_UsesShortestRoundTrip(const Expression: string; const Expected: string);
-begin
-  const Actual = StringOf(Expression);
+  const Actual = TextOf(Expression);
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberFormatTests.ToFixed_Digits_RoundsExactValue(const Value: string; const Digits: string; const Expected: string);
 begin
-  const Actual = StringOf(Format('(%s).toFixed(%s)', [Value, Digits]));
+  const Actual = TextOf(Format('(%s).toFixed(%s)', [Value, Digits]));
 
   Assert.AreEqual(Expected, Actual);
 end;
@@ -187,42 +147,36 @@ end;
 procedure TNumberFormatTests.ToExponential_Digits_FormatsMantissaAndExponent(const Value: string; const Digits: string;
                                                                              const Expected: string);
 begin
-  const Actual = StringOf(Format('(%s).toExponential(%s)', [Value, Digits]));
+  const Actual = TextOf(Format('(%s).toExponential(%s)', [Value, Digits]));
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberFormatTests.ToPrecision_Digits_ChoosesNotation(const Value: string; const Digits: string; const Expected: string);
 begin
-  const Actual = StringOf(Format('(%s).toPrecision(%s)', [Value, Digits]));
+  const Actual = TextOf(Format('(%s).toPrecision(%s)', [Value, Digits]));
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberFormatTests.Format_DigitsOutOfRange_ThrowsRangeError(const Expression: string);
 begin
-  const Actual = ErrorNameOf(Expression);
+  const Statement = Format('%s;', [Expression]);
+  const Actual = ThrownErrorNameOf(Statement);
 
-  Assert.AreEqual(RangeErrorName, Actual);
+  Assert.AreEqual(RANGE_ERROR_NAME, Actual);
 end;
 
 procedure TNumberFormatTests.ToString_Radix_ConvertsInteger(const Radix: string; const Expected: string);
 begin
-  const Actual = StringOf(Format('(255).toString(%s)', [Radix]));
-
-  Assert.AreEqual(Expected, Actual);
-end;
-
-procedure TNumberFormatTests.ToLocaleString_Arguments_AreNotUsedAsRadix(const Expression: string; const Expected: string);
-begin
-  const Actual = StringOf(Expression);
+  const Actual = TextOf(Format('(255).toString(%s)', [Radix]));
 
   Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TNumberFormatTests.ToExponential_InfiniteValueWithBadDigits_ReturnsInfinity;
 begin
-  const Actual = StringOf('Infinity.toExponential(1000)');
+  const Actual = TextOf('Infinity.toExponential(1000)');
 
   Assert.AreEqual('Infinity', Actual);
 end;

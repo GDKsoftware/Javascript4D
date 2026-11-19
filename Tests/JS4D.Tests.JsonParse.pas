@@ -7,12 +7,14 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
+  JS4D.Errors,
   JS4D.JsonSyntax,
-  JS4D.Engine;
+  JS4D.JsonReader,
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TJsonParseTests = class
+  TJsonParseTests = class(TJSEngineTestCase)
   public
     [Test]
     [TestCase('Object', '{"a": [1]}')]
@@ -37,77 +39,72 @@ type
     [TestCase('TrailingGarbage', '1 2')]
     [TestCase('Undefined', 'undefined')]
     [TestCase('UnclosedArray', '[1')]
+    [TestCase('TrailingCommaInArray', '[1,]')]
+    [TestCase('TrailingCommaInObject', '{"a":1,}')]
+    [TestCase('ControlCharacterInString', '"a' + #1 + 'b"')]
+    [TestCase('UnicodeWhitespaceAroundValue', #$1680 + '1')]
     procedure IsValid_InvalidText_ReturnsFalse(const Text: string);
-
-    [Test]
-    procedure IsValid_TrailingComma_ReturnsFalse;
-
-    [Test]
-    procedure IsValid_ControlCharacterInString_ReturnsFalse;
-
-    [Test]
-    procedure IsValid_UnicodeWhitespaceAroundValue_ReturnsFalse;
 
     [Test]
     procedure IsValid_ExcessiveNesting_ReturnsFalse;
 
     [Test]
     procedure Parse_InvalidText_ThrowsSyntaxError;
+
+    [Test]
+    [TestCase('Truncated', '{"a":')]
+    [TestCase('Empty', '')]
+    [TestCase('UnterminatedString', '"abc')]
+    [TestCase('LoneEscape', '"abc\')]
+    procedure Read_InvalidText_RaisesSyntaxError(const Text: string);
   end;
 
 implementation
 
+uses
+  JS4D.Tests.ErrorNames;
+
+const
+  NESTING_DEPTH = 5000;
+
 procedure TJsonParseTests.IsValid_ValidText_ReturnsTrue(const Text: string);
 begin
-  Assert.IsTrue(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsTrue(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_InvalidText_ReturnsFalse(const Text: string);
 begin
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
-end;
+  const IsValid = TJSJsonSyntax.IsValid(Text);
 
-procedure TJsonParseTests.IsValid_TrailingComma_ReturnsFalse;
-begin
-  Assert.IsFalse(TJSJsonSyntax.IsValid('[1,]'), 'array');
-  Assert.IsFalse(TJSJsonSyntax.IsValid('{"a":1,}'), 'object');
-end;
-
-procedure TJsonParseTests.IsValid_ControlCharacterInString_ReturnsFalse;
-begin
-  const Text = '"a' + #1 + 'b"';
-
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
-end;
-
-procedure TJsonParseTests.IsValid_UnicodeWhitespaceAroundValue_ReturnsFalse;
-begin
-  const Text = #$1680 + '1';
-
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
+  Assert.IsFalse(IsValid);
 end;
 
 procedure TJsonParseTests.IsValid_ExcessiveNesting_ReturnsFalse;
 begin
-  const Text = StringOfChar('[', 5000) + StringOfChar(']', 5000);
+  const Text = StringOfChar('[', NESTING_DEPTH) + StringOfChar(']', NESTING_DEPTH);
 
-  Assert.IsFalse(TJSJsonSyntax.IsValid(Text));
+  const IsValid = TJSJsonSyntax.IsValid(Text);
+
+  Assert.IsFalse(IsValid);
+end;
+
+procedure TJsonParseTests.Read_InvalidText_RaisesSyntaxError(const Text: string);
+begin
+  Assert.WillRaise(
+    procedure
+    begin
+      TJSJsonReader.Read(Text, nil, nil);
+    end,
+    EJSSyntaxError);
 end;
 
 procedure TJsonParseTests.Parse_InvalidText_ThrowsSyntaxError;
 begin
-  const Engine = TJSEngine.Create;
-  try
-    const Script =
-      'var thrown = false;' + sLineBreak +
-      'try { JSON.parse(''{"a": tru}''); }' +
-      ' catch (e) { thrown = (e instanceof SyntaxError); }' + sLineBreak +
-      'thrown';
+  const Actual = ErrorNameOf('JSON.parse(''{"a": tru}'');');
 
-    Assert.IsTrue(Engine.Evaluate(Script).AsBoolean);
-  finally
-    Engine.Free;
-  end;
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 end.

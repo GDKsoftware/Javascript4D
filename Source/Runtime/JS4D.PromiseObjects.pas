@@ -132,7 +132,7 @@ end;
 
 procedure TJSPromiseObject.ReleaseHeldValues;
 begin
-  ReleaseNested;
+  ReleaseNestedIteratively;
   Reset;
 end;
 

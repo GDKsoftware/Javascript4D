@@ -7,24 +7,12 @@ interface
 uses
   DUnitX.TestFramework,
   System.SysUtils,
-  JS4D.Errors,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TDestructuringTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TDestructuringTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Basic', 'var [a, b] = [1, 2]; a + "," + b|1,2', '|')]
     [TestCase('Hole', 'var [, b] = [1, 2]; b|2', '|')]
@@ -45,14 +33,11 @@ type
     [TestCase('NameInferenceForArrow', 'var [f = () => 1] = []; f.name|f', '|')]
     [TestCase('NoNameForNestedPatternDefault', 'var [[f] = [function() {}]] = []; f.name|', '|')]
     [TestCase('Empty', 'var [] = [1]; 1|1', '|')]
-    procedure ArrayPattern_Var_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Basic', 'var {a, b} = {a: 1, b: 2}; a + "," + b|1,2', '|')]
+    [TestCase('ObjectPattern Basic', 'var {a, b} = {a: 1, b: 2}; a + "," + b|1,2', '|')]
     [TestCase('Renamed', 'var {a: x} = {a: 3}; x|3', '|')]
     [TestCase('Default', 'var {a = 4} = {}; a|4', '|')]
     [TestCase('RenamedDefault', 'var {a: x = 6} = {}; x|6', '|')]
-    [TestCase('Nested', 'var {a: {b}} = {a: {b: 7}}; b|7', '|')]
+    [TestCase('ObjectPattern Nested', 'var {a: {b}} = {a: {b: 7}}; b|7', '|')]
     [TestCase('NestedArray', 'var {a: [b]} = {a: [8]}; b|8', '|')]
     [TestCase('ComputedKey', 'var k = "z"; var {[k]: v} = {z: 9}; v|9', '|')]
     [TestCase('StringKey', 'var {"a b": v} = {"a b": 1}; v|1', '|')]
@@ -61,29 +46,23 @@ type
     [TestCase('PrimitiveString', 'var {length} = "abc"; length|3', '|')]
     [TestCase('InheritedProperty', 'var {x} = Object.create({x: 2}); x|2', '|')]
     [TestCase('Getter', 'var {x} = { get x() { return 3; } }; x|3', '|')]
-    [TestCase('Empty', 'var {} = 1; 1|1', '|')]
+    [TestCase('ObjectPattern Empty', 'var {} = 1; 1|1', '|')]
     [TestCase('MissingIsUndefined', 'var {a} = {}; typeof a|undefined', '|')]
-    [TestCase('NameInferenceForDefault', 'var {f = function() {}} = {}; f.name|f', '|')]
+    [TestCase('ObjectPattern NameInferenceForDefault', 'var {f = function() {}} = {}; f.name|f', '|')]
     [TestCase('KeywordKey', 'var {if: v} = {if: 1}; v|1', '|')]
     [TestCase('ArrayLengthProperty', 'var {length} = [1, 2]; length|2', '|')]
-    procedure ObjectPattern_Var_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Basic', 'var {a, ...r} = {a: 1, b: 2, c: 3}; Object.keys(r).join()|b,c', '|')]
+    [TestCase('ObjectRest Basic', 'var {a, ...r} = {a: 1, b: 2, c: 3}; Object.keys(r).join()|b,c', '|')]
     [TestCase('Values', 'var {...r} = {a: 1}; r.a|1', '|')]
     [TestCase('IsCopy', 'var o = {a: 1}; var {...r} = o; r !== o|true', '|')]
     [TestCase('SkipsNonEnumerable', 'var o = {}; Object.defineProperty(o, "h", {value: 1}); var {...r} = o; Object.keys(r).length|0', '|')]
     [TestCase('ComputedKeyIsExcluded', 'var k = "a"; var {[k]: x, ...r} = {a: 1, b: 2}; Object.keys(r).join()|b', '|')]
-    [TestCase('String', 'var {...r} = "ab"; r[0] + r[1]|ab', '|')]
+    [TestCase('ObjectRest String', 'var {...r} = "ab"; r[0] + r[1]|ab', '|')]
     [TestCase('Number', 'var {...r} = 1; Object.keys(r).length|0', '|')]
     [TestCase('AssignmentToVariable', 'var a, r; ({a, ...r} = {a: 1, b: 2}); Object.keys(r).join()|b', '|')]
     [TestCase('AssignmentToMember', 'var o = {}; ({...o.r} = {x: 1}); o.r.x|1', '|')]
     [TestCase('InParameter', 'function f({a, ...r}) { return Object.keys(r).join(); } f({a: 1, b: 2, c: 3})|b,c', '|')]
-    [TestCase('Getter', 'var n = 0; var o = { get a() { n++; return 1; } }; var {...r} = o; r.a + "," + n|1,1', '|')]
+    [TestCase('ObjectRest Getter', 'var n = 0; var o = { get a() { n++; return 1; } }; var {...r} = o; r.a + "," + n|1,1', '|')]
     [TestCase('NullIsTypeError', 'var r; try { var {...x} = null; } catch (e) { r = e.name; } r|TypeError', '|')]
-    procedure ObjectRest_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('Let', 'let [a, b] = [1, 2]; a + b|3', '|')]
     [TestCase('Const', 'const {a, b} = {a: 1, b: 2}; a + b|3', '|')]
     [TestCase('LetObject', 'let {a: {b}} = {a: {b: 5}}; b|5', '|')]
@@ -93,25 +72,22 @@ type
     [TestCase('DefaultSeesEarlier', 'let [a, b = a] = [3]; b|3', '|')]
     [TestCase('ConstInFunction', 'function f() { const [a, b] = [1, 2]; return a * b; } f()|2', '|')]
     [TestCase('LetIsAssignable', 'let [a] = [1]; a = 2; a|2', '|')]
-    procedure Lexical_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('Array', 'var a, b; [a, b] = [1, 2]; a + "," + b|1,2', '|')]
     [TestCase('Swap', 'var a = 1, b = 2; [a, b] = [b, a]; a + "," + b|2,1', '|')]
     [TestCase('Object', 'var a, b; ({a, b} = {a: 1, b: 2}); a + "," + b|1,2', '|')]
     [TestCase('ObjectRenamed', 'var x; ({a: x} = {a: 5}); x|5', '|')]
-    [TestCase('Default', 'var a; [a = 3] = []; a|3', '|')]
+    [TestCase('Assignment Default', 'var a; [a = 3] = []; a|3', '|')]
     [TestCase('ObjectDefault', 'var a; ({a = 4} = {}); a|4', '|')]
     [TestCase('MemberTarget', 'var o = {}; [o.x, o["y"]] = [1, 2]; o.x + o.y|3', '|')]
     [TestCase('ObjectMemberTarget', 'var o = {}; ({a: o.p} = {a: 6}); o.p|6', '|')]
-    [TestCase('Nested', 'var a, b; [[a], {b}] = [[1], {b: 2}]; a + b|3', '|')]
-    [TestCase('Rest', 'var a, r; [a, ...r] = [1, 2, 3]; r.join()|2,3', '|')]
+    [TestCase('Assignment Nested', 'var a, b; [[a], {b}] = [[1], {b: 2}]; a + b|3', '|')]
+    [TestCase('Assignment Rest', 'var a, r; [a, ...r] = [1, 2, 3]; r.join()|2,3', '|')]
     [TestCase('RestMemberTarget', 'var o = {}; [...o.r] = [1, 2]; o.r.join()|1,2', '|')]
     [TestCase('RestPattern', 'var a, b; [...[a, b]] = [1, 2]; a + b|3', '|')]
     [TestCase('ResultIsRightHandSide', 'var a; var r = [1, 2]; ([a] = r) === r|true', '|')]
     [TestCase('ObjectResultIsRightHandSide', 'var a; var r = {a: 1}; ({a} = r) === r|true', '|')]
-    [TestCase('Hole', 'var b; [, b] = [1, 2]; b|2', '|')]
-    [TestCase('String', 'var a, b; [a, b] = "xy"; a + b|xy', '|')]
+    [TestCase('Assignment Hole', 'var b; [, b] = [1, 2]; b|2', '|')]
+    [TestCase('Assignment String', 'var a, b; [a, b] = "xy"; a + b|xy', '|')]
     [TestCase('NameInference', 'var f; [f = function() {}] = []; f.name|f', '|')]
     [TestCase('NoNameForMemberTarget', 'var o = {}; [o.f = function() {}] = []; o.f.name|', '|')]
     [TestCase('LetBinding', 'let a; [a] = [1]; a|1', '|')]
@@ -124,31 +100,13 @@ type
     [TestCase('SpreadSkipsNonEnumerable', 'var o = Object.defineProperty({}, "h", {value: 1}); Object.keys({...o}).length|0', '|')]
     [TestCase('SpreadLaterPropertyWins', '({a: 1, ...{a: 2}}).a|2', '|')]
     [TestCase('SpreadEarlierPropertyIsOverwritten', '({...{a: 2}, a: 1}).a|1', '|')]
-    procedure Assignment_Result(const Source: string; const Expected: string);
-
-    [Test]
-    procedure Assignment_TargetIsResolvedBeforeValueIsRead;
-
-    [Test]
-    procedure Assignment_ElementsAreEvaluatedLeftToRight;
-
-    [Test]
-    procedure Assignment_ToConstant_IsTypeError;
-
-    [Test]
-    procedure Assignment_ToUndeclaredInStrictMode_IsReferenceError;
-
-    [Test]
-    procedure Assignment_ToUndeclaredInSloppyMode_CreatesGlobal;
-
-    [Test]
-    [TestCase('Basic', 'function f([a, b]) { return a + b; } f([1, 2])|3', '|')]
-    [TestCase('Object', 'function f({a, b}) { return a + b; } f({a: 1, b: 2})|3', '|')]
-    [TestCase('Default', 'function f([a] = [5]) { return a; } f()|5', '|')]
-    [TestCase('ObjectDefault', 'function f({a} = {a: 6}) { return a; } f()|6', '|')]
+    [TestCase('Parameter Basic', 'function f([a, b]) { return a + b; } f([1, 2])|3', '|')]
+    [TestCase('Parameter Object', 'function f({a, b}) { return a + b; } f({a: 1, b: 2})|3', '|')]
+    [TestCase('Parameter Default', 'function f([a] = [5]) { return a; } f()|5', '|')]
+    [TestCase('Parameter ObjectDefault', 'function f({a} = {a: 6}) { return a; } f()|6', '|')]
     [TestCase('ElementDefault', 'function f({a = 7}) { return a; } f({})|7', '|')]
     [TestCase('AfterSimple', 'function f(x, [a], y) { return x + a + y; } f(1, [2], 3)|6', '|')]
-    [TestCase('RestPattern', 'function f(...[a, b]) { return a + b; } f(1, 2, 3)|3', '|')]
+    [TestCase('Parameter RestPattern', 'function f(...[a, b]) { return a + b; } f(1, 2, 3)|3', '|')]
     [TestCase('RestObjectPattern', 'function f(...{length}) { return length; } f(1, 2, 3)|3', '|')]
     [TestCase('Arrow', 'var f = ([a, b]) => a + b; f([1, 2])|3', '|')]
     [TestCase('ArrowObject', 'var f = ({a}) => a; f({a: 4})|4', '|')]
@@ -163,30 +121,21 @@ type
     [TestCase('Closure', 'function f([a]) { return () => a; } f([1])()|1', '|')]
     [TestCase('BodyVarWithPatternName', 'function f([a]) { var a; return a; } f([2])|2', '|')]
     [TestCase('BodyVarAssignedIsSeparate', 'function f([a], g = () => a) { var a = 9; return g() + "," + a; } f([1])|1,9', '|')]
-    [TestCase('NameInference', 'function f({g = function() {}}) { return g.name; } f({})|g', '|')]
+    [TestCase('Parameter NameInference', 'function f({g = function() {}}) { return g.name; } f({})|g', '|')]
     [TestCase('ArgumentsHoldsOriginalValues', 'function f([a]) { return arguments[0][0]; } f([3])|3', '|')]
     [TestCase('ArgumentsIsNotMapped', 'function f([a]) { a = 5; return arguments[0][0]; } f([3])|3', '|')]
     [TestCase('FunctionConstructor', 'new Function("[a, b]", "return a + b")([1, 2])|3', '|')]
-    procedure Parameter_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('PatternsCount', 'function f([a], {b}) {} f.length|2', '|')]
     [TestCase('StopsAtDefault', 'function f([a], b = 1, {c}) {} f.length|1', '|')]
     [TestCase('PatternDefault', 'function f([a] = []) {} f.length|0', '|')]
     [TestCase('RestPatternIsNotCounted', 'function f(a, ...[b]) {} f.length|1', '|')]
-    [TestCase('Arrow', '(([a], {b}) => 1).length|2', '|')]
-    procedure Length_Result(const Source: string; const Expected: string);
-
-    [Test]
-    [TestCase('Array', 'var r = ""; try { throw [1, 2]; } catch ([a, b]) { r = a + "," + b; } r|1,2', '|')]
-    [TestCase('Object', 'var r = ""; try { throw {a: 3}; } catch ({a}) { r = a; } r|3', '|')]
-    [TestCase('Default', 'var r = ""; try { throw []; } catch ([a = 4]) { r = a; } r|4', '|')]
-    [TestCase('Closure', 'var f; try { throw [5]; } catch ([a]) { f = () => a; } f()|5', '|')]
+    [TestCase('Length Arrow', '(([a], {b}) => 1).length|2', '|')]
+    [TestCase('Catch Array', 'var r = ""; try { throw [1, 2]; } catch ([a, b]) { r = a + "," + b; } r|1,2', '|')]
+    [TestCase('Catch Object', 'var r = ""; try { throw {a: 3}; } catch ({a}) { r = a; } r|3', '|')]
+    [TestCase('Catch Default', 'var r = ""; try { throw []; } catch ([a = 4]) { r = a; } r|4', '|')]
+    [TestCase('Catch Closure', 'var f; try { throw [5]; } catch ([a]) { f = () => a; } f()|5', '|')]
     [TestCase('ScopedToCatch', 'try { throw [5]; } catch ([a]) {} typeof a|undefined', '|')]
     [TestCase('ThrownError', 'var r; try { null.x; } catch ({name}) { r = name; } r|TypeError', '|')]
-    procedure Catch_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('VarArray', 'var r = ""; for (var [a, b] in {xy: 1}) { r = a + b; } r|xy', '|')]
     [TestCase('VarObject', 'var r = ""; for (var {length} in {abc: 1}) { r = length; } r|3', '|')]
     [TestCase('LetArray', 'var r = ""; for (let [a, b] in {xy: 1}) { r += a + b; } r|xy', '|')]
@@ -196,7 +145,22 @@ type
     [TestCase('AssignmentMember', 'var o = {}; for (o.k in {a: 1}) {} o.k|a', '|')]
     [TestCase('LetClosures', 'var f = []; for (let [a] in {x: 1, y: 2}) { f.push(() => a); } f[0]() + f[1]()|xy', '|')]
     [TestCase('VarIsHoisted', 'var r = typeof a; for (var [a] in {x: 1}) {} r|undefined', '|')]
-    procedure ForIn_Result(const Source: string; const Expected: string);
+    procedure Destructuring_Script_ReturnsExpected(const Source: string; const Expected: string);
+
+    [Test]
+    procedure Assignment_MemberTarget_IsResolvedBeforeValueIsRead;
+
+    [Test]
+    procedure Assignment_ArrayElements_AreEvaluatedLeftToRight;
+
+    [Test]
+    procedure Assignment_ToConstant_IsTypeError;
+
+    [Test]
+    procedure Assignment_ToUndeclaredInStrictMode_IsReferenceError;
+
+    [Test]
+    procedure Assignment_ToUndeclaredInSloppyMode_CreatesGlobal;
 
     [Test]
     [TestCase('NullInArray', 'var [a] = null;', '|')]
@@ -211,7 +175,7 @@ type
     [TestCase('UndefinedInParameter', 'function f([a]) {} f();', '|')]
     [TestCase('NullInEmptyObjectPattern', 'var {} = null;', '|')]
     [TestCase('ThrowingGetter', 'var {a} = { get a() { throw new TypeError(); } };', '|')]
-    procedure Pattern_RaisesTypeError(const Source: string);
+    procedure Pattern_NullishValue_RaisesTypeError(const Source: string);
 
     [Test]
     [TestCase('TemporalDeadZone', 'let [a = b, b] = [];', '|')]
@@ -219,7 +183,7 @@ type
     [TestCase('ParameterDeadZone', 'function f([a = b], b) {} f([]);', '|')]
     [TestCase('ParameterOwnDeadZone', 'function f([a = a]) {} f([]);', '|')]
     [TestCase('ParameterObjectDeadZone', 'function f({a = b, b}) {} f({});', '|')]
-    procedure Pattern_RaisesReferenceError(const Source: string);
+    procedure Pattern_DeadZoneAccess_RaisesReferenceError(const Source: string);
 
     [Test]
     procedure Const_Pattern_AssignmentIsTypeError;
@@ -228,16 +192,16 @@ type
     procedure Rest_Element_CopiesRemainingElementsAtThatPoint;
 
     [Test]
-    procedure Array_ElementsAreReadLazily;
+    procedure Array_Pattern_ElementsAreReadLazily;
 
     [Test]
-    procedure Default_IsEvaluatedOnlyWhenNeeded;
+    procedure Default_Initializer_IsEvaluatedOnlyWhenNeeded;
 
     [Test]
-    procedure Default_IsEvaluatedInOrder;
+    procedure Default_Initializers_AreEvaluatedInOrder;
 
     [Test]
-    procedure ComputedKey_IsEvaluatedBeforeTarget;
+    procedure ComputedKey_ObjectPattern_IsEvaluatedBeforeTarget;
 
     [Test]
     procedure Statement_AtBlockStart_IsNotAnObjectPattern;
@@ -290,9 +254,6 @@ type
     [TestCase('ForInVarInitializer', 'for (var [a] = [] in {}) {}', '|')]
     [TestCase('ForInDuplicate', 'for (let [a, a] in {}) {}', '|')]
     [TestCase('ForInLetNotLast', 'for (let [...a, b] in {}) {}', '|')]
-    procedure Source_IsSyntaxError(const Source: string);
-
-    [Test]
     [TestCase('NumberLiteralTarget', '[1] = [];', '|')]
     [TestCase('CallTarget', '[f()] = [];', '|')]
     [TestCase('BinaryTarget', '[a + b] = [];', '|')]
@@ -301,9 +262,9 @@ type
     [TestCase('ParenthesizedObjectAsWholeTarget', '({a}) = {};', '|')]
     [TestCase('ParenthesizedNestedObject', '({a: ({b})} = {});', '|')]
     [TestCase('ParenthesizedAssignmentInElement', '[(a = 1)] = [];', '|')]
-    [TestCase('RestNotLast', '[...a, b] = [];', '|')]
-    [TestCase('RestTrailingComma', '[...a,] = [];', '|')]
-    [TestCase('RestWithInitializer', '[...a = []] = [];', '|')]
+    [TestCase('Source RestNotLast', '[...a, b] = [];', '|')]
+    [TestCase('Source RestTrailingComma', '[...a,] = [];', '|')]
+    [TestCase('Source RestWithInitializer', '[...a = []] = [];', '|')]
     [TestCase('ObjectMethodTarget', '({m() {}} = {});', '|')]
     [TestCase('ObjectGetterTarget', '({get a() {}} = {});', '|')]
     [TestCase('ObjectLiteralValueTarget', '({a: 1} = {});', '|')]
@@ -316,10 +277,10 @@ type
     [TestCase('CoverInitializerInConditional', 'x ? {a = 1} : 2;', '|')]
     [TestCase('CoverInitializerInPlainFor', 'for ({a = 1};;) {}', '|')]
     [TestCase('CompoundAssignmentToPattern', '[a] += [];', '|')]
-    [TestCase('ObjectRestTrailingComma', '({...a,} = {});', '|')]
+    [TestCase('Source ObjectRestTrailingComma', '({...a,} = {});', '|')]
     [TestCase('ObjectRestIsObjectPattern', '({...{a}} = {});', '|')]
     [TestCase('ObjectRestIsArrayPattern', '({...[a]} = {});', '|')]
-    [TestCase('ObjectRestNotLast', '({...a, b} = {});', '|')]
+    [TestCase('Source ObjectRestNotLast', '({...a, b} = {});', '|')]
     [TestCase('ObjectRestWithInitializer', '({...a = 1} = {});', '|')]
     [TestCase('DuplicatePrototypeKeyInLiteral', '({__proto__: 1, __proto__: 2});', '|')]
     [TestCase('DuplicatePrototypeKeyInArgument', 'f({__proto__: 1, __proto__: 2});', '|')]
@@ -329,7 +290,7 @@ type
     [TestCase('ForInParenthesized', 'for (([a]) in {}) {}', '|')]
     [TestCase('ForInInvalidTarget', 'for ([1] in {}) {}', '|')]
     [TestCase('ForInRestNotLast', 'for ([...a, b] in {}) {}', '|')]
-    procedure Source_IsSyntaxErrorInAssignment(const Source: string);
+    procedure Pattern_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('Array', '[a] = [];', '|')]
@@ -360,10 +321,10 @@ type
     [TestCase('ParameterShadowedByVarInBody', 'function f([a]) { var a; }', '|')]
     [TestCase('LexicalFromOtherBlock', 'function f([a]) { { let a; } }', '|')]
     [TestCase('LetPatternDeclaration', 'let [a] = [], {b} = {};', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure Pattern_ValidSource_RaisesNoError(const Source: string);
 
     [Test]
-    procedure ObjectLiteral_StillAcceptsShorthandAndAccessors;
+    procedure ObjectLiteral_ShorthandAndAccessors_AreAccepted;
 
     [Test]
     procedure Hoisting_VarPatternNames_AreDeclaredAtTheTop;
@@ -374,219 +335,178 @@ type
 
 implementation
 
-procedure TDestructuringTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TDestructuringTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TDestructuringTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
-procedure TDestructuringTests.ArrayPattern_Var_Result(const Source: string; const Expected: string);
+procedure TDestructuringTests.Destructuring_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   const Actual = FEngine.Evaluate(Source);
 
   Assert.AreEqual(Expected, Actual.ToString);
 end;
 
-procedure TDestructuringTests.ObjectPattern_Var_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.ObjectRest_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.Lexical_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.Assignment_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.Assignment_TargetIsResolvedBeforeValueIsRead;
+procedure TDestructuringTests.Assignment_MemberTarget_IsResolvedBeforeValueIsRead;
 begin
   const Script = 'var log = ""; var o = { get a() { log += "get;"; return 1; } }; ' +
                  'function target() { log += "target;"; return {}; } ' +
                  '({a: target().x} = o); log';
 
-  Assert.AreEqual('target;get;', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('target;get;', Actual);
 end;
 
-procedure TDestructuringTests.Assignment_ElementsAreEvaluatedLeftToRight;
+procedure TDestructuringTests.Assignment_ArrayElements_AreEvaluatedLeftToRight;
 begin
   const Script = 'var log = ""; function t(n) { log += n; return {}; } ' +
                  '[t(1).a, t(2).b, t(3).c] = [1, 2, 3]; log';
 
-  Assert.AreEqual('123', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('123', Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToConstant_IsTypeError;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('const a = 1; [a] = [2];'));
+  const Actual = ErrorNameOf('const a = 1; [a] = [2];');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToUndeclaredInStrictMode_IsReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('"use strict"; [undeclaredTarget] = [1];'));
+  const Actual = ErrorNameOf('"use strict"; [undeclaredTarget] = [1];');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Assignment_ToUndeclaredInSloppyMode_CreatesGlobal;
 begin
   FEngine.Execute('[createdByPattern] = [3];');
 
-  Assert.AreEqual('3', FEngine.Evaluate('createdByPattern').ToString);
+  const Actual = EvaluateText('createdByPattern');
+
+  Assert.AreEqual('3', Actual);
 end;
 
-procedure TDestructuringTests.Parameter_Result(const Source: string; const Expected: string);
+procedure TDestructuringTests.Pattern_NullishValue_RaisesTypeError(const Source: string);
 begin
-  const Actual = FEngine.Evaluate(Source);
+  const Actual = ErrorNameOf(Source);
 
-  Assert.AreEqual(Expected, Actual.ToString);
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TDestructuringTests.Length_Result(const Source: string; const Expected: string);
+procedure TDestructuringTests.Pattern_DeadZoneAccess_RaisesReferenceError(const Source: string);
 begin
-  const Actual = FEngine.Evaluate(Source);
+  const Actual = ErrorNameOf(Source);
 
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.Catch_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.ForIn_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TDestructuringTests.Pattern_RaisesTypeError(const Source: string);
-begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
-end;
-
-procedure TDestructuringTests.Pattern_RaisesReferenceError(const Source: string);
-begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Const_Pattern_AssignmentIsTypeError;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('const [a] = [1]; a = 2;'));
+  const Actual = ErrorNameOf('const [a] = [1]; a = 2;');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TDestructuringTests.Rest_Element_CopiesRemainingElementsAtThatPoint;
 begin
   const Script = 'var a = [1, 2, 3]; var [x, ...r] = a; a.push(4); r.join()';
 
-  Assert.AreEqual('2,3', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('2,3', Actual);
 end;
 
-procedure TDestructuringTests.Array_ElementsAreReadLazily;
+procedure TDestructuringTests.Array_Pattern_ElementsAreReadLazily;
 begin
   const Script = 'var a = [1, undefined, 3]; var [x, y = (a[2] = 9), z] = a; x + "," + y + "," + z';
 
-  Assert.AreEqual('1,9,9', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1,9,9', Actual);
 end;
 
-procedure TDestructuringTests.Default_IsEvaluatedOnlyWhenNeeded;
+procedure TDestructuringTests.Default_Initializer_IsEvaluatedOnlyWhenNeeded;
 begin
   const Script = 'var n = 0; function d() { n++; return 1; } var [a = d(), b = d()] = [5]; n';
 
-  Assert.AreEqual('1', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1', Actual);
 end;
 
-procedure TDestructuringTests.Default_IsEvaluatedInOrder;
+procedure TDestructuringTests.Default_Initializers_AreEvaluatedInOrder;
 begin
   const Script = 'var log = ""; function d(n) { log += n; return n; } ' +
                  'var {a = d(1), b = d(2), c: [e = d(3)] = []} = {}; log';
 
-  Assert.AreEqual('123', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('123', Actual);
 end;
 
-procedure TDestructuringTests.ComputedKey_IsEvaluatedBeforeTarget;
+procedure TDestructuringTests.ComputedKey_ObjectPattern_IsEvaluatedBeforeTarget;
 begin
   const Script = 'var log = ""; function k() { log += "k;"; return "a"; } ' +
                  'function t() { log += "t;"; return {}; } ' +
                  '({[k()]: t().x} = {a: 1}); log';
 
-  Assert.AreEqual('k;t;', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('k;t;', Actual);
 end;
 
 procedure TDestructuringTests.Statement_AtBlockStart_IsNotAnObjectPattern;
 begin
   const Script = 'var a = 1; { a } a';
 
-  Assert.AreEqual('1', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('1', Actual);
 end;
 
-procedure TDestructuringTests.Source_IsSyntaxError(const Source: string);
+procedure TDestructuringTests.Pattern_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TDestructuringTests.Source_IsSyntaxErrorInAssignment(const Source: string);
+procedure TDestructuringTests.Pattern_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
-procedure TDestructuringTests.Source_IsAccepted(const Source: string);
-begin
-  Assert.AreEqual('', ErrorNameOf(Source));
-end;
-
-procedure TDestructuringTests.ObjectLiteral_StillAcceptsShorthandAndAccessors;
+procedure TDestructuringTests.ObjectLiteral_ShorthandAndAccessors_AreAccepted;
 begin
   const Script = 'var a = 1, get = 2, set = 3; var o = {a, get, set, get g() { return 4; }, set s(v) {}, m() {}}; ' +
                  'o.a + o.get + o.set + o.g';
 
-  Assert.AreEqual('10', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('10', Actual);
 end;
 
 procedure TDestructuringTests.Hoisting_VarPatternNames_AreDeclaredAtTheTop;
 begin
   const Script = 'var before = typeof a + typeof b; var [a, {b}] = [1, {b: 2}]; before + "," + a + b';
 
-  Assert.AreEqual('undefinedundefined,12', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('undefinedundefined,12', Actual);
 end;
 
 procedure TDestructuringTests.Hoisting_VarPatternNames_InNestedBlocksAreFunctionScoped;
 begin
   const Script = 'function f() { if (true) { var [a] = [3]; } return a; } f()';
 
-  Assert.AreEqual('3', FEngine.Evaluate(Script).ToString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('3', Actual);
 end;
 
 end.

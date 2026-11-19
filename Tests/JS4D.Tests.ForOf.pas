@@ -6,26 +6,15 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Errors,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TForOfTests = class
+  TForOfTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
     procedure AssertEvaluatesTo(const Expected: string; const Source: string);
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('ArrayVar', 'var r = ""; for (var x of [1, 2, 3]) r += x; r|123', '|')]
     [TestCase('ArrayLet', 'var r = ""; for (let x of [1, 2, 3]) r += x; r|123', '|')]
@@ -49,14 +38,15 @@ type
     [TestCase('NameOfAsLoopVariable', 'var r; for (var of of [3]) r = of; r|3', '|')]
     [TestCase('NameOfInForLoop', 'var n = 0; for (var of = 0; of < 3; of++) n += of; n|3', '|')]
     [TestCase('NameOfAsExpressionTarget', 'var of, r; for (of of [4]) r = of; r|4', '|')]
-    procedure Iterates_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('Break', 'var r = ""; for (var x of [1, 2, 3]) { if (x == 2) break; r += x; } r|1', '|')]
     [TestCase('Continue', 'var r = ""; for (var x of [1, 2, 3]) { if (x == 2) continue; r += x; } r|13', '|')]
     [TestCase('BreakLabel', 'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) break a; r += x + "" + y; } } r|11', '|')]
-    [TestCase('ContinueLabel', 'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; } } r|1121', '|')]
-    [TestCase('ContinueLabelWithLetHead', 'var r = ""; a: for (let x of [1, 2]) { for (let y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; } } r|1121', '|')]
+    [TestCase('ContinueLabel',
+      'var r = ""; a: for (var x of [1, 2]) { for (var y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; ' +
+      '} } r|1121', '|')]
+    [TestCase('ContinueLabelWithLetHead',
+      'var r = ""; a: for (let x of [1, 2]) { for (let y of [1, 2]) { if (y == 2) continue a; r += x + "" + y; ' +
+      '} } r|1121', '|')]
     [TestCase('BreakFromLabeledBlock', 'var r = ""; a: { for (var x of [1, 2]) { r += x; break a; } r += "no"; } r|1', '|')]
     [TestCase('Return', 'function f() { for (var x of [1, 2, 3]) { if (x == 2) return x; } return 0; } f()|2', '|')]
     [TestCase('ReturnFromLetHead', 'function f() { for (let x of [1, 2, 3]) { if (x == 2) return x; } return 0; } f()|2', '|')]
@@ -67,9 +57,6 @@ type
     [TestCase('ScopeRestoredAfterBreak', 'let x = "outer"; for (let x of [1]) { break; } x|outer', '|')]
     [TestCase('ScopeRestoredAfterLoop', 'let x = "outer"; for (let x of [1, 2]) {} x|outer', '|')]
     [TestCase('ScopeRestoredAfterThrow', 'let x = "outer"; try { for (let x of [1]) { throw 1; } } catch (e) {} x|outer', '|')]
-    procedure ControlFlow_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('LetClosures', 'var f = []; for (let x of [1, 2, 3]) f.push(() => x); f[0]() + "," + f[1]() + "," + f[2]()|1,2,3', '|')]
     [TestCase('ConstClosures', 'var f = []; for (const x of [1, 2]) f.push(() => x); f[0]() + "," + f[1]()|1,2', '|')]
     [TestCase('VarClosuresShareBinding', 'var f = []; for (var x of [1, 2]) f.push(() => x); f[0]() + "," + f[1]()|2,2', '|')]
@@ -77,9 +64,6 @@ type
     [TestCase('LetIsAssignableInBody', 'var r = ""; for (let x of [1, 2]) { x += 1; r += x; } r|23', '|')]
     [TestCase('LetShadowsOuter', 'let x = "o"; var r = ""; for (let x of [1]) r += x; r + x|1o', '|')]
     [TestCase('RightIsEvaluatedOnce', 'var n = 0; for (let x of (n++, [1, 2])) {} n|1', '|')]
-    procedure PerIterationBindings_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('LetArray', 'var r = ""; for (let [a, b] of [[1, 2], [3, 4]]) r += a + b + ";"; r|3;7;', '|')]
     [TestCase('ConstObject', 'var r = ""; for (const {a, b} of [{a: 1, b: 2}]) r += a + b; r|3', '|')]
     [TestCase('VarArray', 'var r = ""; for (var [a, b] of [[1, 2]]) r += a + b; r + a|31', '|')]
@@ -93,7 +77,10 @@ type
     [TestCase('AssignmentToMember', 'var o = {}; for (o.p of [1, 2]); o.p|2', '|')]
     [TestCase('AssignmentToIndexedMember', 'var o = []; for (o[1] of [7]); o[1]|7', '|')]
     [TestCase('PatternClosures', 'var f = []; for (let [a] of [[1], [2]]) f.push(() => a); f[0]() + "," + f[1]()|1,2', '|')]
-    procedure Destructuring_Result(const Source: string; const Expected: string);
+    [TestCase('ArrayLikes Arguments', '(function() { return [...arguments].join(); })(1, 2)|1,2', '|')]
+    [TestCase('ArrayLikes StringObject', '[...new String("ab")].join()|a,b', '|')]
+    [TestCase('ArgumentsPattern', '(function() { var [a, b] = arguments; return a + b; })(1, 2)|3', '|')]
+    procedure ForOf_Script_ReturnsExpected(const Source: string; const Expected: string);
 
     [Test]
     [TestCase('Object', 'for (var x of {}) {}', '|')]
@@ -106,13 +93,13 @@ type
     [TestCase('ConstAssignment', 'for (const x of [1]) { x = 2; }', '|')]
     [TestCase('PatternOfNull', 'for (var [a] of [null]) {}', '|')]
     [TestCase('PatternOfUndefinedObject', 'for (let {a} of [undefined]) {}', '|')]
-    procedure Runtime_RaisesTypeError(const Source: string);
+    procedure ForOf_RuntimeSource_RaisesTypeError(const Source: string);
 
     [Test]
     [TestCase('TemporalDeadZone', 'for (let x of [x]) {}', '|')]
     [TestCase('TemporalDeadZoneInPatternRight', 'for (let [x] of [[x]]) {}', '|')]
     [TestCase('StrictUndeclaredTarget', '"use strict"; for (undeclaredTarget of [1]) {}', '|')]
-    procedure Runtime_RaisesReferenceError(const Source: string);
+    procedure ForOf_RuntimeSource_RaisesReferenceError(const Source: string);
 
     [Test]
     [TestCase('Initializer', 'for (var x = 1 of []) {}', '|')]
@@ -135,102 +122,68 @@ type
     [TestCase('StrictArgumentsBinding', '"use strict"; for (var arguments of []) {}', '|')]
     [TestCase('BreakOutsideLoop', 'for (var x of []) {} break;', '|')]
     [TestCase('AsyncOf', 'for (async of [1]) {}', '|')]
-    procedure Source_IsSyntaxError(const Source: string);
+    procedure ForOf_InvalidSource_RaisesSyntaxError(const Source: string);
 
     [Test]
     [Test]
     [TestCase('AsyncAsVarLoopVariable', 'for (var async of []) {}', '|')]
     [TestCase('AsyncMemberTarget', 'var async = {}; for (async.x of []) {}', '|')]
     [TestCase('AsyncAsForInTarget', 'var async; for (async in {}) {}', '|')]
-    procedure Source_IsAccepted(const Source: string);
+    procedure ForOf_ValidSource_RaisesNoError(const Source: string);
 
-    procedure ForIn_AfterForOfSupport_StillWorks;
-
-    [Test]
-    [TestCase('Arguments', '(function() { return [...arguments].join(); })(1, 2)|1,2', '|')]
-    [TestCase('StringObject', '[...new String("ab")].join()|a,b', '|')]
-    [TestCase('ArgumentsPattern', '(function() { var [a, b] = arguments; return a + b; })(1, 2)|3', '|')]
-    procedure ArrayLikes_InSpreadAndPatterns_Result(const Source: string; const Expected: string);
+    procedure ForIn_VarAndLetBindings_VisitKeysInOrder;
   end;
 
 implementation
 
-procedure TForOfTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TForOfTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TForOfTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const NewlinesEscaped = QuotesEscaped.Replace(#10, '\n');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [NewlinesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
 procedure TForOfTests.AssertEvaluatesTo(const Expected: string; const Source: string);
 begin
-  Assert.AreEqual(Expected, FEngine.Evaluate(Source).ToString);
+  const Actual = EvaluateText(Source);
+
+  Assert.AreEqual(Expected, Actual);
 end;
 
-procedure TForOfTests.Iterates_Result(const Source: string; const Expected: string);
+procedure TForOfTests.ForOf_Script_ReturnsExpected(const Source: string; const Expected: string);
 begin
   AssertEvaluatesTo(Expected, Source);
 end;
 
-procedure TForOfTests.ControlFlow_Result(const Source: string; const Expected: string);
+procedure TForOfTests.ForOf_RuntimeSource_RaisesTypeError(const Source: string);
 begin
-  AssertEvaluatesTo(Expected, Source);
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.PerIterationBindings_Result(const Source: string; const Expected: string);
+procedure TForOfTests.ForOf_RuntimeSource_RaisesReferenceError(const Source: string);
 begin
-  AssertEvaluatesTo(Expected, Source);
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.Destructuring_Result(const Source: string; const Expected: string);
+procedure TForOfTests.ForOf_InvalidSource_RaisesSyntaxError(const Source: string);
 begin
-  AssertEvaluatesTo(Expected, Source);
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
-procedure TForOfTests.Runtime_RaisesTypeError(const Source: string);
+procedure TForOfTests.ForOf_ValidSource_RaisesNoError(const Source: string);
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual('', Actual);
 end;
 
-procedure TForOfTests.Runtime_RaisesReferenceError(const Source: string);
-begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf(Source));
-end;
-
-procedure TForOfTests.Source_IsSyntaxError(const Source: string);
-begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
-end;
-
-procedure TForOfTests.Source_IsAccepted(const Source: string);
-begin
-  Assert.AreEqual('', ErrorNameOf(Source));
-end;
-
-procedure TForOfTests.ForIn_AfterForOfSupport_StillWorks;
+procedure TForOfTests.ForIn_VarAndLetBindings_VisitKeysInOrder;
 begin
   const Script = 'var r = ""; for (var k in {a: 1, b: 2}) r += k; for (let k in {c: 1}) r += k; r';
 
   AssertEvaluatesTo('abc', Script);
-end;
-
-procedure TForOfTests.ArrayLikes_InSpreadAndPatterns_Result(const Source: string; const Expected: string);
-begin
-  AssertEvaluatesTo(Expected, Source);
 end;
 
 end.

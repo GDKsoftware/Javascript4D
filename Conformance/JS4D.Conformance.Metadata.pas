@@ -19,7 +19,6 @@ type
 
     function ExtractFrontmatter(const Source: string): string;
     function GetIncludes: TArray<string>;
-    function GetFlags: TArray<string>;
     function GetFeatures: TArray<string>;
     function GetIsNegative: Boolean;
     function ParsePhase(const Value: string): TErrorPhase;
@@ -37,7 +36,6 @@ type
     function HasFlag(const Flag: string): Boolean;
 
     property Includes: TArray<string> read GetIncludes;
-    property Flags: TArray<string> read GetFlags;
     property Features: TArray<string> read GetFeatures;
     property IsNegative: Boolean read GetIsNegative;
     property NegativePhase: TErrorPhase read FNegativePhase;
@@ -47,16 +45,24 @@ type
 implementation
 
 const
-  FrontmatterStart = '/*---';
-  FrontmatterEnd = '---*/';
-  KeyIncludes = 'includes';
-  KeyFlags = 'flags';
-  KeyFeatures = 'features';
-  KeyNegative = 'negative';
-  KeyPhase = 'phase';
-  KeyType = 'type';
-  ListItemPrefix = '- ';
-  ListKeys: array[0..2] of string = (KeyIncludes, KeyFlags, KeyFeatures);
+  FRONTMATTER_START = '/*---';
+  FRONTMATTER_END = '---*/';
+  KEY_INCLUDES = 'includes';
+  KEY_FLAGS = 'flags';
+  KEY_FEATURES = 'features';
+  KEY_NEGATIVE = 'negative';
+  KEY_PHASE = 'phase';
+  KEY_TYPE = 'type';
+  LIST_ITEM_PREFIX = '- ';
+  KEY_SEPARATOR = ':';
+  VALUE_SEPARATOR = ',';
+  SPACE = ' ';
+  TAB = #9;
+  QUOTE = '"';
+  APOSTROPHE = '''';
+  LIST_BRACKET_OPEN = '[';
+  LIST_BRACKET_CLOSE = ']';
+  ListKeys: array[0..2] of string = (KEY_INCLUDES, KEY_FLAGS, KEY_FEATURES);
 
 constructor TTestMetadata.Create(const Source: string);
 begin
@@ -84,34 +90,29 @@ end;
 
 function TTestMetadata.HasFlag(const Flag: string): Boolean;
 begin
-  Result := FLists[KeyFlags].Contains(Flag);
+  Result := FLists[KEY_FLAGS].Contains(Flag);
 end;
 
 function TTestMetadata.ExtractFrontmatter(const Source: string): string;
 begin
-  const StartIndex = Source.IndexOf(FrontmatterStart);
-  const EndIndex = Source.IndexOf(FrontmatterEnd);
+  const StartIndex = Source.IndexOf(FRONTMATTER_START);
+  const EndIndex = Source.IndexOf(FRONTMATTER_END);
   const HasFrontmatter = (StartIndex >= 0) and (EndIndex > StartIndex);
   if not HasFrontmatter then
     Exit('');
 
-  const BodyStart = StartIndex + FrontmatterStart.Length;
+  const BodyStart = StartIndex + FRONTMATTER_START.Length;
   Result := Source.Substring(BodyStart, EndIndex - BodyStart);
 end;
 
 function TTestMetadata.GetIncludes: TArray<string>;
 begin
-  Result := FLists[KeyIncludes].ToArray;
-end;
-
-function TTestMetadata.GetFlags: TArray<string>;
-begin
-  Result := FLists[KeyFlags].ToArray;
+  Result := FLists[KEY_INCLUDES].ToArray;
 end;
 
 function TTestMetadata.GetFeatures: TArray<string>;
 begin
-  Result := FLists[KeyFeatures].ToArray;
+  Result := FLists[KEY_FEATURES].ToArray;
 end;
 
 function TTestMetadata.GetIsNegative: Boolean;
@@ -121,10 +122,10 @@ end;
 
 function TTestMetadata.ParsePhase(const Value: string): TErrorPhase;
 begin
-  if SameText(Value, 'parse') then
+  if SameText(Value, PHASE_PARSE) then
     Exit(TErrorPhase.Parse);
 
-  if SameText(Value, 'resolution') then
+  if SameText(Value, PHASE_RESOLUTION) then
     Exit(TErrorPhase.Resolution);
 
   Result := TErrorPhase.Runtime;
@@ -132,55 +133,60 @@ end;
 
 procedure TTestMetadata.ParseLine(const Line: string);
 begin
-  if Line.Trim.IsEmpty then
+  const TrimmedLine = Line.Trim;
+  if TrimmedLine.IsEmpty then
     Exit;
 
-  const IsIndented = Line.StartsWith(' ') or Line.StartsWith(#9);
+  const IsIndented = Line.StartsWith(SPACE) or Line.StartsWith(TAB);
   if IsIndented then
   begin
-    ContinueKey(Line.Trim);
+    ContinueKey(TrimmedLine);
   end
   else
   begin
-    StartKey(Line.Trim);
+    StartKey(TrimmedLine);
   end;
 end;
 
 procedure TTestMetadata.StartKey(const Line: string);
 begin
-  const SeparatorIndex = Line.IndexOf(':');
+  const SeparatorIndex = Line.IndexOf(KEY_SEPARATOR);
   const HasSeparator = (SeparatorIndex >= 0);
   if not HasSeparator then
     Exit;
 
+  const Values = Line.Substring(SeparatorIndex + 1).Trim;
   FCurrentKey := Line.Substring(0, SeparatorIndex).Trim;
-  AddValues(FCurrentKey, Line.Substring(SeparatorIndex + 1).Trim);
+  AddValues(FCurrentKey, Values);
 end;
 
 procedure TTestMetadata.ContinueKey(const Line: string);
 begin
-  if Line.StartsWith(ListItemPrefix) then
+  const IsListItem = Line.StartsWith(LIST_ITEM_PREFIX);
+  if IsListItem then
   begin
-    AddValues(FCurrentKey, Line.Substring(ListItemPrefix.Length));
+    const Item = Line.Substring(LIST_ITEM_PREFIX.Length);
+    AddValues(FCurrentKey, Item);
     Exit;
   end;
 
-  const IsNegativeKey = (FCurrentKey = KeyNegative);
+  const IsNegativeKey = (FCurrentKey = KEY_NEGATIVE);
   if IsNegativeKey then
     ContinueNegative(Line);
 end;
 
 procedure TTestMetadata.ContinueNegative(const Line: string);
 begin
-  const SeparatorIndex = Line.IndexOf(':');
+  const SeparatorIndex = Line.IndexOf(KEY_SEPARATOR);
   const HasSeparator = (SeparatorIndex >= 0);
   if not HasSeparator then
     Exit;
 
   const Key = Line.Substring(0, SeparatorIndex).Trim;
-  const Value = Line.Substring(SeparatorIndex + 1).Trim.DeQuotedString('"');
-  const IsPhaseKey = (Key = KeyPhase);
-  const IsTypeKey = (Key = KeyType);
+  const RawValue = Line.Substring(SeparatorIndex + 1).Trim;
+  const Value = RawValue.DeQuotedString(QUOTE);
+  const IsPhaseKey = (Key = KEY_PHASE);
+  const IsTypeKey = (Key = KEY_TYPE);
   if IsPhaseKey then
   begin
     FNegativePhase := ParsePhase(Value);
@@ -198,10 +204,11 @@ begin
   if not IsListKey then
     Exit;
 
-  const Entries = Value.Trim(['[', ']', ' ']).Split([',']);
+  const Entries = Value.Trim([LIST_BRACKET_OPEN, LIST_BRACKET_CLOSE, SPACE]).Split([VALUE_SEPARATOR]);
   for var Entry in Entries do
   begin
-    const CleanEntry = Entry.Trim.Trim(['"', '''']);
+    const TrimmedEntry = Entry.Trim;
+    const CleanEntry = TrimmedEntry.Trim([QUOTE, APOSTROPHE]);
     if not CleanEntry.IsEmpty then
       Collected.Add(CleanEntry);
   end;

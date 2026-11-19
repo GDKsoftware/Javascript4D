@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TStrictEarlyErrorsTests = class
-  private
-    FEngine: TJSEngine;
-
-    function EvaluatesToSyntaxError(const Source: string): Boolean;
-
+  TStrictEarlyErrorsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Assign eval', '"use strict"; eval = 1')]
     [TestCase('Assign arguments', '"use strict"; arguments = 1')]
@@ -44,10 +32,7 @@ type
     [TestCase('Delete identifier', '"use strict"; var x; delete x')]
     [TestCase('Delete parenthesized identifier', '"use strict"; var x; delete (x)')]
     [TestCase('Assign eval in strict function', 'function f() { "use strict"; eval = 1; }')]
-    procedure Source_WithRestrictedStrictUse_IsSyntaxError(const Source: string);
-
-    [Test]
-    [TestCase('Declaration named eval', 'function eval() { "use strict"; }')]
+    [TestCase('Function Declaration named eval', 'function eval() { "use strict"; }')]
     [TestCase('Declaration named arguments', 'function arguments() { "use strict"; }')]
     [TestCase('Expression named eval', '(function eval() { "use strict"; })')]
     [TestCase('Declaration parameter eval', 'function f(eval) { "use strict"; }')]
@@ -56,7 +41,7 @@ type
     [TestCase('Declaration reserved parameter', 'function f(public) { "use strict"; }')]
     [TestCase('Expression reserved name', '(function interface() { "use strict"; })')]
     [TestCase('Expression parameter eval', '(function (eval) { "use strict"; })')]
-    procedure Function_WithStrictBody_RestrictsItsNameAndParameters(const Source: string);
+    procedure StrictSource_RestrictedUse_RaisesSyntaxError(const Source: string);
 
     [Test]
     [TestCase('Assign arguments', '(function () { var arguments; arguments = 1; arguments++; })')]
@@ -79,40 +64,21 @@ type
 
 implementation
 
-procedure TStrictEarlyErrorsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  JS4D.Tests.ErrorNames;
 
-procedure TStrictEarlyErrorsTests.TearDown;
+procedure TStrictEarlyErrorsTests.StrictSource_RestrictedUse_RaisesSyntaxError(const Source: string);
 begin
-  FEngine.Free;
-end;
+  const Actual = ErrorNameOf(Source);
 
-function TStrictEarlyErrorsTests.EvaluatesToSyntaxError(const Source: string): Boolean;
-begin
-  const BackslashEscaped = Source.Replace('\', '\\');
-  const Escaped = BackslashEscaped.Replace('"', '\"');
-  const Wrapper = Format('var caught = false; try { eval("%s"); } catch (e) { caught = e instanceof SyntaxError; }',
-                         [Escaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsBoolean;
-end;
-
-procedure TStrictEarlyErrorsTests.Source_WithRestrictedStrictUse_IsSyntaxError(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
-end;
-
-procedure TStrictEarlyErrorsTests.Function_WithStrictBody_RestrictsItsNameAndParameters(const Source: string);
-begin
-  Assert.IsTrue(EvaluatesToSyntaxError(Source));
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TStrictEarlyErrorsTests.Source_InSloppyMode_AcceptsRestrictedNames(const Source: string);
 begin
-  Assert.IsFalse(EvaluatesToSyntaxError(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreNotEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TStrictEarlyErrorsTests.DirectEval_InStrictFunction_InheritsStrictness;
@@ -122,7 +88,9 @@ begin
                   'catch (e) { caught = e instanceof SyntaxError; } }' +
                   'f();');
 
-  Assert.IsTrue(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsTrue(Caught);
 end;
 
 procedure TStrictEarlyErrorsTests.DirectEval_InSloppyFunction_StaysSloppy;
@@ -131,7 +99,9 @@ begin
                   'function f() { try { eval("var public = 1;"); } catch (e) { caught = true; } }' +
                   'f();');
 
-  Assert.IsFalse(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsFalse(Caught);
 end;
 
 procedure TStrictEarlyErrorsTests.IndirectEval_CalledFromStrictFunction_StaysSloppy;
@@ -140,7 +110,9 @@ begin
                   'function f() { "use strict"; try { indirect("var public = 1;"); } catch (e) { caught = true; } }' +
                   'f();');
 
-  Assert.IsFalse(FEngine.Evaluate('caught').AsBoolean);
+  const Caught = EvaluateBoolean('caught');
+
+  Assert.IsFalse(Caught);
 end;
 
 end.

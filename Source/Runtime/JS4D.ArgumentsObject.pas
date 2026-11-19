@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.PropertyKey,
+  JS4D.ArrayObject,
   JS4D.Types;
 
 type
@@ -17,9 +18,6 @@ type
     property MappedScope: IJSScope read GetMappedScope;
   end;
 
-  // The arguments object of a non-strict function: elements below the parameter count share their
-  // value with the parameter variable until the element is deleted, becomes an accessor or becomes
-  // non-writable.
   TJSArgumentsObject = class(TJSObjectImpl, IJSArgumentsScope)
   private
     FScope: IJSScope;
@@ -53,6 +51,9 @@ type
 
 implementation
 
+const
+  UNMAPPED_NAME = '';
+
 constructor TJSArgumentsObject.Create(const Scope: IJSScope; const ParameterNames: TArray<string>;
                                       const ArgumentCount: Integer);
 begin
@@ -79,7 +80,8 @@ function TJSArgumentsObject.IsParameterMapped(const ParameterName: string): Bool
 begin
   for var MappedName in FMappedNames do
   begin
-    if MappedName = ParameterName then
+    const IsSameParameter = (MappedName = ParameterName);
+    if IsSameParameter then
       Exit(True);
   end;
 
@@ -101,10 +103,12 @@ end;
 
 function TJSArgumentsObject.TryGetMappedIndex(const PropertyName: TJSPropertyKey; out Index: Integer): Boolean;
 begin
-  const IndexText = PropertyName.Text;
-  Result := TryStrToInt(IndexText, Index) and (IntToStr(Index) = IndexText);
-  Result := Result and (Index >= 0) and (Index < Length(FMappedNames));
-  Result := Result and (FMappedNames[Index] <> '');
+  Result := TJSArray.TryParseIndex(PropertyName, Index);
+  if not Result then
+    Exit;
+
+  const IsWithinMappedRange = (Index < Length(FMappedNames));
+  Result := (IsWithinMappedRange and (FMappedNames[Index] <> UNMAPPED_NAME));
 end;
 
 function TJSArgumentsObject.TryGetMappedName(const PropertyName: TJSPropertyKey; out ParameterName: string): Boolean;
@@ -117,7 +121,7 @@ end;
 
 procedure TJSArgumentsObject.Unmap(const Index: Integer);
 begin
-  FMappedNames[Index] := '';
+  FMappedNames[Index] := UNMAPPED_NAME;
 end;
 
 procedure TJSArgumentsObject.SyncStoredValue(const PropertyName: TJSPropertyKey);
@@ -177,11 +181,13 @@ begin
   Result := inherited LookupOwn(Name, Descriptor);
 
   var ParameterName: string;
-  if (Result = TJSOwnLookup.Found) and TryGetMappedName(Name, ParameterName) then
+  const IsFound = (Result = TJSOwnLookup.Found);
+  if IsFound and TryGetMappedName(Name, ParameterName) then
     Descriptor.Value := FScope.GetVariable(ParameterName);
 end;
 
-function TJSArgumentsObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
+function TJSArgumentsObject.DefineOwnProperty(const Name: TJSPropertyKey;
+                                              const Definition: TJSPropertyDefinition): Boolean;
 begin
   SyncStoredValue(Name);
 

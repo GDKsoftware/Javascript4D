@@ -11,28 +11,36 @@ uses
   JS4D.ObjectHeap,
   JS4D.Types;
 
+const
+  MAX_ELEMENT_SIZE = 8;
+
 type
+  TElementBytes = array[0..MAX_ELEMENT_SIZE - 1] of Byte;
+
   TJSElementKind = (Int8, Uint8, Uint8Clamped, Int16, Uint16, Int32, Uint32, Float32, Float64);
 
   TJSElementKindHelper = record helper for TJSElementKind
     function ElementSize: Integer;
     function ConstructorName: string;
+    function TypeName: string;
   end;
 
-  // Converts between the numbers of a script and the bytes of a buffer. A multi-byte value is stored in the
-  // byte order that the caller asks for.
   TJSElementCodec = class
   private
     class function ToModular(const Value: Double): UInt32; static;
     class function ToClamped(const Value: Double): Byte; static;
-    class procedure SwapIfBigEndian(var Raw: array of Byte; const Size: Integer;
-                                    const IsLittleEndian: Boolean); static;
+    class function OrderedBytes(const Raw: TElementBytes; const Size: Integer;
+                                const IsLittleEndian: Boolean): TElementBytes; static;
 
   public
     class function Read(const Bytes: TBytes; const Offset: Integer; const Kind: TJSElementKind;
                         const IsLittleEndian: Boolean = True): Double; static;
     class procedure Write(const Bytes: TBytes; const Offset: Integer; const Kind: TJSElementKind;
                           const Value: Double; const IsLittleEndian: Boolean = True); static;
+    class procedure CopyElements(const SourceBytes: TBytes; const SourceStart: Integer;
+                                 const SourceKind: TJSElementKind; const TargetBytes: TBytes;
+                                 const TargetStart: Integer; const TargetKind: TJSElementKind;
+                                 const ElementCount: Integer); static;
   end;
 
   IJSArrayBuffer = interface(IJSObject)
@@ -40,7 +48,6 @@ type
     function GetBytes: TBytes;
     function GetByteLength: Integer;
     function GetIsDetached: Boolean;
-    // Releases the bytes: afterwards the length is 0 and every view on the buffer is detached.
     procedure Detach;
     property Bytes: TBytes read GetBytes;
     property ByteLength: Integer read GetByteLength;
@@ -52,19 +59,17 @@ type
     function GetKind: TJSElementKind;
     function GetBuffer: IJSArrayBuffer;
     function GetByteOffset: Integer;
-    function GetViewOffset: Integer;
+    function GetRetainedByteOffset: Integer;
     function GetLength: Integer;
     function GetIsDetached: Boolean;
     function ReadElement(const Index: Integer): TJSValue;
-    // Converts the value to a number and stores it, unless the index is no longer valid.
-    procedure StoreValue(const Index: Integer; const Value: TJSValue);
+    procedure StoreConvertedValue(const Index: Integer; const Value: TJSValue);
     function IsElementKey(const Name: TJSPropertyKey): Boolean;
     function IsNumericKey(const Name: TJSPropertyKey): Boolean;
     property Kind: TJSElementKind read GetKind;
     property Buffer: IJSArrayBuffer read GetBuffer;
     property ByteOffset: Integer read GetByteOffset;
-    // The offset into the buffer, which stays what it was when the buffer is detached.
-    property ViewOffset: Integer read GetViewOffset;
+    property RetainedByteOffset: Integer read GetRetainedByteOffset;
     property Length: Integer read GetLength;
     property IsDetached: Boolean read GetIsDetached;
   end;
@@ -79,11 +84,10 @@ type
     property ByteLength: Integer read GetByteLength;
   end;
 
-  // Asks an object whether a property name is one of the integer-indexed keys of a typed array.
   TJSBinaryKeys = class
   public
     class function TryStoreElement(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
-                                   const Receiver: TJSValue; out IsStored: Boolean): Boolean; static;
+                                   const Receiver: TJSValue): Boolean; static;
     class function IsElementKey(const Target: IJSObject; const Name: TJSPropertyKey): Boolean; static;
   end;
 
@@ -119,8 +123,6 @@ type
     constructor Create(const Buffer: IJSArrayBuffer; const ByteOffset: Integer; const ByteLength: Integer);
   end;
 
-  // An integer-indexed exotic object: the property names that are canonical numeric strings never reach the
-  // ordinary property table, they read and write the bytes of the buffer.
   TJSTypedArrayObject = class(TJSObjectImpl, IJSTypedArray, IJSIntegerIndexedKeys)
   private
     type
@@ -140,12 +142,15 @@ type
     class function TryParsePlainIndex(const Name: string; out Index: Int64): Boolean; static;
     class function IsCanonicalNumber(const Name: string): Boolean; static;
     function ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
+    function KeyClassOf(const Key: TJSPropertyKey): TKeyClass;
+    function IsValidIndex(const Index: Integer): Boolean;
+    function ElementOffset(const Index: Integer): Integer;
     function IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
     function CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
     function GetKind: TJSElementKind;
     function GetBuffer: IJSArrayBuffer;
     function GetByteOffset: Integer;
-    function GetViewOffset: Integer;
+    function GetRetainedByteOffset: Integer;
     function GetLength: Integer;
     function GetIsDetached: Boolean;
 
@@ -158,7 +163,7 @@ type
                        const Length: Integer);
 
     function ReadElement(const Index: Integer): TJSValue;
-    procedure StoreValue(const Index: Integer; const Value: TJSValue);
+    procedure StoreConvertedValue(const Index: Integer; const Value: TJSValue);
     function IsElementKey(const Name: TJSPropertyKey): Boolean;
     function IsNumericKey(const Name: TJSPropertyKey): Boolean;
 
@@ -180,12 +185,17 @@ type
 implementation
 
 uses
+  JS4D.ObjectOperations,
+  JS4D.Conversions,
   JS4D.Errors;
 
 const
-  TWO_POWER_32 = 4294967296.0;
   BYTE_MAX = 255;
   HALF = 0.5;
+  UNSUPPORTED_ELEMENT_KIND = 'Unsupported element kind: %d';
+  ELEMENT_BYTES_OUT_OF_RANGE = 'Element bytes are outside the buffer';
+  ZERO_DIGIT = '0';
+  ARRAY_NAME_SUFFIX = 'Array';
   ELEMENT_SIZES: array[TJSElementKind] of Integer = (1, 1, 1, 2, 2, 4, 4, 4, 8);
   CONSTRUCTOR_NAMES: array[TJSElementKind] of string = ('Int8Array', 'Uint8Array', 'Uint8ClampedArray',
                                                         'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array',
@@ -203,6 +213,13 @@ begin
   Result := CONSTRUCTOR_NAMES[Self];
 end;
 
+function TJSElementKindHelper.TypeName: string;
+begin
+  const FullName = ConstructorName;
+
+  Result := Copy(FullName, 1, Length(FullName) - Length(ARRAY_NAME_SUFFIX));
+end;
+
 { TJSElementCodec }
 
 class function TJSElementCodec.ToModular(const Value: Double): UInt32;
@@ -212,43 +229,45 @@ begin
     Exit(0);
 
   const Whole = Int(Value);
-  var Remainder := Whole - (Int(Whole / TWO_POWER_32) * TWO_POWER_32);
-  if Remainder < 0 then
-    Remainder := Remainder + TWO_POWER_32;
+  var Remainder := Whole - (Int(Whole / UINT32_RANGE) * UINT32_RANGE);
+  const IsNegativeRemainder = (Remainder < 0);
+  if IsNegativeRemainder then
+    Remainder := Remainder + UINT32_RANGE;
 
   Result := UInt32(Trunc(Remainder) and $FFFFFFFF);
 end;
 
 class function TJSElementCodec.ToClamped(const Value: Double): Byte;
 begin
-  if IsNaN(Value) or (Value <= 0) then
+  const IsNotPositive = (IsNaN(Value) or (Value <= 0));
+  if IsNotPositive then
     Exit(0);
 
-  if Value >= BYTE_MAX then
+  const IsAboveMaximum = (Value >= BYTE_MAX);
+  if IsAboveMaximum then
     Exit(BYTE_MAX);
 
   const Lower = Floor(Value);
   const Difference = Value - Lower;
   const IsLowerEven = (Trunc(Lower) mod 2) = 0;
 
-  if (Difference < HALF) or ((Difference = HALF) and IsLowerEven) then
+  const RoundsDown = (Difference < HALF) or ((Difference = HALF) and IsLowerEven);
+  if RoundsDown then
     Result := Byte(Trunc(Lower))
   else
     Result := Byte(Trunc(Lower) + 1);
 end;
 
-class procedure TJSElementCodec.SwapIfBigEndian(var Raw: array of Byte; const Size: Integer;
-                                                const IsLittleEndian: Boolean);
+class function TJSElementCodec.OrderedBytes(const Raw: TElementBytes; const Size: Integer;
+                                            const IsLittleEndian: Boolean): TElementBytes;
 begin
+  Result := Raw;
   if IsLittleEndian then
     Exit;
 
-  for var Index := 0 to (Size div 2) - 1 do
+  for var Index := 0 to Size - 1 do
   begin
-    const Mirror = Size - 1 - Index;
-    const Swapped = Raw[Index];
-    Raw[Index] := Raw[Mirror];
-    Raw[Mirror] := Swapped;
+    Result[Index] := Raw[Size - 1 - Index];
   end;
 end;
 
@@ -256,10 +275,13 @@ class function TJSElementCodec.Read(const Bytes: TBytes; const Offset: Integer; 
                                     const IsLittleEndian: Boolean): Double;
 begin
   const Size = Kind.ElementSize;
+  const FitsInBuffer = (Offset >= 0) and (Offset + Size <= Length(Bytes));
+  if not FitsInBuffer then
+    raise TJSErrorFactory.RangeError(ELEMENT_BYTES_OUT_OF_RANGE);
 
-  var Raw: array[0..7] of Byte;
-  Move(Bytes[Offset], Raw[0], Size);
-  SwapIfBigEndian(Raw, Size, IsLittleEndian);
+  var Stored: TElementBytes;
+  Move(Bytes[Offset], Stored[0], Size);
+  const Raw = OrderedBytes(Stored, Size, IsLittleEndian);
 
   case Kind of
     TJSElementKind.Int8         : Result := ShortInt(Raw[0]);
@@ -272,7 +294,7 @@ begin
     TJSElementKind.Float32      : Result := PSingle(@Raw[0])^;
     TJSElementKind.Float64      : Result := PDouble(@Raw[0])^;
   else
-    raise ENotSupportedException.CreateFmt('Unsupported element kind: %d', [Ord(Kind)]);
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_ELEMENT_KIND, [Ord(Kind)]);
   end;
 end;
 
@@ -280,8 +302,11 @@ class procedure TJSElementCodec.Write(const Bytes: TBytes; const Offset: Integer
                                       const Value: Double; const IsLittleEndian: Boolean);
 begin
   const Size = Kind.ElementSize;
+  const FitsInBuffer = (Offset >= 0) and (Offset + Size <= Length(Bytes));
+  if not FitsInBuffer then
+    raise TJSErrorFactory.RangeError(ELEMENT_BYTES_OUT_OF_RANGE);
 
-  var Raw: array[0..7] of Byte;
+  var Raw: TElementBytes;
   case Kind of
     TJSElementKind.Int8,
     TJSElementKind.Uint8        : Raw[0] := Byte(ToModular(Value) and $FF);
@@ -293,30 +318,55 @@ begin
     TJSElementKind.Float32      : PSingle(@Raw[0])^ := Value;
     TJSElementKind.Float64      : PDouble(@Raw[0])^ := Value;
   else
-    raise ENotSupportedException.CreateFmt('Unsupported element kind: %d', [Ord(Kind)]);
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_ELEMENT_KIND, [Ord(Kind)]);
   end;
 
-  SwapIfBigEndian(Raw, Size, IsLittleEndian);
-  Move(Raw[0], Bytes[Offset], Size);
+  const Ordered = OrderedBytes(Raw, Size, IsLittleEndian);
+  Move(Ordered[0], Bytes[Offset], Size);
+end;
+
+class procedure TJSElementCodec.CopyElements(const SourceBytes: TBytes; const SourceStart: Integer;
+                                             const SourceKind: TJSElementKind; const TargetBytes: TBytes;
+                                             const TargetStart: Integer; const TargetKind: TJSElementKind;
+                                             const ElementCount: Integer);
+begin
+  const HasElements = (ElementCount > 0);
+  if not HasElements then
+    Exit;
+
+  const SourceSize = SourceKind.ElementSize;
+  const TargetSize = TargetKind.ElementSize;
+
+  const IsSameKind = (SourceKind = TargetKind);
+  if IsSameKind then
+  begin
+    Move(SourceBytes[SourceStart], TargetBytes[TargetStart], ElementCount * SourceSize);
+    Exit;
+  end;
+
+  for var Index := 0 to ElementCount - 1 do
+  begin
+    const Number = Read(SourceBytes, SourceStart + (Index * SourceSize), SourceKind);
+    Write(TargetBytes, TargetStart + (Index * TargetSize), TargetKind, Number);
+  end;
 end;
 
 { TJSBinaryKeys }
 
 class function TJSBinaryKeys.TryStoreElement(const Target: IJSObject; const Name: TJSPropertyKey; const Value: TJSValue;
-                                             const Receiver: TJSValue; out IsStored: Boolean): Boolean;
+                                             const Receiver: TJSValue): Boolean;
 begin
-  IsStored := True;
-
   var TypedArray: IJSTypedArray;
   const IsNumeric = Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsNumericKey(Name);
   if not IsNumeric then
     Exit(False);
 
-  const IsReceiver = Receiver.IsObject and ((Receiver.ToObject as IInterface) = (Target as IInterface));
+  const IsReceiver = Receiver.IsObject and TJSObjectOperations.IsSameObject(Receiver.ToObject, Target);
   if IsReceiver then
   begin
     Target.SetProperty(Name, Value);
-    Exit(True);
+    Result := True;
+    Exit;
   end;
 
   Result := not TypedArray.IsElementKey(Name);
@@ -326,7 +376,7 @@ class function TJSBinaryKeys.IsElementKey(const Target: IJSObject; const Name: T
 begin
   var TypedArray: IJSTypedArray;
 
-  Result := Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsElementKey(Name);
+  Result := (Supports(Target, IJSTypedArray, TypedArray) and TypedArray.IsElementKey(Name));
 end;
 
 { TJSArrayBufferObject }
@@ -336,7 +386,8 @@ begin
   inherited Create;
 
   SetLength(FData, ByteLength);
-  if ByteLength > 0 then
+  const HasBytes = (ByteLength > 0);
+  if HasBytes then
     FillChar(FData[0], ByteLength, 0);
 end;
 
@@ -432,7 +483,7 @@ begin
   Result := FByteOffset;
 end;
 
-function TJSTypedArrayObject.GetViewOffset: Integer;
+function TJSTypedArrayObject.GetRetainedByteOffset: Integer;
 begin
   Result := FByteOffset;
 end;
@@ -452,24 +503,27 @@ end;
 
 function TJSTypedArrayObject.ReadElement(const Index: Integer): TJSValue;
 begin
-  const IsValid = (Index >= 0) and (Index < GetLength);
-  if not IsValid then
-    Exit(TJSValue.CreateUndefined);
+  if not IsValidIndex(Index) then
+  begin
+    Result := TJSValue.CreateUndefined;
+    Exit;
+  end;
 
-  const Offset = FByteOffset + (Index * FKind.ElementSize);
-  Result := TJSValue.CreateNumber(TJSElementCodec.Read(FBuffer.Bytes, Offset, FKind));
+  const Offset = ElementOffset(Index);
+  const Number = TJSElementCodec.Read(FBuffer.Bytes, Offset, FKind);
+
+  Result := TJSValue.CreateNumber(Number);
 end;
 
-procedure TJSTypedArrayObject.StoreValue(const Index: Integer; const Value: TJSValue);
+procedure TJSTypedArrayObject.StoreConvertedValue(const Index: Integer; const Value: TJSValue);
 begin
-  const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
+  const Number = TJSConversions.ToNumber(Value);
 
-  const IsValid = (Index >= 0) and (Index < GetLength);
-  if not IsValid then
-    Exit;
-
-  const Offset = FByteOffset + (Index * FKind.ElementSize);
-  TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  if IsValidIndex(Index) then
+  begin
+    const Offset = ElementOffset(Index);
+    TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  end;
 end;
 
 class function TJSTypedArrayObject.TryParsePlainIndex(const Name: string; out Index: Int64): Boolean;
@@ -478,13 +532,13 @@ begin
 
   const NameLength = Length(Name);
   const HasValidLength = (NameLength > 0) and (NameLength <= MAX_PLAIN_DIGITS);
-  const HasLeadingZero = (NameLength > 1) and (Name[1] = '0');
+  const HasLeadingZero = (NameLength > 1) and (Name[1] = ZERO_DIGIT);
   if (not HasValidLength) or HasLeadingZero then
     Exit(False);
 
-  for var Position := 1 to NameLength do
+  for var Character in Name do
   begin
-    const Digit = Ord(Name[Position]) - Ord('0');
+    const Digit = Ord(Character) - Ord(ZERO_DIGIT);
     const IsDigit = (Digit >= 0) and (Digit <= 9);
     if not IsDigit then
       Exit(False);
@@ -501,11 +555,13 @@ begin
   if not CanStartNumber then
     Exit(False);
 
-  if Name = '-0' then
+  const IsNegativeZero = (Name = '-0');
+  if IsNegativeZero then
     Exit(True);
 
   const Number = TJSValue.CreateString(Name).ToNumber;
-  Result := TJSValue.CreateNumber(Number).ToString = Name;
+  const NumberText = TJSValue.CreateNumber(Number).ToString;
+  Result := (NumberText = Name);
 end;
 
 function TJSTypedArrayObject.ClassifyKey(const Key: TJSPropertyKey; out Index: Integer): TKeyClass;
@@ -529,36 +585,50 @@ begin
     Exit(TKeyClass.ValidIndex);
   end;
 
-  if IsCanonicalNumber(Name) then
+  const IsOtherNumber = IsCanonicalNumber(Name);
+  if IsOtherNumber then
     Exit(TKeyClass.InvalidIndex);
 
   Result := TKeyClass.NotNumeric;
 end;
 
-function TJSTypedArrayObject.IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
+function TJSTypedArrayObject.KeyClassOf(const Key: TJSPropertyKey): TKeyClass;
 begin
   var Index: Integer;
 
-  Result := ClassifyKey(Name, Index) = TKeyClass.InvalidIndex;
+  Result := ClassifyKey(Key, Index);
+end;
+
+function TJSTypedArrayObject.IsValidIndex(const Index: Integer): Boolean;
+begin
+  Result := (Index >= 0) and (Index < GetLength);
+end;
+
+function TJSTypedArrayObject.ElementOffset(const Index: Integer): Integer;
+begin
+  Result := FByteOffset + (Index * FKind.ElementSize);
+end;
+
+function TJSTypedArrayObject.IsInvalidIndexKey(const Name: TJSPropertyKey): Boolean;
+begin
+  Result := (KeyClassOf(Name) = TKeyClass.InvalidIndex);
 end;
 
 function TJSTypedArrayObject.IsElementKey(const Name: TJSPropertyKey): Boolean;
 begin
-  var Index: Integer;
-
-  Result := ClassifyKey(Name, Index) = TKeyClass.ValidIndex;
+  Result := (KeyClassOf(Name) = TKeyClass.ValidIndex);
 end;
 
 function TJSTypedArrayObject.IsNumericKey(const Name: TJSPropertyKey): Boolean;
 begin
-  var Index: Integer;
-
-  Result := ClassifyKey(Name, Index) <> TKeyClass.NotNumeric;
+  Result := (KeyClassOf(Name) <> TKeyClass.NotNumeric);
 end;
 
 function TJSTypedArrayObject.CreateElementDescriptor(const Index: Integer): TJSPropertyDescriptor;
 begin
-  Result := TJSPropertyDescriptor.Create(ReadElement(Index));
+  const Element = ReadElement(Index);
+
+  Result := TJSPropertyDescriptor.Create(Element);
   Result.Writable := True;
   Result.Enumerable := True;
   Result.Configurable := True;
@@ -590,8 +660,12 @@ function TJSTypedArrayObject.GetProperty(const Name: TJSPropertyKey): TJSValue;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited GetProperty(Name));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited GetProperty(Name);
+    Exit;
+  end;
 
   Result := ReadElement(Index);
 end;
@@ -600,23 +674,29 @@ procedure TJSTypedArrayObject.SetProperty(const Name: TJSPropertyKey; const Valu
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
   begin
     inherited SetProperty(Name, Value);
     Exit;
   end;
 
-  const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
+  const Number = TJSConversions.ToNumber(Value);
   const KeyClassAfterConversion = ClassifyKey(Name, Index);
-  if KeyClassAfterConversion = TKeyClass.ValidIndex then
-    TJSElementCodec.Write(FBuffer.Bytes, FByteOffset + (Index * FKind.ElementSize), FKind, Number);
+  const IsStillValid = (KeyClassAfterConversion = TKeyClass.ValidIndex);
+  if IsStillValid then
+  begin
+    const Offset = ElementOffset(Index);
+    TJSElementCodec.Write(FBuffer.Bytes, Offset, FKind, Number);
+  end;
 end;
 
 procedure TJSTypedArrayObject.DeleteProperty(const Name: TJSPropertyKey);
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
     inherited DeleteProperty(Name);
 end;
 
@@ -624,8 +704,12 @@ function TJSTypedArrayObject.IsPropertyConfigurable(const Name: TJSPropertyKey):
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited IsPropertyConfigurable(Name));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited IsPropertyConfigurable(Name);
+    Exit;
+  end;
 
   Result := (KeyClass <> TKeyClass.ValidIndex);
 end;
@@ -634,7 +718,8 @@ function TJSTypedArrayObject.GetOwnPropertyNames: TArray<string>;
 begin
   const OrdinaryNames = inherited GetOwnPropertyNames;
   const ElementCount = GetLength;
-  if ElementCount = 0 then
+  const HasNoElements = (ElementCount = 0);
+  if HasNoElements then
     Exit(OrdinaryNames);
 
   SetLength(Result, ElementCount + Length(OrdinaryNames));
@@ -653,11 +738,19 @@ function TJSTypedArrayObject.GetOwnPropertyDescriptor(const Name: TJSPropertyKey
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited GetOwnPropertyDescriptor(Name));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited GetOwnPropertyDescriptor(Name);
+    Exit;
+  end;
 
-  if KeyClass = TKeyClass.ValidIndex then
-    Exit(CreateElementDescriptor(Index));
+  const IsValidIndex = (KeyClass = TKeyClass.ValidIndex);
+  if IsValidIndex then
+  begin
+    Result := CreateElementDescriptor(Index);
+    Exit;
+  end;
 
   Result := Default(TJSPropertyDescriptor);
   Result.Value := TJSValue.CreateUndefined;
@@ -667,8 +760,12 @@ function TJSTypedArrayObject.HasOwnProperty(const Name: TJSPropertyKey): Boolean
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited HasOwnProperty(Name));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited HasOwnProperty(Name);
+    Exit;
+  end;
 
   Result := (KeyClass = TKeyClass.ValidIndex);
 end;
@@ -677,21 +774,31 @@ function TJSTypedArrayObject.TryAssignOwnProperty(const Name: TJSPropertyKey; co
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited TryAssignOwnProperty(Name, Value));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited TryAssignOwnProperty(Name, Value);
+    Exit;
+  end;
 
   SetProperty(Name, Value);
   Result := True;
 end;
 
-function TJSTypedArrayObject.DefineOwnProperty(const Name: TJSPropertyKey; const Definition: TJSPropertyDefinition): Boolean;
+function TJSTypedArrayObject.DefineOwnProperty(const Name: TJSPropertyKey;
+                                               const Definition: TJSPropertyDefinition): Boolean;
 begin
   var Index: Integer;
   const KeyClass = ClassifyKey(Name, Index);
-  if KeyClass = TKeyClass.NotNumeric then
-    Exit(inherited DefineOwnProperty(Name, Definition));
+  const IsOrdinaryKey = (KeyClass = TKeyClass.NotNumeric);
+  if IsOrdinaryKey then
+  begin
+    Result := inherited DefineOwnProperty(Name, Definition);
+    Exit;
+  end;
 
-  if KeyClass = TKeyClass.InvalidIndex then
+  const IsInvalidIndex = (KeyClass = TKeyClass.InvalidIndex);
+  if IsInvalidIndex then
     Exit(False);
 
   const RejectsAttributes = (Definition.HasConfigurable and (not Definition.Configurable)) or
@@ -701,14 +808,15 @@ begin
     Exit(False);
 
   if Definition.HasValue then
-    StoreValue(Index, Definition.Value);
+    StoreConvertedValue(Index, Definition.Value);
 
   Result := True;
 end;
 
 function TJSTypedArrayObject.IsFrozen: Boolean;
 begin
-  if GetLength > 0 then
+  const HasElements = (GetLength > 0);
+  if HasElements then
     Exit(False);
 
   Result := inherited IsFrozen;
@@ -716,7 +824,8 @@ end;
 
 function TJSTypedArrayObject.IsSealed: Boolean;
 begin
-  if GetLength > 0 then
+  const HasElements = (GetLength > 0);
+  if HasElements then
     Exit(False);
 
   Result := inherited IsSealed;
@@ -724,7 +833,8 @@ end;
 
 procedure TJSTypedArrayObject.Freeze;
 begin
-  if GetLength > 0 then
+  const HasElements = (GetLength > 0);
+  if HasElements then
   begin
     PreventExtensions;
     raise TJSErrorFactory.TypeError(NOT_FROZEN_ELEMENTS);
@@ -735,7 +845,8 @@ end;
 
 procedure TJSTypedArrayObject.Seal;
 begin
-  if GetLength > 0 then
+  const HasElements = (GetLength > 0);
+  if HasElements then
   begin
     PreventExtensions;
     raise TJSErrorFactory.TypeError(NOT_SEALED_ELEMENTS);

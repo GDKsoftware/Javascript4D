@@ -6,24 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TObjectLiteralExtensionTests = class
-  private
-    FEngine: TJSEngine;
-
-    function ErrorNameOf(const Source: string): string;
-
+  TObjectLiteralExtensionTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Shorthand', 'var a = 1; var o = { a }; o.a|1', '|')]
     [TestCase('ShorthandMixed', 'var a = 1, b = 2; var o = { a, c: 3, b }; o.a + o.b + o.c|6', '|')]
@@ -60,9 +48,6 @@ type
     [TestCase('ProtoComputedIsOwn', 'var o = { ["__proto__"]: 5 }; o.hasOwnProperty("__proto__")|true', '|')]
     [TestCase('ProtoMethodIsOwn', 'var o = { __proto__() {} }; o.hasOwnProperty("__proto__")|true', '|')]
     [TestCase('ProtoDuplicateShorthandAllowed', 'var __proto__ = 1; var o = { __proto__: null, __proto__ }; Object.prototype.hasOwnProperty.call(o, "__proto__")|true', '|')]
-    procedure Evaluate_Result(const Source: string; const Expected: string);
-
-    [Test]
     [TestCase('Variable', 'var f = function() {}; f.name|f', '|')]
     [TestCase('Let', 'let f = function() {}; f.name|f', '|')]
     [TestCase('Const', 'const f = () => 1; f.name|f', '|')]
@@ -79,7 +64,7 @@ type
     [TestCase('ProtoValueIsNotNamed', 'var o = { __proto__: function() {} }; Object.getPrototypeOf(o).name|', '|')]
     [TestCase('NotInferredForParenthesizedTarget', 'var f; (f) = function() {}; f.name|', '|')]
     [TestCase('NameIsNotWritable', 'var f = function() {}; f.name = "x"; f.name|f', '|')]
-    procedure FunctionName_Result(const Source: string; const Expected: string);
+    procedure ObjectLiteral_Script_ReturnsExpectedText(const Source: string; const Expected: string);
 
     [Test]
     procedure Method_CannotBeConstructed;
@@ -116,81 +101,72 @@ type
 
 implementation
 
-procedure TObjectLiteralExtensionTests.Setup;
+uses
+  JS4D.Tests.ErrorNames;
+
+procedure TObjectLiteralExtensionTests.ObjectLiteral_Script_ReturnsExpectedText(const Source: string;
+                                                                                const Expected: string);
 begin
-  FEngine := TJSEngine.Create;
-end;
+  const Actual = EvaluateText(Source);
 
-procedure TObjectLiteralExtensionTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TObjectLiteralExtensionTests.ErrorNameOf(const Source: string): string;
-begin
-  const BackslashesEscaped = Source.Replace('\', '\\');
-  const QuotesEscaped = BackslashesEscaped.Replace('"', '\"');
-  const Wrapper = Format('var caught = ""; try { eval("%s"); } catch (e) { caught = e.name; }', [QuotesEscaped]);
-  FEngine.Execute(Wrapper);
-
-  Result := FEngine.Evaluate('caught').AsString;
-end;
-
-procedure TObjectLiteralExtensionTests.Evaluate_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
-end;
-
-procedure TObjectLiteralExtensionTests.FunctionName_Result(const Source: string; const Expected: string);
-begin
-  const Actual = FEngine.Evaluate(Source);
-
-  Assert.AreEqual(Expected, Actual.ToString);
+  Assert.AreEqual(Expected, Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.Method_CannotBeConstructed;
 begin
-  Assert.AreEqual('TypeError', ErrorNameOf('var o = { m() {} }; new o.m();'));
+  const Actual = ErrorNameOf('var o = { m() {} }; new o.m();');
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.Getter_CannotBeConstructed;
 begin
   const Script = 'var o = { get x() { return 1; } }; new (Object.getOwnPropertyDescriptor(o, "x").get)();';
 
-  Assert.AreEqual('TypeError', ErrorNameOf(Script));
+  const Actual = ErrorNameOf(Script);
+
+  Assert.AreEqual(TYPE_ERROR_NAME, Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.Method_HasNoOwnArgumentsOrCaller;
 begin
   const Script = 'var o = { m() {} }; o.m.hasOwnProperty("arguments") + "," + o.m.hasOwnProperty("caller")';
 
-  Assert.AreEqual('false,false', FEngine.Evaluate(Script).AsString);
+  const Actual = EvaluateText(Script);
+
+  Assert.AreEqual('false,false', Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.Method_InStrictCode_IsStrict;
 begin
   const Script = '"use strict"; var o = { m() { return this; } }; var f = o.m; f() === undefined';
 
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean);
+  const IsStrict = EvaluateBoolean(Script);
+
+  Assert.IsTrue(IsStrict);
 end;
 
 procedure TObjectLiteralExtensionTests.Parse_RaisesSyntaxError(const Source: string);
 begin
-  Assert.AreEqual('SyntaxError', ErrorNameOf(Source));
+  const Actual = ErrorNameOf(Source);
+
+  Assert.AreEqual(SYNTAX_ERROR_NAME, Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.ComputedKey_ThrowingToString_PropagatesError;
 begin
   const Script = 'var k = { toString: function() { throw new RangeError("x"); } }; var o = { [k]: 1 };';
 
-  Assert.AreEqual('RangeError', ErrorNameOf(Script));
+  const Actual = ErrorNameOf(Script);
+
+  Assert.AreEqual(RANGE_ERROR_NAME, Actual);
 end;
 
 procedure TObjectLiteralExtensionTests.ComputedKey_UnresolvableReference_RaisesReferenceError;
 begin
-  Assert.AreEqual('ReferenceError', ErrorNameOf('var o = { [notDefinedAnywhere]: 1 };'));
+  const Actual = ErrorNameOf('var o = { [notDefinedAnywhere]: 1 };');
+
+  Assert.AreEqual(REFERENCE_ERROR_NAME, Actual);
 end;
 
 end.

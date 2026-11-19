@@ -16,16 +16,8 @@ type
     function NextResult: TJSValue;
   end;
 
-  // The object returned by String.prototype[Symbol.iterator]. It yields one code point per step, so a
-  // surrogate pair comes out as one string of two code units.
   TJSStringIterator = class(TJSObjectImpl, IJSStringIterator)
   private
-    const
-      HIGH_SURROGATE_FIRST = $D800;
-      HIGH_SURROGATE_LAST = $DBFF;
-      LOW_SURROGATE_FIRST = $DC00;
-      LOW_SURROGATE_LAST = $DFFF;
-
     var
       FText: string;
       FObjectPrototype: IJSObject;
@@ -40,6 +32,9 @@ type
   end;
 
 implementation
+
+uses
+  JS4D.Utf16;
 
 class function TJSStringIterator.CodePointLength(const Text: string; const Position: Integer): Integer;
 begin
@@ -62,8 +57,12 @@ end;
 
 function TJSStringIterator.NextResult: TJSValue;
 begin
-  if FPosition > Length(FText) then
-    Exit(TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True));
+  const IsExhausted = (FPosition > Length(FText));
+  if IsExhausted then
+  begin
+    Result := TJSIteratorResults.CreateResult(FObjectPrototype, TJSValue.CreateUndefined, True);
+    Exit;
+  end;
 
   const CodeUnitCount = CodePointLength(FText, FPosition);
   const CodePoint = TJSValue.CreateString(Copy(FText, FPosition, CodeUnitCount));

@@ -6,25 +6,12 @@ interface
 
 uses
   DUnitX.TestFramework,
-  System.SysUtils,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TRegExpProtocolTests = class
-  private
-    FEngine: TJSEngine;
-
-    function Evaluate(const Expression: string): string;
-
+  TRegExpProtocolTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Match global collects all matches', '/a/g[Symbol.match]("banana").join()#a,a,a', '#')]
     [TestCase('Match global without matches is null', '/x/g[Symbol.match]("banana")#null', '#')]
@@ -40,9 +27,6 @@ type
     [TestCase('String match uses the pattern string', '"a.c".match("a.c")[0]#a.c', '#')]
     [TestCase('String match delegates to the symbol method', '(function () { var o = {}; o[Symbol.match] = function (s) { return "m:" + s; }; return "abc".match(o); })()#m:abc', '#')]
     [TestCase('String match without an argument matches the empty string', '"abc".match().index#0', '#')]
-    procedure Match_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Replace global', '"aXbX".replace(/X/g, "-")#a-b-', '#')]
     [TestCase('Replace first only', '"aXbX".replace(/X/, "-")#a-bX', '#')]
     [TestCase('Replace expands $ patterns', '"abc".replace(/(b)/, "[$1$&$`$'']")#a[bbac]c', '#')]
@@ -57,9 +41,6 @@ type
     [TestCase('Replace has length 2', 'RegExp.prototype[Symbol.replace].length#2', '#')]
     [TestCase('String replace delegates to the symbol method', '(function () { var o = {}; o[Symbol.replace] = function (s, r) { return s + "/" + r; }; return "abc".replace(o, "x"); })()#abc/x', '#')]
     [TestCase('Replace on a primitive receiver throws', '(function () { try { RegExp.prototype[Symbol.replace].call(1, "a", "b"); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
-    procedure Replace_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Search finds the index', '/b/[Symbol.search]("abc")#1', '#')]
     [TestCase('Search returns -1 without a match', '/x/[Symbol.search]("abc")#-1', '#')]
     [TestCase('Search restores lastIndex', '(function () { var r = /b/g; r.lastIndex = 2; r[Symbol.search]("abc"); return r.lastIndex; })()#2', '#')]
@@ -67,9 +48,6 @@ type
     [TestCase('String search delegates to the symbol method', '(function () { var o = {}; o[Symbol.search] = function (s) { return "s:" + s; }; return "abc".search(o); })()#s:abc', '#')]
     [TestCase('String search with a string pattern', '"abc".search("c")#2', '#')]
     [TestCase('Search has length 1', 'RegExp.prototype[Symbol.search].length#1', '#')]
-    procedure Search_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Split on a regexp', '"a1b2c".split(/\d/).join("|")#a|b|c', '#')]
     [TestCase('Split includes captures', '"a1b2c".split(/(\d)/).join("|")#a|1|b|2|c', '#')]
     [TestCase('Split with a limit', '"a1b2c".split(/\d/, 2).join("|")#a|b', '#')]
@@ -86,9 +64,6 @@ type
     [TestCase('Split without a separator', '"abc".split().length#1', '#')]
     [TestCase('Split on a sticky regexp does not change the receiver', '(function () { var r = /b/; "abc".split(r); return r.lastIndex + "," + r.sticky; })()#0,false', '#')]
     [TestCase('Split has length 2', 'RegExp.prototype[Symbol.split].length#2', '#')]
-    procedure Split_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('ReplaceAll with a string', '"aXbX".replaceAll("X", "-")#a-b-', '#')]
     [TestCase('ReplaceAll with an empty search string', '"abc".replaceAll("", "-")#-a-b-c-', '#')]
     [TestCase('ReplaceAll skips overlapping matches', '"aaa".replaceAll("aa", "b")#ba', '#')]
@@ -98,9 +73,6 @@ type
     [TestCase('ReplaceAll with a non-global regexp throws', '(function () { try { "a".replaceAll(/a/, "b"); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('ReplaceAll delegates to the symbol method', '(function () { var o = {}; o[Symbol.replace] = function (s, r) { return s + "/" + r; }; return "abc".replaceAll(o, "x"); })()#abc/x', '#')]
     [TestCase('ReplaceAll has length 2', 'String.prototype.replaceAll.length#2', '#')]
-    procedure ReplaceAll_ReturnsSpecResult(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Sticky match at lastIndex', '(function () { var r = /b/y; r.lastIndex = 1; var m = r.exec("abc"); return m[0] + r.lastIndex; })()#b2', '#')]
     [TestCase('Sticky miss resets lastIndex', '(function () { var r = /b/y; return r.exec("abc") + "," + r.lastIndex; })()#null,0', '#')]
     [TestCase('Global exec advances lastIndex', '(function () { var r = /a/g; r.exec("aa"); return r.lastIndex; })()#1', '#')]
@@ -116,69 +88,22 @@ type
     [TestCase('Test works on a generic object', 'RegExp.prototype.test.call({ exec: function () { return {}; } }, "a")#true', '#')]
     [TestCase('Test requires an exec method on a non-regexp', '(function () { try { RegExp.prototype.test.call({}, "a"); } catch (e) { return e instanceof TypeError; } return false; })()#true', '#')]
     [TestCase('Flags of the sticky and unicode regexp', '/a/gimuy.flags#gimuy', '#')]
-    procedure Exec_FollowsLastIndexSemantics(const Expression, Expected: string);
-
-    [Test]
     [TestCase('Constructor copies a regexp-like object', '(function () { var o = { source: "b+", flags: "g" }; o[Symbol.match] = true; var r = new RegExp(o); return r.source + r.flags; })()#b+g', '#')]
     [TestCase('Constructor call returns the same regexp', '(function () { var r = /a/; return RegExp(r) === r; })()#true', '#')]
     [TestCase('Constructor call with flags creates a new regexp', 'RegExp(/a/g, "i").flags#i', '#')]
     [TestCase('Constructor call returns a regexp-like object with the same constructor', '(function () { var o = { source: "x", flags: "i", constructor: RegExp }; o[Symbol.match] = true; return RegExp(o) === o; })()#true', '#')]
     [TestCase('Constructor treats a falsy match symbol as no regexp', '(function () { var r = /a/; r[Symbol.match] = false; return RegExp(r) === r; })()#false', '#')]
     [TestCase('Constructor reads the source of a regexp-like object', '(function () { try { (function () { var o = { get source() { throw new RangeError(); } }; o[Symbol.match] = true; new RegExp(o); })(); } catch (e) { return e instanceof RangeError; } return false; })()#true', '#')]
-    procedure Constructor_FollowsRegExpProtocol(const Expression, Expected: string);
-
+    procedure RegExpProtocol_Script_ReturnsExpectedText(const Expression, Expected: string);
   end;
 
 implementation
 
-procedure TRegExpProtocolTests.Setup;
+procedure TRegExpProtocolTests.RegExpProtocol_Script_ReturnsExpectedText(const Expression, Expected: string);
 begin
-  FEngine := TJSEngine.Create;
-end;
+  const Actual = TextOf(Expression);
 
-procedure TRegExpProtocolTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TRegExpProtocolTests.Evaluate(const Expression: string): string;
-begin
-  Result := FEngine.Evaluate(Format('String(%s)', [Expression])).ToString;
-end;
-
-procedure TRegExpProtocolTests.Match_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.Replace_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.Search_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.Split_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.ReplaceAll_ReturnsSpecResult(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.Exec_FollowsLastIndexSemantics(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
-end;
-
-procedure TRegExpProtocolTests.Constructor_FollowsRegExpProtocol(const Expression, Expected: string);
-begin
-  Assert.AreEqual(Expected, Evaluate(Expression));
+  Assert.AreEqual(Expected, Actual);
 end;
 
 end.

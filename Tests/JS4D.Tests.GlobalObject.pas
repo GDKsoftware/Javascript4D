@@ -8,61 +8,54 @@ uses
   System.SysUtils,
   DUnitX.TestFramework,
   JS4D.Types,
-  JS4D.Engine;
+  JS4D.Engine,
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TGlobalObjectTests = class
+  TGlobalObjectTests = class(TJSEngineTestCase)
   private
-    FEngine: TJSEngine;
-
-    function EvaluatesToTrue(const Script: string): Boolean;
+    function TotalAfterRun(const Engine: TJSEngine; const Increment: Integer): Double;
 
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     procedure ThisProperty_AtGlobalLevel_IsVisibleAsVariable;
 
     [Test]
-    procedure GlobalVar_IsVisibleAsPropertyOfThis;
+    procedure GlobalVar_ReadViaThis_IsVisibleAsProperty;
 
     [Test]
-    procedure GlobalFunction_IsVisibleAsPropertyOfThis;
+    procedure GlobalFunction_CalledViaThis_IsVisibleAsProperty;
 
     [Test]
-    procedure AssignmentToThisProperty_UpdatesGlobalVariable;
+    procedure AssignmentToThisProperty_ExistingVar_UpdatesGlobalVariable;
 
     [Test]
-    procedure AssignmentToGlobalVariable_UpdatesThisProperty;
+    procedure AssignmentToGlobalVariable_ReadViaThis_UpdatesThisProperty;
 
     [Test]
-    procedure ImplicitGlobal_IsVisibleAsPropertyOfThis;
+    procedure ImplicitGlobal_AssignedInFunction_IsVisibleAsPropertyOfThis;
 
     [Test]
     procedure ThisProperty_InsideFunction_IsVisibleAsVariable;
 
     [Test]
-    procedure ThisProperty_IsVisibleInsideWithBlockThatLacksIt;
+    procedure ThisProperty_InsideWithBlock_IsVisibleWhenObjectLacksIt;
 
     [Test]
-    procedure BuiltinConstructor_IsReachableThroughThis;
+    procedure BuiltinConstructor_ReadViaThis_IsReachable;
 
     [Test]
-    procedure BuiltinConstructor_IsNotEnumerableOnThis;
+    procedure BuiltinConstructor_ForIn_IsNotEnumerable;
 
     [Test]
-    procedure GlobalVar_IsEnumerableOnThis;
+    procedure GlobalVar_ForIn_IsEnumerable;
 
     [Test]
-    procedure HostGlobal_IsVisibleAsPropertyOfThis;
+    procedure HostGlobal_ReadViaThis_IsVisibleAsProperty;
 
     [Test]
-    procedure UnknownVariable_StillThrowsReferenceError;
+    procedure UnknownVariable_Read_ThrowsReferenceError;
 
     [Test]
     procedure FunctionDeclaration_OverNaN_ThrowsTypeError;
@@ -119,13 +112,13 @@ type
     procedure WithObject_ShadowsGlobalInSameLoop_ReadsObjectProperty;
 
     [Test]
-    procedure GlobalReadAndWrite_InSameSource_RunTwice_StaysCorrect;
+    procedure Evaluate_SameSourceTwice_AccumulatesRunCount;
 
     [Test]
     procedure TwoEngines_RunningSameSource_KeepTheirOwnGlobals;
 
     [Test]
-    procedure GlobalObject_InheritsFromObjectPrototype;
+    procedure GlobalObject_GetPrototypeOf_IsObjectPrototype;
 
     [Test]
     procedure GlobalObject_HasOwnProperty_IsInherited;
@@ -148,101 +141,118 @@ type
 
 implementation
 
-procedure TGlobalObjectTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
-
-procedure TGlobalObjectTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-function TGlobalObjectTests.EvaluatesToTrue(const Script: string): Boolean;
-begin
-  Result := FEngine.Evaluate(Script).AsBoolean;
-end;
+const
+  ACCUMULATE_TOTAL_FORMAT = 'var total = (typeof total === "undefined") ? 0 : total; ' +
+                            'for (var i = 0; i < 4; i++) { total += %d; } total';
 
 procedure TGlobalObjectTests.ThisProperty_AtGlobalLevel_IsVisibleAsVariable;
 begin
-  Assert.IsTrue(EvaluatesToTrue('this.answer = 42; answer === 42'));
+  const Actual = EvaluateBoolean('this.answer = 42; answer === 42');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.GlobalVar_IsVisibleAsPropertyOfThis;
+procedure TGlobalObjectTests.GlobalVar_ReadViaThis_IsVisibleAsProperty;
 begin
-  Assert.IsTrue(EvaluatesToTrue('var answer = 42; this.answer === 42'));
+  const Actual = EvaluateBoolean('var answer = 42; this.answer === 42');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.GlobalFunction_IsVisibleAsPropertyOfThis;
+procedure TGlobalObjectTests.GlobalFunction_CalledViaThis_IsVisibleAsProperty;
 begin
-  Assert.IsTrue(EvaluatesToTrue('function answer() { return 42; } this.answer() === 42'));
+  const Actual = EvaluateBoolean('function answer() { return 42; } this.answer() === 42');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.AssignmentToThisProperty_UpdatesGlobalVariable;
+procedure TGlobalObjectTests.AssignmentToThisProperty_ExistingVar_UpdatesGlobalVariable;
 begin
-  Assert.IsTrue(EvaluatesToTrue('var answer = 1; this.answer = 2; answer === 2'));
+  const Actual = EvaluateBoolean('var answer = 1; this.answer = 2; answer === 2');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.AssignmentToGlobalVariable_UpdatesThisProperty;
+procedure TGlobalObjectTests.AssignmentToGlobalVariable_ReadViaThis_UpdatesThisProperty;
 begin
-  Assert.IsTrue(EvaluatesToTrue('var answer = 1; answer = 2; this.answer === 2'));
+  const Actual = EvaluateBoolean('var answer = 1; answer = 2; this.answer === 2');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.ImplicitGlobal_IsVisibleAsPropertyOfThis;
+procedure TGlobalObjectTests.ImplicitGlobal_AssignedInFunction_IsVisibleAsPropertyOfThis;
 begin
-  Assert.IsTrue(EvaluatesToTrue('(function () { implicit = 7; })(); this.implicit === 7'));
+  const Actual = EvaluateBoolean('(function () { implicit = 7; })(); this.implicit === 7');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.ThisProperty_InsideFunction_IsVisibleAsVariable;
 begin
-  Assert.IsTrue(EvaluatesToTrue('this.answer = 42; (function () { return answer; })() === 42'));
+  const Actual = EvaluateBoolean('this.answer = 42; (function () { return answer; })() === 42');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.ThisProperty_IsVisibleInsideWithBlockThatLacksIt;
+procedure TGlobalObjectTests.ThisProperty_InsideWithBlock_IsVisibleWhenObjectLacksIt;
 begin
   const Script = 'this.p1 = 1; var seen; with ({ other: 2 }) { seen = p1; } seen === 1';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.BuiltinConstructor_IsReachableThroughThis;
+procedure TGlobalObjectTests.BuiltinConstructor_ReadViaThis_IsReachable;
 begin
-  Assert.IsTrue(EvaluatesToTrue('this.Array === Array && this.Math === Math'));
+  const Actual = EvaluateBoolean('this.Array === Array && this.Math === Math');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.BuiltinConstructor_IsNotEnumerableOnThis;
+procedure TGlobalObjectTests.BuiltinConstructor_ForIn_IsNotEnumerable;
 begin
   const Script = 'var found = false; for (var key in this) { if (key === "Array") found = true; } !found';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.GlobalVar_IsEnumerableOnThis;
+procedure TGlobalObjectTests.GlobalVar_ForIn_IsEnumerable;
 begin
   const Script = 'var visible = 1; var found = false; for (var key in this) { if (key === "visible") found = true; } found';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.HostGlobal_IsVisibleAsPropertyOfThis;
+procedure TGlobalObjectTests.HostGlobal_ReadViaThis_IsVisibleAsProperty;
 begin
   FEngine.SetVariable('hostValue', TJSValue.CreateNumber(5));
 
-  Assert.IsTrue(EvaluatesToTrue('this.hostValue === 5'));
+  const Actual = EvaluateBoolean('this.hostValue === 5');
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.UnknownVariable_StillThrowsReferenceError;
+procedure TGlobalObjectTests.UnknownVariable_Read_ThrowsReferenceError;
 begin
   const Script = 'var name = ""; try { missing; } catch (e) { name = e.name; } name === "ReferenceError"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.FunctionDeclaration_OverNaN_ThrowsTypeError;
 begin
   const Script = 'var name = ""; try { (0, eval)("function NaN() {}"); } catch (e) { name = e.name; } name === "TypeError"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.FunctionDeclaration_OverNaN_DefinesNoVariablesOfSameProgram;
@@ -251,7 +261,9 @@ begin
                  'Object.getOwnPropertyDescriptor(this, "early") === undefined && ' +
                  'Object.getOwnPropertyDescriptor(this, "late") === undefined';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.StrictAssignment_ToUnresolvableName_ThrowsBeforeEvaluatingRightSide;
@@ -259,7 +271,9 @@ begin
   const Script = 'var name = ""; try { (0, eval)("\"use strict\"; undeclared = (this.undeclared = 5);"); } ' +
                  'catch (e) { name = e.name; } name === "ReferenceError"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalAccessor_ReadAsVariable_InvokesGetter;
@@ -267,7 +281,9 @@ begin
   const Script = 'Object.defineProperty(this, "computed", { get: function() { return 7; }, configurable: true }); ' +
                  'computed === 7';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalAccessor_AssignedAsVariable_InvokesSetter;
@@ -276,7 +292,9 @@ begin
                  'Object.defineProperty(this, "sink", { set: function(v) { stored = v; }, configurable: true }); ' +
                  'sink = 5; stored === 5';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalReadOnlyProperty_AssignedAsVariable_KeepsValue;
@@ -284,7 +302,9 @@ begin
   const Script = 'Object.defineProperty(this, "fixed", { value: 1, writable: false, configurable: true }); ' +
                  'fixed = 2; fixed === 1';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.DeletedGlobal_ReadAgainInSameLoop_ThrowsReferenceError;
@@ -294,7 +314,9 @@ begin
                  'catch (e) { caught = e instanceof ReferenceError; } ' +
                  'seen === 1 && caught';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.DeletedGlobal_ReadFromFunction_ThrowsReferenceError;
@@ -304,7 +326,9 @@ begin
                  'try { read(); } catch (e) { caught = e instanceof ReferenceError; } ' +
                  'first === 1 && caught';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.DeletedGlobal_DeclaredAgain_ReadsNewValue;
@@ -313,7 +337,9 @@ begin
                  'for (var k = 0; k < 3; k++) { out.push(again); if (k === 0) { delete this.again; this.again = 10; } } ' +
                  'out.join() === "1,10,10"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalRedefinedAsAccessor_ReadInSameLoop_InvokesGetter;
@@ -323,7 +349,9 @@ begin
                  'if (k === 0) { Object.defineProperty(this, "v", { get: function() { return 42; }, configurable: true }); } } ' +
                  'out.join() === "1,42,42"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalAccessorRedefinedAsData_ReadInSameLoop_ReadsValue;
@@ -333,7 +361,9 @@ begin
                  'if (k === 0) { Object.defineProperty(this, "w", { value: 9, configurable: true }); } } ' +
                  'out.join() === "5,9,9"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalRedefinedAsReadOnly_AssignedInSameLoop_KeepsValue;
@@ -343,7 +373,9 @@ begin
                  'if (k === 0) { Object.defineProperty(this, "ro", { value: 100, writable: false, configurable: true }); } } ' +
                  'ro === 100';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalRedefinedWithSetter_AssignedInSameLoop_InvokesSetter;
@@ -353,7 +385,9 @@ begin
                  'if (k === 0) { Object.defineProperty(this, "sink", { set: function(v) { stored.push(v); }, configurable: true }); } } ' +
                  'stored.join() === "1,2"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.EvalDeclaredVar_ReadInLoop_IsDeletable;
@@ -363,7 +397,9 @@ begin
                  'catch (e) { caught = e instanceof ReferenceError; } ' +
                  'seen === 1 && caught';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.UnresolvedGlobal_DeclaredInSameLoop_ReadsNewValue;
@@ -374,7 +410,9 @@ begin
                  'if (k === 0) { this.late = 5; } } ' +
                  'out.join() === "missing,5,5"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalRead_AfterManyNewGlobalsAreDeclared_StaysCorrect;
@@ -384,7 +422,9 @@ begin
                  'if (k === 0) { for (var j = 0; j < 500; j++) { this["extra" + j] = j; } } } ' +
                  'total === 21 && extra499 === 499';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalAssignment_AfterManyNewGlobalsAreDeclared_StaysCorrect;
@@ -394,7 +434,9 @@ begin
                  'if (k === 0) { for (var j = 0; j < 500; j++) { this["extra" + j] = j; } } } ' +
                  'this.counter === 4 && extra0 === 0';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.WithObject_ShadowsGlobalInSameLoop_ReadsObjectProperty;
@@ -403,53 +445,77 @@ begin
                  'for (var k = 0; k < 3; k++) { out.push(shadowed); with (box) { out.push(shadowed); shadowed = shadowed + 10; } } ' +
                  'out.join() === "1,2,1,12,1,22" && shadowed === 1 && box.shadowed === 32';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
-procedure TGlobalObjectTests.GlobalReadAndWrite_InSameSource_RunTwice_StaysCorrect;
+procedure TGlobalObjectTests.Evaluate_SameSourceTwice_AccumulatesRunCount;
 begin
   const Script = 'var runs = (typeof runs === "undefined") ? 1 : runs + 1; ' +
                  'var sum = 0; for (var i = 0; i < 5; i++) { sum += i; } sum + runs';
 
-  Assert.AreEqual(Double(11), FEngine.Evaluate(Script).AsNumber);
-  Assert.AreEqual(Double(12), FEngine.Evaluate(Script).AsNumber);
+  const FirstActual = EvaluateNumber(Script);
+  const SecondActual = EvaluateNumber(Script);
+
+  Assert.AreEqual(11.0, FirstActual);
+  Assert.AreEqual(12.0, SecondActual);
+end;
+
+function TGlobalObjectTests.TotalAfterRun(const Engine: TJSEngine; const Increment: Integer): Double;
+begin
+  const Script = Format(ACCUMULATE_TOTAL_FORMAT, [Increment]);
+  const Total = Engine.Evaluate(Script);
+
+  Result := Total.AsNumber;
 end;
 
 procedure TGlobalObjectTests.TwoEngines_RunningSameSource_KeepTheirOwnGlobals;
 begin
   const Other = TJSEngine.Create;
   try
-    const Script = 'var total = (typeof total === "undefined") ? 0 : total; ' +
-                   'for (var i = 0; i < 4; i++) { total += %d; } total';
+    const FirstRun = TotalAfterRun(FEngine, 1);
+    const OtherFirstRun = TotalAfterRun(Other, 10);
+    const SecondRun = TotalAfterRun(FEngine, 1);
+    const OtherSecondRun = TotalAfterRun(Other, 10);
+    const ThirdRun = TotalAfterRun(FEngine, 1);
 
-    Assert.AreEqual(Double(4), FEngine.Evaluate(Format(Script, [1])).AsNumber);
-    Assert.AreEqual(Double(40), Other.Evaluate(Format(Script, [10])).AsNumber);
-    Assert.AreEqual(Double(8), FEngine.Evaluate(Format(Script, [1])).AsNumber);
-    Assert.AreEqual(Double(80), Other.Evaluate(Format(Script, [10])).AsNumber);
-    Assert.AreEqual(Double(12), FEngine.Evaluate(Format(Script, [1])).AsNumber);
+    Assert.AreEqual(4.0, FirstRun);
+    Assert.AreEqual(40.0, OtherFirstRun);
+    Assert.AreEqual(8.0, SecondRun);
+    Assert.AreEqual(80.0, OtherSecondRun);
+    Assert.AreEqual(12.0, ThirdRun);
   finally
     Other.Free;
   end;
 end;
 
-procedure TGlobalObjectTests.GlobalObject_InheritsFromObjectPrototype;
+procedure TGlobalObjectTests.GlobalObject_GetPrototypeOf_IsObjectPrototype;
 begin
-  Assert.IsTrue(EvaluatesToTrue('Object.getPrototypeOf(this) === Object.prototype'));
+  const Actual = EvaluateBoolean('Object.getPrototypeOf(this) === Object.prototype');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalObject_HasOwnProperty_IsInherited;
 begin
-  Assert.IsTrue(EvaluatesToTrue('var answer = 1; this.hasOwnProperty("answer") && !this.hasOwnProperty("nothing")'));
+  const Actual = EvaluateBoolean('var answer = 1; this.hasOwnProperty("answer") && !this.hasOwnProperty("nothing")');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalObject_InheritedObjectPrototypeMethods_AreVisibleAsVariables;
 begin
-  Assert.IsTrue(EvaluatesToTrue('typeof hasOwnProperty === "function" && typeof toString === "function"'));
+  const Actual = EvaluateBoolean('typeof hasOwnProperty === "function" && typeof toString === "function"');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.GlobalObject_InheritedProperties_AreNotOwn;
 begin
-  Assert.IsFalse(EvaluatesToTrue('this.hasOwnProperty("hasOwnProperty")'));
+  const Actual = EvaluateBoolean('this.hasOwnProperty("hasOwnProperty")');
+
+  Assert.IsFalse(Actual);
 end;
 
 procedure TGlobalObjectTests.StrictAssignment_ToUndeclaredName_IsReferenceError;
@@ -457,19 +523,25 @@ begin
   const Script = 'var caught = ""; try { (function () { "use strict"; undeclaredName = 1; })(); } ' +
                  'catch (e) { caught = e.name; } caught === "ReferenceError"';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.StrictAssignment_ToDeclaredGlobal_Succeeds;
 begin
-  Assert.IsTrue(EvaluatesToTrue('var answer = 1; (function () { "use strict"; answer = 2; })(); answer === 2'));
+  const Actual = EvaluateBoolean('var answer = 1; (function () { "use strict"; answer = 2; })(); answer === 2');
+
+  Assert.IsTrue(Actual);
 end;
 
 procedure TGlobalObjectTests.StrictAssignment_ToInheritedGlobalName_AssignsWithoutError;
 begin
   const Script = '(function () { "use strict"; valueOf = 5; })(); this.valueOf === 5';
 
-  Assert.IsTrue(EvaluatesToTrue(Script));
+  const Actual = EvaluateBoolean(Script);
+
+  Assert.IsTrue(Actual);
 end;
 
 end.

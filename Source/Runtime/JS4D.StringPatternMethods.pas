@@ -6,13 +6,17 @@ interface
 
 uses
   System.SysUtils,
+  JS4D.BuiltinSet,
+  JS4D.BuiltinSupport,
   JS4D.PropertyKey,
   JS4D.Types,
+  JS4D.RegExpObject,
+  JS4D.ArrayObject,
   JS4D.SymbolRegistry,
   JS4D.Interpreter;
 
 type
-  TJSStringPatternMethods = class
+  TJSStringPatternMethods = class(TJSBuiltinSet)
   private
     const
       MATCH_NAME = 'match';
@@ -20,43 +24,49 @@ type
       REPLACE_ALL_NAME = 'replaceAll';
       SEARCH_NAME = 'search';
       SPLIT_NAME = 'split';
-      FLAGS_PROPERTY = 'flags';
-      GLOBAL_FLAG = 'g';
       CALLED_ON_NULL_OR_UNDEFINED = 'String.prototype.%s called on null or undefined';
       REPLACE_ALL_NEEDS_GLOBAL = 'replaceAll must be called with a global RegExp';
       NULL_FLAGS = 'The flags of a regular expression must not be null or undefined';
 
     var
       FInterpreter: TJSInterpreter;
+      FSupport: TJSBuiltinSupport;
+
+    class function ReplaceMethodName(const ReplaceAll: Boolean): string; static;
 
     function ThisValueOf(const This: IJSObject; const MethodName: string): TJSValue;
-    function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
     function ToText(const Value: TJSValue): string;
-    function HasSearchValue(const Value: TJSValue): Boolean;
-    function DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
-                        const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
+    function TryDelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
+                           const Rest: TArray<TJSValue>; out Delegated: TJSValue): Boolean;
     procedure RequireGlobalFlags(const SearchValue: TJSValue);
     function InvokeOnNewRegExp(const Key: TJSPropertyKey; const Pattern: TJSValue; const Text: string): TJSValue;
     function MatchOrSearch(const This: IJSObject; const Args: TArray<TJSValue>; const MethodName: string;
                            const Which: TJSWellKnownSymbol): TJSValue;
+    function ReplaceInText(const Subject: TJSValue; const SearchValue: TJSValue; const ReplaceValue: TJSValue;
+                           const ReplaceAll: Boolean): TJSValue;
     function Replace(const This: IJSObject; const Args: TArray<TJSValue>; const ReplaceAll: Boolean): TJSValue;
+    function SplitLimit(const LimitValue: TJSValue): Int64;
+    function SplitInText(const Subject: TJSValue; const Separator: TJSValue; const LimitValue: TJSValue): TJSValue;
     function Split(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
-    function CreateMethod(const Name: string; const ParameterCount: Integer;
-                          const Method: TNativeFunction): IJSFunction;
-    procedure DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
-                           const Method: TNativeFunction);
+    procedure DefineMatchOrSearch(const Target: IJSObject; const Name: string; const Which: TJSWellKnownSymbol);
+    procedure DefineReplace(const Target: IJSObject; const Name: string; const ReplaceAll: Boolean);
+    procedure DefineSplit(const Target: IJSObject);
 
   public
     constructor Create(const Interpreter: TJSInterpreter);
+    destructor Destroy; override;
 
-    procedure Register;
+    procedure Register; override;
   end;
 
 implementation
 
 uses
+  JS4D.ArrayLike,
   JS4D.Errors,
   JS4D.Conversions,
+  JS4D.PropertyNames,
+  JS4D.RegExpSyntax,
   JS4D.PatternOperations;
 
 constructor TJSStringPatternMethods.Create(const Interpreter: TJSInterpreter);
@@ -64,12 +74,31 @@ begin
   inherited Create;
 
   FInterpreter := Interpreter;
+  FSupport := TJSBuiltinSupport.Create(Interpreter);
+end;
+
+destructor TJSStringPatternMethods.Destroy;
+begin
+  FSupport.Free;
+
+  inherited;
+end;
+
+class function TJSStringPatternMethods.ReplaceMethodName(const ReplaceAll: Boolean): string;
+begin
+  if ReplaceAll then
+    Exit(REPLACE_ALL_NAME);
+
+  Result := REPLACE_NAME;
 end;
 
 function TJSStringPatternMethods.ThisValueOf(const This: IJSObject; const MethodName: string): TJSValue;
 begin
   if not Assigned(This) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [MethodName]));
+  begin
+    const Message = Format(CALLED_ON_NULL_OR_UNDEFINED, [MethodName]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
   var Wrapper: IJSPrimitiveWrapper;
   if Supports(This, IJSPrimitiveWrapper, Wrapper) then
@@ -78,51 +107,41 @@ begin
   Result := TJSValue.CreateObject(This);
 end;
 
-function TJSStringPatternMethods.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
-begin
-  if Position < Length(Args) then
-    Result := Args[Position]
-  else
-    Result := TJSValue.CreateUndefined;
-end;
-
 function TJSStringPatternMethods.ToText(const Value: TJSValue): string;
 begin
   Result := TJSConversions.ToText(Value, FInterpreter.Limits);
 end;
 
-function TJSStringPatternMethods.HasSearchValue(const Value: TJSValue): Boolean;
+function TJSStringPatternMethods.TryDelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey;
+                                               const Subject: TJSValue; const Rest: TArray<TJSValue>;
+                                               out Delegated: TJSValue): Boolean;
 begin
-  Result := Value.IsObject;
-end;
+  Delegated := TJSValue.CreateUndefined;
+  Result := False;
 
-function TJSStringPatternMethods.DelegateTo(const SearchValue: TJSValue; const Key: TJSPropertyKey; const Subject: TJSValue;
-                                            const Rest: TArray<TJSValue>; out Handled: Boolean): TJSValue;
-begin
-  Handled := False;
-  Result := TJSValue.CreateUndefined;
-
-  if not HasSearchValue(SearchValue) then
+  if not SearchValue.IsObject then
     Exit;
 
   const Method = TJSConversions.FindMethod(SearchValue, Key);
   if not Assigned(Method) then
     Exit;
 
-  Handled := True;
-  Result := Method.Call(SearchValue.ToObject, [Subject] + Rest);
+  const MethodArguments = [Subject] + Rest;
+  Delegated := Method.Call(SearchValue.ToObject, MethodArguments);
+  Result := True;
 end;
 
 procedure TJSStringPatternMethods.RequireGlobalFlags(const SearchValue: TJSValue);
 begin
-  if not TJSConversions.IsRegExp(SearchValue) then
+  if not TJSConversions.IsRegExpLike(SearchValue) then
     Exit;
 
   const Flags = SearchValue.ToObject.GetProperty(FLAGS_PROPERTY);
   if Flags.IsNullOrUndefined then
     raise TJSErrorFactory.TypeError(NULL_FLAGS);
 
-  const IsGlobal = (Pos(GLOBAL_FLAG, ToText(Flags)) > 0);
+  const FlagsText = ToText(Flags);
+  const IsGlobal = TJSRegExpFlags.Includes(FlagsText, TJSRegExpFlags.GLOBAL);
   if not IsGlobal then
     raise TJSErrorFactory.TypeError(REPLACE_ALL_NEEDS_GLOBAL);
 end;
@@ -137,154 +156,160 @@ begin
   const NewRegExp: IJSRegExp = TJSRegExp.Create(PatternText, '');
   NewRegExp.Prototype := FInterpreter.RegExpPrototype;
 
-  const Method = TJSConversions.FindMethod(TJSValue.CreateObject(NewRegExp), Key);
+  const RegExpValue = TJSValue.CreateObject(NewRegExp);
+  const Method = TJSConversions.FindMethod(RegExpValue, Key);
   if not Assigned(Method) then
-    raise TJSErrorFactory.TypeError(Format(CALLED_ON_NULL_OR_UNDEFINED, [Key.Text]));
+  begin
+    const Message = Format(CALLED_ON_NULL_OR_UNDEFINED, [Key.Text]);
+    raise TJSErrorFactory.TypeError(Message);
+  end;
 
-  Result := Method.Call(NewRegExp, [TJSValue.CreateString(Text)]);
+  const TextValue = TJSValue.CreateString(Text);
+
+  Result := Method.Call(NewRegExp, [TextValue]);
 end;
 
 function TJSStringPatternMethods.MatchOrSearch(const This: IJSObject; const Args: TArray<TJSValue>;
                                                const MethodName: string; const Which: TJSWellKnownSymbol): TJSValue;
 begin
   const Subject = ThisValueOf(This, MethodName);
-  const Pattern = Argument(Args, 0);
+  const Pattern = TJSArrayLike.Argument(Args, 0);
   const Key = TJSSymbolRegistry.WellKnownKey(Which);
 
-  var Handled: Boolean;
-  const Delegated = DelegateTo(Pattern, Key, Subject, nil, Handled);
-  if Handled then
+  var Delegated: TJSValue;
+  if TryDelegateTo(Pattern, Key, Subject, nil, Delegated) then
     Exit(Delegated);
 
-  Result := InvokeOnNewRegExp(Key, Pattern, ToText(Subject));
+  const Text = ToText(Subject);
+
+  Result := InvokeOnNewRegExp(Key, Pattern, Text);
+end;
+
+function TJSStringPatternMethods.ReplaceInText(const Subject: TJSValue; const SearchValue: TJSValue;
+                                               const ReplaceValue: TJSValue; const ReplaceAll: Boolean): TJSValue;
+begin
+  const Text = ToText(Subject);
+  const SearchText = ToText(SearchValue);
+
+  var ReplacementTemplate := '';
+  var ReplacementFunction: IJSFunction := nil;
+  if ReplaceValue.IsFunction then
+    ReplacementFunction := TJSConversions.AsFunction(ReplaceValue)
+  else
+    ReplacementTemplate := ToText(ReplaceValue);
+
+  const Executor: TJSCallbackExecutor = FInterpreter.CallWithUndefinedThis;
+  const Replaced = TJSPatternOperations.ReplaceText(Text, SearchText, ReplacementTemplate, ReplacementFunction,
+                                                    ReplaceAll, Executor, FInterpreter.Limits);
+
+  Result := TJSValue.CreateString(Replaced);
 end;
 
 function TJSStringPatternMethods.Replace(const This: IJSObject; const Args: TArray<TJSValue>;
                                          const ReplaceAll: Boolean): TJSValue;
 begin
-  var MethodName := REPLACE_NAME;
-  if ReplaceAll then
-    MethodName := REPLACE_ALL_NAME;
-
+  const MethodName = ReplaceMethodName(ReplaceAll);
   const Subject = ThisValueOf(This, MethodName);
-  const SearchValue = Argument(Args, 0);
-  const ReplaceValue = Argument(Args, 1);
+  const SearchValue = TJSArrayLike.Argument(Args, 0);
+  const ReplaceValue = TJSArrayLike.Argument(Args, 1);
 
-  if ReplaceAll and HasSearchValue(SearchValue) then
+  const MustBeGlobal = ReplaceAll and SearchValue.IsObject;
+  if MustBeGlobal then
     RequireGlobalFlags(SearchValue);
 
-  var Handled: Boolean;
-  const Delegated = DelegateTo(SearchValue, TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Replace), Subject,
-                               [ReplaceValue], Handled);
-  if Handled then
+  const ReplaceKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Replace);
+  var Delegated: TJSValue;
+  if TryDelegateTo(SearchValue, ReplaceKey, Subject, [ReplaceValue], Delegated) then
     Exit(Delegated);
 
-  const Text = ToText(Subject);
-  const SearchText = ToText(SearchValue);
-
-  var Replacement := ReplaceValue;
-  if not TJSConversions.IsCallable(ReplaceValue) then
-    Replacement := TJSValue.CreateString(ToText(ReplaceValue));
-
-  const Executor: TJSCallbackExecutor =
-    function(const Func: IJSFunction; const CallbackArgs: TArray<TJSValue>): TJSValue
-    begin
-      const ThisArg = FInterpreter.ThisObjectFor(Func, TJSValue.CreateUndefined);
-      Result := FInterpreter.CallFunction(Func, CallbackArgs, ThisArg);
-    end;
-
-  const Replaced = TJSPatternOperations.ReplaceText(Text, SearchText, Replacement, ReplaceAll, Executor,
-                                                    FInterpreter.Limits);
-  Result := TJSValue.CreateString(Replaced);
+  Result := ReplaceInText(Subject, SearchValue, ReplaceValue, ReplaceAll);
 end;
 
-function TJSStringPatternMethods.Split(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
+function TJSStringPatternMethods.SplitLimit(const LimitValue: TJSValue): Int64;
 begin
-  const Subject = ThisValueOf(This, SPLIT_NAME);
-  const Separator = Argument(Args, 0);
-  const LimitValue = Argument(Args, 1);
-
-  var Handled: Boolean;
-  const Delegated = DelegateTo(Separator, TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Split), Subject,
-                               [LimitValue], Handled);
-  if Handled then
-    Exit(Delegated);
-
-  const Text = ToText(Subject);
-
-  var Limit := Int64(High(Cardinal));
+  Result := MAX_ARRAY_LENGTH;
   if not LimitValue.IsUndefined then
-    Limit := TJSConversions.ToUint32(LimitValue);
+    Result := TJSConversions.ToUint32(LimitValue);
+end;
 
+function TJSStringPatternMethods.SplitInText(const Subject: TJSValue; const Separator: TJSValue;
+                                             const LimitValue: TJSValue): TJSValue;
+begin
+  const Text = ToText(Subject);
+  const Limit = SplitLimit(LimitValue);
   const SeparatorText = ToText(Separator);
 
   const Pieces: IJSArray = TJSArray.Create;
   Result := TJSValue.CreateObject(Pieces);
 
-  if Limit = 0 then
+  const HasNoRoom = (Limit = 0);
+  if HasNoRoom then
     Exit;
 
   if Separator.IsUndefined then
   begin
-    Pieces.Push(TJSValue.CreateString(Text));
+    const TextValue = TJSValue.CreateString(Text);
+    Pieces.Push(TextValue);
     Exit;
   end;
 
   const SplitPieces = TJSPatternOperations.SplitText(Text, SeparatorText, Limit, FInterpreter.Limits);
+
   Result := TJSValue.CreateObject(SplitPieces);
 end;
 
-function TJSStringPatternMethods.CreateMethod(const Name: string; const ParameterCount: Integer;
-                                              const Method: TNativeFunction): IJSFunction;
+function TJSStringPatternMethods.Split(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
-  Result := TJSFunction.CreateNative(Name, Method);
-  Result.IsConstructor := False;
-  Result.Prototype := FInterpreter.FunctionPrototype;
-  TJSFunction.DefineLength(Result, ParameterCount);
-  FInterpreter.RegisterFunction(Result);
+  const Subject = ThisValueOf(This, SPLIT_NAME);
+  const Separator = TJSArrayLike.Argument(Args, 0);
+  const LimitValue = TJSArrayLike.Argument(Args, 1);
+
+  const SplitKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Split);
+  var Delegated: TJSValue;
+  if TryDelegateTo(Separator, SplitKey, Subject, [LimitValue], Delegated) then
+    Exit(Delegated);
+
+  Result := SplitInText(Subject, Separator, LimitValue);
 end;
 
-procedure TJSStringPatternMethods.DefineMethod(const Target: IJSObject; const Name: string;
-                                               const ParameterCount: Integer; const Method: TNativeFunction);
+procedure TJSStringPatternMethods.DefineMatchOrSearch(const Target: IJSObject; const Name: string;
+                                                      const Which: TJSWellKnownSymbol);
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(TJSValue.CreateObject(CreateMethod(Name, ParameterCount, Method)));
-  Descriptor.Enumerable := False;
-  Target.DefineProperty(Name, Descriptor);
+  FSupport.DefineMethod(Target, Name, 1,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := MatchOrSearch(This, Args, Name, Which);
+    end);
+end;
+
+procedure TJSStringPatternMethods.DefineReplace(const Target: IJSObject; const Name: string;
+                                                const ReplaceAll: Boolean);
+begin
+  FSupport.DefineMethod(Target, Name, 2,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := Replace(This, Args, ReplaceAll);
+    end);
+end;
+
+procedure TJSStringPatternMethods.DefineSplit(const Target: IJSObject);
+begin
+  FSupport.DefineMethod(Target, SPLIT_NAME, 2,
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      Result := Split(This, Args);
+    end);
 end;
 
 procedure TJSStringPatternMethods.Register;
 begin
   const PrototypeObj = FInterpreter.StringPrototype;
 
-  DefineMethod(PrototypeObj, MATCH_NAME, 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := MatchOrSearch(This, Args, MATCH_NAME, TJSWellKnownSymbol.Match);
-    end);
-
-  DefineMethod(PrototypeObj, SEARCH_NAME, 1,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := MatchOrSearch(This, Args, SEARCH_NAME, TJSWellKnownSymbol.Search);
-    end);
-
-  DefineMethod(PrototypeObj, REPLACE_NAME, 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Replace(This, Args, False);
-    end);
-
-  DefineMethod(PrototypeObj, REPLACE_ALL_NAME, 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Replace(This, Args, True);
-    end);
-
-  DefineMethod(PrototypeObj, SPLIT_NAME, 2,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      Result := Split(This, Args);
-    end);
+  DefineMatchOrSearch(PrototypeObj, MATCH_NAME, TJSWellKnownSymbol.Match);
+  DefineMatchOrSearch(PrototypeObj, SEARCH_NAME, TJSWellKnownSymbol.Search);
+  DefineReplace(PrototypeObj, REPLACE_NAME, False);
+  DefineReplace(PrototypeObj, REPLACE_ALL_NAME, True);
+  DefineSplit(PrototypeObj);
 end;
 
 end.

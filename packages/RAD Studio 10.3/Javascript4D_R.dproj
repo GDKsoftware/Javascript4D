@@ -86,14 +86,18 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="rtl.dcp"/>
-        <DCCReference Include="..\..\Source\API\JS4D.Json.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonWriter.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.Engine.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Errors.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpSyntax.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpTranslator.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.PcreMatcher.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Types.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.ArrayObject.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.RegExpObject.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.SymbolObject.pas"/>
         <DCCReference Include="..\..\Source\Lexer\JS4D.Lexer.pas"/>
+        <DCCReference Include="..\..\Source\Lexer\JS4D.LexicalCharacters.pas"/>
         <DCCReference Include="..\..\Source\Lexer\JS4D.SlashContext.pas"/>
         <DCCReference Include="..\..\Source\Lexer\JS4D.Tokens.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.AST.pas"/>
@@ -101,12 +105,27 @@
         <DCCReference Include="..\..\Source\Parser\JS4D.SuspensionAnalysis.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.Parser.pas"/>
         <DCCReference Include="..\..\Source\Parser\JS4D.ParserScope.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserConstants.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserTypes.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserBase.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserPatterns.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserExpressions.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserFunctions.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserRules.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.ParserLookahead.pas"/>
+        <DCCReference Include="..\..\Source\Parser\JS4D.PatternConverter.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Builtins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.PatternOperations.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.JsonReader.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.JsonReviver.pas"/>
         <DCCReference Include="..\..\Source\API\JS4D.JsonSyntax.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.BigNatural.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.AsciiDigits.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.Binary64.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.BuiltInLocaleData.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.JsWhiteSpace.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.NumberText.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.RegExpCharacters.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.DecimalConversion.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberFormat.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.NumberParse.pas"/>
@@ -141,13 +160,16 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.SymbolBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorProtocol.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.StringIterator.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.WellKnownSymbolHooks.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ConstructorFunction.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.DoubleMergeSorter.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.StrictThis.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.IteratorBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.OrderedStore.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CollectionObjects.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CollectionBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.BinaryData.pas"/>
-        <DCCReference Include="..\..\Source\Runtime\JS4D.BinarySupport.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BuiltinSupport.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ArrayBufferBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.DataViewBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.TypedArrayBuiltins.pas"/>
@@ -176,6 +198,7 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.ReflectBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Conversions.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.CaseMapping.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.CaseMappingData.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectBuiltins.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.RegExpProtocol.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.StringPatternMethods.pas"/>
@@ -195,6 +218,11 @@
         <DCCReference Include="..\..\Source\Runtime\JS4D.GeneratorEngine.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.ClassBuilder.pas"/>
         <DCCReference Include="..\..\Source\Runtime\JS4D.Interpreter.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.BuiltinSet.pas"/>
+        <DCCReference Include="..\..\Source\Runtime\JS4D.ObjectStatics.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonGrammar.pas"/>
+        <DCCReference Include="..\..\Source\API\JS4D.JsonRoot.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.Utf16.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

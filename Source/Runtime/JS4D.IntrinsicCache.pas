@@ -15,6 +15,8 @@ type
   // property lookup finds is still the built-in one.
   TJSIntrinsicGroup = (ArrayMethod, FunctionMethod, ObjectMethod);
 
+  TJSMutatorKind = (Push, Pop);
+
   // The built-in functions and prototypes that the iteration fast paths compare against, to see that a
   // script has not replaced the iterator protocol of arrays, arguments objects or strings.
   TJSIterationIntrinsics = record

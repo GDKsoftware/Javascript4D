@@ -12,7 +12,10 @@ $GitOptions = @('-c', 'core.longpaths=true', '-c', 'core.autocrlf=false')
 if (-not (Test-Path (Join-Path $Destination '.git'))) {
     New-Item -ItemType Directory -Force $Destination | Out-Null
     git -C $Destination init --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'git init failed' }
+
     git -C $Destination remote add origin $Repository
+    if ($LASTEXITCODE -ne 0) { throw 'git remote add failed' }
 }
 
 $CurrentCommit = git -C $Destination rev-parse --verify --quiet HEAD

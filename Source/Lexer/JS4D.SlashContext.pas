@@ -13,18 +13,18 @@ type
 
   TJSSlashContext = class
   private
-    FParens: TList<TJSParenKind>;
-    FBraceEndsStatement: TList<Boolean>;
+    FParens: TStack<TJSParenKind>;
+    FBraceEndsStatement: TStack<Boolean>;
     FPreviousToken: TJSToken;
     FClosedParen: TJSParenKind;
     FPendingFunction: TJSParenKind;
     FRegExpAllowedAfterClose: Boolean;
     FClassDeclarationDepth: Integer;
 
-    function ParenKindFor(const Previous: TJSToken): TJSParenKind;
+    function ParenKindForPrevious: TJSParenKind;
     function BraceEndsStatement: Boolean;
-    function FunctionKindFor(const Previous: TJSToken): TJSParenKind;
-    function IsStatementBoundary(const Previous: TJSToken): Boolean;
+    function FunctionKindForPrevious: TJSParenKind;
+    function IsStatementBoundary: Boolean;
     procedure OpenParen;
     procedure CloseParen;
     procedure StartClass;
@@ -49,8 +49,8 @@ constructor TJSSlashContext.Create;
 begin
   inherited Create;
   FClassDeclarationDepth := NO_CLASS_DECLARATION;
-  FParens := TList<TJSParenKind>.Create;
-  FBraceEndsStatement := TList<Boolean>.Create;
+  FParens := TStack<TJSParenKind>.Create;
+  FBraceEndsStatement := TStack<Boolean>.Create;
 end;
 
 destructor TJSSlashContext.Destroy;
@@ -75,29 +75,16 @@ procedure TJSSlashContext.Observe(const Token: TJSToken);
 begin
   const TokenType = Token.TokenType;
 
-  if TokenType = TJSTokenType.KeywordFunction then
-  begin
-    FPendingFunction := FunctionKindFor(FPreviousToken);
-  end
-  else if TokenType = TJSTokenType.KeywordClass then
-  begin
-    StartClass;
-  end
-  else if TokenType = TJSTokenType.LeftParen then
-  begin
-    OpenParen;
-  end
-  else if TokenType = TJSTokenType.RightParen then
-  begin
-    CloseParen;
-  end
-  else if TokenType = TJSTokenType.LeftBrace then
-  begin
-    OpenBrace;
-  end
-  else if TokenType = TJSTokenType.RightBrace then
-  begin
-    CloseBrace;
+  case TokenType of
+    TJSTokenType.KeywordFunction : FPendingFunction := FunctionKindForPrevious;
+    TJSTokenType.KeywordClass    : StartClass;
+    TJSTokenType.LeftParen       : OpenParen;
+    TJSTokenType.RightParen      : CloseParen;
+    TJSTokenType.LeftBrace       : OpenBrace;
+    TJSTokenType.RightBrace      : CloseBrace;
+  else
+    begin
+    end;
   end;
 
   FPreviousToken := Token;
@@ -115,7 +102,7 @@ begin
   if EndsGroup then
     Exit(not FRegExpAllowedAfterClose);
 
-  const EndsTemplate = (PreviousType = TJSTokenType.TemplateChunk) and FPreviousToken.IsTemplateTail;
+  const EndsTemplate = ((PreviousType = TJSTokenType.TemplateChunk) and FPreviousToken.IsTemplateTail);
   if EndsTemplate then
     Exit(True);
 
@@ -137,13 +124,13 @@ begin
   ];
 end;
 
-function TJSSlashContext.IsStatementBoundary(const Previous: TJSToken): Boolean;
+function TJSSlashContext.IsStatementBoundary: Boolean;
 begin
-  const HasPrevious = Assigned(Previous);
+  const HasPrevious = Assigned(FPreviousToken);
   if not HasPrevious then
     Exit(True);
 
-  Result := Previous.TokenType in [
+  Result := FPreviousToken.TokenType in [
     TJSTokenType.Semicolon,
     TJSTokenType.LeftBrace,
     TJSTokenType.RightBrace,
@@ -154,10 +141,10 @@ begin
   ];
 end;
 
-function TJSSlashContext.FunctionKindFor(const Previous: TJSToken): TJSParenKind;
+function TJSSlashContext.FunctionKindForPrevious: TJSParenKind;
 begin
-  const FollowsRightParen = Assigned(Previous) and (Previous.TokenType = TJSTokenType.RightParen);
-  const StartsStatement = IsStatementBoundary(Previous) or FollowsRightParen;
+  const FollowsRightParen = (Assigned(FPreviousToken) and (FPreviousToken.TokenType = TJSTokenType.RightParen));
+  const StartsStatement = (IsStatementBoundary or FollowsRightParen);
 
   if StartsStatement then
     Result := TJSParenKind.FunctionDeclaration
@@ -165,17 +152,17 @@ begin
     Result := TJSParenKind.FunctionExpression;
 end;
 
-function TJSSlashContext.ParenKindFor(const Previous: TJSToken): TJSParenKind;
+function TJSSlashContext.ParenKindForPrevious: TJSParenKind;
 begin
-  const HasPrevious = Assigned(Previous);
-  const FollowsStatementKeyword = HasPrevious and (Previous.TokenType in [
+  const HasPrevious = Assigned(FPreviousToken);
+  const FollowsStatementKeyword = (HasPrevious and (FPreviousToken.TokenType in [
     TJSTokenType.KeywordIf,
     TJSTokenType.KeywordWhile,
     TJSTokenType.KeywordFor,
     TJSTokenType.KeywordWith,
     TJSTokenType.KeywordSwitch,
     TJSTokenType.KeywordCatch
-  ]);
+  ]));
 
   if FollowsStatementKeyword then
     Exit(TJSParenKind.StatementHead);
@@ -185,8 +172,8 @@ end;
 
 procedure TJSSlashContext.OpenParen;
 begin
-  const Kind = ParenKindFor(FPreviousToken);
-  FParens.Add(Kind);
+  const Kind = ParenKindForPrevious;
+  FParens.Push(Kind);
   FPendingFunction := TJSParenKind.Plain;
 end;
 
@@ -196,26 +183,23 @@ begin
 
   const HasOpenParen = (FParens.Count > 0);
   if HasOpenParen then
-  begin
-    FClosedParen := FParens.Last;
-    FParens.Delete(FParens.Count - 1);
-  end;
+    FClosedParen := FParens.Pop;
 
   FRegExpAllowedAfterClose := (FClosedParen = TJSParenKind.StatementHead);
 end;
 
 function TJSSlashContext.BraceEndsStatement: Boolean;
 begin
-  const FollowsParen = Assigned(FPreviousToken) and (FPreviousToken.TokenType = TJSTokenType.RightParen);
+  const FollowsParen = (Assigned(FPreviousToken) and (FPreviousToken.TokenType = TJSTokenType.RightParen));
   if FollowsParen then
     Exit(FClosedParen in [TJSParenKind.StatementHead, TJSParenKind.FunctionDeclaration]);
 
-  Result := IsStatementBoundary(FPreviousToken);
+  Result := IsStatementBoundary;
 end;
 
 procedure TJSSlashContext.StartClass;
 begin
-  if IsStatementBoundary(FPreviousToken) then
+  if IsStatementBoundary then
     FClassDeclarationDepth := FParens.Count;
 end;
 
@@ -225,8 +209,8 @@ begin
   if IsClassBody then
     FClassDeclarationDepth := NO_CLASS_DECLARATION;
 
-  const EndsStatement = IsClassBody or BraceEndsStatement;
-  FBraceEndsStatement.Add(EndsStatement);
+  const EndsStatement = (IsClassBody or BraceEndsStatement);
+  FBraceEndsStatement.Push(EndsStatement);
 end;
 
 procedure TJSSlashContext.CloseBrace;
@@ -235,10 +219,7 @@ begin
 
   const HasOpenBrace = (FBraceEndsStatement.Count > 0);
   if HasOpenBrace then
-  begin
-    FRegExpAllowedAfterClose := FBraceEndsStatement.Last;
-    FBraceEndsStatement.Delete(FBraceEndsStatement.Count - 1);
-  end;
+    FRegExpAllowedAfterClose := FBraceEndsStatement.Pop;
 end;
 
 end.

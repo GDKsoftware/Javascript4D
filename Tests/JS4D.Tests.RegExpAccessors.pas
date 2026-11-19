@@ -5,26 +5,13 @@ unit JS4D.Tests.RegExpAccessors;
 interface
 
 uses
-  System.SysUtils,
   DUnitX.TestFramework,
-  JS4D.Types,
-  JS4D.Engine;
+  JS4D.Tests.Support;
 
 type
   [TestFixture]
-  TRegExpAccessorsTests = class
-  private
-    FEngine: TJSEngine;
-
-    procedure AssertScript(const Script: string);
-
+  TRegExpAccessorsTests = class(TJSEngineTestCase)
   public
-    [Setup]
-    procedure Setup;
-
-    [TearDown]
-    procedure TearDown;
-
     [Test]
     [TestCase('Source', 'source')]
     [TestCase('Flags', 'flags')]
@@ -77,7 +64,7 @@ type
     procedure Source_SlashInsideClass_StaysLiteral;
 
     [Test]
-    procedure ToString_UsesEscapedSource;
+    procedure ToString_PatternWithSlash_EscapesSource;
 
     [Test]
     procedure Sticky_Exec_MatchesOnlyAtLastIndex;
@@ -91,91 +78,101 @@ type
 
 implementation
 
-procedure TRegExpAccessorsTests.Setup;
-begin
-  FEngine := TJSEngine.Create;
-end;
+uses
+  System.SysUtils;
 
-procedure TRegExpAccessorsTests.TearDown;
-begin
-  FEngine.Free;
-end;
-
-procedure TRegExpAccessorsTests.AssertScript(const Script: string);
-begin
-  Assert.IsTrue(FEngine.Evaluate(Script).AsBoolean, Script);
-end;
+const
+  FLAG_DESCRIPTOR = 'var d = Object.getOwnPropertyDescriptor(RegExp.prototype, "%s");';
+  FLAG_GETTER = 'var g = Object.getOwnPropertyDescriptor(RegExp.prototype, "%s").get;';
 
 procedure TRegExpAccessorsTests.Prototype_FlagProperty_IsAccessorWithoutSetter(const Name: string);
 begin
-  AssertScript(
-    Format('var d = Object.getOwnPropertyDescriptor(RegExp.prototype, "%s");' +
-           'typeof d.get === "function" && d.set === undefined && d.enumerable === false && ' +
-           'd.configurable === true', [Name]));
+  const Preparation = Format(FLAG_DESCRIPTOR, [Name]);
+
+  AssertChecksHold(Preparation,
+    ['typeof d.get === "function"',
+     'd.set === undefined',
+     'd.enumerable === false',
+     'd.configurable === true']);
 end;
 
 procedure TRegExpAccessorsTests.Getter_NameAndLength_FollowTheSpecification(const Name: string);
 begin
-  AssertScript(
-    Format('var g = Object.getOwnPropertyDescriptor(RegExp.prototype, "%s").get;' +
-           'g.name === "get %s" && g.length === 0 && !g.hasOwnProperty("prototype")', [Name, Name]));
+  const Preparation = Format(FLAG_GETTER, [Name]);
+  const ExpectedName = Format('g.name === "get %s"', [Name]);
+
+  AssertChecksHold(Preparation,
+    [ExpectedName,
+     'g.length === 0',
+     '!g.hasOwnProperty("prototype")']);
 end;
 
 procedure TRegExpAccessorsTests.Instance_OwnProperties_AreOnlyLastIndex;
 begin
-  AssertScript('Object.getOwnPropertyNames(/a/g).join() === "lastIndex"');
+  AssertEvaluatesTo('lastIndex', 'Object.getOwnPropertyNames(/a/g).join()');
 end;
 
 procedure TRegExpAccessorsTests.LastIndex_Descriptor_IsWritableOnly;
 begin
-  AssertScript(
-    'var d = Object.getOwnPropertyDescriptor(/a/, "lastIndex");' +
-    'd.value === 0 && d.writable === true && d.enumerable === false && d.configurable === false');
+  AssertChecksHold('var d = Object.getOwnPropertyDescriptor(/a/, "lastIndex");',
+    ['d.value === 0',
+     'd.writable === true',
+     'd.enumerable === false',
+     'd.configurable === false']);
 end;
 
 procedure TRegExpAccessorsTests.Getters_OnRegExp_ReportTheFlags;
 begin
-  AssertScript(
-    'var re = /a\/b/gimuy;' +
-    're.global === true && re.ignoreCase === true && re.multiline === true && re.unicode === true && ' +
-    're.sticky === true && re.source === "a\\/b" && ' +
-    '/a/.global === false && /a/.ignoreCase === false && /a/.multiline === false && ' +
-    '/a/.unicode === false && /a/.sticky === false');
+  AssertChecksHold('var re = /a\/b/gimuy;',
+    ['re.global === true',
+     're.ignoreCase === true',
+     're.multiline === true',
+     're.unicode === true',
+     're.sticky === true',
+     're.source === "a\\/b"',
+     '/a/.global === false',
+     '/a/.ignoreCase === false',
+     '/a/.multiline === false',
+     '/a/.unicode === false',
+     '/a/.sticky === false']);
 end;
 
 procedure TRegExpAccessorsTests.Getters_OnRegExpPrototype_ReturnDefaults;
 begin
-  AssertScript(
-    'RegExp.prototype.global === undefined && RegExp.prototype.sticky === undefined && ' +
-    'RegExp.prototype.source === "(?:)" && RegExp.prototype.flags === ""');
+  AssertChecksHold('',
+    ['RegExp.prototype.global === undefined',
+     'RegExp.prototype.sticky === undefined',
+     'RegExp.prototype.source === "(?:)"',
+     'RegExp.prototype.flags === ""']);
 end;
 
 procedure TRegExpAccessorsTests.Getters_OnOtherObject_ThrowTypeError(const Name: string);
 begin
-  AssertScript(
-    Format('var get = Object.getOwnPropertyDescriptor(RegExp.prototype, "%s").get;' +
-           'var thrown = 0;' +
-           'try { get.call({}); } catch (e) { if (e instanceof TypeError) thrown++; }' +
-           'try { get.call(1); } catch (e) { if (e instanceof TypeError) thrown++; }' +
-           'try { get.call(undefined); } catch (e) { if (e instanceof TypeError) thrown++; }' +
-           'thrown === 3', [Name]));
+  const Script = Format(FLAG_GETTER, [Name]) +
+                 'var thrown = 0;' +
+                 'try { g.call({}); } catch (e) { if (e instanceof TypeError) thrown++; }' +
+                 'try { g.call(1); } catch (e) { if (e instanceof TypeError) thrown++; }' +
+                 'try { g.call(undefined); } catch (e) { if (e instanceof TypeError) thrown++; }' +
+                 'thrown';
+
+  AssertEvaluatesTo('3', Script);
 end;
 
 procedure TRegExpAccessorsTests.Flags_OnRegExp_IsInCanonicalOrder;
 begin
-  AssertScript('new RegExp("a", "yumig").flags === "gimuy" && /a/.flags === ""');
+  AssertEvaluatesTo('gimuy|', '[new RegExp("a", "yumig").flags, /a/.flags].join("|")');
 end;
 
 procedure TRegExpAccessorsTests.Flags_OnPlainObject_ReadsTheFlagProperties;
 begin
-  AssertScript(
+  AssertEvaluatesTo('guy',
     'var get = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags").get;' +
-    'get.call({ global: 1, sticky: true, multiline: "", unicode: "x" }) === "guy"');
+    'get.call({ global: 1, sticky: true, multiline: "", unicode: "x" })');
 end;
 
 procedure TRegExpAccessorsTests.Flags_OnPrimitive_ThrowsTypeError;
 begin
-  AssertScript(
+  AssertEvaluatesTo('true',
     'var get = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags").get;' +
     'var thrown = false;' +
     'try { get.call(true); } catch (e) { thrown = e instanceof TypeError; }' +
@@ -184,52 +181,58 @@ end;
 
 procedure TRegExpAccessorsTests.Source_EmptyPattern_IsEmptyGroup;
 begin
-  AssertScript('new RegExp("").source === "(?:)" && new RegExp().source === "(?:)" && String(new RegExp("")) === "/(?:)/"');
+  AssertChecksHold('',
+    ['new RegExp("").source === "(?:)"',
+     'new RegExp().source === "(?:)"',
+     'String(new RegExp("")) === "/(?:)/"']);
 end;
 
 procedure TRegExpAccessorsTests.Source_SlashAndLineTerminators_AreEscaped;
 begin
-  AssertScript(
-    'new RegExp("/").source === "\\/" && new RegExp("\\/").source === "\\/" && ' +
-    'new RegExp("\n").source === "\\n" && new RegExp("\r").source === "\\r" && ' +
-    'new RegExp(String.fromCharCode(0x2028)).source === "\\u2028" && ' +
-    'new RegExp(String.fromCharCode(0x2029)).source === "\\u2029"');
+  AssertChecksHold('',
+    ['new RegExp("/").source === "\\/"',
+     'new RegExp("\\/").source === "\\/"',
+     'new RegExp("\n").source === "\\n"',
+     'new RegExp("\r").source === "\\r"',
+     'new RegExp(String.fromCharCode(0x2028)).source === "\\u2028"',
+     'new RegExp(String.fromCharCode(0x2029)).source === "\\u2029"']);
 end;
 
 procedure TRegExpAccessorsTests.Source_SlashInsideClass_StaysLiteral;
 begin
-  AssertScript('new RegExp("[/]").source === "[/]"');
+  AssertEvaluatesTo('[/]', 'new RegExp("[/]").source');
 end;
 
-procedure TRegExpAccessorsTests.ToString_UsesEscapedSource;
+procedure TRegExpAccessorsTests.ToString_PatternWithSlash_EscapesSource;
 begin
-  AssertScript('String(new RegExp("a/b", "g")) === "/a\\/b/g"');
+  AssertEvaluatesTo('/a\/b/g', 'String(new RegExp("a/b", "g"))');
 end;
 
 procedure TRegExpAccessorsTests.Sticky_Exec_MatchesOnlyAtLastIndex;
 begin
-  AssertScript(
+  AssertChecksHold(
     'var r = /b/y;' +
     'var first = r.exec("ab");' +
     'r.lastIndex = 1;' +
-    'var second = r.exec("ab");' +
-    'first === null && second !== null && second.index === 1 && r.lastIndex === 2');
+    'var second = r.exec("ab");',
+    ['first === null',
+     'second !== null',
+     'second.index === 1',
+     'r.lastIndex === 2']);
 end;
 
 procedure TRegExpAccessorsTests.Sticky_FailedExec_ResetsLastIndex;
 begin
-  AssertScript(
-    'var r = /a/y; r.lastIndex = 1;' +
-    'var m = r.exec("ab");' +
-    'm === null && r.lastIndex === 0');
+  AssertChecksHold('var r = /a/y; r.lastIndex = 1; var m = r.exec("ab");',
+    ['m === null',
+     'r.lastIndex === 0']);
 end;
 
 procedure TRegExpAccessorsTests.Sticky_Test_AdvancesLastIndex;
 begin
-  AssertScript(
+  AssertEvaluatesTo('true,1,true,2,false,0',
     'var r = /a/y;' +
-    'var results = [r.test("aab"), r.lastIndex, r.test("aab"), r.lastIndex, r.test("aab"), r.lastIndex];' +
-    'results.join() === "true,1,true,2,false,0"');
+    '[r.test("aab"), r.lastIndex, r.test("aab"), r.lastIndex, r.test("aab"), r.lastIndex].join()');
 end;
 
 end.

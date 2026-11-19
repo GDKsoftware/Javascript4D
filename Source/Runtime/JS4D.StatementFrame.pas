@@ -65,7 +65,7 @@ type
     Current: TJSValue;
     Thrown: TJSValue;
     Keys: TArray<string>;
-    Source: TJSIterationSource;
+    Source: IJSIterationSource;
     Pending: Exception;
     Iterator: IJSObject;
     NextMethod: TJSValue;
@@ -109,16 +109,8 @@ begin
   VisitValue(NextMethod, Visit);
   VisitValue(Received.Value, Visit);
 
-  Visit(Source.Elements);
-  Visit(Source.ArrayLike);
-
-  if Assigned(Source.Protocol) then
-    Source.Protocol.EnumerateReferences(Visit);
-
-  for var Item in Source.Items do
-  begin
-    VisitValue(Item, Visit);
-  end;
+  if Assigned(Source) then
+    Source.EnumerateReferences(Visit);
 
   if Pending is TJSThrowSignal then
     VisitValue(TJSThrowSignal(Pending).Value, Visit)

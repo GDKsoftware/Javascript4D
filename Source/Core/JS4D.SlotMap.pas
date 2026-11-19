@@ -1,7 +1,5 @@
 unit JS4D.SlotMap;
 
-{$SCOPEDENUMS ON}
-
 interface
 
 uses
@@ -13,19 +11,46 @@ type
     type
       PSlot = ^T;
 
+      TSlotEnumerator = record
+      private
+        FMap: TJSSlotMap<T>;
+        FPosition: Integer;
+
+        function GetCurrent: PSlot;
+
+      public
+        constructor Create(const Map: TJSSlotMap<T>);
+
+        function MoveNext: Boolean;
+
+        property Current: PSlot read GetCurrent;
+      end;
+
   private
-    FIndexByName: TDictionary<string, Integer>;
-    FNames: TArray<string>;
-    FFingerprints: TArray<Cardinal>;
-    FValues: TArray<T>;
-    FCount: Integer;
-    FLayoutVersion: Cardinal;
+    const
+      INITIAL_CAPACITY = 4;
+      LINEAR_SEARCH_LIMIT = 8;
+      KEY_MISSING_MESSAGE = 'Key %s does not exist';
+      KEY_PRESENT_MESSAGE = 'Key %s already exists';
+      FINGERPRINT_LENGTH_SHIFT = 20;
+      FINGERPRINT_FIRST_CHARACTER_SHIFT = 10;
+
+    var
+      FIndexByName: TDictionary<string, Integer>;
+      FNames: TArray<string>;
+      FFingerprints: TArray<Cardinal>;
+      FInsertionOrder: TArray<Integer>;
+      FValues: TArray<T>;
+      FCount: Integer;
+      FLayoutVersion: Cardinal;
 
     class function FingerprintOf(const Name: string): Cardinal; static; inline;
     function IndexOf(const Name: string): Integer;
     procedure Append(const Name: string; const Value: T);
     procedure BuildIndex;
     procedure GrowStorage;
+    function InsertionOrderIndexOf(const Position: Integer): Integer;
+    procedure ForgetInsertionOrder(const Position: Integer; const LastPosition: Integer);
     function GetItem(const Name: string): T;
     procedure SetItem(const Name: string; const Value: T);
 
@@ -39,9 +64,12 @@ type
     procedure AddOrSetValue(const Name: string; const Value: T);
     procedure Remove(const Name: string);
     procedure Clear;
+    function GetEnumerator: TSlotEnumerator;
     function Names: TArray<string>;
     function SlotAt(const Position: Integer): PSlot;
+    function ValueAt(const Position: Integer): T;
     function NameAt(const Position: Integer): string;
+    function NameInInsertionOrder(const OrderIndex: Integer): string;
 
     property Count: Integer read FCount;
     property Items[const Name: string]: T read GetItem write SetItem; default;
@@ -51,16 +79,36 @@ type
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  System.Math;
 
-const
-  INITIAL_CAPACITY = 4;
-  LINEAR_SEARCH_LIMIT = 8;
+constructor TJSSlotMap<T>.TSlotEnumerator.Create(const Map: TJSSlotMap<T>);
+begin
+  FMap := Map;
+  FPosition := -1;
+end;
+
+function TJSSlotMap<T>.TSlotEnumerator.MoveNext: Boolean;
+begin
+  Inc(FPosition);
+
+  Result := (FPosition < FMap.Count);
+end;
+
+function TJSSlotMap<T>.TSlotEnumerator.GetCurrent: PSlot;
+begin
+  Result := FMap.SlotAt(FPosition);
+end;
 
 destructor TJSSlotMap<T>.Destroy;
 begin
   FIndexByName.Free;
-  inherited;
+  inherited Destroy;
+end;
+
+function TJSSlotMap<T>.GetEnumerator: TSlotEnumerator;
+begin
+  Result := TSlotEnumerator.Create(Self);
 end;
 
 class function TJSSlotMap<T>.FingerprintOf(const Name: string): Cardinal;
@@ -70,7 +118,9 @@ begin
   if IsEmpty then
     Exit(0);
 
-  Result := (Cardinal(NameLength) shl 20) xor (Cardinal(Ord(Name[1])) shl 10) xor Cardinal(Ord(Name[NameLength]));
+  Result := (Cardinal(NameLength) shl FINGERPRINT_LENGTH_SHIFT) xor
+            (Cardinal(Ord(Name[1])) shl FINGERPRINT_FIRST_CHARACTER_SHIFT) xor
+            Cardinal(Ord(Name[NameLength]));
 end;
 
 function TJSSlotMap<T>.IndexOf(const Name: string): Integer;
@@ -114,7 +164,7 @@ begin
   const Position = IndexOf(Name);
   const IsMissing = (Position < 0);
   if IsMissing then
-    raise EListError.CreateFmt('Property %s does not exist', [Name]);
+    raise EListError.CreateFmt(KEY_MISSING_MESSAGE, [Name]);
 
   Result := FValues[Position];
 end;
@@ -151,30 +201,35 @@ end;
 
 procedure TJSSlotMap<T>.GrowStorage;
 begin
-  var Capacity := Length(FValues) * 2;
-  if Capacity < INITIAL_CAPACITY then
-    Capacity := INITIAL_CAPACITY;
+  const Capacity = Max(Length(FValues) * 2, INITIAL_CAPACITY);
 
   SetLength(FValues, Capacity);
   SetLength(FNames, Capacity);
   SetLength(FFingerprints, Capacity);
+  SetLength(FInsertionOrder, Capacity);
   Inc(FLayoutVersion);
 end;
 
 procedure TJSSlotMap<T>.Append(const Name: string; const Value: T);
 begin
-  if FCount = Length(FValues) then
+  const IsFull = (FCount = Length(FValues));
+  if IsFull then
     GrowStorage;
 
   FNames[FCount] := Name;
   FFingerprints[FCount] := FingerprintOf(Name);
+  FInsertionOrder[FCount] := FCount;
   FValues[FCount] := Value;
   Inc(FCount);
 
-  const NeedsIndex = (FCount > LINEAR_SEARCH_LIMIT);
   if Assigned(FIndexByName) then
-    FIndexByName.Add(Name, FCount - 1)
-  else if NeedsIndex then
+  begin
+    FIndexByName.Add(Name, FCount - 1);
+    Exit;
+  end;
+
+  const NeedsIndex = (FCount > LINEAR_SEARCH_LIMIT);
+  if NeedsIndex then
     BuildIndex;
 end;
 
@@ -182,7 +237,7 @@ procedure TJSSlotMap<T>.Add(const Name: string; const Value: T);
 begin
   const IsPresent = (IndexOf(Name) >= 0);
   if IsPresent then
-    raise EListError.CreateFmt('Property %s already exists', [Name]);
+    raise EListError.CreateFmt(KEY_PRESENT_MESSAGE, [Name]);
 
   Append(Name, Value);
 end;
@@ -208,7 +263,10 @@ begin
   if Assigned(FIndexByName) then
     FIndexByName.Remove(Name);
 
-  if Position <> LastPosition then
+  ForgetInsertionOrder(Position, LastPosition);
+
+  const IsLastSlot = (Position = LastPosition);
+  if not IsLastSlot then
   begin
     FNames[Position] := FNames[LastPosition];
     FFingerprints[Position] := FFingerprints[LastPosition];
@@ -224,11 +282,38 @@ begin
   Inc(FLayoutVersion);
 end;
 
+function TJSSlotMap<T>.InsertionOrderIndexOf(const Position: Integer): Integer;
+begin
+  for var OrderIndex := 0 to FCount - 1 do
+  begin
+    const IsPosition = (FInsertionOrder[OrderIndex] = Position);
+    if IsPosition then
+      Exit(OrderIndex);
+  end;
+
+  Result := -1;
+end;
+
+procedure TJSSlotMap<T>.ForgetInsertionOrder(const Position: Integer; const LastPosition: Integer);
+begin
+  const RemovedOrderIndex = InsertionOrderIndexOf(Position);
+
+  const IsLastSlot = (Position = LastPosition);
+  if not IsLastSlot then
+    FInsertionOrder[InsertionOrderIndexOf(LastPosition)] := Position;
+
+  const MovedCount = FCount - 1 - RemovedOrderIndex;
+  const HasEntriesToMove = (MovedCount > 0);
+  if HasEntriesToMove then
+    Move(FInsertionOrder[RemovedOrderIndex + 1], FInsertionOrder[RemovedOrderIndex], MovedCount * SizeOf(Integer));
+end;
+
 procedure TJSSlotMap<T>.Clear;
 begin
   FreeAndNil(FIndexByName);
   FNames := nil;
   FFingerprints := nil;
+  FInsertionOrder := nil;
   FValues := nil;
   FCount := 0;
   Inc(FLayoutVersion);
@@ -236,16 +321,43 @@ end;
 
 function TJSSlotMap<T>.Names: TArray<string>;
 begin
-  Result := Copy(FNames, 0, FCount);
+  SetLength(Result, FCount);
+
+  for var OrderIndex := 0 to FCount - 1 do
+  begin
+    Result[OrderIndex] := FNames[FInsertionOrder[OrderIndex]];
+  end;
+end;
+
+function TJSSlotMap<T>.NameInInsertionOrder(const OrderIndex: Integer): string;
+begin
+  const IsOccupied = (OrderIndex >= 0) and (OrderIndex < FCount);
+  Assert(IsOccupied);
+
+  Result := FNames[FInsertionOrder[OrderIndex]];
 end;
 
 function TJSSlotMap<T>.SlotAt(const Position: Integer): PSlot;
 begin
+  const IsOccupied = (Position >= 0) and (Position < FCount);
+  Assert(IsOccupied);
+
   Result := @FValues[Position];
+end;
+
+function TJSSlotMap<T>.ValueAt(const Position: Integer): T;
+begin
+  const IsOccupied = (Position >= 0) and (Position < FCount);
+  Assert(IsOccupied);
+
+  Result := FValues[Position];
 end;
 
 function TJSSlotMap<T>.NameAt(const Position: Integer): string;
 begin
+  const IsOccupied = (Position >= 0) and (Position < FCount);
+  Assert(IsOccupied);
+
   Result := FNames[Position];
 end;
 

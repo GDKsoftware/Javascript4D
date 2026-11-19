@@ -1,4 +1,4 @@
-unit JS4D.BinarySupport;
+unit JS4D.BuiltinSupport;
 
 {$SCOPEDENUMS ON}
 
@@ -12,7 +12,7 @@ uses
   JS4D.PropertyNames,
   JS4D.Types,
   JS4D.Interpreter,
-  JS4D.ProxyObjects;
+  JS4D.ConstructorFunction;
 
 type
   TJSCallOutcome = record
@@ -20,17 +20,11 @@ type
     Value: TJSValue;
   end;
 
-  // What the ArrayBuffer, DataView and typed array builtins have in common: defining functions and accessors,
-  // reading arguments, and the conversions of the specification that decide which errors are raised.
-  TJSBinarySupport = class
+  TJSBuiltinSupport = class
   private
     const
-      MAX_SAFE_INTEGER = 9007199254740991.0;
-      SPECIES_GETTER_NAME = 'get [Symbol.species]';
       INVALID_INDEX = 'Invalid index: %s';
-      CONSTRUCTOR_NOT_AN_OBJECT = 'The constructor property of the object is not an object';
-      SPECIES_NOT_A_CONSTRUCTOR = 'The species of the constructor is not a constructor';
-      NULL_OR_UNDEFINED = 'Cannot convert undefined or null to object';
+      DETACHED_BUFFER = 'Cannot perform %s on a detached ArrayBuffer';
       NOT_A_FUNCTION = '%s is not a function';
 
     var
@@ -39,17 +33,15 @@ type
   public
     constructor Create(const Interpreter: TJSInterpreter);
 
-    class function Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue; static;
-    class function ToIntegerOrInfinity(const Value: TJSValue): Double; static;
     class function ToIndex(const Value: TJSValue): Int64; static;
-    class function AsFunction(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
-    class function AsConstructor(const Value: TJSValue; out Func: IJSFunction): Boolean; static;
     class function IsCallable(const Value: TJSValue): Boolean; static;
-    class function IsSameObject(const First: IJSObject; const Second: IJSObject): Boolean; static;
+    class function ReturnsThis: TNativeFunction; static;
+    class procedure RequireNotDetached(const IsDetached: Boolean; const MethodName: string); static;
     class function ArgumentsFrom(const Args: TArray<TJSValue>; const FirstPosition: Integer): TArray<TJSValue>; static;
 
     function ToObject(const Value: TJSValue): IJSObject;
     function CreateArray(const Items: TArray<TJSValue>): TJSValue;
+    function TryReadSequence(const Source: TJSValue; out Items: TArray<TJSValue>): Boolean;
     function ReadSequence(const Source: TJSValue; const NotIterableMessage: string): TArray<TJSValue>;
     function TypeErrorValue(const Message: string): TJSValue;
     function Invoke(const Target: TJSValue; const Name: string; const Args: TArray<TJSValue>): TJSValue;
@@ -64,16 +56,15 @@ type
     procedure DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                            const IsWritable: Boolean);
     procedure DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
-    procedure DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const FunctionName: string;
-                           const Method: TNativeFunction);
+    function DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const FunctionName: string;
+                          const Method: TNativeFunction): IJSFunction;
     procedure DefineToStringTag(const Target: IJSObject; const Tag: string);
-    procedure DefineSpeciesGetter(const Constructor_: IJSObject);
+    function DefineSpeciesGetter(const Constructor_: IJSObject): IJSFunction;
     procedure LinkConstructor(const Constructor_: IJSFunction; const Prototype: IJSObject);
     procedure UnlinkConstructor(const Prototype: IJSObject);
     function CreateConstructor(const Name: string; const ParameterCount: Integer; const RequiresNewMessage: string;
                                const Handler: TJSConstructHandler): IJSFunction;
     function PrototypeFromConstructor(const NewTarget: IJSFunction; const DefaultPrototype: IJSObject): IJSObject;
-    function SpeciesConstructor(const Source: IJSObject; const DefaultConstructor: IJSFunction): IJSFunction;
 
     property Interpreter: TJSInterpreter read FInterpreter;
   end;
@@ -81,80 +72,78 @@ type
 implementation
 
 uses
+  JS4D.ArrayLike,
+  JS4D.Conversions,
   JS4D.Errors,
+  JS4D.ObjectOperations,
   JS4D.ArrayStatics,
   JS4D.SymbolRegistry;
 
-constructor TJSBinarySupport.Create(const Interpreter: TJSInterpreter);
+constructor TJSBuiltinSupport.Create(const Interpreter: TJSInterpreter);
 begin
   inherited Create;
 
   FInterpreter := Interpreter;
 end;
 
-class function TJSBinarySupport.Argument(const Args: TArray<TJSValue>; const Position: Integer): TJSValue;
-begin
-  if Position < Length(Args) then
-    Exit(Args[Position]);
-
-  Result := TJSValue.CreateUndefined;
-end;
-
-class function TJSBinarySupport.ToIntegerOrInfinity(const Value: TJSValue): Double;
-begin
-  const Number = Value.ToPrimitiveWithHint(TJSPrimitiveHint.Number).ToNumber;
-  if IsNaN(Number) then
-    Exit(0);
-
-  Result := Int(Number);
-end;
-
-class function TJSBinarySupport.ToIndex(const Value: TJSValue): Int64;
+class function TJSBuiltinSupport.ToIndex(const Value: TJSValue): Int64;
 begin
   if Value.IsUndefined then
     Exit(0);
 
-  const Whole = ToIntegerOrInfinity(Value);
+  const Whole = TJSConversions.ToIntegerOrInfinity(Value);
   const IsValid = (Whole >= 0) and (Whole <= MAX_SAFE_INTEGER);
   if not IsValid then
-    raise TJSErrorFactory.RangeError(Format(INVALID_INDEX, [Value.ToString]));
+  begin
+    const Message = Format(INVALID_INDEX, [Value.ToString]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
 
   Result := Trunc(Whole);
 end;
 
-class function TJSBinarySupport.AsFunction(const Value: TJSValue; out Func: IJSFunction): Boolean;
-begin
-  Result := Value.IsFunction and Supports(Value.ToObject, IJSFunction, Func);
-end;
-
-class function TJSBinarySupport.AsConstructor(const Value: TJSValue; out Func: IJSFunction): Boolean;
-begin
-  Result := AsFunction(Value, Func) and Func.IsConstructor;
-end;
-
-function TJSBinarySupport.ToObject(const Value: TJSValue): IJSObject;
+function TJSBuiltinSupport.ToObject(const Value: TJSValue): IJSObject;
 begin
   if Value.IsNullOrUndefined then
-    raise TJSErrorFactory.TypeError(NULL_OR_UNDEFINED);
+    raise TJSErrorFactory.NotCoercibleToObject;
 
   if Value.IsObject then
-    Exit(Value.ToObject);
+  begin
+    Result := Value.ToObject;
+    Exit;
+  end;
 
   Result := FInterpreter.WrapPrimitive(Value);
 end;
 
-class function TJSBinarySupport.IsCallable(const Value: TJSValue): Boolean;
+class function TJSBuiltinSupport.IsCallable(const Value: TJSValue): Boolean;
 begin
   var Func: IJSFunction;
-  Result := AsFunction(Value, Func);
+  Result := Value.TryGetFunction(Func);
 end;
 
-class function TJSBinarySupport.IsSameObject(const First: IJSObject; const Second: IJSObject): Boolean;
+class procedure TJSBuiltinSupport.RequireNotDetached(const IsDetached: Boolean; const MethodName: string);
 begin
-  Result := ((First as IInterface) = (Second as IInterface));
+  if not IsDetached then
+    Exit;
+
+  const Message = Format(DETACHED_BUFFER, [MethodName]);
+  raise TJSErrorFactory.TypeError(Message);
 end;
 
-class function TJSBinarySupport.ArgumentsFrom(const Args: TArray<TJSValue>;
+class function TJSBuiltinSupport.ReturnsThis: TNativeFunction;
+begin
+  Result :=
+    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
+    begin
+      if Assigned(This) then
+        Result := TJSValue.CreateObject(This)
+      else
+        Result := TJSValue.CreateUndefined;
+    end;
+end;
+
+class function TJSBuiltinSupport.ArgumentsFrom(const Args: TArray<TJSValue>;
                                               const FirstPosition: Integer): TArray<TJSValue>;
 begin
   const HasArguments = (Length(Args) > FirstPosition);
@@ -164,40 +153,42 @@ begin
     Result := nil;
 end;
 
-function TJSBinarySupport.CreateArray(const Items: TArray<TJSValue>): TJSValue;
+function TJSBuiltinSupport.CreateArray(const Items: TArray<TJSValue>): TJSValue;
 begin
-  const List = TJSArray.Create;
-  List.Prototype := FInterpreter.ArrayPrototype;
-  for var Item in Items do
-  begin
-    List.Push(Item);
-  end;
-
-  Result := TJSValue.CreateObject(List);
+  Result := TJSArrayLike.CreateArray(FInterpreter.ArrayPrototype, Items);
 end;
 
-function TJSBinarySupport.ReadSequence(const Source: TJSValue; const NotIterableMessage: string): TArray<TJSValue>;
+function TJSBuiltinSupport.TryReadSequence(const Source: TJSValue; out Items: TArray<TJSValue>): Boolean;
 begin
+  Items := nil;
+
   var Reader: TJSSequenceReader;
   var Closer: TJSSequenceCloser;
-  if not FInterpreter.OpenSequenceReader(Source, Reader, Closer) then
-    raise TJSErrorFactory.TypeError(NotIterableMessage);
+  Result := FInterpreter.TryOpenSequenceReader(Source, Reader, Closer);
+  if not Result then
+    Exit;
 
-  const Items = TList<TJSValue>.Create;
+  const Collected = TList<TJSValue>.Create;
   try
     var Item: TJSValue;
     while Reader(Item) do
     begin
-      Items.Add(Item);
+      Collected.Add(Item);
     end;
 
-    Result := Items.ToArray;
+    Items := Collected.ToArray;
   finally
-    Items.Free;
+    Collected.Free;
   end;
 end;
 
-function TJSBinarySupport.TypeErrorValue(const Message: string): TJSValue;
+function TJSBuiltinSupport.ReadSequence(const Source: TJSValue; const NotIterableMessage: string): TArray<TJSValue>;
+begin
+  if not TryReadSequence(Source, Result) then
+    raise TJSErrorFactory.TypeError(NotIterableMessage);
+end;
+
+function TJSBuiltinSupport.TypeErrorValue(const Message: string): TJSValue;
 begin
   const Error = TJSErrorFactory.TypeError(Message);
   try
@@ -207,14 +198,14 @@ begin
   end;
 end;
 
-function TJSBinarySupport.Invoke(const Target: TJSValue; const Name: string;
+function TJSBuiltinSupport.Invoke(const Target: TJSValue; const Name: string;
                                  const Args: TArray<TJSValue>): TJSValue;
 begin
   const Holder = ToObject(Target);
   const Method = Holder.GetProperty(Name);
 
   var Func: IJSFunction;
-  const IsFunction = AsFunction(Method, Func);
+  const IsFunction = Method.TryGetFunction(Func);
   if not IsFunction then
   begin
     const Message = Format(NOT_A_FUNCTION, [Name]);
@@ -226,7 +217,7 @@ begin
   Result := FInterpreter.CallFunction(Func, Args, ThisObject);
 end;
 
-function TJSBinarySupport.Capture(const Operation: TFunc<TJSValue>): TJSCallOutcome;
+function TJSBuiltinSupport.Capture(const Operation: TFunc<TJSValue>): TJSCallOutcome;
 begin
   Result.IsNormal := True;
   Result.Value := TJSValue.CreateUndefined;
@@ -236,6 +227,10 @@ begin
   except
     on EJSExecutionInterrupted do
       raise;
+    on EOutOfMemory do
+      raise;
+    on EAccessViolation do
+      raise;
     on Error: Exception do
     begin
       Result.IsNormal := False;
@@ -244,7 +239,7 @@ begin
   end;
 end;
 
-function TJSBinarySupport.CallCapturingThrow(const Func: IJSFunction; const Args: TArray<TJSValue>;
+function TJSBuiltinSupport.CallCapturingThrow(const Func: IJSFunction; const Args: TArray<TJSValue>;
                                              const This: IJSObject): TJSCallOutcome;
 begin
   Result := Capture(
@@ -254,7 +249,7 @@ begin
     end);
 end;
 
-procedure TJSBinarySupport.AttemptIgnoringFailure(const Operation: TProc);
+procedure TJSBuiltinSupport.AttemptIgnoringFailure(const Operation: TProc);
 begin
   Capture(
     function: TJSValue
@@ -264,7 +259,7 @@ begin
     end);
 end;
 
-function TJSBinarySupport.CreateMethod(const Name: string; const ParameterCount: Integer;
+function TJSBuiltinSupport.CreateMethod(const Name: string; const ParameterCount: Integer;
                                        const Method: TNativeFunction): IJSFunction;
 begin
   Result := TJSFunction.CreateNative(Name, Method);
@@ -274,15 +269,16 @@ begin
   FInterpreter.RegisterFunction(Result);
 end;
 
-function TJSBinarySupport.DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
+function TJSBuiltinSupport.DefineMethod(const Target: IJSObject; const Name: string; const ParameterCount: Integer;
                                        const Method: TNativeFunction): IJSFunction;
 begin
   Result := CreateMethod(Name, ParameterCount, Method);
 
-  DefineMember(Target, Name, TJSValue.CreateObject(Result), True);
+  const MethodValue = TJSValue.CreateObject(Result);
+  DefineMember(Target, Name, MethodValue, True);
 end;
 
-procedure TJSBinarySupport.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
+procedure TJSBuiltinSupport.DefineMember(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue;
                                         const IsWritable: Boolean);
 begin
   var Descriptor := TJSPropertyDescriptor.Create(Value);
@@ -292,54 +288,51 @@ begin
   Target.DefineProperty(Key, Descriptor);
 end;
 
-procedure TJSBinarySupport.DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
+procedure TJSBuiltinSupport.DefineConstant(const Target: IJSObject; const Key: TJSPropertyKey; const Value: TJSValue);
 begin
-  var Descriptor := TJSPropertyDescriptor.Create(Value);
-  Descriptor.Writable := False;
-  Descriptor.Enumerable := False;
-  Descriptor.Configurable := False;
-  Target.DefineProperty(Key, Descriptor);
+  TJSObjectOperations.DefineConstantData(Target, Key, Value);
 end;
 
-procedure TJSBinarySupport.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey; const FunctionName: string;
-                                        const Method: TNativeFunction);
+function TJSBuiltinSupport.DefineGetter(const Target: IJSObject; const Key: TJSPropertyKey;
+                                        const FunctionName: string; const Method: TNativeFunction): IJSFunction;
 begin
+  Result := CreateMethod(FunctionName, 0, Method);
+
   var Descriptor := Default(TJSPropertyDescriptor);
   Descriptor.IsAccessor := True;
   Descriptor.Enumerable := False;
   Descriptor.Configurable := True;
-  Descriptor.Getter := TJSValue.CreateObject(CreateMethod(FunctionName, 0, Method));
+  Descriptor.Getter := TJSValue.CreateObject(Result);
   Target.DefineProperty(Key, Descriptor);
 end;
 
-procedure TJSBinarySupport.DefineToStringTag(const Target: IJSObject; const Tag: string);
+procedure TJSBuiltinSupport.DefineToStringTag(const Target: IJSObject; const Tag: string);
 begin
   const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.ToStringTag);
 
-  DefineMember(Target, Key, TJSValue.CreateString(Tag), False);
+  const TagValue = TJSValue.CreateString(Tag);
+  DefineMember(Target, Key, TagValue, False);
 end;
 
-procedure TJSBinarySupport.DefineSpeciesGetter(const Constructor_: IJSObject);
+function TJSBuiltinSupport.DefineSpeciesGetter(const Constructor_: IJSObject): IJSFunction;
 begin
   const Key = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
 
-  DefineGetter(Constructor_, Key, SPECIES_GETTER_NAME,
-    function(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue
-    begin
-      if Assigned(This) then
-        Result := TJSValue.CreateObject(This)
-      else
-        Result := TJSValue.CreateUndefined;
-    end);
+  const Getter = ReturnsThis();
+
+  Result := DefineGetter(Constructor_, Key, SPECIES_GETTER_NAME, Getter);
 end;
 
-procedure TJSBinarySupport.LinkConstructor(const Constructor_: IJSFunction; const Prototype: IJSObject);
+procedure TJSBuiltinSupport.LinkConstructor(const Constructor_: IJSFunction; const Prototype: IJSObject);
 begin
-  DefineMember(Prototype, CONSTRUCTOR_PROPERTY, TJSValue.CreateObject(Constructor_), True);
-  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, TJSValue.CreateObject(Prototype));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  const PrototypeValue = TJSValue.CreateObject(Prototype);
+
+  DefineMember(Prototype, CONSTRUCTOR_PROPERTY, ConstructorValue, True);
+  Constructor_.SetNonConfigurableProperty(PROTOTYPE_PROPERTY, PrototypeValue);
 end;
 
-function TJSBinarySupport.CreateConstructor(const Name: string; const ParameterCount: Integer;
+function TJSBuiltinSupport.CreateConstructor(const Name: string; const ParameterCount: Integer;
                                             const RequiresNewMessage: string;
                                             const Handler: TJSConstructHandler): IJSFunction;
 begin
@@ -357,13 +350,13 @@ begin
   FInterpreter.RegisterFunction(Result);
 end;
 
-procedure TJSBinarySupport.UnlinkConstructor(const Prototype: IJSObject);
+procedure TJSBuiltinSupport.UnlinkConstructor(const Prototype: IJSObject);
 begin
   if Assigned(Prototype) then
     Prototype.DeleteProperty(CONSTRUCTOR_PROPERTY);
 end;
 
-function TJSBinarySupport.PrototypeFromConstructor(const NewTarget: IJSFunction;
+function TJSBuiltinSupport.PrototypeFromConstructor(const NewTarget: IJSFunction;
                                                    const DefaultPrototype: IJSObject): IJSObject;
 begin
   Result := DefaultPrototype;
@@ -373,25 +366,6 @@ begin
   const Candidate = NewTarget.GetProperty(PROTOTYPE_PROPERTY);
   if Candidate.IsObject then
     Result := Candidate.ToObject;
-end;
-
-function TJSBinarySupport.SpeciesConstructor(const Source: IJSObject;
-                                             const DefaultConstructor: IJSFunction): IJSFunction;
-begin
-  const ConstructorValue = Source.GetProperty(CONSTRUCTOR_PROPERTY);
-  if ConstructorValue.IsUndefined then
-    Exit(DefaultConstructor);
-
-  if not ConstructorValue.IsObject then
-    raise TJSErrorFactory.TypeError(CONSTRUCTOR_NOT_AN_OBJECT);
-
-  const SpeciesKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.Species);
-  const Species = ConstructorValue.ToObject.GetProperty(SpeciesKey);
-  if Species.IsNullOrUndefined then
-    Exit(DefaultConstructor);
-
-  if not AsConstructor(Species, Result) then
-    raise TJSErrorFactory.TypeError(SPECIES_NOT_A_CONSTRUCTOR);
 end;
 
 end.

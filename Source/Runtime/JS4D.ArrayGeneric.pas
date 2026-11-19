@@ -8,7 +8,9 @@ uses
   System.SysUtils,
   System.Math,
   JS4D.PropertyKey,
+  JS4D.PropertyNames,
   JS4D.Types,
+  JS4D.ArrayObject,
   JS4D.Errors,
   JS4D.SymbolRegistry,
   JS4D.Builtins,
@@ -28,24 +30,47 @@ type
 
   TJSArrayGeneric = class
   private
-    const
-      METHOD_PUSH = 'push';
-      METHOD_POP = 'pop';
-      METHOD_SHIFT = 'shift';
-      METHOD_UNSHIFT = 'unshift';
-      METHOD_SPLICE = 'splice';
-      METHOD_SLICE = 'slice';
-      METHOD_REVERSE = 'reverse';
-      METHOD_JOIN = 'join';
-      METHOD_CONCAT = 'concat';
-      METHOD_SORT = 'sort';
-      METHOD_TO_STRING = 'toString';
-      METHOD_TO_LOCALE_STRING = 'toLocaleString';
-      METHOD_FILL = 'fill';
-      METHOD_COPY_WITHIN = 'copyWithin';
-      DEFAULT_SEPARATOR = ',';
-      NOT_CALLED_ON_OBJECT = 'Array.prototype.%s called on null or undefined';
+    type
+      TGenericMethod = (Push, Pop, Shift, Unshift, Splice, Slice, Reverse, Join, Concat, Sort, ToText,
+                        ToLocaleText, Fill, CopyWithin);
 
+      TGenericMethodInfo = record
+        Name: string;
+        CreatesResultArray: Boolean;
+        StoresNewElements: Boolean;
+        AlwaysUsesPropertySemantics: Boolean;
+      end;
+
+      TElementFormatter = reference to function(const Element: TJSValue): string;
+
+    const
+      UNSUPPORTED_METHOD = 'Unsupported generic array method: %s';
+      EMPTY_RESULT_METHODS = [TGenericMethod.Concat];
+      METHODS: array[TGenericMethod] of TGenericMethodInfo = (
+        (Name: METHOD_PUSH; CreatesResultArray: False; StoresNewElements: True; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_POP; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_SHIFT; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_UNSHIFT; CreatesResultArray: False; StoresNewElements: True; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_SPLICE; CreatesResultArray: True; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_SLICE; CreatesResultArray: True; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_REVERSE; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: JOIN_METHOD; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_CONCAT; CreatesResultArray: True; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_SORT; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: False),
+        (Name: TO_STRING_METHOD; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_TO_LOCALE_STRING; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: False),
+        (Name: METHOD_FILL; CreatesResultArray: False; StoresNewElements: False; AlwaysUsesPropertySemantics: True),
+        (Name: METHOD_COPY_WITHIN; CreatesResultArray: False; StoresNewElements: False;
+         AlwaysUsesPropertySemantics: True));
+
+    class function TryFindMethod(const MethodName: string; out Method: TGenericMethod): Boolean; static;
+    class function TryResetEmpty(const Target: IJSObject; const Count: Int64): Boolean; static;
+    class function JoinElements(const Target: IJSObject; const Separator: string;
+                                const Context: TJSArrayGenericContext;
+                                const FormatElement: TElementFormatter): string; static;
+    class function ReadSpreadableFlag(const Item: TJSValue): TJSValue; static;
     class function Push(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue; static;
     class function Pop(const Target: IJSObject): TJSValue; static;
     class function Shift(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue; static;
@@ -72,7 +97,6 @@ type
 
     class function CopyRange(const Source: IJSObject; const FirstIndex, Count: Int64;
                              const Context: TJSArrayGenericContext): IJSArray; static;
-    class function SpliceDeleteCount(const Args: TArray<TJSValue>; const Count, Start: Int64): Int64; static;
     class procedure ShiftTailDown(const Target: IJSObject; const Count, Start, DeleteCount, ItemCount: Int64;
                                   const Context: TJSArrayGenericContext); static;
     class procedure ShiftTailUp(const Target: IJSObject; const Count, Start, DeleteCount, ItemCount: Int64;
@@ -80,8 +104,8 @@ type
     class procedure SwapMirroredElements(const Target: IJSObject; const LowerIndex, UpperIndex: Int64); static;
     class function HasSpreadabilityFlag(const Item: TJSValue): Boolean; static;
     class function IsConcatSpreadable(const Item: TJSValue): Boolean; static;
-    class procedure AppendConcatItem(const Item: TJSValue; const Combined: IJSArray; var NextIndex: Int64;
-                                     const Context: TJSArrayGenericContext); static;
+    class function AppendConcatItem(const Item: TJSValue; const Combined: IJSArray; const NextIndex: Int64;
+                                    const Context: TJSArrayGenericContext): Int64; static;
     class procedure StoreConcatElement(const Combined: IJSArray; const Index: Int64; const Element: TJSValue;
                                        const Context: TJSArrayGenericContext); static;
     class procedure WriteSortedElements(const Target: IJSObject; const Sorted: IJSArray;
@@ -91,6 +115,7 @@ type
     class function Handles(const MethodName: string): Boolean; static;
     class function AlwaysUsesPropertySemantics(const MethodName: string): Boolean; static;
     class function CreatesResultArray(const MethodName: string): Boolean; static;
+    class function StartsEmpty(const MethodName: string): Boolean; static;
     class function StoresNewElements(const MethodName: string): Boolean; static;
     class function ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
                                       const Args: TArray<TJSValue>): Boolean; static;
@@ -100,40 +125,53 @@ type
 
 implementation
 
+uses
+  JS4D.Conversions;
+
+class function TJSArrayGeneric.TryFindMethod(const MethodName: string; out Method: TGenericMethod): Boolean;
+begin
+  for var Candidate := Low(TGenericMethod) to High(TGenericMethod) do
+  begin
+    const IsMatch = (METHODS[Candidate].Name = MethodName);
+    if IsMatch then
+    begin
+      Method := Candidate;
+      Exit(True);
+    end;
+  end;
+
+  Method := Low(TGenericMethod);
+  Result := False;
+end;
+
 class function TJSArrayGeneric.Handles(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_PUSH) or
-            (MethodName = METHOD_POP) or
-            (MethodName = METHOD_SHIFT) or
-            (MethodName = METHOD_UNSHIFT) or
-            (MethodName = METHOD_SPLICE) or
-            (MethodName = METHOD_SLICE) or
-            (MethodName = METHOD_REVERSE) or
-            (MethodName = METHOD_JOIN) or
-            (MethodName = METHOD_CONCAT) or
-            (MethodName = METHOD_SORT) or
-            (MethodName = METHOD_TO_STRING) or
-            (MethodName = METHOD_TO_LOCALE_STRING) or
-            AlwaysUsesPropertySemantics(MethodName);
+  var Method: TGenericMethod;
+  Result := TryFindMethod(MethodName, Method);
 end;
 
 class function TJSArrayGeneric.AlwaysUsesPropertySemantics(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_FILL) or
-            (MethodName = METHOD_COPY_WITHIN);
+  var Method: TGenericMethod;
+  Result := (TryFindMethod(MethodName, Method) and METHODS[Method].AlwaysUsesPropertySemantics);
 end;
 
 class function TJSArrayGeneric.CreatesResultArray(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_SPLICE) or
-            (MethodName = METHOD_SLICE) or
-            (MethodName = METHOD_CONCAT);
+  var Method: TGenericMethod;
+  Result := (TryFindMethod(MethodName, Method) and METHODS[Method].CreatesResultArray);
+end;
+
+class function TJSArrayGeneric.StartsEmpty(const MethodName: string): Boolean;
+begin
+  var Method: TGenericMethod;
+  Result := (TryFindMethod(MethodName, Method) and (Method in EMPTY_RESULT_METHODS));
 end;
 
 class function TJSArrayGeneric.StoresNewElements(const MethodName: string): Boolean;
 begin
-  Result := (MethodName = METHOD_PUSH) or
-            (MethodName = METHOD_UNSHIFT);
+  var Method: TGenericMethod;
+  Result := (TryFindMethod(MethodName, Method) and METHODS[Method].StoresNewElements);
 end;
 
 class function TJSArrayGeneric.ConcatsCustomItems(const MethodName: string; const Target: IJSObject;
@@ -141,10 +179,12 @@ class function TJSArrayGeneric.ConcatsCustomItems(const MethodName: string; cons
 begin
   Result := False;
 
-  if MethodName <> METHOD_CONCAT then
+  const IsConcat = (MethodName = METHOD_CONCAT);
+  if not IsConcat then
     Exit;
 
-  if HasSpreadabilityFlag(TJSValue.CreateObject(Target)) then
+  const TargetValue = TJSValue.CreateObject(Target);
+  if HasSpreadabilityFlag(TargetValue) then
     Exit(True);
 
   for var Item in Args do
@@ -154,16 +194,23 @@ begin
   end;
 end;
 
+class function TJSArrayGeneric.ReadSpreadableFlag(const Item: TJSValue): TJSValue;
+begin
+  const FlagKey = TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable);
+
+  Result := Item.ToObject.GetProperty(FlagKey);
+end;
+
 class function TJSArrayGeneric.HasSpreadabilityFlag(const Item: TJSValue): Boolean;
 begin
   if not Item.IsObject then
     Exit(False);
 
   var Proxy: IJSProxy;
-  if TJSObjectOperations.AsProxy(Item.ToObject, Proxy) then
+  if TJSObjectOperations.TryGetProxy(Item.ToObject, Proxy) then
     Exit(True);
 
-  const Flag = Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable));
+  const Flag = ReadSpreadableFlag(Item);
   Result := not Flag.IsUndefined;
 end;
 
@@ -172,9 +219,12 @@ begin
   if not Item.IsObject then
     Exit(False);
 
-  const Flag = Item.ToObject.GetProperty(TJSSymbolRegistry.WellKnownKey(TJSWellKnownSymbol.IsConcatSpreadable));
+  const Flag = ReadSpreadableFlag(Item);
   if not Flag.IsUndefined then
-    Exit(Flag.ToBoolean);
+  begin
+    Result := Flag.ToBoolean;
+    Exit;
+  end;
 
   Result := TJSObjectOperations.IsArray(Item);
 end;
@@ -183,51 +233,30 @@ class function TJSArrayGeneric.Call(const Target: IJSObject; const MethodName: s
                                     const Args: TArray<TJSValue>; const Context: TJSArrayGenericContext): TJSValue;
 begin
   if not Assigned(Target) then
-    raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [MethodName]));
+    raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(MethodName);
 
-  if MethodName = METHOD_PUSH then
-    Exit(Push(Target, Args));
+  var Method: TGenericMethod;
+  if not TryFindMethod(MethodName, Method) then
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [MethodName]);
 
-  if MethodName = METHOD_POP then
-    Exit(Pop(Target));
-
-  if MethodName = METHOD_SHIFT then
-    Exit(Shift(Target, Context));
-
-  if MethodName = METHOD_UNSHIFT then
-    Exit(Unshift(Target, Args, Context));
-
-  if MethodName = METHOD_SPLICE then
-    Exit(Splice(Target, Args, Context));
-
-  if MethodName = METHOD_SLICE then
-    Exit(Slice(Target, Args, Context));
-
-  if MethodName = METHOD_REVERSE then
-    Exit(Reverse(Target, Context));
-
-  if MethodName = METHOD_JOIN then
-    Exit(Join(Target, Args, Context));
-
-  if MethodName = METHOD_CONCAT then
-    Exit(Concat(Target, Args, Context));
-
-  if MethodName = METHOD_SORT then
-    Exit(Sort(Target, Args, Context));
-
-  if MethodName = METHOD_TO_STRING then
-    Exit(ToText(Target, Context));
-
-  if MethodName = METHOD_TO_LOCALE_STRING then
-    Exit(ToLocaleText(Target, Context));
-
-  if MethodName = METHOD_FILL then
-    Exit(Fill(Target, Args, Context));
-
-  if MethodName = METHOD_COPY_WITHIN then
-    Exit(CopyWithin(Target, Args, Context));
-
-  raise ENotSupportedException.CreateFmt('Unsupported generic array method: %s', [MethodName]);
+  case Method of
+    TGenericMethod.Push         : Result := Push(Target, Args);
+    TGenericMethod.Pop          : Result := Pop(Target);
+    TGenericMethod.Shift        : Result := Shift(Target, Context);
+    TGenericMethod.Unshift      : Result := Unshift(Target, Args, Context);
+    TGenericMethod.Splice       : Result := Splice(Target, Args, Context);
+    TGenericMethod.Slice        : Result := Slice(Target, Args, Context);
+    TGenericMethod.Reverse      : Result := Reverse(Target, Context);
+    TGenericMethod.Join         : Result := Join(Target, Args, Context);
+    TGenericMethod.Concat       : Result := Concat(Target, Args, Context);
+    TGenericMethod.Sort         : Result := Sort(Target, Args, Context);
+    TGenericMethod.ToText       : Result := ToText(Target, Context);
+    TGenericMethod.ToLocaleText : Result := ToLocaleText(Target, Context);
+    TGenericMethod.Fill         : Result := Fill(Target, Args, Context);
+    TGenericMethod.CopyWithin   : Result := CopyWithin(Target, Args, Context);
+  else
+    raise ENotSupportedException.CreateFmt(UNSUPPORTED_METHOD, [MethodName]);
+  end;
 end;
 
 class function TJSArrayGeneric.Push(const Target: IJSObject; const Args: TArray<TJSValue>): TJSValue;
@@ -245,18 +274,24 @@ begin
   Result := TJSValue.CreateNumber(Count);
 end;
 
+class function TJSArrayGeneric.TryResetEmpty(const Target: IJSObject; const Count: Int64): Boolean;
+begin
+  Result := (Count = 0);
+  if Result then
+    TJSArrayLike.WriteLength(Target, 0);
+end;
+
 class function TJSArrayGeneric.Pop(const Target: IJSObject): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const IsEmpty = (Count = 0);
-  if IsEmpty then
+  if TryResetEmpty(Target, Count) then
   begin
-    TJSArrayLike.WriteLength(Target, 0);
-    Exit(TJSValue.CreateUndefined);
+    Result := TJSValue.CreateUndefined;
+    Exit;
   end;
 
   const LastIndex = Count - 1;
-  Result := Target.GetProperty(TJSArrayLike.IndexName(LastIndex));
+  Result := TJSArrayLike.GetElement(Target, LastIndex);
   TJSArrayLike.DeleteElement(Target, LastIndex);
   TJSArrayLike.WriteLength(Target, LastIndex);
 end;
@@ -264,14 +299,13 @@ end;
 class function TJSArrayGeneric.Shift(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const IsEmpty = (Count = 0);
-  if IsEmpty then
+  if TryResetEmpty(Target, Count) then
   begin
-    TJSArrayLike.WriteLength(Target, 0);
-    Exit(TJSValue.CreateUndefined);
+    Result := TJSValue.CreateUndefined;
+    Exit;
   end;
 
-  Result := Target.GetProperty(TJSArrayLike.IndexName(0));
+  Result := TJSArrayLike.GetElement(Target, 0);
   for var Index: Int64 := 1 to Count - 1 do
   begin
     Context.Limits.EnsureArrayLength(Index);
@@ -313,8 +347,9 @@ class function TJSArrayGeneric.Splice(const Target: IJSObject; const Args: TArra
                                       const Context: TJSArrayGenericContext): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const Start = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
-  const DeleteCount = SpliceDeleteCount(Args, Count, Start);
+  const StartArgument = TJSArrayLike.Argument(Args, 0);
+  const Start = TJSArrayLike.RelativeIndex(StartArgument, Count, 0);
+  const DeleteCount = TJSArrayLike.SpliceDeleteCount(Args, Count, Start);
   const ItemCount = Max(Length(Args) - 2, 0);
 
   TJSArrayLike.RequireSafeLength(Count - DeleteCount + ItemCount);
@@ -336,20 +371,6 @@ begin
 
   TJSArrayLike.WriteLength(Target, Count - DeleteCount + ItemCount);
   Result := TJSValue.CreateObject(Removed);
-end;
-
-class function TJSArrayGeneric.SpliceDeleteCount(const Args: TArray<TJSValue>; const Count, Start: Int64): Int64;
-begin
-  const HasNoArguments = (Length(Args) = 0);
-  if HasNoArguments then
-    Exit(0);
-
-  const HasOnlyStart = (Length(Args) = 1);
-  if HasOnlyStart then
-    Exit(Count - Start);
-
-  const Requested = TJSArrayLike.ToInteger(Args[1]);
-  Result := Trunc(Min(Max(Requested, 0), Count - Start));
 end;
 
 class procedure TJSArrayGeneric.ShiftTailDown(const Target: IJSObject;
@@ -403,8 +424,10 @@ class function TJSArrayGeneric.Slice(const Target: IJSObject; const Args: TArray
                                      const Context: TJSArrayGenericContext): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const Start = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
-  const Finish = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, Count);
+  const StartArgument = TJSArrayLike.Argument(Args, 0);
+  const EndArgument = TJSArrayLike.Argument(Args, 1);
+  const Start = TJSArrayLike.RelativeIndex(StartArgument, Count, 0);
+  const Finish = TJSArrayLike.RelativeIndex(EndArgument, Count, Count);
   const SliceCount = Max(Finish - Start, 0);
 
   const Copied = CopyRange(Target, Start, SliceCount, Context);
@@ -428,9 +451,11 @@ class function TJSArrayGeneric.Fill(const Target: IJSObject; const Args: TArray<
                                     const Context: TJSArrayGenericContext): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const StartIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, 0);
-  const EndIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), Count, Count);
   const FillValue = TJSArrayLike.Argument(Args, 0);
+  const StartArgument = TJSArrayLike.Argument(Args, 1);
+  const EndArgument = TJSArrayLike.Argument(Args, 2);
+  const StartIndex = TJSArrayLike.RelativeIndex(StartArgument, Count, 0);
+  const EndIndex = TJSArrayLike.RelativeIndex(EndArgument, Count, Count);
 
   Context.Limits.EnsureArrayLength(Max(EndIndex - StartIndex, 0));
 
@@ -446,9 +471,12 @@ class function TJSArrayGeneric.CopyWithin(const Target: IJSObject; const Args: T
                                           const Context: TJSArrayGenericContext): TJSValue;
 begin
   const Count = TJSArrayLike.ToLength(Target);
-  const ToIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 0), Count, 0);
-  const FromIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 1), Count, 0);
-  const FinalIndex = TJSArrayLike.RelativeIndex(TJSArrayLike.Argument(Args, 2), Count, Count);
+  const TargetArgument = TJSArrayLike.Argument(Args, 0);
+  const StartArgument = TJSArrayLike.Argument(Args, 1);
+  const EndArgument = TJSArrayLike.Argument(Args, 2);
+  const ToIndex = TJSArrayLike.RelativeIndex(TargetArgument, Count, 0);
+  const FromIndex = TJSArrayLike.RelativeIndex(StartArgument, Count, 0);
+  const FinalIndex = TJSArrayLike.RelativeIndex(EndArgument, Count, Count);
   const MoveCount = Min(FinalIndex - FromIndex, Count - ToIndex);
 
   const HasElementsToMove = (MoveCount > 0);
@@ -497,14 +525,10 @@ begin
     TJSArrayLike.DeleteElement(Target, UpperIndex);
 end;
 
-class function TJSArrayGeneric.Join(const Target: IJSObject; const Args: TArray<TJSValue>;
-                                    const Context: TJSArrayGenericContext): TJSValue;
+class function TJSArrayGeneric.JoinElements(const Target: IJSObject; const Separator: string;
+                                            const Context: TJSArrayGenericContext;
+                                            const FormatElement: TElementFormatter): string;
 begin
-  var Separator: string := DEFAULT_SEPARATOR;
-  const SeparatorArgument = TJSArrayLike.Argument(Args, 0);
-  if not SeparatorArgument.IsUndefined then
-    Separator := SeparatorArgument.ToLimitedString(Context.Limits);
-
   const Count = TJSArrayLike.ToLength(Target);
   Context.Limits.EnsureArrayLength(Count);
 
@@ -516,47 +540,48 @@ begin
       if NeedsSeparator then
         Builder.Append(Separator);
 
-      const Element = Target.GetProperty(TJSArrayLike.IndexName(Index));
+      const Element = TJSArrayLike.GetElement(Target, Index);
       if not Element.IsNullOrUndefined then
-        Builder.Append(Element.ToLimitedString(Context.Limits));
+        Builder.Append(FormatElement(Element));
 
       Context.Limits.EnsureStringLength(Builder.Length);
     end;
 
-    Result := TJSValue.CreateString(Builder.ToString);
+    Result := Builder.ToString;
   finally
     Builder.Free;
   end;
 end;
 
+class function TJSArrayGeneric.Join(const Target: IJSObject; const Args: TArray<TJSValue>;
+                                    const Context: TJSArrayGenericContext): TJSValue;
+begin
+  var Separator: string := ARRAY_SEPARATOR;
+  const SeparatorArgument = TJSArrayLike.Argument(Args, 0);
+  if not SeparatorArgument.IsUndefined then
+    Separator := SeparatorArgument.ToLimitedString(Context.Limits);
+
+  const Joined = JoinElements(Target, Separator, Context,
+    function(const Element: TJSValue): string
+    begin
+      Result := Element.ToLimitedString(Context.Limits);
+    end);
+
+  Result := TJSValue.CreateString(Joined);
+end;
+
 class function TJSArrayGeneric.ToLocaleText(const Target: IJSObject;
                                             const Context: TJSArrayGenericContext): TJSValue;
 begin
-  const Count = TJSArrayLike.ToLength(Target);
-  Context.Limits.EnsureArrayLength(Count);
-
-  const Builder = TStringBuilder.Create;
-  try
-    for var Index: Int64 := 0 to Count - 1 do
+  const Joined = JoinElements(Target, ARRAY_SEPARATOR, Context,
+    function(const Element: TJSValue): string
     begin
-      const NeedsSeparator = (Index > 0);
-      if NeedsSeparator then
-        Builder.Append(DEFAULT_SEPARATOR);
+      const LocaleText = Context.InvokeMethod(Element, METHOD_TO_LOCALE_STRING);
 
-      const Element = Target.GetProperty(TJSArrayLike.IndexName(Index));
-      if not Element.IsNullOrUndefined then
-      begin
-        const LocaleText = Context.InvokeMethod(Element, METHOD_TO_LOCALE_STRING);
-        Builder.Append(LocaleText.ToLimitedString(Context.Limits));
-      end;
+      Result := LocaleText.ToLimitedString(Context.Limits);
+    end);
 
-      Context.Limits.EnsureStringLength(Builder.Length);
-    end;
-
-    Result := TJSValue.CreateString(Builder.ToString);
-  finally
-    Builder.Free;
-  end;
+  Result := TJSValue.CreateString(Joined);
 end;
 
 class function TJSArrayGeneric.Concat(const Target: IJSObject; const Args: TArray<TJSValue>;
@@ -565,31 +590,34 @@ begin
   const Combined: IJSArray = TJSArray.Create;
   Combined.Prototype := Context.ArrayPrototype;
 
-  var NextIndex: Int64 := 0;
-  AppendConcatItem(TJSValue.CreateObject(Target), Combined, NextIndex, Context);
+  const TargetValue = TJSValue.CreateObject(Target);
+  var NextIndex := AppendConcatItem(TargetValue, Combined, 0, Context);
   for var Item in Args do
   begin
-    AppendConcatItem(Item, Combined, NextIndex, Context);
+    NextIndex := AppendConcatItem(Item, Combined, NextIndex, Context);
   end;
 
   TJSArrayLike.WriteLength(Combined, NextIndex);
   Result := TJSValue.CreateObject(Combined);
 end;
 
-class procedure TJSArrayGeneric.AppendConcatItem(const Item: TJSValue; const Combined: IJSArray;
-                                                 var NextIndex: Int64; const Context: TJSArrayGenericContext);
+class function TJSArrayGeneric.AppendConcatItem(const Item: TJSValue; const Combined: IJSArray;
+                                                const NextIndex: Int64;
+                                                const Context: TJSArrayGenericContext): Int64;
 begin
+  Result := NextIndex;
+
   if not IsConcatSpreadable(Item) then
   begin
-    TJSArrayLike.RequireSafeLength(NextIndex + 1);
-    StoreConcatElement(Combined, NextIndex, Item, Context);
-    Inc(NextIndex);
+    TJSArrayLike.RequireSafeLength(Result + 1);
+    StoreConcatElement(Combined, Result, Item, Context);
+    Inc(Result);
     Exit;
   end;
 
   const Source = Item.ToObject;
   const SourceLength = TJSArrayLike.ToLength(Source);
-  TJSArrayLike.RequireSafeLength(NextIndex + SourceLength);
+  TJSArrayLike.RequireSafeLength(Result + SourceLength);
 
   for var Index: Int64 := 0 to SourceLength - 1 do
   begin
@@ -597,9 +625,9 @@ begin
 
     var Element: TJSValue;
     if TJSArrayLike.TryGetElement(Source, Index, Element) then
-      StoreConcatElement(Combined, NextIndex, Element, Context);
+      StoreConcatElement(Combined, Result, Element, Context);
 
-    Inc(NextIndex);
+    Inc(Result);
   end;
 end;
 
@@ -646,9 +674,9 @@ class procedure TJSArrayGeneric.WriteSortedElements(const Target: IJSObject; con
 begin
   var NextIndex: Int64 := 0;
 
-  for var Index := 0 to Sorted.Length - 1 do
+  for var Element in Sorted do
   begin
-    TJSArrayLike.SetElement(Target, NextIndex, Sorted[Index]);
+    TJSArrayLike.SetElement(Target, NextIndex, Element);
     Inc(NextIndex);
   end;
 
@@ -669,16 +697,21 @@ end;
 class function TJSArrayGeneric.ToText(const Target: IJSObject; const Context: TJSArrayGenericContext): TJSValue;
 begin
   var Converter: IJSFunction;
-  const JoinMethod = Target.GetProperty(METHOD_JOIN);
-  const HasJoin = JoinMethod.IsFunction and Supports(JoinMethod.ToObject, IJSFunction, Converter);
-  if HasJoin then
-    Exit(Converter.Call(Target, nil));
+  const JoinMethod = Target.GetProperty(JOIN_METHOD);
+  if JoinMethod.TryGetFunction(Converter) then
+  begin
+    Result := Converter.Call(Target, nil);
+    Exit;
+  end;
 
-  const ObjectToString = Context.ObjectPrototype.GetProperty(METHOD_TO_STRING);
-  if ObjectToString.IsFunction and Supports(ObjectToString.ToObject, IJSFunction, Converter) then
-    Exit(Converter.Call(Target, nil));
+  const ObjectToString = Context.ObjectPrototype.GetProperty(TO_STRING_METHOD);
+  if ObjectToString.TryGetFunction(Converter) then
+  begin
+    Result := Converter.Call(Target, nil);
+    Exit;
+  end;
 
-  raise TJSErrorFactory.TypeError(Format(NOT_CALLED_ON_OBJECT, [METHOD_TO_STRING]));
+  raise TJSErrorFactory.ArrayMethodOnNullOrUndefined(TO_STRING_METHOD);
 end;
 
 end.

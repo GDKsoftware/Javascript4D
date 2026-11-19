@@ -10,23 +10,27 @@ uses
   JS4D.PropertyKey,
   JS4D.Types,
   JS4D.BinaryData,
-  JS4D.BinarySupport,
+  JS4D.BuiltinSupport,
   JS4D.ArrayBufferBuiltins;
 
 type
-  // The %TypedArray% intrinsic, the nine concrete typed array constructors and the ways to create a typed
-  // array that the prototype methods share. The prototype methods are in TJSTypedArrayMethods.
   TJSTypedArrayBuiltins = class
   private
+    type
+      TSourceElements = record
+        Items: TArray<TJSValue>;
+        SourceObject: IJSObject;
+        IsIterable: Boolean;
+        Count: Int64;
+      end;
+
     const
       ABSTRACT_NAME = 'TypedArray';
       FROM_NAME = 'from';
       OF_NAME = 'of';
       BYTES_PER_ELEMENT = 'BYTES_PER_ELEMENT';
       ABSTRACT_CONSTRUCTOR = 'Abstract class TypedArray not directly constructable';
-      REQUIRES_NEW = 'Constructor %s requires ''new''';
       NOT_A_TYPED_ARRAY = 'The value is not a typed array';
-      DETACHED_TYPED_ARRAY = 'Cannot perform %s on a detached ArrayBuffer';
       TYPED_ARRAY_TOO_SHORT = 'The typed array that was created is too short';
       NOT_A_CONSTRUCTOR = 'The value is not a constructor';
       NOT_A_FUNCTION = 'The mapping function is not callable';
@@ -34,14 +38,9 @@ type
       LENGTH_NOT_ALIGNED = 'Byte length of %s should be a multiple of %d';
       OFFSET_OUT_OF_BOUNDS = 'Start offset %d is outside the bounds of the buffer';
       LENGTH_OUT_OF_BOUNDS = 'Invalid typed array length: %d';
-      ALL_KINDS: array[0..8] of TJSElementKind = (TJSElementKind.Int8, TJSElementKind.Uint8,
-                                                  TJSElementKind.Uint8Clamped, TJSElementKind.Int16,
-                                                  TJSElementKind.Uint16, TJSElementKind.Int32,
-                                                  TJSElementKind.Uint32, TJSElementKind.Float32,
-                                                  TJSElementKind.Float64);
 
     var
-      FSupport: TJSBinarySupport;
+      FSupport: TJSBuiltinSupport;
       FBuffers: TJSArrayBufferBuiltins;
       FIntrinsicConstructor: IJSFunction;
       FIntrinsicPrototype: IJSObject;
@@ -55,29 +54,37 @@ type
                        const NewTarget: IJSFunction): TJSValue;
     function CreateFromTypedArray(const Kind: TJSElementKind; const Source: IJSTypedArray;
                                   const Prototype: IJSObject): IJSTypedArray;
+    procedure RequireAlignedOffset(const Kind: TJSElementKind; const Offset: Int64);
+    function RemainingLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
+                             const Offset: Int64): Int64;
+    function ResolveViewLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer; const Offset: Int64;
+                               const HasLength: Boolean; const RequestedLength: Int64): Int64;
     function CreateFromBuffer(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
                               const Args: TArray<TJSValue>; const Prototype: IJSObject): IJSTypedArray;
     function CreateFromObject(const Kind: TJSElementKind; const Source: IJSObject;
                               const Prototype: IJSObject): IJSTypedArray;
-    function CreateFromList(const Kind: TJSElementKind; const Items: TList<TJSValue>;
+    function CreateFromList(const Kind: TJSElementKind; const Items: TArray<TJSValue>;
                             const Prototype: IJSObject): IJSTypedArray;
     function CreateFromArrayLike(const Kind: TJSElementKind; const Source: IJSObject;
                                  const Prototype: IJSObject): IJSTypedArray;
-    function ReadIterable(const Source: TJSValue; const Items: TList<TJSValue>): Boolean;
+    function OpenSourceElements(const Source: TJSValue): TSourceElements;
+    function ElementAt(const Elements: TSourceElements; const Index: Int64): TJSValue;
+    procedure StoreSourceElements(const Created: IJSTypedArray; const Elements: TSourceElements;
+                                  const MapFunction: IJSFunction; const MapThis: IJSObject);
     function FromStatic(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function OfStatic(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
     function RequireConstructor(const This: IJSObject): IJSFunction;
     procedure DefineStatics;
 
   public
-    constructor Create(const Support: TJSBinarySupport; const Buffers: TJSArrayBufferBuiltins);
+    constructor Create(const Support: TJSBuiltinSupport; const Buffers: TJSArrayBufferBuiltins);
     destructor Destroy; override;
 
     procedure Register;
     function Allocate(const Kind: TJSElementKind; const ElementCount: Int64;
                       const Prototype: IJSObject): IJSTypedArray;
     function CreateOfKind(const Kind: TJSElementKind; const ElementCount: Int64): IJSTypedArray;
-    function RequireTypedArray(const This: IJSObject; const MethodName: string): IJSTypedArray;
+    function RequireTypedArray(const This: IJSObject): IJSTypedArray;
     function ValidateTypedArray(const Value: IJSObject; const MethodName: string): IJSTypedArray;
     function CreateFromConstructor(const Constructor_: IJSFunction; const Args: TArray<TJSValue>;
                                    const MethodName: string): IJSTypedArray;
@@ -85,17 +92,20 @@ type
                            const MethodName: string): IJSTypedArray;
 
     property IntrinsicPrototype: IJSObject read FIntrinsicPrototype;
-    property Support: TJSBinarySupport read FSupport;
+    property Support: TJSBuiltinSupport read FSupport;
   end;
 
 implementation
 
 uses
+  JS4D.Conversions,
+  JS4D.PropertyNames,
   JS4D.Errors,
+  JS4D.Interpreter,
   JS4D.ArrayStatics,
   JS4D.ArrayLike;
 
-constructor TJSTypedArrayBuiltins.Create(const Support: TJSBinarySupport; const Buffers: TJSArrayBufferBuiltins);
+constructor TJSTypedArrayBuiltins.Create(const Support: TJSBuiltinSupport; const Buffers: TJSArrayBufferBuiltins);
 begin
   inherited Create;
 
@@ -105,7 +115,7 @@ end;
 
 destructor TJSTypedArrayBuiltins.Destroy;
 begin
-  for var Kind in ALL_KINDS do
+  for var Kind := Low(TJSElementKind) to High(TJSElementKind) do
   begin
     FConstructors[Kind] := nil;
     FPrototypes[Kind] := nil;
@@ -133,7 +143,7 @@ begin
   Result := Allocate(Kind, ElementCount, FPrototypes[Kind]);
 end;
 
-function TJSTypedArrayBuiltins.RequireTypedArray(const This: IJSObject; const MethodName: string): IJSTypedArray;
+function TJSTypedArrayBuiltins.RequireTypedArray(const This: IJSObject): IJSTypedArray;
 begin
   if not Supports(This, IJSTypedArray, Result) then
     raise TJSErrorFactory.TypeError(NOT_A_TYPED_ARRAY);
@@ -141,10 +151,9 @@ end;
 
 function TJSTypedArrayBuiltins.ValidateTypedArray(const Value: IJSObject; const MethodName: string): IJSTypedArray;
 begin
-  Result := RequireTypedArray(Value, MethodName);
+  Result := RequireTypedArray(Value);
 
-  if Result.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_TYPED_ARRAY, [MethodName]));
+  TJSBuiltinSupport.RequireNotDetached(Result.IsDetached, MethodName);
 end;
 
 function TJSTypedArrayBuiltins.CreateFromConstructor(const Constructor_: IJSFunction; const Args: TArray<TJSValue>;
@@ -157,7 +166,8 @@ begin
   Result := ValidateTypedArray(Created.ToObject, MethodName);
 
   const IsLengthRequest = (Length(Args) = 1) and Args[0].IsNumber;
-  if IsLengthRequest and (Result.Length < Args[0].AsNumber) then
+  const IsTooShort = (IsLengthRequest and (Result.Length < Args[0].AsNumber));
+  if IsTooShort then
     raise TJSErrorFactory.TypeError(TYPED_ARRAY_TOO_SHORT);
 end;
 
@@ -165,7 +175,7 @@ function TJSTypedArrayBuiltins.SpeciesCreate(const Exemplar: IJSTypedArray; cons
                                              const MethodName: string): IJSTypedArray;
 begin
   const ExemplarObject: IJSObject = Exemplar;
-  const Species = FSupport.SpeciesConstructor(ExemplarObject, FConstructors[Exemplar.Kind]);
+  const Species = TJSConversions.SpeciesConstructor(ExemplarObject, FConstructors[Exemplar.Kind]);
 
   Result := CreateFromConstructor(Species, Args, MethodName);
 end;
@@ -175,72 +185,96 @@ begin
   if not Assigned(This) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 
-  if not TJSBinarySupport.AsConstructor(TJSValue.CreateObject(This), Result) then
+  const ThisValue = TJSValue.CreateObject(This);
+  if not ThisValue.TryGetConstructor(Result) then
     raise TJSErrorFactory.TypeError(NOT_A_CONSTRUCTOR);
 end;
 
 function TJSTypedArrayBuiltins.CreateFromTypedArray(const Kind: TJSElementKind; const Source: IJSTypedArray;
                                                     const Prototype: IJSObject): IJSTypedArray;
 begin
-  if Source.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_TYPED_ARRAY, [Kind.ConstructorName]));
+  TJSBuiltinSupport.RequireNotDetached(Source.IsDetached, Kind.ConstructorName);
 
   const ElementCount = Source.Length;
   Result := Allocate(Kind, ElementCount, Prototype);
 
   const SourceBytes = Source.Buffer.Bytes;
   const TargetBytes = Result.Buffer.Bytes;
-  const SourceKind = Source.Kind;
-  const SourceSize = SourceKind.ElementSize;
-  const TargetSize = Kind.ElementSize;
 
-  if SourceKind = Kind then
+  TJSElementCodec.CopyElements(SourceBytes, Source.ByteOffset, Source.Kind, TargetBytes, 0, Kind, ElementCount);
+end;
+
+procedure TJSTypedArrayBuiltins.RequireAlignedOffset(const Kind: TJSElementKind; const Offset: Int64);
+begin
+  const Size = Kind.ElementSize;
+  const IsAligned = ((Offset mod Size) = 0);
+  if not IsAligned then
   begin
-    if ElementCount > 0 then
-      Move(SourceBytes[Source.ByteOffset], TargetBytes[0], ElementCount * TargetSize);
+    const Message = Format(OFFSET_NOT_ALIGNED, [Kind.ConstructorName, Size]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
+end;
 
+function TJSTypedArrayBuiltins.RemainingLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
+                                               const Offset: Int64): Int64;
+begin
+  const Size = Kind.ElementSize;
+  const BufferLength = Int64(Buffer.ByteLength);
+
+  const IsLengthAligned = ((BufferLength mod Size) = 0);
+  if not IsLengthAligned then
+  begin
+    const Message = Format(LENGTH_NOT_ALIGNED, [Kind.ConstructorName, Size]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
+
+  const IsPastEnd = (Offset > BufferLength);
+  if IsPastEnd then
+  begin
+    const Message = Format(OFFSET_OUT_OF_BOUNDS, [Offset]);
+    raise TJSErrorFactory.RangeError(Message);
+  end;
+
+  Result := (BufferLength - Offset) div Size;
+end;
+
+function TJSTypedArrayBuiltins.ResolveViewLength(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
+                                                 const Offset: Int64; const HasLength: Boolean;
+                                                 const RequestedLength: Int64): Int64;
+begin
+  if not HasLength then
+  begin
+    Result := RemainingLength(Kind, Buffer, Offset);
     Exit;
   end;
 
-  for var Index := 0 to ElementCount - 1 do
+  const IsOutside = ((Offset + (RequestedLength * Kind.ElementSize)) > Buffer.ByteLength);
+  if IsOutside then
   begin
-    const Number = TJSElementCodec.Read(SourceBytes, Source.ByteOffset + (Index * SourceSize), SourceKind);
-    TJSElementCodec.Write(TargetBytes, Index * TargetSize, Kind, Number);
+    const Message = Format(LENGTH_OUT_OF_BOUNDS, [RequestedLength]);
+    raise TJSErrorFactory.RangeError(Message);
   end;
+
+  Result := RequestedLength;
 end;
 
 function TJSTypedArrayBuiltins.CreateFromBuffer(const Kind: TJSElementKind; const Buffer: IJSArrayBuffer;
                                                 const Args: TArray<TJSValue>;
                                                 const Prototype: IJSObject): IJSTypedArray;
 begin
-  const Size = Kind.ElementSize;
-  const Offset = TJSBinarySupport.ToIndex(TJSBinarySupport.Argument(Args, 1));
-  if (Offset mod Size) <> 0 then
-    raise TJSErrorFactory.RangeError(Format(OFFSET_NOT_ALIGNED, [Kind.ConstructorName, Size]));
+  const OffsetArgument = TJSArrayLike.Argument(Args, 1);
+  const Offset = TJSBuiltinSupport.ToIndex(OffsetArgument);
+  RequireAlignedOffset(Kind, Offset);
 
-  const LengthArgument = TJSBinarySupport.Argument(Args, 2);
+  const LengthArgument = TJSArrayLike.Argument(Args, 2);
+  const HasLength = (not LengthArgument.IsUndefined);
   var NewLength: Int64 := 0;
-  if not LengthArgument.IsUndefined then
-    NewLength := TJSBinarySupport.ToIndex(LengthArgument);
+  if HasLength then
+    NewLength := TJSBuiltinSupport.ToIndex(LengthArgument);
 
-  if Buffer.IsDetached then
-    raise TJSErrorFactory.TypeError(Format(DETACHED_TYPED_ARRAY, [Kind.ConstructorName]));
+  TJSBuiltinSupport.RequireNotDetached(Buffer.IsDetached, Kind.ConstructorName);
 
-  const BufferLength = Int64(Buffer.ByteLength);
-  if LengthArgument.IsUndefined then
-  begin
-    if (BufferLength mod Size) <> 0 then
-      raise TJSErrorFactory.RangeError(Format(LENGTH_NOT_ALIGNED, [Kind.ConstructorName, Size]));
-
-    if Offset > BufferLength then
-      raise TJSErrorFactory.RangeError(Format(OFFSET_OUT_OF_BOUNDS, [Offset]));
-
-    NewLength := (BufferLength - Offset) div Size;
-  end
-  else if (Offset + (NewLength * Size)) > BufferLength then
-  begin
-    raise TJSErrorFactory.RangeError(Format(LENGTH_OUT_OF_BOUNDS, [NewLength]));
-  end;
+  NewLength := ResolveViewLength(Kind, Buffer, Offset, HasLength, NewLength);
 
   const TypedArray = TJSTypedArrayObject.Create(Kind, Buffer, Integer(Offset), Integer(NewLength));
   TypedArray.Prototype := Prototype;
@@ -248,29 +282,14 @@ begin
   Result := TypedArray;
 end;
 
-function TJSTypedArrayBuiltins.ReadIterable(const Source: TJSValue; const Items: TList<TJSValue>): Boolean;
-begin
-  var Reader: TJSSequenceReader;
-  var Closer: TJSSequenceCloser;
-  Result := FSupport.Interpreter.OpenSequenceReader(Source, Reader, Closer);
-  if not Result then
-    Exit;
-
-  var Item: TJSValue;
-  while Reader(Item) do
-  begin
-    Items.Add(Item);
-  end;
-end;
-
-function TJSTypedArrayBuiltins.CreateFromList(const Kind: TJSElementKind; const Items: TList<TJSValue>;
+function TJSTypedArrayBuiltins.CreateFromList(const Kind: TJSElementKind; const Items: TArray<TJSValue>;
                                               const Prototype: IJSObject): IJSTypedArray;
 begin
-  Result := Allocate(Kind, Items.Count, Prototype);
+  Result := Allocate(Kind, Length(Items), Prototype);
 
-  for var Index := 0 to Items.Count - 1 do
+  for var Index := 0 to Length(Items) - 1 do
   begin
-    Result.StoreValue(Index, Items[Index]);
+    Result.StoreConvertedValue(Index, Items[Index]);
   end;
 end;
 
@@ -282,19 +301,23 @@ begin
 
   for var Index := 0 to ElementCount - 1 do
   begin
-    Result.StoreValue(Index, Source.GetProperty(TJSArrayLike.IndexName(Index)));
+    FSupport.Interpreter.ConsumeStep;
+
+    const Element = TJSArrayLike.GetElement(Source, Index);
+    Result.StoreConvertedValue(Index, Element);
   end;
 end;
 
 function TJSTypedArrayBuiltins.CreateFromObject(const Kind: TJSElementKind; const Source: IJSObject;
                                                 const Prototype: IJSObject): IJSTypedArray;
 begin
-  const Items = TList<TJSValue>.Create;
-  try
-    if ReadIterable(TJSValue.CreateObject(Source), Items) then
-      Exit(CreateFromList(Kind, Items, Prototype));
-  finally
-    Items.Free;
+  var Items: TArray<TJSValue>;
+  const SourceValue = TJSValue.CreateObject(Source);
+  const IsIterable = FSupport.TryReadSequence(SourceValue, Items);
+  if IsIterable then
+  begin
+    Result := CreateFromList(Kind, Items, Prototype);
+    Exit;
   end;
 
   Result := CreateFromArrayLike(Kind, Source, Prototype);
@@ -303,15 +326,16 @@ end;
 function TJSTypedArrayBuiltins.Construct(const Kind: TJSElementKind; const Args: TArray<TJSValue>;
                                          const NewTarget: IJSFunction): TJSValue;
 begin
-  const FirstArgument = TJSBinarySupport.Argument(Args, 0);
+  const FirstArgument = TJSArrayLike.Argument(Args, 0);
   var Created: IJSTypedArray;
 
   if not FirstArgument.IsObject then
   begin
-    const ElementCount = TJSBinarySupport.ToIndex(FirstArgument);
+    const ElementCount = TJSBuiltinSupport.ToIndex(FirstArgument);
     const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototypes[Kind]);
     Created := Allocate(Kind, ElementCount, Prototype);
-    Exit(TJSValue.CreateObject(Created));
+    Result := TJSValue.CreateObject(Created);
+    Exit;
   end;
 
   const Prototype = FSupport.PrototypeFromConstructor(NewTarget, FPrototypes[Kind]);
@@ -329,70 +353,86 @@ begin
   Result := TJSValue.CreateObject(Created);
 end;
 
+function TJSTypedArrayBuiltins.OpenSourceElements(const Source: TJSValue): TSourceElements;
+begin
+  Result.IsIterable := FSupport.TryReadSequence(Source, Result.Items);
+  if Result.IsIterable then
+  begin
+    Result.Count := Length(Result.Items);
+    Exit;
+  end;
+
+  Result.SourceObject := FSupport.ToObject(Source);
+  Result.Count := TJSArrayLike.ToLength(Result.SourceObject);
+end;
+
+function TJSTypedArrayBuiltins.ElementAt(const Elements: TSourceElements; const Index: Int64): TJSValue;
+begin
+  if Elements.IsIterable then
+  begin
+    Result := Elements.Items[Integer(Index)];
+    Exit;
+  end;
+
+  const ElementName = TJSArrayLike.IndexName(Index);
+
+  Result := Elements.SourceObject.GetProperty(ElementName);
+end;
+
+procedure TJSTypedArrayBuiltins.StoreSourceElements(const Created: IJSTypedArray; const Elements: TSourceElements;
+                                                    const MapFunction: IJSFunction; const MapThis: IJSObject);
+begin
+  for var Index: Int64 := 0 to Elements.Count - 1 do
+  begin
+    FSupport.Interpreter.ConsumeStep;
+
+    var Element := ElementAt(Elements, Index);
+    if Assigned(MapFunction) then
+    begin
+      const MapArguments: TArray<TJSValue> = [Element, TJSValue.CreateNumber(Index)];
+      Element := FSupport.Interpreter.CallFunction(MapFunction, MapArguments, MapThis);
+    end;
+
+    Created.StoreConvertedValue(Integer(Index), Element);
+  end;
+end;
+
 function TJSTypedArrayBuiltins.FromStatic(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Constructor_ = RequireConstructor(This);
 
-  const Source = TJSBinarySupport.Argument(Args, 0);
-  const Mapper = TJSBinarySupport.Argument(Args, 1);
-  const ThisArgument = TJSBinarySupport.Argument(Args, 2);
+  const Source = TJSArrayLike.Argument(Args, 0);
+  const Mapper = TJSArrayLike.Argument(Args, 1);
+  const ThisArgument = TJSArrayLike.Argument(Args, 2);
 
-  var MapFunction: IJSFunction;
+  var MapFunction: IJSFunction := nil;
   const IsMapping = not Mapper.IsUndefined;
-  if IsMapping and (not TJSBinarySupport.AsFunction(Mapper, MapFunction)) then
+  if IsMapping and (not Mapper.TryGetFunction(MapFunction)) then
     raise TJSErrorFactory.TypeError(NOT_A_FUNCTION);
 
-  const Items = TList<TJSValue>.Create;
-  try
-    var Created: IJSTypedArray;
-    var ElementCount: Int64;
-    var SourceObject: IJSObject;
+  const Elements = OpenSourceElements(Source);
 
-    const IsIterable = ReadIterable(Source, Items);
-    if IsIterable then
-    begin
-      ElementCount := Items.Count;
-    end
-    else
-    begin
-      SourceObject := FSupport.ToObject(Source);
-      ElementCount := TJSArrayLike.ToLength(SourceObject);
-    end;
+  const CountArguments: TArray<TJSValue> = [TJSValue.CreateNumber(Elements.Count)];
+  const Created = CreateFromConstructor(Constructor_, CountArguments, FROM_NAME);
 
-    Created := CreateFromConstructor(Constructor_, [TJSValue.CreateNumber(ElementCount)], FROM_NAME);
+  var MapThis: IJSObject := nil;
+  if IsMapping then
+    MapThis := FSupport.Interpreter.ThisObjectFor(MapFunction, ThisArgument);
 
-    var MapThis: IJSObject := nil;
-    if IsMapping then
-      MapThis := FSupport.Interpreter.ThisObjectFor(MapFunction, ThisArgument);
+  StoreSourceElements(Created, Elements, MapFunction, MapThis);
 
-    for var Index: Int64 := 0 to ElementCount - 1 do
-    begin
-      var Element: TJSValue;
-      if IsIterable then
-        Element := Items[Integer(Index)]
-      else
-        Element := SourceObject.GetProperty(TJSArrayLike.IndexName(Index));
-
-      if IsMapping then
-        Element := FSupport.Interpreter.CallFunction(MapFunction, [Element, TJSValue.CreateNumber(Index)], MapThis);
-
-      Created.StoreValue(Integer(Index), Element);
-    end;
-
-    Result := TJSValue.CreateObject(Created);
-  finally
-    Items.Free;
-  end;
+  Result := TJSValue.CreateObject(Created);
 end;
 
 function TJSTypedArrayBuiltins.OfStatic(const This: IJSObject; const Args: TArray<TJSValue>): TJSValue;
 begin
   const Constructor_ = RequireConstructor(This);
 
-  const Created = CreateFromConstructor(Constructor_, [TJSValue.CreateNumber(Length(Args))], OF_NAME);
+  const CountArguments: TArray<TJSValue> = [TJSValue.CreateNumber(Length(Args))];
+  const Created = CreateFromConstructor(Constructor_, CountArguments, OF_NAME);
   for var Index := 0 to Length(Args) - 1 do
   begin
-    Created.StoreValue(Index, Args[Index]);
+    Created.StoreConvertedValue(Index, Args[Index]);
   end;
 
   Result := TJSValue.CreateObject(Created);
@@ -426,7 +466,9 @@ end;
 
 function TJSTypedArrayBuiltins.CreateConcreteConstructor(const Kind: TJSElementKind): IJSFunction;
 begin
-  Result := FSupport.CreateConstructor(Kind.ConstructorName, 3, Format(REQUIRES_NEW, [Kind.ConstructorName]),
+  const RequiresNewMessage = Format(CONSTRUCTOR_REQUIRES_NEW, [Kind.ConstructorName]);
+
+  Result := FSupport.CreateConstructor(Kind.ConstructorName, 3, RequiresNewMessage,
     function(const Args: TArray<TJSValue>; const NewTarget: IJSFunction): TJSValue
     begin
       Result := Construct(Kind, Args, NewTarget);
@@ -449,7 +491,8 @@ begin
   FSupport.DefineConstant(Constructor_, BYTES_PER_ELEMENT, BytesPerElement);
   FSupport.DefineConstant(Prototype, BYTES_PER_ELEMENT, BytesPerElement);
 
-  FSupport.Interpreter.SetGlobalVariable(Kind.ConstructorName, TJSValue.CreateObject(Constructor_));
+  const ConstructorValue = TJSValue.CreateObject(Constructor_);
+  FSupport.Interpreter.SetGlobalVariable(Kind.ConstructorName, ConstructorValue);
 end;
 
 procedure TJSTypedArrayBuiltins.Register;
@@ -461,7 +504,7 @@ begin
   FSupport.LinkConstructor(FIntrinsicConstructor, FIntrinsicPrototype);
   DefineStatics;
 
-  for var Kind in ALL_KINDS do
+  for var Kind := Low(TJSElementKind) to High(TJSElementKind) do
   begin
     RegisterConcrete(Kind);
   end;
