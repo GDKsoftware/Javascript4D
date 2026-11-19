@@ -13,6 +13,7 @@ uses
 
 const
   UNICODE_ESCAPE = '\' + 'u';
+  LONG_SUBJECT_LENGTH = 50000;
 
 type
   [TestFixture]
@@ -20,6 +21,9 @@ type
   public
     [Test]
     procedure TryMatch_WithCatastrophicBacktracking_RaisesRangeError;
+
+    [Test]
+    procedure TryMatch_RepeatedGroupOnLongSubject_MatchesTheWholeSubject;
 
     [Test]
     procedure TryMatch_WithPatternRejectedByPcre_RaisesSyntaxError;
@@ -56,6 +60,20 @@ begin
         Matcher.TryMatch(StringOfChar('a', 64) + '!', 0);
       end,
       EJSRangeError);
+  finally
+    Matcher.Free;
+  end;
+end;
+
+procedure TRegExpEngineLimitsTests.TryMatch_RepeatedGroupOnLongSubject_MatchesTheWholeSubject;
+begin
+  const Subject = StringOfChar('a', LONG_SUBJECT_LENGTH);
+  const Matcher = TJSPcreMatcher.Create('^(a|b)*$', False, False, False);
+  try
+    const HasMatched = Matcher.TryMatch(Subject, 0);
+
+    Assert.IsTrue(HasMatched);
+    Assert.AreEqual(LONG_SUBJECT_LENGTH, Matcher.GroupEnd(0));
   finally
     Matcher.Free;
   end;

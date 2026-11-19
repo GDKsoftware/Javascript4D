@@ -96,6 +96,7 @@ uses
   JS4D.Tests.JsWhiteSpace in 'JS4D.Tests.JsWhiteSpace.pas',
   JS4D.Tests.NumberHelpers in 'JS4D.Tests.NumberHelpers.pas',
   JS4D.Tests.RegExpEngineLimits in 'JS4D.Tests.RegExpEngineLimits.pas',
+  JS4D.Tests.LargeStackCall in 'JS4D.Tests.LargeStackCall.pas',
   JS4D.Tests.ErrorNames in 'JS4D.Tests.ErrorNames.pas',
   JS4D.Tests.WithStatement in 'JS4D.Tests.WithStatement.pas',
   JS4D.Tests.LexicalDeclarations in 'JS4D.Tests.LexicalDeclarations.pas',

@@ -92,6 +92,7 @@
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpSyntax.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpTranslator.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.PcreMatcher.pas"/>
+        <DCCReference Include="..\..\Source\Core\JS4D.LargeStackCall.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.Types.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.ArrayObject.pas"/>
         <DCCReference Include="..\..\Source\Core\JS4D.RegExpObject.pas"/>
