@@ -123,7 +123,7 @@ const
     (Code: $FB17; Text: #$0544#$053D)
   );
 
-  SIMPLE_UPPER_RANGES: array[0..193] of TJSCaseRange = (
+  SIMPLE_UPPER_RANGES: array[0..198] of TJSCaseRange = (
   (First: $0061; Last: $007A; Stride: 1; Delta: -32),
   (First: $00B5; Last: $00B5; Stride: 1; Delta: 743),
   (First: $00E0; Last: $00F6; Stride: 1; Delta: -32),
@@ -144,6 +144,7 @@ const
   (First: $0195; Last: $0195; Stride: 1; Delta: 97),
   (First: $0199; Last: $0199; Stride: 1; Delta: -1),
   (First: $019A; Last: $019A; Stride: 1; Delta: 163),
+  (First: $019B; Last: $019B; Stride: 1; Delta: 42561),
   (First: $019E; Last: $019E; Stride: 1; Delta: 130),
   (First: $01A1; Last: $01A5; Stride: 2; Delta: -1),
   (First: $01A8; Last: $01A8; Stride: 1; Delta: -1),
@@ -183,6 +184,7 @@ const
   (First: $0260; Last: $0260; Stride: 1; Delta: -205),
   (First: $0261; Last: $0261; Stride: 1; Delta: 42315),
   (First: $0263; Last: $0263; Stride: 1; Delta: -207),
+  (First: $0264; Last: $0264; Stride: 1; Delta: 42343),
   (First: $0265; Last: $0265; Stride: 1; Delta: 42280),
   (First: $0266; Last: $0266; Stride: 1; Delta: 42308),
   (First: $0268; Last: $0268; Stride: 1; Delta: -209),
@@ -249,6 +251,7 @@ const
   (First: $1C86; Last: $1C86; Stride: 1; Delta: -6236),
   (First: $1C87; Last: $1C87; Stride: 1; Delta: -6181),
   (First: $1C88; Last: $1C88; Stride: 1; Delta: 35266),
+  (First: $1C8A; Last: $1C8A; Stride: 1; Delta: -1),
   (First: $1D79; Last: $1D79; Stride: 1; Delta: 35332),
   (First: $1D7D; Last: $1D7D; Stride: 1; Delta: 3814),
   (First: $1D8E; Last: $1D8E; Stride: 1; Delta: 35384),
@@ -302,8 +305,9 @@ const
   (First: $A797; Last: $A7A9; Stride: 2; Delta: -1),
   (First: $A7B5; Last: $A7C3; Stride: 2; Delta: -1),
   (First: $A7C8; Last: $A7CA; Stride: 2; Delta: -1),
+  (First: $A7CD; Last: $A7CD; Stride: 1; Delta: -1),
   (First: $A7D1; Last: $A7D1; Stride: 1; Delta: -1),
-  (First: $A7D7; Last: $A7D9; Stride: 2; Delta: -1),
+  (First: $A7D7; Last: $A7DB; Stride: 2; Delta: -1),
   (First: $A7F6; Last: $A7F6; Stride: 1; Delta: -1),
   (First: $AB53; Last: $AB53; Stride: 1; Delta: -928),
   (First: $AB70; Last: $ABBF; Stride: 1; Delta: -38864),
@@ -315,12 +319,13 @@ const
   (First: $105B3; Last: $105B9; Stride: 1; Delta: -39),
   (First: $105BB; Last: $105BC; Stride: 1; Delta: -39),
   (First: $10CC0; Last: $10CF2; Stride: 1; Delta: -64),
+  (First: $10D70; Last: $10D85; Stride: 1; Delta: -32),
   (First: $118C0; Last: $118DF; Stride: 1; Delta: -32),
   (First: $16E60; Last: $16E7F; Stride: 1; Delta: -32),
   (First: $1E922; Last: $1E943; Stride: 1; Delta: -34)
 );
 
-  SIMPLE_LOWER_RANGES: array[0..180] of TJSCaseRange = (
+  SIMPLE_LOWER_RANGES: array[0..185] of TJSCaseRange = (
   (First: $0041; Last: $005A; Stride: 1; Delta: 32),
   (First: $00C0; Last: $00D6; Stride: 1; Delta: 32),
   (First: $00D8; Last: $00DE; Stride: 1; Delta: 32),
@@ -412,6 +417,7 @@ const
   (First: $10CD; Last: $10CD; Stride: 1; Delta: 7264),
   (First: $13A0; Last: $13EF; Stride: 1; Delta: 38864),
   (First: $13F0; Last: $13F5; Stride: 1; Delta: 8),
+  (First: $1C89; Last: $1C89; Stride: 1; Delta: 1),
   (First: $1C90; Last: $1CBA; Stride: 1; Delta: -3008),
   (First: $1CBD; Last: $1CBF; Stride: 1; Delta: -3008),
   (First: $1E00; Last: $1E94; Stride: 2; Delta: 1),
@@ -488,8 +494,11 @@ const
   (First: $A7C5; Last: $A7C5; Stride: 1; Delta: -42307),
   (First: $A7C6; Last: $A7C6; Stride: 1; Delta: -35384),
   (First: $A7C7; Last: $A7C9; Stride: 2; Delta: 1),
+  (First: $A7CB; Last: $A7CB; Stride: 1; Delta: -42343),
+  (First: $A7CC; Last: $A7CC; Stride: 1; Delta: 1),
   (First: $A7D0; Last: $A7D0; Stride: 1; Delta: 1),
-  (First: $A7D6; Last: $A7D8; Stride: 2; Delta: 1),
+  (First: $A7D6; Last: $A7DA; Stride: 2; Delta: 1),
+  (First: $A7DC; Last: $A7DC; Stride: 1; Delta: -42561),
   (First: $A7F5; Last: $A7F5; Stride: 1; Delta: 1),
   (First: $FF21; Last: $FF3A; Stride: 1; Delta: 32),
   (First: $10400; Last: $10427; Stride: 1; Delta: 40),
@@ -499,6 +508,7 @@ const
   (First: $1058C; Last: $10592; Stride: 1; Delta: 39),
   (First: $10594; Last: $10595; Stride: 1; Delta: 39),
   (First: $10C80; Last: $10CB2; Stride: 1; Delta: 64),
+  (First: $10D50; Last: $10D65; Stride: 1; Delta: 32),
   (First: $118A0; Last: $118BF; Stride: 1; Delta: 32),
   (First: $16E40; Last: $16E5F; Stride: 1; Delta: 32),
   (First: $1E900; Last: $1E921; Stride: 1; Delta: 34)

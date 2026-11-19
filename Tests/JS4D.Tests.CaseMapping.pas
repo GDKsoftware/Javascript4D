@@ -39,6 +39,20 @@ type
     [TestCase('CyrillicExtendedLower', '"\u0524".toLowerCase() === "\u0525"#true', '#')]
     [TestCase('MicroSignUpper', '"\u00B5".toUpperCase() === "\u039C"#true', '#')]
     [TestCase('UpperKeepsDigitsAndSymbols', '"a1-\u00E9".toUpperCase() === "A1-\u00C9"#true', '#')]
+    [TestCase('LatinRamsHornUpper', '"\u0264".toUpperCase() === "\uA7CB"#true', '#')]
+    [TestCase('LatinRamsHornLower', '"\uA7CB".toLowerCase() === "\u0264"#true', '#')]
+    [TestCase('LatinSWithDiagonalStrokeUpper', '"\uA7CD".toUpperCase() === "\uA7CC"#true', '#')]
+    [TestCase('LatinSWithDiagonalStrokeLower', '"\uA7CC".toLowerCase() === "\uA7CD"#true', '#')]
+    [TestCase('LatinLambdaUpper', '"\uA7DB".toUpperCase() === "\uA7DA"#true', '#')]
+    [TestCase('LatinLambdaLower', '"\uA7DA".toLowerCase() === "\uA7DB"#true', '#')]
+    [TestCase('LatinLambdaWithStrokeUpper', '"\u019B".toUpperCase() === "\uA7DC"#true', '#')]
+    [TestCase('LatinLambdaWithStrokeLower', '"\uA7DC".toLowerCase() === "\u019B"#true', '#')]
+    [TestCase('CyrillicTjeUpper', '"\u1C8A".toUpperCase() === "\u1C89"#true', '#')]
+    [TestCase('CyrillicTjeLower', '"\u1C89".toLowerCase() === "\u1C8A"#true', '#')]
+    [TestCase('GarayFirstUpper', '"\uD803\uDD70".toUpperCase() === "\uD803\uDD50"#true', '#')]
+    [TestCase('GarayFirstLower', '"\uD803\uDD50".toLowerCase() === "\uD803\uDD70"#true', '#')]
+    [TestCase('GarayLastUpper', '"\uD803\uDD85".toUpperCase() === "\uD803\uDD65"#true', '#')]
+    [TestCase('GarayLastLower', '"\uD803\uDD65".toLowerCase() === "\uD803\uDD85"#true', '#')]
     procedure CaseMapping_OnScript_ReturnsExpected(const Expression, Expected: string);
   end;
 
