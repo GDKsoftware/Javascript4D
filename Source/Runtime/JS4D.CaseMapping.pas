@@ -22,13 +22,10 @@ type
       GREEK_CAPITAL_SIGMA = $03A3;
       GREEK_SMALL_SIGMA = $03C3;
       GREEK_SMALL_FINAL_SIGMA = $03C2;
-      CASE_IGNORABLE_PUNCTUATION: array[0..16] of Integer =
-        ($0027, $002E, $003A, $00B7, $0387, $055F, $05F4, $2018, $2019,
-         $2024, $2027, $FE13, $FE52, $FE55, $FF07, $FF0E, $FF1A);
 
     class function IsAscii(const Text: string): Boolean; static;
-    class function IsCased(const Code: Integer): Boolean; static;
-    class function IsCaseIgnorable(const Code: Integer): Boolean; static;
+    class function TryGetCased(const Code: Integer; out IsCased: Boolean): Boolean; static;
+    class function CaseContextOf(const Code: Integer): TJSCaseContext; static;
     class function SimpleMapping(const Ranges: array of TJSCaseRange; const Code: Integer): Integer; static;
     class function FindSpecialUpper(const Code: Integer; out Text: string): Boolean; static;
     class function IsFinalSigma(const Text: string; const SigmaIndex: Integer): Boolean; static;
@@ -76,29 +73,33 @@ begin
   Result := Char.ConvertFromUtf32(Code);
 end;
 
-class function TJSCaseMapping.IsCased(const Code: Integer): Boolean;
+class function TJSCaseMapping.TryGetCased(const Code: Integer; out IsCased: Boolean): Boolean;
 begin
-  const Category = Char.GetUnicodeCategory(UCS4Char(Code));
-  Result := (Category in [TUnicodeCategory.ucUppercaseLetter,
-                          TUnicodeCategory.ucLowercaseLetter,
-                          TUnicodeCategory.ucTitlecaseLetter]);
+  const Context = CaseContextOf(Code);
+  IsCased := (Context = TJSCaseContext.Cased);
+
+  Result := (Context <> TJSCaseContext.CaseIgnorable);
 end;
 
-class function TJSCaseMapping.IsCaseIgnorable(const Code: Integer): Boolean;
+class function TJSCaseMapping.CaseContextOf(const Code: Integer): TJSCaseContext;
 begin
-  for var Punctuation in CASE_IGNORABLE_PUNCTUATION do
+  var LowIndex := 0;
+  var HighIndex := High(CASE_CONTEXT_RANGES);
+  while LowIndex <= HighIndex do
   begin
-    const IsPunctuation = (Code = Punctuation);
-    if IsPunctuation then
-      Exit(True);
+    const Middle = (LowIndex + HighIndex) div 2;
+    const IsBelow = (Code < CASE_CONTEXT_RANGES[Middle].First);
+    const IsAbove = (Code > CASE_CONTEXT_RANGES[Middle].Last);
+
+    if IsBelow then
+      HighIndex := Middle - 1
+    else if IsAbove then
+      LowIndex := Middle + 1
+    else
+      Exit(CASE_CONTEXT_RANGES[Middle].Context);
   end;
 
-  const Category = Char.GetUnicodeCategory(UCS4Char(Code));
-  Result := (Category in [TUnicodeCategory.ucNonSpacingMark,
-                          TUnicodeCategory.ucEnclosingMark,
-                          TUnicodeCategory.ucFormat,
-                          TUnicodeCategory.ucModifierLetter,
-                          TUnicodeCategory.ucModifierSymbol]);
+  Result := TJSCaseContext.Other;
 end;
 
 class function TJSCaseMapping.BinarySearch<T>(const Items: array of T; const Compare: TItemComparer<T>): Integer;
@@ -171,11 +172,8 @@ begin
   begin
     var Width: Integer;
     const Code = TJSUtf16.CodePointBefore(Text, Index, Width);
-    if not IsCaseIgnorable(Code) then
-    begin
-      Result := IsCased(Code);
+    if TryGetCased(Code, Result) then
       Exit;
-    end;
 
     Dec(Index, Width);
   end;
@@ -189,11 +187,8 @@ begin
   begin
     var Width: Integer;
     const Code = TJSUtf16.CodePointAt(Text, Index, Width);
-    if not IsCaseIgnorable(Code) then
-    begin
-      Result := IsCased(Code);
+    if TryGetCased(Code, Result) then
       Exit;
-    end;
 
     Inc(Index, Width);
   end;
