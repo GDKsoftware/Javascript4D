@@ -45,6 +45,8 @@ type
     procedure ResetOffsets;
     function TryExecute(const Subject: string; const Start: Integer; const ExecOptions: Integer): Boolean;
     function ExecuteMatch(const Subject: string; const Start: Integer; const ExecOptions: Integer): Integer;
+    function ExecuteOnLargeStack(const Subject: string; const Start: Integer; const ExecOptions: Integer): Integer;
+    function ExecuteWithinLimits(const Subject: string; const Start: Integer; const ExecOptions: Integer): Integer;
     function IsMatchResult(const Executed: Integer): Boolean;
 
     class function ClampQuantifierBounds(const Pattern: string): string; static;
@@ -76,6 +78,7 @@ uses
   System.SysUtils,
   JS4D.AsciiDigits,
   JS4D.Errors,
+  JS4D.LargeStackCall,
   JS4D.RegExpCharacters,
   JS4D.StackGuard;
 
@@ -267,6 +270,26 @@ end;
 
 function TJSPcreMatcher.ExecuteMatch(const Subject: string; const Start: Integer;
                                      const ExecOptions: Integer): Integer;
+begin
+  Result := ExecuteWithinLimits(Subject, Start, ExecOptions);
+
+  const NeedsLargerStack = (Result = PCRE_ERROR_RECURSIONLIMIT);
+  if NeedsLargerStack then
+    Result := ExecuteOnLargeStack(Subject, Start, ExecOptions);
+end;
+
+function TJSPcreMatcher.ExecuteOnLargeStack(const Subject: string; const Start: Integer;
+                                            const ExecOptions: Integer): Integer;
+begin
+  Result := TJSLargeStackCall.Run(
+    function: Integer
+    begin
+      Result := ExecuteWithinLimits(Subject, Start, ExecOptions);
+    end);
+end;
+
+function TJSPcreMatcher.ExecuteWithinLimits(const Subject: string; const Start: Integer;
+                                            const ExecOptions: Integer): Integer;
 begin
   var MatchLimits := Default(TPCREExtra);
   MatchLimits.flags := PCRE_EXTRA_MATCH_LIMIT or PCRE_EXTRA_MATCH_LIMIT_RECURSION;

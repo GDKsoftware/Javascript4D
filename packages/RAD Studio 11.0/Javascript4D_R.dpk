@@ -39,6 +39,7 @@ contains
   JS4D.RegExpSyntax in '..\..\Source\Core\JS4D.RegExpSyntax.pas',
   JS4D.RegExpTranslator in '..\..\Source\Core\JS4D.RegExpTranslator.pas',
   JS4D.PcreMatcher in '..\..\Source\Core\JS4D.PcreMatcher.pas',
+  JS4D.LargeStackCall in '..\..\Source\Core\JS4D.LargeStackCall.pas',
   JS4D.Types in '..\..\Source\Core\JS4D.Types.pas',
   JS4D.ArrayObject in '..\..\Source\Core\JS4D.ArrayObject.pas',
   JS4D.RegExpObject in '..\..\Source\Core\JS4D.RegExpObject.pas',

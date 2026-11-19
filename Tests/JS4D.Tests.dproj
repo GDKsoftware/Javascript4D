@@ -177,6 +177,7 @@
         <DCCReference Include="JS4D.Tests.JsWhiteSpace.pas"/>
         <DCCReference Include="JS4D.Tests.NumberHelpers.pas"/>
         <DCCReference Include="JS4D.Tests.RegExpEngineLimits.pas"/>
+        <DCCReference Include="JS4D.Tests.LargeStackCall.pas"/>
         <DCCReference Include="JS4D.Tests.ErrorNames.pas"/>
         <DCCReference Include="JS4D.Tests.WithStatement.pas"/>
         <DCCReference Include="JS4D.Tests.LexicalDeclarations.pas"/>

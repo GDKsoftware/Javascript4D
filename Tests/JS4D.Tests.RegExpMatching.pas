@@ -122,6 +122,22 @@ type
 
     [Test]
     procedure Split_EmptyStringWithNonMatchingRegExp_ReturnsTheString;
+
+    [Test]
+    [TestCase('Alternation in a group', '(function () { var m = /(a|b)*c/.exec("ab".repeat(2000) + "c"); return m[0].length + "," + m[1]; })()#4001,b', '#')]
+    [TestCase('Lazy group', '/^(a|b)*?c/.exec("ab".repeat(5000) + "c")[0].length#10001', '#')]
+    [TestCase('Words at the end of a line', '/(?:\s*\w+)*$/.exec("word ".repeat(2000).trim()).index#0', '#')]
+    [TestCase('Global replace', '("x".repeat(5000) + "y").replace(/(x)+/g, function (all, last) { return all.length + last; })#5000xy', '#')]
+    [TestCase('Back reference', '/^(?:(a)\1)*$/.test("aa".repeat(5000))#true', '#')]
+    [TestCase('Lookahead', '/^(?:(?=a)a)*$/.test("a".repeat(10000))#true', '#')]
+    [TestCase('Capturing group', '/^(ab)*$/.exec("ab".repeat(50000))[1]#ab', '#')]
+    procedure Exec_RepeatedGroupOnLongInput_MatchesTheWholeInput(const Script: string; const Expected: string);
+
+    [Test]
+    procedure Exec_RepeatedGroupInsideDeepRecursion_MatchesTheWholeInput;
+
+    [Test]
+    procedure Exec_RepeatedGroupBeyondTheMatchStack_ThrowsCatchableRangeError;
   end;
 
 implementation
@@ -413,6 +429,27 @@ begin
   AssertChecksHold('var parts = "".split(/a/);',
     ['parts.length === 1',
      'parts[0] === ""']);
+end;
+
+procedure TRegExpMatchingTests.Exec_RepeatedGroupOnLongInput_MatchesTheWholeInput(const Script: string;
+                                                                                   const Expected: string);
+begin
+  AssertEvaluatesTo(Expected, Script);
+end;
+
+procedure TRegExpMatchingTests.Exec_RepeatedGroupInsideDeepRecursion_MatchesTheWholeInput;
+begin
+  const Script = 'function nest(depth) { return depth > 0 ? nest(depth - 1) : /^(ab)*$/.test("ab".repeat(20000)); } nest(90)';
+
+  AssertEvaluatesTo('true', Script);
+end;
+
+procedure TRegExpMatchingTests.Exec_RepeatedGroupBeyondTheMatchStack_ThrowsCatchableRangeError;
+begin
+  const ErrorName = ThrownErrorNameOf('/^(ab)*$/.test("ab".repeat(1000000));');
+
+  Assert.AreEqual('RangeError', ErrorName);
+  AssertEvaluatesTo('ab', '/^(ab)*$/.exec("abab")[1]');
 end;
 
 end.
